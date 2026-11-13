@@ -13,6 +13,9 @@
 using namespace guest::cof::client;
 static_assert(offsetof(cl_entity_t,origin)==0xb48&&offsetof(cl_entity_t,attachment)==0xb60);
 static_assert(offsetof(event_args_t,entindex)==4);
+#if defined(COF_REVOLVER_EVENT_BRIDGE)
+unsigned RevolverBridgeCases();
+#endif
 namespace {
 using Row=std::array<std::uint32_t,12>;
 Row input,output;
@@ -64,5 +67,8 @@ int main(int argc,char** argv)
  Reset(row);engine.pEventAPI=nullptr;Check(RevolverShellEvent(host,args)==RevolverEventResult::MissingBackend&&output[0]==1&&output[1]==0);
  Reset(row);api.EV_PlaySound=nullptr;Check(RevolverShellEvent(host,args)==RevolverEventResult::MissingBackend&&output[1]==0);
  Reset(row);engine.pfnRandomLong=nullptr;Check(RevolverShellEvent(host,args)==RevolverEventResult::MissingBackend&&output[1]==0);
+#if defined(COF_REVOLVER_EVENT_BRIDGE)
+ checks+=RevolverBridgeCases();
+#endif
  std::cout<<rows<<" original Revolver shell-sound events; "<<checks<<" SDK checks; zero failures\n";
 }

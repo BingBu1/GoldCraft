@@ -80,6 +80,31 @@ WeaponEffectStatus CooperativeViewRecoil(CBasePlayer& player, const Vector& impu
     return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
 }
 
+WeaponEffectStatus PlayRevolverShellEvent(CBasePlayer& player, const RevolverShellEvent& request,
+    unsigned short preparedEvent, const PlaySfxCall& authority) noexcept
+{
+    if (detail::messageOpen) return WeaponEffectStatus::Busy;
+    const auto call = authority;
+    if (!call.current || !player.pev) return WeaponEffectStatus::InvalidInput;
+    if (!call.current(call.context)) return WeaponEffectStatus::Cancelled;
+    if (!preparedEvent) return WeaponEffectStatus::MissingMessage;
+    if (!g_engfuncs.pfnPlaybackEvent) return WeaponEffectStatus::MissingEngine;
+    const auto value = request;
+    if (!Finite(value.origin) || !std::isfinite(value.delay) || value.delay < 0 || value.oldClip < 0)
+        return WeaponEffectStatus::InvalidInput;
+    const EntityHandle<CBasePlayer> lease(&player);
+    if (!Current(call, lease, &player)) return WeaponEffectStatus::Cancelled;
+    {
+        detail::MessagePacket packet;
+        Vector origin = value.origin, angles{};
+        // Original100653A2: flags0, supplied event delay, old clip in
+        // iparam1; no shell model or attachment is created by this event.
+        PLAYBACK_EVENT_FULL(0, player.edict(), preparedEvent, value.delay,
+            origin, angles, 0, 0, value.oldClip, 0, 0, 0);
+    }
+    return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
+}
+
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalWeapon,
     std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall& authority) noexcept
 {

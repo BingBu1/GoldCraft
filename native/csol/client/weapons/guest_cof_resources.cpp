@@ -54,6 +54,8 @@ void Invalidate(std::uint64_t expected) noexcept
 {
     InvalidateGuestCofEffects();
     if (serial != expected) return;
+    InvalidateGuestCofRevolverEvents();
+    if (serial != expected) return;
     InvalidateGuestCofAudioResources();
     if (serial == expected) InvalidateGuestCofParticleResources();
     if (serial == expected) InvalidateGuestCofDecalResources();
@@ -95,6 +97,10 @@ void Ready(void*, std::uint64_t generation) noexcept
     state = candidate;
     particleScript.clear();
     Invalidate(lease.serial);
+    if (!lease.Current()) return;
+    // The original remote shell event uses native EV_PlaySound independently
+    // from local PCM. Its own signon gate does not admit a whole weapon.
+    PrepareGuestCofRevolverEvents(sounds);
     if (!lease.Current()) return;
 
     // Registration discovery is a no-I/O query. Ordinary servers must never

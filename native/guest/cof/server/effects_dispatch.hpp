@@ -27,6 +27,16 @@ WeaponEffectStatus EjectWeaponShell(const ShellRequest&, const PlaySfxCall&) noe
 // substitute is deliberately not supplied by this multiplayer integration.
 WeaponEffectStatus CooperativeViewRecoil(CBasePlayer&, const Vector& impulse,
     unsigned short preparedEvent, const PlaySfxCall&) noexcept;
+struct RevolverShellEvent
+{
+    Vector origin{};
+    float delay{};
+    int oldClip{};
+};
+// Original delayed revolvershells event; its client consumer plays sound only.
+// The original reload loop supplies each delay, never a second host timer.
+WeaponEffectStatus PlayRevolverShellEvent(CBasePlayer&, const RevolverShellEvent&,
+    unsigned short preparedEvent, const PlaySfxCall&) noexcept;
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer&, std::uint8_t originalWeapon,
     std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall&) noexcept;
 // Cold registration and actual owning-player transport for the authenticated

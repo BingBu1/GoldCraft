@@ -12,6 +12,7 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <source_location>
 #include <string>
 #include <vector>
 
@@ -41,10 +42,15 @@ std::array<char, 180>* mutateText{};
 void (*duringPacket)(){};
 std::uint32_t Bits(float value) { return std::bit_cast<std::uint32_t>(value); }
 float Float(std::uint32_t value) { return std::bit_cast<float>(value); }
-void Check(bool value)
+void Check(bool value,const std::source_location at=std::source_location::current())
 {
     ++checks;
-    if (!value) { std::cerr << "SDK check " << checks << " failed edge " << edge << '\n'; std::exit(2); }
+    if (!value)
+    {
+        std::cerr << "SDK check " << checks << " failed line " << at.line() << " edge " << edge << '\n';
+        for(auto word:events)std::cerr<<word<<' ';
+        std::cerr<<'\n';std::exit(2);
+    }
 }
 int Index(const edict_t* value) { return static_cast<int>(value - edicts.data()); }
 bool Current(void*) noexcept { return valid; }
@@ -202,6 +208,8 @@ void Guards()
 }
 
 ShellRequest* mutateShell{};
+RevolverShellEvent* mutateRevolverEvent{};
+bool mutatePlaybackArguments{};
 void FxByte(int value) { Event(32, value & 255); packet.push_back(std::byte(value & 255)); Edge(); }
 void FxCoord(float value) { Event(33, Bits(value)); Edge(); }
 void FxAngle(float value) { Event(34, Bits(value)); Edge(); }
@@ -233,12 +241,14 @@ void FxPlayback(int flags, const edict_t* source, unsigned short index, float de
     Event(37, flags, Index(source), index, Bits(delay),
           Bits(origin[0]), Bits(origin[1]), Bits(origin[2]), Bits(angles[0]), Bits(angles[1]), Bits(angles[2]),
           Bits(a), Bits(b), c, d, e, f);
+    if (mutateRevolverEvent) *mutateRevolverEvent = {};
+    if (mutatePlaybackArguments) { origin[0] = 777; angles[0] = 888; }
     Edge();
     if (duringPacket) duringPacket();
 }
 void FxReset()
 {
-    Reset(); mutateShell = nullptr;
+    Reset(); mutateShell = nullptr; mutateRevolverEvent = nullptr; mutatePlaybackArguments = false;
     g_engfuncs.pfnMessageBegin = FxBegin; g_engfuncs.pfnMessageEnd = FxEnd;
     g_engfuncs.pfnWriteByte = FxByte; g_engfuncs.pfnWriteCoord = FxCoord;
     g_engfuncs.pfnWriteShort = FxShort; g_engfuncs.pfnWriteAngle = FxAngle;
@@ -249,6 +259,7 @@ void FxBusy()
 {
     Check(EjectWeaponShell(Shell(), {nullptr, Current}) == WeaponEffectStatus::Busy);
     Check(CooperativeViewRecoil(players[1], {}, 1, {nullptr, Current}) == WeaponEffectStatus::Busy);
+    Check(PlayRevolverShellEvent(players[1], {}, 1, {nullptr, Current}) == WeaponEffectStatus::Busy);
     Check(SendLocalGunsmoke(players[1], 7, 200, 78, {nullptr, Current}) == WeaponEffectStatus::Busy);
     Check(Send(Request()).status == PlaySfxStatus::Busy);
     Check(RegisterPlaySfxMessage({nullptr, Current}) == 0);
@@ -308,6 +319,53 @@ void EffectGuards()
     Check(CooperativeViewRecoil(players[1], {}, 1, call) == WeaponEffectStatus::Cancelled);
     FxReset(); recycleEdge = 1; recycleTarget = 1;
     Check(SendLocalGunsmoke(players[1], 7, 200, 78, call) == WeaponEffectStatus::Cancelled && !began);
+}
+
+void RevolverEventGuards()
+{
+    const PlaySfxCall call{nullptr,Current};
+    const RevolverShellEvent request{{11,12,13},1.25F,5};
+    const std::vector<std::uint32_t> expected{37,16,0,1,81,Bits(1.25F),
+        Bits(11),Bits(12),Bits(13),0,0,0,0,0,5,0,0,0};
+    FxReset();
+    Check(PlayRevolverShellEvent(players[1],request,81,call)==WeaponEffectStatus::Issued&&events==expected);
+    const auto callEdges=edge;
+    for(int cut=1;cut<=callEdges;++cut)
+    {
+        FxReset();cancelEdge=cut;
+        Check(PlayRevolverShellEvent(players[1],request,81,call)==WeaponEffectStatus::Cancelled);
+        Check(events.empty()||events==expected);
+    }
+    FxReset();duringPacket=FxBusy;
+    Check(PlayRevolverShellEvent(players[1],request,81,call)==WeaponEffectStatus::Issued&&events==expected);
+    FxReset();auto changed=request;mutateRevolverEvent=&changed;
+    Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::Issued&&events==expected&&changed.oldClip==0);
+    FxReset();changed=request;mutatePlaybackArguments=true;
+    Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::Issued&&
+        events==expected&&changed.origin.x==11&&changed.delay==1.25F&&changed.oldClip==5);
+    FxReset();recycleEdge=1;recycleTarget=1;
+    Check(PlayRevolverShellEvent(players[1],request,81,call)==WeaponEffectStatus::Cancelled&&events==expected);
+    FxReset();g_engfuncs.pfnPlaybackEvent=nullptr;
+    Check(PlayRevolverShellEvent(players[1],request,81,call)==WeaponEffectStatus::MissingEngine&&events.empty());
+    FxReset();Check(PlayRevolverShellEvent(players[1],request,0,call)==WeaponEffectStatus::MissingMessage&&events.empty());
+    FxReset();Check(PlayRevolverShellEvent(players[1],request,81,{})==WeaponEffectStatus::InvalidInput&&events.empty());
+    for(float bad:{-1.0F,std::numeric_limits<float>::quiet_NaN(),std::numeric_limits<float>::infinity()})
+    {
+        FxReset();changed=request;changed.delay=bad;
+        Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::InvalidInput&&events.empty());
+        if(bad<0)continue;
+        changed=request;changed.origin.z=bad;
+        Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::InvalidInput&&events.empty());
+    }
+    FxReset();changed=request;changed.oldClip=-1;
+    Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::InvalidInput&&events.empty());
+    for(int count:{0,75,std::numeric_limits<int>::max()})
+    {
+        FxReset();changed=request;changed.oldClip=count;
+        Check(PlayRevolverShellEvent(players[1],changed,81,call)==WeaponEffectStatus::Issued);
+        auto wide=expected;wide[14]=static_cast<std::uint32_t>(count);
+        Check(events==wide);
+    }
 }
 
 PresentationState expectedState, *mutateState{};
@@ -472,6 +530,7 @@ int main(int argc, char** argv)
     const int effects = EffectReplay(argv[3], argv[4]);
     if (effects) return effects;
     PresentationGuards();
+    RevolverEventGuards();
     std::cout << count << " original sound sender cases; 128 original shell/recoil cases; "
               << checks << " SDK checks; 0 failures\n";
 }

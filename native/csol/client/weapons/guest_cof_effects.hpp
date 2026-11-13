@@ -2,12 +2,21 @@
 #pragma once
 #include "../../../guest/cof/client/weapon_effects.hpp"
 #include "../../../guest/cof/client/view_punch.hpp"
+#include "../../../guest/cof/client/revolver_events.hpp"
 struct GoldCraftConnectionAPI;
+struct GoldCraftSoundPrecacheAPI;
 struct cl_enginefuncs_s;
 namespace csol::client
 {
 bool InitializeGuestCofEffects();
 bool InitializeGuestCofEffects(const GoldCraftConnectionAPI*);
+bool InitializeGuestCofRevolverEvents() noexcept;
+bool InitializeGuestCofRevolverEvents(const GoldCraftConnectionAPI*) noexcept;
+bool PrepareGuestCofRevolverEvents(const GoldCraftSoundPrecacheAPI*) noexcept;
+bool GuestCofRevolverEventsReady() noexcept;
+void InvalidateGuestCofRevolverEvents() noexcept;
+void ShutdownGuestCofRevolverEvents() noexcept;
+guest::cof::client::RevolverEventResult GuestCofLastRevolverEvent() noexcept;
 void ShutdownGuestCofEffects() noexcept;
 // Cold, after native signon and the real CoF audio preparation; no hot lookup.
 bool PrepareGuestCofEffects() noexcept;

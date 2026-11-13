@@ -8,6 +8,7 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  for name in ('sample','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+ p.add_argument('--commands',type=Path,help='Actual client compilation database; also run the production event hook/lifecycle bridge')
  a=p.parse_args();out=a.output.absolute()
  if out.exists() or not out.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use fresh workspace build output')
  if any(x.is_symlink() or os.path.isjunction(x) for x in (out,*out.parents)):raise ValueError('Linked output')
@@ -18,7 +19,11 @@ def main():
  config=ROOT/'.tools/clang-toolchain.json';compiler=Path(json.loads(config.read_text('utf-8-sig'))['root'])/'bin/clang-cl.exe'
  sources=[Path(__file__).with_name('main.cpp'),ROOT/'native/guest/cof/client/revolver_events.cpp']
  inputs={*sources,Path(__file__).resolve(),Path(__file__).with_name('oracle.py'),ROOT/'tests/cryoffear-aim/oracle.py',a.sample.resolve(),a.environment.resolve(),config,compiler,compiler.with_name('lld-link.exe')}
- flags=['/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3','/clang:-flto=thin','/clang:-fuse-ld=lld','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','/DNOMINMAX','/DNO_MALLOC_OVERRIDE','/D_CRT_SECURE_NO_WARNINGS',*('/I'+str(s) for s in includes)]
+ flags=['/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3','/clang:-flto=thin','/clang:-fuse-ld=lld','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','-Wno-overriding-option','/DNOMINMAX','/DNO_MALLOC_OVERRIDE','/D_CRT_SECURE_NO_WARNINGS',*('/I'+str(s) for s in includes)]
+ if a.commands:
+  data=json.loads(a.commands.read_text('utf8'));command=next(row['command']for row in data if row['file'].replace(chr(92),'/').endswith('/native/csol/client/plugin.cpp'));tokens=re.findall(r'"[^"\r\n]*"|[^\s]+',command)
+  flags+=['/DCOF_REVOLVER_EVENT_BRIDGE=1',*[s for s in tokens if s.startswith('-D')],*['/imsvc'+s[2:]for s in tokens if s.startswith('-I')]]
+  sources+=[ROOT/'native/csol/client/weapons/guest_cof_revolver_events.cpp',Path(__file__).with_name('bridge.cpp')];inputs.update(sources);inputs.add(a.commands.resolve())
  env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));temp=out/'temp';temp.mkdir();env.update(TEMP=str(temp),TMP=str(temp))
  commands=[]
  for i,source in enumerate(sources):
@@ -36,6 +41,6 @@ def main():
     c=out/(name+'-cases.txt');e=out/(name+'-expected.txt');c.write_text(cases);e.write_text(results)
     result=subprocess.run([str(exe),str(c),str(e)],cwd=out,capture_output=True,text=True,timeout=30);negative.append({'name':name,'passed':result.returncode!=0,'code':result.returncode})
  after={str(v):sha(v) for v in sorted(inputs)};success=built.returncode==0 and tested is not None and tested.returncode==0 and before==after and all(x['passed'] for x in negative)
- receipt={'success':success,'original':original,'command':cmd,'dependencyCommands':commands,'before':before,'after':after,'unchanged':before==after,'compiled':built.returncode,'tested':tested.returncode if tested else None,'negative':negative,'sourceCopies':0,'boundary':'Actual SDK event consumer with original complete x86 handler; engine lookup/RNG/mixer and resource readiness controlled; no hook/network/render/gameplay/performance acceptance'}
+ receipt={'success':success,'original':original,'command':cmd,'dependencyCommands':commands,'before':before,'after':after,'unchanged':before==after,'compiled':built.returncode,'tested':tested.returncode if tested else None,'negative':negative,'sourceCopies':0,'nativeBridge':bool(a.commands),'boundary':'Actual SDK original event consumer; optional production event registration/native-signon/lifecycle bridge. Controlled engine lookup/RNG/mixer; no real event network/gameplay/performance acceptance'}
  (out/'receipt.json').write_text(json.dumps(receipt,indent=2)+'\n','utf8');print(tested.stdout+tested.stderr if tested else built.stdout+built.stderr);raise SystemExit(0 if success else 1)
 if __name__=='__main__':main()

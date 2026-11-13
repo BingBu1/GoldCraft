@@ -39,6 +39,8 @@ guest::cof::client::AuroraResult PrepareGuestCofParticles(const GuestCofParticle
 void InvalidateGuestCofParticleResources() noexcept {}
 bool PrepareGuestCofEffects() noexcept {return false;}
 void InvalidateGuestCofEffects() noexcept {}
+bool PrepareGuestCofRevolverEvents(const GoldCraftSoundPrecacheAPI*) noexcept {return false;}
+void InvalidateGuestCofRevolverEvents() noexcept {}
 }
 void RunDecalResourceOwnerTests()
 {

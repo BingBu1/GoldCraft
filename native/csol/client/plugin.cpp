@@ -351,6 +351,7 @@ static void Init()
     InitializeGuestCofControl();
     InitializeGuestCofDecals();
     InitializeGuestCofEffects();
+    InitializeGuestCofRevolverEvents();
     InitializeGuestCofMuzzle();
     // Host budget; original audio and particle timing remains in the consumers.
     InitializeGuestCofResources({32, 16u * 1024u * 1024u});
@@ -426,6 +427,7 @@ static void HudShutdown()
     ShutdownGuestCofMuzzle();
     ShutdownGuestCofDecals();ShutdownGuestCofResources();
     ShutdownGuestCofEffects();
+    ShutdownGuestCofRevolverEvents();
     ShutdownGuestCofControl();
     ShutdownGuestCof();
     ShutdownGuestCofAudio();

@@ -23,6 +23,8 @@
 
 最终 `build/cof-revolver-map-runtime-20261113-03/receipt.json`：**274 实际 SDK 检查零失败，737 个输入前后稳定**，包含完整上述组合及地图退出/缺资源分支。冷资源/实际工厂/原类已链接执行；外部视觉消息和伤害仍是明确控制边界，不代替实际 Host 回调。`build/cof-revolver-runtime-server-20261113-01` 正在完整当前源码 MP 构建；没有部署该候选，也不把进行中的构建记成功。下轮先读取同一任务终态，不重复启动。
 
+后续终态：同一完整 MP 构建成功，1029.34 秒，广域输入前后稳定；已独立封存 `mp.dll` SHA-256 `efeacda653b6bda33e91cb8808e4755b744d7d631b94b42a53340a392ad31761` 与匹配 PDB（GUID `{3B5E5B53-8076-53EE-4C4C-44205044422E}`、age1）。`symbol-verification.json` 保存完整身份。未部署、未宣称左轮整枪完成；随后新增的原退壳派发和客户端事件桥不属于这份旧冻结完整构建，须在后续配套批次再验证。
+
 客户端 Studio 普通武器入口改为先检查 ID，再查询连接代次，避免每个普通模型绘制触发权限 API。`build/cof-revolver-transport-client-20261113-04/receipt.json`：165 实际 SDK 检查零失败，新增非左轮不查询连接的断言；当前较新 session 的 ResetChallengePhase 在夹具补齐外部边界，03 链接失败保留。未部署该左轮候选。
 
 ## 生命周期补查及下一步
