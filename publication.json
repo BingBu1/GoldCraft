@@ -2284,7 +2284,10 @@
     "docs/2026-11-12_实现-F键范围踢击-report.md",
     "docs/2026-11-13_接线-M玩家首页与管理员持久设置-report.md",
     "docs/2026-11-13_验证-持久设置实际AMXX模块权限-report.md",
-    "docs/2026-11-13_验证-持久设置服务器适配器与实际文件联动-report.md"
+    "docs/2026-11-13_验证-持久设置服务器适配器与实际文件联动-report.md",
+    "tools/Inspect-CryOfFearHandJoints.py",
+    "tests/cryoffear-hand-joints/run.py",
+    "tests/cryoffear-hand-joints/README.md"
   ],
   "trees": {
     "native": [
