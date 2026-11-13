@@ -2312,7 +2312,9 @@
     "docs/2026-11-13_修复-持久设置菜单截断-report.md",
     "tests/cryoffear-glock-pickup/README.md",
     "docs/2026-11-13_验证-CoF合作基准与武器箱回收-report.md",
-    "docs/2026-11-13_实现-CoF手模显式蒙皮绑定-report.md"
+    "docs/2026-11-13_实现-CoF手模显式蒙皮绑定-report.md",
+    "tests/cryoffear-p345-factory/README.md",
+    "docs/2026-11-13_接入-P345原生实体与购买状态-report.md"
   ],
   "trees": {
     "native": [

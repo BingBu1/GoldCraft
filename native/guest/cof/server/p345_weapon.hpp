@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "native/include/goldcraft/scenario_guest_weapon.hpp"
+#include "native/include/goldcraft/inventory_restore.hpp"
 
 #include "weapons.h"
 #include "../magazine_actions.hpp"
@@ -96,9 +98,14 @@ struct P345Backends
 
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
 // outside this translation unit. Original IDs never index CS's weapon tables.
-class P345Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle
+class P345Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
+    public goldcraft::scenario::GuestWeapon, public goldcraft::inventory::RestorableWeapon
 {
 public:
+    goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept override;
+    bool SaveInventorySnapshot(goldcraft::inventory::Snapshot&) const noexcept override;
+    bool RestoreInventoryBinding(CBasePlayer&) noexcept override;
+    bool RestoreInventorySnapshot(const goldcraft::inventory::Snapshot&) noexcept override;
     void ConfigureColdHost(P345ColdHost host) noexcept;
     P345Status Prepare(const P345Prepared&) noexcept;
     bool ResourcesReady() const noexcept;
@@ -149,6 +156,8 @@ public:
     const SpreadState& Spread() const noexcept { return spread_; }
 
 private:
+    struct InventoryState;
+    bool PublishOwnerAim() noexcept;
     struct Lease
     {
         edict_t* owner{};

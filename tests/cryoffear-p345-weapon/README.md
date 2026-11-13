@@ -41,6 +41,12 @@ delivery, or animation generation checks. Wear state is private and is verified
 by original instruction order and source placement, not an SDK memory-offset
 assumption. Unsupported special lifecycles remain rejected by the adapter.
 
+Host purchase rollback also preserves the actual P345 action/spread state,
+absolute deadlines, loaded rounds, reload commit and delayed melee callback.
+Rebinding validates map/owner/life/model/weapon identity. Restoring aim republishes
+its existing state without replaying the transition animation or restarting its
+lock. The foreign-weapon profile deliberately has no CSO item identity.
+
 Run from Git Bash in the workspace, using a fresh build output directory.
 Set `COF_COMPILER` to the local x86 Arkari Clang executable first:
 

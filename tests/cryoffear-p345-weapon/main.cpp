@@ -208,6 +208,59 @@ bool CSOL_ExtendedWeapon(int id){Check(id==897);return true;}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* p){Check(p==&player);return extendedAllowed;}
 unsigned CSOL_LegacyWeaponMask(int id){Check(id==897);return 0;}
 
+void InventoryRestoreCases()
+{
+    const auto prepareOwned=[] {
+        Initialize();weapon.m_pEntity=&itemWrapper;itemWrapper.m_pContainingEntity=&weapon;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});weapon.Precache();
+        Check(weapon.Bind(player,prepared,backends)==P345Status::Ready);
+        weapon.AttachToPlayer(&player);Check(weapon.pev->owner==player.edict());
+        Check(weapon.Deploy());globals.time=5;
+    };
+    prepareOwned();
+    const auto profile=weapon.ScenarioGuestProfile();
+    Check(goldcraft::scenario::ValidGuestProfile(profile,897));
+    Check(!goldcraft::scenario::ValidGuestProfile(profile,896)&&!goldcraft::scenario::ValidGuestProfile(profile,7));
+    frame.pressed=1;weapon.PrimaryAttack();Check(weapon.m_iClip==7);
+    const auto deadline=weapon.m_flNextPrimaryAttack;
+    goldcraft::inventory::Snapshot snapshot;
+    Check(weapon.SaveInventorySnapshot(snapshot));weapon.BeforeWeaponDrop();
+    Check(weapon.Status()==P345Status::Cancelled&&weapon.RestoreInventoryBinding(player));
+    Check(weapon.RestoreInventorySnapshot(snapshot)&&weapon.m_iClip==7&&weapon.m_flNextPrimaryAttack==deadline);
+    globals.time=5.001F;events.clear();weapon.PrimaryAttack();Check(events.empty()&&weapon.m_iClip==7);
+    globals.time=deadline+.001F;weapon.PrimaryAttack();Check(weapon.m_iClip==6);
+    auto invalid=snapshot;invalid.kind=0;Check(!weapon.RestoreInventorySnapshot(invalid));
+    invalid=snapshot;--invalid.bytes;Check(!weapon.RestoreInventorySnapshot(invalid));
+    ++player.m_iNumSpawns;Check(!weapon.RestoreInventorySnapshot(snapshot));--player.m_iNumSpawns;
+    ++ownerEdict.serialnumber;Check(!weapon.RestoreInventorySnapshot(snapshot));--ownerEdict.serialnumber;
+    ++weaponEdict.serialnumber;Check(!weapon.RestoreInventorySnapshot(snapshot));--weaponEdict.serialnumber;
+    ++player.pev->modelindex;Check(!weapon.RestoreInventorySnapshot(snapshot));--player.pev->modelindex;
+
+    prepareOwned();weapon.SecondaryAttack();const auto pending=weapon.pev->nextthink;
+    Check(pending>globals.time&&weapon.SaveInventorySnapshot(snapshot));weapon.BeforeWeaponDrop();
+    Check(weapon.pev->nextthink==0&&weapon.RestoreInventoryBinding(player)&&weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.pev->nextthink==pending&&weapon.m_pfnThink!=nullptr);
+    const auto before=meleeCalls;globals.time=pending+.001F;weapon.Think();
+    Check(meleeCalls==before+1&&weapon.m_pfnThink==nullptr);
+
+    prepareOwned();weapon.m_iClip=4;weapon.Reload();
+    const auto complete=weapon.ActionState().ownerAttack;
+    Check(weapon.m_iClip==0&&weapon.m_fInReload&&weapon.SaveInventorySnapshot(snapshot));
+    weapon.BeforeWeaponDrop();Check(weapon.RestoreInventoryBinding(player)&&weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.m_iClip==0&&weapon.m_fInReload&&weapon.ActionState().ownerAttack==complete);
+    globals.time=complete;weapon.ItemPostFrame();Check(weapon.m_iClip==8&&player.m_rgAmmo[1]==32&&!weapon.m_fInReload);
+
+    prepareOwned();frame.toggleAim=true;frame.pressed=0x40;player.pev->button=0x40;
+    weapon.ItemPostFrame();Check(weapon.ActionState().aiming&&player.pev->fov==55);
+    const auto aimDeadline=weapon.m_flNextPrimaryAttack;const auto animation=player.pev->weaponanim;
+    Check(weapon.SaveInventorySnapshot(snapshot));weapon.BeforeWeaponDrop();
+    deployOrder.clear();traceDeploy=true;
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.RestoreInventorySnapshot(snapshot));traceDeploy=false;
+    Check(weapon.ActionState().aiming&&player.pev->fov==55&&weapon.m_flNextPrimaryAttack==aimDeadline&&player.pev->weaponanim==animation);
+    Check(deployOrder==std::vector<unsigned>({unsigned(P345Effect::Aim),unsigned(P345Effect::Aim)}));
+    current=false;Check(!weapon.RestoreInventoryBinding(player)&&!weapon.RestoreInventorySnapshot(snapshot));
+}
+
 int main(int argc,char** argv)
 {
     if(argc!=8)return 1;
@@ -465,5 +518,6 @@ int main(int argc,char** argv)
     Initialize();globals.time=10;weapon.m_iClip=0;weapon.m_fFireOnEmpty=1;frame.pressed=1;events.clear();weapon.PrimaryAttack();Check(!events.empty());
     events.clear();globals.time=10.5f;weapon.PrimaryAttack();Check(events.empty());globals.time=std::nextafter(10.5f,INFINITY);weapon.PrimaryAttack();Check(!events.empty());
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==897&&weapon.m_iId==897&&info.iMaxClip==8&&info.iMaxAmmo1==80&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
+    InventoryRestoreCases();
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<fidgetRows<<" original Fidget cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }
