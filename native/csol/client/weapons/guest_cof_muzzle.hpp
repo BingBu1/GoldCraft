@@ -12,6 +12,7 @@ bool PrepareGuestCofMuzzle() noexcept;
 void InvalidateGuestCofMuzzle() noexcept;
 void ShutdownGuestCofMuzzle() noexcept;
 bool GuestCofMuzzleReady() noexcept;
+bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept;
 bool GuestCofMuzzleWorldPending() noexcept;
 bool GuestCofMuzzleStudioEvent(const mstudioevent_s*,const cl_entity_s*) noexcept;
 // Actual StudioDrawPoints boundary, after the held model's bone merge.

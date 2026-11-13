@@ -80,6 +80,14 @@ int main()
     state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
     state.aimEnabled=false;++state.revision;Present();Send(snap);Draw(0);
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    // Actual P345 identity shares the proved red pistol crosshair geometry,
+    // while its owning presentation/revision must match the active inventory.
+    current.id=897;Draw(0);
+    state.originalWeapon=7;++state.revision;Present();
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
+    state.aimEnabled=false;state.originalWeapon=3;current.id=896;++state.revision;Present();
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     GuestCofCrosshairVideoInit();CHECK(!GuestCofCrosshairReady());GuestCofCrosshairFrame();Draw(3);
     auto wrong=snap;++wrong.key.lifeEpoch;++wrong.sequence;Send(wrong);Draw(3);
     ++generation;Draw(0);GuestCofCrosshairFrame();Draw(0);Present();Send(snap);Draw(3);

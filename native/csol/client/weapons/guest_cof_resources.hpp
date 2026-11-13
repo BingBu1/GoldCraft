@@ -35,6 +35,7 @@ struct GuestCofResourceState
     // Additional Studio/recoil subset only; never the whole-weapon effect mask.
     bool studioAndRecoilPrepared{};
     bool decalsPrepared{};
+    std::uint32_t weapons{}; // Actual cold registered/prepared pistol groups.
 };
 
 // Subscribe during cold initialization, after the real consumers are installed.

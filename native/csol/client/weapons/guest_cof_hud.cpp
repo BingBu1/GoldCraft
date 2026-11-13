@@ -17,5 +17,12 @@ constinit const WeaponModule module{
     .ammoSprite="sprites/guest/cof/glock_ammo.spr", .ammoRect={0,32,0,32},
     .dynamicCrosshair=false,.drawHud=DrawGuestCofCrosshair};
 const WeaponModuleRegistration registration{module};
+constexpr int p345Ids[]{guest::cof::Pistols[1].hostId};
+constinit const WeaponModule p345Module{
+    .ids=p345Ids,.order=91,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/p345_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false,.drawHud=DrawGuestCofCrosshair};
+const WeaponModuleRegistration p345Registration{p345Module};
 }
 }

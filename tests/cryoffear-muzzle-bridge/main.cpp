@@ -24,6 +24,9 @@ std::uint64_t effectResources{1};
 bool effectsReady{true},pointReady{true},mainView{true},retireVisible{},retireEffects{},retireModel{},localOwned{true};
 cl_entity_t local{},viewEntity{},remote{},lastVisible{};
 model_t viewModel{},playerModel{},flashModel{},otherModel{},bodyModel{};
+model_t p345ViewModel{},p345PlayerModel{};
+std::vector<std::byte> p345PlayerBytes;
+bool p345Available{},p345Owned{};
 cl_enginefunc_t muzzleEngine{};
 event_api_t cachedEvents{};
 std::vector<std::byte> playerBytes;
@@ -50,10 +53,12 @@ float Random(float,float){++randoms;return 0;}
 int Find(const char* path){
  ++modelQueries;if(retireModel){retireModel=false;InvalidateGuestCofMuzzle();}
  if(!std::strcmp(path,GlockModels[0].host))return 11;
+ if(!std::strcmp(path,P345Models[0].host))return p345Available?21:0;
+ if(!std::strcmp(path,P345Models[unsigned(P345Model::Player)].host))return p345Available?22:0;
  CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Player)].host));return 12;
 }
-model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:nullptr;}
-void* Extra(model_t* model){CHECK(model==&playerModel);return playerBytes.data();}
+model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:nullptr;}
+void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel);return model==&p345PlayerModel?p345PlayerBytes.data():playerBytes.data();}
 model_t* Flash(const char* path,int* id){CHECK(!std::strcmp(path,"models/flash1.mdl"));*id=13;return &flashModel;}
 int MuzzleIndex(const char* path){CHECK(!std::strcmp(path,"models/shell.mdl"));return 14;}
 int Visible(int type,cl_entity_t* entity){CHECK(type==0);++visible;lastVisible=*entity;if(retireVisible)InvalidateGuestCofMuzzle();if(retireEffects)effectsReady=false;return 1;}
@@ -71,7 +76,7 @@ namespace csol::client
 {
 bool GuestCofEffectsReady() noexcept{return effectsReady;}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept{return effectsReady?effectResources:0;}
-bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&value==Weapon::Glock;}
+bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(p345Owned?value==Weapon::P345:value==Weapon::Glock);}
 cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept{return effectsReady?&muzzleEngine:nullptr;}
 bool GuestCofPointLightsReady() noexcept{return pointReady;}
 bool GuestCofMainStudioView() noexcept{return mainView;}
@@ -86,7 +91,7 @@ static void (*originalDrawPoints)()=NativePoints;
 }
 int main(int argc,char** argv)
 {
- if(argc!=2)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
+ if(argc!=2&&argc!=3)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
  std::fseek(file,0,SEEK_END);const long size=std::ftell(file);std::rewind(file);if(size<=0)return 4;
  playerBytes.resize(std::size_t(size));if(std::fread(playerBytes.data(),playerBytes.size(),1,file)!=1)return 5;std::fclose(file);
  auto* header=reinterpret_cast<studiohdr_t*>(playerBytes.data());CHECK(header->length==size&&header->numattachments>=2);
@@ -170,6 +175,35 @@ int main(int argc,char** argv)
  CHECK(shellOrigin==Transform(attachment[1]));
  StudioDrawPoints();CHECK(lightReads==1&&nativeDraws==2&&shells==boundaryShells+1);
  ShutdownGuestCofMuzzle();
+ if(argc==3)
+ {
+  FILE* pfile=std::fopen(argv[2],"rb");CHECK(pfile!=nullptr);if(!pfile)return 3;
+  std::fseek(pfile,0,SEEK_END);const long psize=std::ftell(pfile);std::rewind(pfile);CHECK(psize>0);
+  p345PlayerBytes.resize(std::size_t(psize));CHECK(std::fread(p345PlayerBytes.data(),p345PlayerBytes.size(),1,pfile)==1);std::fclose(pfile);
+  auto* ph=reinterpret_cast<studiohdr_t*>(p345PlayerBytes.data());CHECK(ph->length==psize&&ph->numattachments>=2);
+  auto* pa=reinterpret_cast<mstudioattachment_t*>(p345PlayerBytes.data()+ph->attachmentindex);
+  p345ViewModel.type=p345PlayerModel.type=mod_studio;
+  std::strcpy(p345ViewModel.name,P345Models[0].host);std::strcpy(p345PlayerModel.name,P345Models[2].host);
+  p345Available=true;InitializeGuestCofMuzzle(&provider);CHECK(PrepareGuestCofMuzzle());
+  CHECK(GuestCofMuzzleReady(3)&&GuestCofMuzzleReady(7)&&!GuestCofMuzzleReady(19));
+  const auto oldVisible=visible,oldShells=shells,oldQueries=modelQueries;
+  remote.curstate.weaponmodel=22;event.iparam1=7;eventCallback(&event);CHECK(GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,header,bones);CHECK(visible==oldVisible&&GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,ph,bones);
+  CHECK(visible==oldVisible+1&&shells==oldShells&&!GuestCofMuzzleWorldPending()&&modelQueries==oldQueries);
+  const auto position=Transform(pa[0]);CHECK(std::equal(position.begin(),position.end(),lastVisible.origin));
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,ph,bones);CHECK(visible==oldVisible+1&&shells==oldShells);
+  p345Owned=true;viewEntity.model=&p345ViewModel;
+  CHECK(GuestCofMuzzleStudioEvent(&studioEvent,&viewEntity)&&visible==oldVisible+2&&shells==oldShells);
+  // One original overwrite latch still spans weapon types. Only the last
+  // accepted owner/type event is consumed, once, at the matching P header.
+  remote.curstate.weaponmodel=12;event.iparam1=3;eventCallback(&event);
+  remote.curstate.weaponmodel=22;event.iparam1=7;eventCallback(&event);
+  remote.curstate.weaponmodel=12;GuestCofMuzzleWorldPoints(&remote,&bodyModel,header,bones);CHECK(visible==oldVisible+2);
+  remote.curstate.weaponmodel=22;GuestCofMuzzleWorldPoints(&remote,&bodyModel,ph,bones);
+  CHECK(visible==oldVisible+3&&shells==oldShells&&!GuestCofMuzzleWorldPending());
+  ShutdownGuestCofMuzzle();p345Owned=false;
+ }
  std::printf("checks=%u failures=%u actualGlockPlayerModel=yes sceneServices=controlled live=no performance=no\n",checks,failures);
  return failures?1:0;
 }

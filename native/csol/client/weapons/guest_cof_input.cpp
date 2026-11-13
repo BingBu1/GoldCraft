@@ -76,7 +76,8 @@ void GuestCofCreateMove(usercmd_s* command, int active, bool admitted) noexcept
     { ResetGuestCofInput(); return; }
     if (!command) return;
     const auto& current = CurrentExtendedWeapon();
-    if (!current.state || current.id != guest::cof::Pistols[0].hostId)
+    const auto* definition=guest::cof::FindPistol(current.id);
+    if (!current.state || !definition)
     { ResetGuestCofInput(); return; }
     // CoF10078670 maps +attack3 to0x40, +use to0x20. The host transports
     // only the extra aim bit; native Use/right-click and key bindings survive.

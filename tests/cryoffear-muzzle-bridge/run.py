@@ -20,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('environment', 'commands', 'model', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--p345-model',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build') or any(
@@ -27,6 +28,8 @@ def main():
         raise ValueError('Use a fresh workspace build directory')
     if sha(args.model) != 'ac158045589ac76fcff9f99ce057872f8037ccdcb8f77acb6314cafca65e9d49':
         raise ValueError('Actual original Glock P model differs')
+    if args.p345_model and sha(args.p345_model)!='c090798e8754084506c6859c268c4db08961c3b0d609afba6a14e50457626bb0':
+        raise ValueError('Actual original P345 P model differs')
     output.mkdir(parents=True)
     helper=ROOT/"tests/common/cpp_function.py"
     spec=importlib.util.spec_from_file_location("cpp_function",helper)
@@ -49,6 +52,7 @@ def main():
                ROOT/'native/guest/cof/client/muzzle_flash.cpp']
     inputs = set(sources)|{plugin,helper,Path(__file__).resolve(), args.commands.resolve(),args.environment.resolve(),
                           args.model.resolve(),compiler,compiler.with_name('lld-link.exe')}
+    if args.p345_model:inputs.add(args.p345_model.resolve())
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
     commands = []
@@ -69,7 +73,9 @@ def main():
     (output/'compile.log').write_text(built.stdout+built.stderr,'utf-8')
     tested = None
     if not built.returncode:
-        tested = subprocess.run([str(executable),str(args.model.resolve())],cwd=output,capture_output=True,text=True,timeout=30)
+        arguments=[str(executable),str(args.model.resolve())]
+        if args.p345_model:arguments.append(str(args.p345_model.resolve()))
+        tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}
     success = not built.returncode and tested is not None and not tested.returncode and before==after

@@ -15,6 +15,7 @@
 #include "guest_cof_mouse.hpp"
 #include "guest_cof_crosshair.hpp"
 #include "../../../guest/cof/catalog.hpp"
+#include "../../../guest/cof/admission.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include <ostream>
 
@@ -23,83 +24,101 @@ namespace csol::client
 namespace
 {
 const GoldCraftConnectionAPI* connection{};
-cvar_t* protocol{};
+cvar_t *protocol{},*weaponMask{};
 DWORD ownerThread{};
 std::uint64_t generation{}, resources{};
-bool admitted{}, menuAttempted{}, menuPrepared{};
+std::uint32_t admittedWeapons{};
+std::array<bool,2> menuAttempted{},menuPrepared{};
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
-void Publish(bool ready) noexcept
+void Publish(std::uint32_t weapons) noexcept
 {
-    if (ready == admitted) return;
-    admitted = ready;
+    if (weapons == admittedWeapons) return;
+    admittedWeapons = weapons;
     // Host compatibility only. Server validates entities, damage and ownership.
-    if (protocol && engine.Cvar_SetValue) engine.Cvar_SetValue("cof_protocol", ready ? 1.0F : 0.0F);
+    if (weaponMask && engine.Cvar_SetValue) engine.Cvar_SetValue("cof_weapons",float(weapons));
+    if (protocol && engine.Cvar_SetValue) engine.Cvar_SetValue("cof_protocol",weapons?1.F:0.F);
 }
 }
 void InitializeGuestCofAdmission() { InitializeGuestCofAdmission(GoldCraftConnectionInterface()); }
 void InitializeGuestCofAdmission(const GoldCraftConnectionAPI* provider)
 {
     if (ownerThread && !Owner()) return;
-    ownerThread = GetCurrentThreadId(); connection = nullptr; protocol = nullptr;
-    generation = resources = 0; admitted = menuAttempted = menuPrepared = false;
+    ownerThread = GetCurrentThreadId(); connection = nullptr; protocol = weaponMask = nullptr;
+    generation = resources = 0; admittedWeapons=0;menuAttempted=menuPrepared={};
     if (!provider || provider->size < sizeof(*provider) || provider->version != 1 || !provider->generation ||
         !engine.pfnGetCvarPointer || !engine.pfnRegisterVariable || !engine.Cvar_SetValue) return;
     protocol = engine.pfnGetCvarPointer("cof_protocol");
     if (!protocol) protocol = engine.pfnRegisterVariable("cof_protocol", "0", FCVAR_USERINFO);
     if (!protocol || !(protocol->flags & FCVAR_USERINFO)) { protocol = nullptr; return; }
+    weaponMask=engine.pfnGetCvarPointer("cof_weapons");
+    if(!weaponMask)weaponMask=engine.pfnRegisterVariable("cof_weapons","0",FCVAR_USERINFO);
+    if(!weaponMask||!(weaponMask->flags&FCVAR_USERINFO)){protocol=weaponMask=nullptr;return;}
     connection = provider;
     engine.Cvar_SetValue("cof_protocol", 0);
+    engine.Cvar_SetValue("cof_weapons",0);
 }
 void InvalidateGuestCofAdmission() noexcept
 {
     if (!Owner()) return;
-    Publish(false); generation = resources = 0; menuAttempted = menuPrepared = false;
+    Publish(0); generation = resources = 0; menuAttempted=menuPrepared={};
     ResetGuestCofInput();
 }
 void ShutdownGuestCofAdmission() noexcept
 {
     if (!Owner()) return;
-    InvalidateGuestCofAdmission(); connection = nullptr; protocol = nullptr; ownerThread = 0;
+    InvalidateGuestCofAdmission(); connection = nullptr; protocol = weaponMask = nullptr; ownerThread = 0;
 }
 void GuestCofAdmissionFrame() noexcept
 {
     GuestCofMouseFrame();
     GuestCofCrosshairFrame();
-    if (!Owner() || !connection || !protocol) return;
+    if (!Owner() || !connection || !protocol || !weaponMask) return;
     const auto current = connection->generation();
     const auto effect = GuestCofEffectsResourceSerial();
     if (current != generation || effect != resources)
     {
         InvalidateGuestCofAdmission(); generation = current; resources = effect;
     }
-    if (!current || !effect || !ResourceReadsAllowed()) { Publish(false); return; }
+    if (!current || !effect || !ResourceReadsAllowed()) { Publish(0); return; }
     const auto state = GuestCofResourcesState();
     const bool ready = state.status == GuestCofResourceStatus::Prepared && state.generation == current &&
         state.studioAndRecoilPrepared && state.decalsPrepared && GuestCofParticlesReady() &&
         GuestCofEffectsReady() && GuestCofMuzzleReady() && GuestCofPointLightsReady() &&
-        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofCrosshairReady() && GuestCofInputReady() && GuestCofViewmodelReady() &&
-        HudStyleWeaponResourcesReady(guest::cof::Pistols[0].hostId);
-    if (!ready) { Publish(false); return; }
-    if (!menuAttempted)
+        GuestCofControlReady() && GuestCofIronsightReady() && GuestCofMouseReady() && GuestCofCrosshairReady() && GuestCofInputReady() && GuestCofViewmodelReady();
+    if (!ready) { Publish(0); return; }
+    std::uint32_t prepared{};
+    for(unsigned i=0;i<menuAttempted.size();++i)
     {
-        menuAttempted = true;
-        menuPrepared = PrepareBuyMenuItem(guest::cof::Pistols[0].hostId);
+        const auto& weapon=guest::cof::Pistols[i];
+        const auto bit=guest::cof::PistolCapability(weapon.identity);
+        if(!(state.weapons&bit)||!GuestCofMuzzleReady(unsigned(weapon.originalId))||!HudStyleWeaponResourcesReady(weapon.hostId))continue;
+        if(!menuAttempted[i])
+        {menuAttempted[i]=true;menuPrepared[i]=PrepareBuyMenuItem(weapon.hostId);}
+        if(connection->generation()!=current||GuestCofEffectsResourceSerial()!=effect)
+        {InvalidateGuestCofAdmission();return;}
+        if(menuPrepared[i])prepared|=bit;
     }
     // A cold VFS/renderer callback may replace this connection or its handles.
     if (connection->generation() != current || GuestCofEffectsResourceSerial() != effect)
     { InvalidateGuestCofAdmission(); return; }
-    Publish(menuPrepared);
+    Publish(prepared);
 }
 bool GuestCofAdmitted() noexcept
 {
-    return Owner() && ResourceReadsAllowed() && admitted && connection && generation && connection->generation() == generation &&
+    return Owner() && ResourceReadsAllowed() && admittedWeapons && connection && generation && connection->generation() == generation &&
         resources && GuestCofEffectsResourceSerial() == resources;
+}
+bool GuestCofAdmitted(int id) noexcept
+{
+    const auto* weapon=guest::cof::FindPistol(id);
+    return weapon&&GuestCofAdmitted()&&(admittedWeapons&guest::cof::PistolCapability(weapon->identity));
 }
 void GuestCofAdmissionDiagnostics(std::ostream& out)
 {
     const auto state = GuestCofResourcesState();
     out << ",\"cofAdmission\":{\"ready\":" << GuestCofAdmitted() << ",\"generation\":" << generation
-        << ",\"resources\":" << resources << ",\"menuPrepared\":" << menuPrepared
+        << ",\"resources\":" << resources << ",\"menuPrepared\":" << menuPrepared[0]
+        << ",\"p345MenuPrepared\":" << menuPrepared[1] << ",\"weapons\":" << admittedWeapons
         << ",\"mouseInitialization\":\"" << GuestCofMouseInitialization() << "\""
         << ",\"resourceStatus\":" << int(state.status)
         << ",\"resourceGeneration\":" << state.generation << ",\"readsAllowed\":" << ResourceReadsAllowed()

@@ -4,6 +4,7 @@
 #include "guest_cof_resources.hpp"
 #include "guest_cof_effects.hpp"
 #include "../../../guest/cof/resource_catalog.hpp"
+#include "../../../guest/cof/admission.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include "../../../include/goldcraft/sound_precache_api.h"
 #include "../../../include/goldcraft/precache_ready_api.h"
@@ -99,7 +100,6 @@ void Ready(void*, std::uint64_t generation) noexcept
     // Registration discovery is a no-I/O query. Ordinary servers must never
     // open a CoF file, create an audio device, or load the guest sprite.
     std::array<const LocalSoundResource*, maxSamples> selected{};
-    bool hasGlock{};
     for (const auto group : groups)
     {
         unsigned registered{};
@@ -111,7 +111,6 @@ void Ready(void*, std::uint64_t generation) noexcept
             registered += (flags & GoldCraftSoundSignonRegistered) != 0;
         }
         if (!registered) continue;
-        if (group.data() == GlockAudioResources.data()) hasGlock = true;
         if (registered != group.size())
         {
             candidate.status = GuestCofResourceStatus::NativeSoundUnavailable;
@@ -119,6 +118,8 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
+        candidate.weapons|=guest::cof::PistolCapability(group.data()==GlockAudioResources.data()?
+            guest::cof::Pistol::Glock:guest::cof::Pistol::P345);
         for (const auto& asset : group) selected[candidate.samples++] = &asset;
     }
     if (!candidate.samples)
@@ -203,7 +204,7 @@ void Ready(void*, std::uint64_t generation) noexcept
         particleScript = std::move(script);
         candidate.studioAndRecoilPrepared = PrepareGuestCofEffects();
         if (!lease.Current()) return;
-        if (hasGlock)
+        if (candidate.weapons)
         {
             std::array<std::vector<std::byte>, ShotDecals.size()> images;
             std::array<std::span<const std::uint8_t>, ShotDecals.size()> plan;

@@ -89,7 +89,7 @@ void GuestCofCrosshairPresentation(const guest::cof::PresentationState& state) n
 {
     if(!Synchronize())return;
     Advance();presentation=state;
-    receiver.Present(state.key,state.revision,state.originalWeapon==3);
+    receiver.Present(state.key,state.revision,state.originalWeapon==3||state.originalWeapon==7);
 }
 void DrawGuestCofCrosshair(int hidden,int intermission,bool) noexcept
 {
@@ -97,10 +97,12 @@ void DrawGuestCofCrosshair(int hidden,int intermission,bool) noexcept
        view.spectator||view.paused||drawHud->value==0||BuyMenuVisible()||ScenarioMapVoteVisible())return;
     const auto& weapon=CurrentExtendedWeapon();
     const auto* snapshot=receiver.Current();
-    if(!snapshot||!weapon.state||weapon.id!=guest::cof::Pistols[0].hostId||weapon.clip<0||
-       presentation.originalWeapon!=3)return;
+    const auto* definition=guest::cof::FindPistol(weapon.id);
+    if(!snapshot||!weapon.state||!definition||weapon.clip<0||
+       (definition->originalId!=3&&definition->originalId!=7)||
+       presentation.originalWeapon!=definition->originalId)return;
     std::array<guest::cof::client::CrosshairRect,3> bars;
-    if(!guest::cof::client::PistolCrosshair({screen.iWidth,screen.iHeight,3,hidden,true,true,
+    if(!guest::cof::client::PistolCrosshair({screen.iWidth,screen.iHeight,definition->originalId,hidden,true,true,
         presentation.aimEnabled,false,option->value,snapshot->scalar},bars))return;
     const auto revision=serial;
     for(const auto& bar:bars)

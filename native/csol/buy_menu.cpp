@@ -11,6 +11,7 @@ namespace {
 constexpr Item items[]{
     // Authored guest placement/price, separate from original CSO item records.
     {896,1,"cof_glock","客串武器·Glock 19","cof_glock",650},
+    {897,1,"cof_p345","客串武器·P345","cof_p345",800},
     {220,1,"tknifeex2","三重战术飞刀","tknifeex2",30},
     {130,1,"skull1","噬魂SKULL-1","skull1",1200},
     {312,1,"skull2","噬血狂袭SKULL-2","skull2",1550},

@@ -2339,7 +2339,8 @@
     "tests/cryoffear-glock-factory/README.md",
     "tests/cryoffear-glock-native-effects/README.md",
     "tests/cryoffear-p345-runtime/README.md",
-    "tests/cryoffear-p345-effect-dispatch/README.md"
+    "tests/cryoffear-p345-effect-dispatch/README.md",
+    "tests/cryoffear-p345-presentation/README.md"
   ],
   "trees": {
     "native": [

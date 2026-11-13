@@ -27,6 +27,11 @@ PINS = {
     'sprites/cglock.spr': '175cff5be62c7340ede984439f6ffb100d14e73c54f781a449d9974a85fb60c6',
     'sprites/cof_glock_mag_icon.spr': '2638312b229c7a755a0ed6aa43c8b136fbc7988b749098ffa25e6cf8e3fafa35',
 }
+P345_PINS={
+    'inventoryitems/weapons/weapon_p345.txt':'376a05dad38387981be4a7f88a1a6444582f5781afd209df9a3d5a7ea18bb2fe',
+    'gfx/vgui/weapons/p345/640_p345_slot.tga':'9410f7c93e0ff02ca9cf1e0bb7f504471041f4e8809d549fac2ab2b220ffc5fc',
+    'sprites/cof_p345_mag_icon.spr':'57549f1601a0ec4fc0d80f9485bdc39f32ca262ad376ae3fb68afe27c517cfc3',
+}
 
 
 def sha(data):
@@ -48,7 +53,40 @@ def fit(width, height, rgba, target_width, target_height):
     return bytes(result)
 
 
-def prepare(original_root, baseline_root, output):
+def tga32(data):
+    if len(data)<18 or data[1]!=0 or data[2]!=2 or data[16]!=32 or data[17]&0xC0:
+        raise ValueError('Expected an uncompressed original RGBA inventory picture')
+    width,height=struct.unpack_from('<HH',data,12)
+    end=18+data[0]+width*height*4
+    footer=data[end:]
+    if not 1<=width<=4096 or not 1<=height<=4096 or len(data)<end or footer not in (b'',bytes(8)+b'TRUEVISION-XFILE.\0'):
+        raise ValueError('Invalid inventory picture dimensions')
+    raw=data[18+data[0]:end];rgba=bytearray(len(raw))
+    for y in range(height):
+        source_y=y if data[17]&0x20 else height-1-y
+        for x in range(width):
+            source_x=width-1-x if data[17]&0x10 else x
+            at=(source_y*width+source_x)*4;to=(y*width+x)*4
+            rgba[to:to+4]=bytes((raw[at+2],raw[at+1],raw[at],raw[at+3]))
+    return width,height,bytes(rgba)
+
+def native_sprite(width,height,rgba):
+    # Explicit stock-CS fallback authoring. Modern HUD/card uses full RGBA;
+    # the palette fallback has 216 RGB colors and index255 transparency.
+    palette=bytearray(768)
+    for r in range(6):
+        for g in range(6):
+            for b in range(6):palette[(r*36+g*6+b)*3:(r*36+g*6+b)*3+3]=bytes((r*51,g*51,b*51))
+    pixels=bytearray(width*height)
+    for i in range(width*height):
+        r,g,b,a=rgba[i*4:i*4+4]
+        pixels[i]=255 if a<128 else ((r+25)//51)*36+((g+25)//51)*6+(b+25)//51
+    return struct.pack('<4siiifiiifi',b'IDSP',2,2,3,float(max(width,height)),width,height,1,0.,0)+\
+        struct.pack('<H',256)+palette+struct.pack('<5i',0,-width//2,height//2,width,height)+pixels
+
+def prepare(original_root, baseline_root, output, weapon='glock'):
+    if weapon not in ('glock','p345'):raise ValueError('Unreviewed guest presentation weapon')
+    p345=weapon=='p345';kind='P345' if p345 else 'Glock';key='cof_'+weapon
     original_root, baseline_root, output = map(Path, (original_root, baseline_root, output))
     for path in (original_root, baseline_root, output):
         hud.no_reparse(path.absolute())
@@ -73,15 +111,15 @@ def prepare(original_root, baseline_root, output):
         return data
 
     definition = read(ROOT/'native/guest/cof/catalog.hpp').decode('utf8')
-    match = re.search(r'PistolDefinition\{Pistol::Glock,\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"', definition)
+    match = re.search(r'PistolDefinition\{Pistol::'+kind+r',\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"', definition)
     if not match:
         raise ValueError('Glock author definition is missing or unsupported')
     ident, original_id, clip, reserve, price, ammo_price, ammo_count = map(int, match.groups()[:7])
     classname, ammunition, title = match.groups()[7:]
-    if (ident, original_id, classname, ammunition, clip) != (896, 3, 'weapon_cof_glock', 'cof_glock', 15):
+    if (ident, original_id, classname, ammunition, clip) != ((897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896, 3, 'weapon_cof_glock', 'cof_glock', 15)):
         raise ValueError('Unreviewed host/original Glock identity')
     shop = read(ROOT/'native/csol/buy_menu.cpp').decode('utf8')
-    if not re.search(r'\{896,1,"cof_glock","'+re.escape(title)+r'","cof_glock",'+str(price)+r'\}', shop):
+    if not re.search(r'\{'+str(ident)+r',1,"'+key+r'","'+re.escape(title)+r'","'+key+r'",'+str(price)+r'\}', shop):
         raise ValueError('Host shop and guest author definition disagree')
     contract = read(ROOT/'native/csol/buy_menu.hpp').decode('utf8')
     menu_path = re.search(r'PresentationResource\[\]="(models/csol/buymenu_v\d+\.json)";', contract)
@@ -98,21 +136,31 @@ def prepare(original_root, baseline_root, output):
     info = result_menu['weaponInfo']['items']
     if any(r['name'] == classname for r in rows) or any(r['id'] == ident for r in images+info):
         raise ValueError('Guest presentation already exists; supply the unmodified baseline')
-    assets = {name: read(original_root/name, pin) for name, pin in PINS.items()}
-    original_rows = hud.sprite_rows(assets['sprites/weapon_glock.txt'], {'weapon', 'weapon_s'})
-    normal = original_rows.get(('weapon', 640))
-    if normal != dict(atlas='sprites/cglock.spr', x=0, y=0, width=170, height=80) or original_rows.get(('weapon_s', 640)) != normal:
-        raise ValueError('Original Glock selection rectangle differs')
-    width, height, rgba, _ = hud.decode_sprite(assets['sprites/cglock.spr'])
-    pixels = b''.join(rgba[y*width*4:(y*width+170)*4] for y in range(80))
-    aw, ah, ammo, _ = hud.decode_sprite(assets['sprites/cof_glock_mag_icon.spr'])
+    assets = {name: read(original_root/name, pin) for name, pin in (P345_PINS if p345 else PINS).items()}
+    if p345:
+        text=assets['inventoryitems/weapons/weapon_p345.txt'].decode('utf8')
+        if not re.search(r'"inventory_picture"\s*\{\s*data\s*"gfx/vgui/weapons/p345/640_p345_slot.tga"\s*\}',text):
+            raise ValueError('Original P345 inventory picture mapping differs')
+        width,height,rgba=tga32(assets['gfx/vgui/weapons/p345/640_p345_slot.tga'])
+        pixels=fit(width,height,rgba,170,80)
+        selection_sprite=native_sprite(170,80,pixels)
+    else:
+        original_rows = hud.sprite_rows(assets['sprites/weapon_glock.txt'], {'weapon', 'weapon_s'})
+        normal = original_rows.get(('weapon', 640))
+        if normal != dict(atlas='sprites/cglock.spr', x=0, y=0, width=170, height=80) or original_rows.get(('weapon_s', 640)) != normal:
+            raise ValueError('Original Glock selection rectangle differs')
+        width, height, rgba, _ = hud.decode_sprite(assets['sprites/cglock.spr'])
+        pixels = b''.join(rgba[y*width*4:(y*width+170)*4] for y in range(80))
+        selection_sprite=assets['sprites/cglock.spr']
+    ammo_asset=assets['sprites/cof_'+weapon+'_mag_icon.spr']
+    aw, ah, ammo, _ = hud.decode_sprite(ammo_asset)
     if (aw, ah) != (32, 32):
         raise ValueError('Original Glock magazine icon dimensions differ')
     hud.validate_weapon_pixels(pixels, 'guest/cof/glock weapon')
     hud.validate_weapon_pixels(ammo, 'guest/cof/glock ammo')
-    weapon_path = hud.RESOURCE+'cof_glock_weapon.tga'
-    ammo_path = hud.RESOURCE+'cof_glock_ammo.tga'
-    purchase_path = 'gfx/csol/buy/cof_glock.tga'
+    weapon_path = hud.RESOURCE+key+'_weapon.tga'
+    ammo_path = hud.RESOURCE+key+'_ammo.tga'
+    purchase_path = 'gfx/csol/buy/'+key+'.tga'
     # ItemId is host UI metadata only. It never creates a CSO gameplay item.
     rows.append(dict(name=classname, title=title, weapon=weapon_path, selected=weapon_path,
                      ammo=ammo_path, ammo2=''))
@@ -124,14 +172,15 @@ def prepare(original_root, baseline_root, output):
         'weapon 320 guest/cof/cglock 0 0 170 80\nweapon_s 320 guest/cof/cglock 0 0 170 80\n'
         'weapon 640 guest/cof/cglock 0 0 170 80\nweapon_s 640 guest/cof/cglock 0 0 170 80\n'
         'ammo 320 guest/cof/glock_ammo 0 0 32 32\nammo 640 guest/cof/glock_ammo 0 0 32 32\n').encode('ascii')
+    if p345:native_list=native_list.replace(b'cglock',b'cp345').replace(b'glock_ammo',b'p345_ammo')
     generated = {
         hud.CATALOG: json.dumps(result_hud, ensure_ascii=False, separators=(',', ':')).encode('utf8'),
         menu_path: json.dumps(result_menu, ensure_ascii=False, separators=(',', ':')).encode('utf8'),
         weapon_path: hud.tga(170, 45, fit(170, 80, pixels, 170, 45)),
         ammo_path: hud.tga(aw, ah, ammo), purchase_path: hud.tga(170, 80, pixels),
-        'sprites/guest/cof/cglock.spr': assets['sprites/cglock.spr'],
-        'sprites/guest/cof/glock_ammo.spr': assets['sprites/cof_glock_mag_icon.spr'],
-        'sprites/weapon_cof_glock.txt': native_list,
+        'sprites/guest/cof/c'+weapon+'.spr': selection_sprite,
+        'sprites/guest/cof/'+weapon+'_ammo.spr': ammo_asset,
+        'sprites/weapon_cof_'+weapon+'.txt': native_list,
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=output.name+'-preparing-', dir=output.parent))
@@ -162,8 +211,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('original-game-root', 'baseline', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--weapon',choices=('glock','p345'),default='glock')
     args = parser.parse_args()
-    receipt = prepare(args.original_game_root, args.baseline, args.output)
+    receipt = prepare(args.original_game_root, args.baseline, args.output,args.weapon)
     print(json.dumps(dict(success=True, files=len(receipt['files']), bytes=sum(r['bytes'] for r in receipt['files']))))
 
 

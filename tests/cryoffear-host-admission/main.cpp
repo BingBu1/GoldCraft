@@ -8,6 +8,7 @@
 #include "../../native/csol/hud_style.hpp"
 #include "../../native/csol/buy_menu.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
+#include "../../native/guest/cof/admission.hpp"
 #include <array>
 #include <cstdio>
 #include <cstring>
@@ -32,6 +33,8 @@ bool& allowReads=resource_refresh_detail::readsAllowed;
 bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mouse{true}, crosshair{true},
      control{true}, ironsight{true}, viewmodel{true}, hud{true}, menu{true}, retireInMenu{};
 cvar_t protocol{};
+cvar_t weaponMask{};
+bool p345Hud{true},p345Muzzle{true};
 GuestCofResourceState resources;
 csol::WeaponCurrent current;
 std::map<std::string, cmd_function_t> commands;
@@ -39,9 +42,10 @@ const char* commandKey="1";
 void Check(bool okay,int line){++checks;if(!okay){++failures;std::printf("FAIL %d\n",line);}}
 #define CHECK(...) Check((__VA_ARGS__),__LINE__)
 std::uint64_t Generation(){return generation;}
-cvar_t* Lookup(const char* name){CHECK(!std::strcmp(name,"cof_protocol"));return &protocol;}
+cvar_t* Lookup(const char* name){if(!std::strcmp(name,"cof_weapons"))return &weaponMask;CHECK(!std::strcmp(name,"cof_protocol"));return &protocol;}
 cvar_t* Register(const char*,const char*,int){CHECK(false);return nullptr;}
-void Publish(const char* name,float value){CHECK(!std::strcmp(name,"cof_protocol"));protocol.value=value;++publications;}
+void Publish(const char* name,float value){if(!std::strcmp(name,"cof_weapons"))weaponMask.value=value;
+    else{CHECK(!std::strcmp(name,"cof_protocol"));protocol.value=value;}++publications;}
 cmd_function_t* Find(const char* name){auto it=commands.find(name);return it==commands.end()?nullptr:&it->second;}
 int Add(const char* name,xcommand_t callback){commands[name].function=callback;return 1;}
 char* Arg(int index){CHECK(index==1);return const_cast<char*>(commandKey);}
@@ -80,6 +84,7 @@ GuestCofResourceState GuestCofResourcesState() noexcept{return resources;}
 bool GuestCofParticlesReady() noexcept{return particles;}
 bool GuestCofEffectsReady() noexcept{return effects&&audio;}
 bool GuestCofMuzzleReady() noexcept{return muzzle;}
+bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle));}
 bool GuestCofPointLightsReady() noexcept{return points;}
 bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
@@ -89,8 +94,8 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id) noexcept{CHECK(id==896);return hud;}
-bool PrepareBuyMenuItem(int id){CHECK(id==896);++menuLoads;if(retireInMenu)++generation;return menu;}
+bool HudStyleWeaponResourcesReady(int id) noexcept{CHECK(id==896||id==897);return hud&&(id!=897||p345Hud);}
+bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
 int main(int argc,char** argv)
@@ -104,12 +109,14 @@ int main(int argc,char** argv)
     CHECK(art.title=="客串武器·Glock 19"&&art.selectedKnown&&art.selected==art.weapon&&!art.ammo.empty());
     CHECK(buy.images.contains(896)&&buy.weaponInfo.items.contains(896));
     CHECK(buy.images.at(896).width==170&&buy.images.at(896).height==80);
+    CHECK(catalog.weapons.contains("weapon_cof_p345")&&catalog.weapons.at("weapon_cof_p345").title=="客串武器·P345");
+    CHECK(buy.images.contains(897)&&buy.weaponInfo.items.contains(897)&&buy.images.at(897).width==170&&buy.images.at(897).height==80);
     CHECK(buy.weaponInfo.items.at(896).table==false&&buy.weaponInfo.items.at(896).grade==std::array<int,3>{-1,-1,-1});
     const auto paths=csol::buy::Resources(buy);CHECK(std::find(paths.begin(),paths.end(),"gfx/csol/buy/cof_glock.tga")!=paths.end());
     metahook_api_t table{};api=&table;table.FindCmd=Find;
     engine.pfnGetCvarPointer=Lookup;engine.pfnRegisterVariable=Register;engine.Cvar_SetValue=Publish;
     engine.Cmd_Argv=Arg;engine.pfnAddCommand=Add;
-    protocol.flags=FCVAR_USERINFO;view.health=100;current.id=896;current.state=1;
+    protocol.flags=weaponMask.flags=FCVAR_USERINFO;view.health=100;current.id=896;current.state=1;
     CHECK(InitializeGuestCofInput()&&GuestCofInputReady());
     CHECK(!(Input().buttons&IN_CANCEL));
     Press();CHECK(Input().buttons&IN_CANCEL);CHECK(Input().buttons&IN_CANCEL);
@@ -129,6 +136,7 @@ int main(int argc,char** argv)
     GoldCraftConnectionAPI provider{sizeof(provider),1,Generation};
     resources.status=GuestCofResourceStatus::Prepared;resources.generation=1;
     resources.studioAndRecoilPrepared=resources.decalsPrepared=true;
+    resources.weapons=guest::cof::PistolCapability(guest::cof::Pistol::Glock);
     InitializeGuestCofAdmission(&provider);CHECK(!GuestCofAdmitted()&&protocol.value==0);
     GuestCofAdmissionFrame();CHECK(GuestCofAdmitted()&&protocol.value==1&&menuLoads==1);
     engine.SetViewAngles=ChainAngles;
@@ -166,7 +174,20 @@ int main(int argc,char** argv)
     bool foreign=true;const auto writes=publications;
     std::thread other([&]{foreign=GuestCofAdmitted();GuestCofAdmissionFrame();InvalidateGuestCofAdmission();});other.join();
     CHECK(!foreign&&GuestCofAdmitted()&&publications==writes);
-    generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0);
+    CHECK(GuestCofAdmitted(896)&&!GuestCofAdmitted(897)&&weaponMask.value==1);
+    resources.weapons|=guest::cof::PistolCapability(guest::cof::Pistol::P345);
+    GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(896)&&GuestCofAdmitted(897)&&weaponMask.value==3);
+    current.id=897;Press();CreateMove(.01F,&chain,1);CHECK(chain.buttons&IN_CANCEL);Release();
+    p345Hud=false;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(896)&&!GuestCofAdmitted(897)&&weaponMask.value==1);
+    Press();CreateMove(.01F,&chain,1);CHECK(!(chain.buttons&IN_CANCEL));Release();p345Hud=true;
+    GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(897));
+    p345Muzzle=false;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(896)&&!GuestCofAdmitted(897));
+    p345Muzzle=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(897));
+    using guest::cof::ParsePistolAdmission;
+    CHECK(ParsePistolAdmission("1","").weapons==1&&ParsePistolAdmission("1","3").weapons==3);
+    CHECK(ParsePistolAdmission("0","3").weapons==0&&ParsePistolAdmission("1","0").weapons==0);
+    for(const char* invalid:{"-1","+3"," 3","3 ","3x","16","4294967296"})CHECK(ParsePistolAdmission("1",invalid).weapons==0);
+    generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     std::printf("host presentation/input/admission checks=%u failures=%u; controlled services; live=no performance=no\n",checks,failures);
     return failures?1:0;

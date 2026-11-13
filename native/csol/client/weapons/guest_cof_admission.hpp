@@ -11,5 +11,6 @@ void ShutdownGuestCofAdmission() noexcept;
 // HUD_Frame, after cold scene and HUD preparation. Never call from input/Draw.
 void GuestCofAdmissionFrame() noexcept;
 bool GuestCofAdmitted() noexcept;
+bool GuestCofAdmitted(int hostWeaponId) noexcept;
 void GuestCofAdmissionDiagnostics(std::ostream&);
 }

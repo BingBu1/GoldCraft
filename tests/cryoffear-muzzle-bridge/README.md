@@ -7,3 +7,9 @@ python tests/cryoffear-muzzle-bridge/run.py --environment ENV_JSON --commands CO
 ```
 
 Supply real local paths for uppercase arguments. This is component evidence, not full scene/gameplay/performance acceptance.
+
+Optional `--p345-model` requires the matching original P345 P-model hash and adds
+its type7 world/local callback checks. Type7 world effects do not emit Glock's
+type3 secondary shell. Both share the original single overwrite latch, while
+their actual model/header/index/resource identities remain separate. Missing
+P345 assets leave Glock readiness intact. Model/attachment preparation is cold.

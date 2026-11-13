@@ -314,7 +314,8 @@ int main(int argc, char** argv)
     for (unsigned group = 0; group < 2; ++group)
     {
         Begin(); registrations.fill(0); std::fill_n(registrations.begin() + group * 7, 7, 3);
-        before = reads; Complete(); Prepared(7); CHECK(reads == before + 8 + (group ? 5 : 0));
+        before = reads; Complete(); Prepared(7); CHECK(reads == before + 13);
+        CHECK(GuestCofResourcesState().weapons==(group?1u:2u));
     }
     Begin(); registrations.fill(GoldCraftSoundSignonRegistered); before = reads; Complete();
     Prepared(14); CHECK(reads == before + 20); // Local PCM is prepared even when native PCM is lazy.

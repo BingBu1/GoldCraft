@@ -481,7 +481,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
 {
     BossImpactCreateMove(active);
     CharacterCreateMove(frame, cmd, active);
-    GuestCofCreateMove(cmd, active && !CharacterMenuVisible(), GuestCofAdmitted());
+    GuestCofCreateMove(cmd, active && !CharacterMenuVisible(), GuestCofAdmitted(CurrentExtendedWeapon().id));
     BuyMenuCreateMove(cmd, active);
     ScenarioMapVoteCreateMove(cmd, active);
 }
