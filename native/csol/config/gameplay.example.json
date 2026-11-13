@@ -1,0 +1,218 @@
+{
+    "version": 2,
+    "features": {
+        "kick": {
+            "enabled": true,
+            "comment": "F范围踢击开关；关闭不删除配置，可再次开启。",
+            "values": {}
+        },
+        "time_cycle": {
+            "enabled": false,
+            "comment": "正午与黄昏按秒推进，之后保持永夜；BGM资源由服务端另验。",
+            "values": {
+                "midday_seconds": {
+                    "value": 180,
+                    "comment": "正午持续秒数；之后进入黄昏。"
+                },
+                "dusk_seconds": {
+                    "value": 120,
+                    "comment": "黄昏持续秒数；之后永久保持夜间。"
+                }
+            }
+        },
+        "blind_box": {
+            "enabled": false,
+            "comment": "三档盲盒使用本局CS金钱；奖池和真实发奖能力另验。",
+            "values": {
+                "blind_box_price_1": {
+                    "value": 3000,
+                    "comment": "第一档CS金钱价格，三档严格递增。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "blind_box_price_2": {
+                    "value": 6000,
+                    "comment": "第二档CS金钱价格，不用仓库币。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "blind_box_price_3": {
+                    "value": 9000,
+                    "comment": "第三档CS金钱价格，真实发奖另验。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "mastery": {
+            "enabled": false,
+            "comment": "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。",
+            "values": {
+                "mastery_threshold_1": {
+                    "value": 100,
+                    "comment": "本图累计熟练度第一档阈值。"
+                },
+                "mastery_threshold_2": {
+                    "value": 200,
+                    "comment": "本图累计熟练度第二档阈值，严格大于第一档。"
+                },
+                "mastery_threshold_3": {
+                    "value": 300,
+                    "comment": "本图累计熟练度第三档阈值，严格大于第二档。"
+                },
+                "mastery_reload_1": {
+                    "value": 0.85,
+                    "comment": "一档换弹时长倍率，1不变。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "mastery_reload_2": {
+                    "value": 0.7,
+                    "comment": "二档换弹时长倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "mastery_damage_2": {
+                    "value": 1.1,
+                    "comment": "二档伤害倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "mastery_damage_3": {
+                    "value": 1.2,
+                    "comment": "三档伤害倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "mastery_fire_rate_3": {
+                    "value": 1.1,
+                    "comment": "三档每秒射击频率倍率，1不变。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "cof_sprint": {
+            "enabled": false,
+            "comment": "CoF体力跑；原消耗恢复及动作消费者先取证，正午无限不能用NaN表示。",
+            "values": {
+                "sprint_maximum": {
+                    "value": null,
+                    "comment": "有限阶段体力上限，正午无限由阶段规则表达。"
+                },
+                "sprint_drain_per_second": {
+                    "value": null,
+                    "comment": "每秒跑动体力消耗，必须显式填写。"
+                },
+                "sprint_recovery_per_second": {
+                    "value": null,
+                    "comment": "每秒体力恢复，必须显式填写。"
+                },
+                "sprint_speed": {
+                    "value": null,
+                    "comment": "跑动基础速度，仍须宿主碰撞和移动权威验证。"
+                },
+                "walk_speed": {
+                    "value": null,
+                    "comment": "普通行走基础速度，不覆盖其他功能拥有的速度限制。"
+                },
+                "jump_cost": {
+                    "value": null,
+                    "comment": "跳跃单次体力消耗。"
+                },
+                "kick_cost": {
+                    "value": null,
+                    "comment": "踢击单次体力消耗，接受动作后由权威消费者记账。"
+                },
+                "dusk_maximum_multiplier": {
+                    "value": 1.5,
+                    "comment": "黄昏体力上限倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "dusk_recovery_multiplier": {
+                    "value": 1.25,
+                    "comment": "黄昏体力恢复倍率。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "blood": {
+            "enabled": false,
+            "comment": "血迹效果；最大数量与寿命有界，关闭只清理本功能拥有的实例。",
+            "values": {
+                "blood_lifetime_seconds": {
+                    "value": null,
+                    "comment": "本功能血迹寿命秒数，上限600秒避免无界留存。"
+                },
+                "blood_maximum": {
+                    "value": null,
+                    "comment": "本功能同时存活血迹硬上限，最多4096。"
+                }
+            }
+        },
+        "dusk_buff": {
+            "enabled": false,
+            "comment": "黄昏独立移速和回血参数；关闭保留参数。",
+            "values": {
+                "dusk_speed_multiplier": {
+                    "value": 1.05,
+                    "comment": "黄昏基础移速倍率，1不变。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "dusk_regen_per_second": {
+                    "value": 0.0,
+                    "comment": "黄昏每秒回血，0为无额外回血。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "night_buff": {
+            "enabled": false,
+            "comment": "永夜独立伤害、移速和回血参数；不开启不要求未定参数。",
+            "values": {
+                "night_damage_multiplier": {
+                    "value": 1.2,
+                    "comment": "永夜基础伤害倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "night_speed_multiplier": {
+                    "value": 1.1,
+                    "comment": "永夜基础移速倍率，1不变。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "night_regen_per_second": {
+                    "value": 0.0,
+                    "comment": "永夜每秒回血，0为无额外回血。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "zombie_population": {
+            "enabled": false,
+            "comment": "分阶段基础怪量与每玩家增加量；实际池容量由消费者核验。",
+            "values": {
+                "midday_zombie_base": {
+                    "value": null,
+                    "comment": "正午基础怪物目标数量；实际池容量仍需验证。"
+                },
+                "dusk_zombie_base": {
+                    "value": null,
+                    "comment": "黄昏基础怪物目标数量。"
+                },
+                "night_zombie_base": {
+                    "value": null,
+                    "comment": "永夜基础怪物目标数量。"
+                },
+                "zombies_per_player": {
+                    "value": null,
+                    "comment": "每位玩家额外目标怪数；加乘须检查实际池上限。"
+                }
+            }
+        },
+        "random_horde": {
+            "enabled": false,
+            "comment": "随机尸潮；间隔、0到1概率和持续时间必须明确。",
+            "values": {
+                "horde_interval_seconds": {
+                    "value": null,
+                    "comment": "随机尸潮抽样间隔秒数，必须为正。"
+                },
+                "horde_probability": {
+                    "value": null,
+                    "comment": "每次抽样尸潮概率，0到1而非百分整数。"
+                },
+                "horde_duration_seconds": {
+                    "value": null,
+                    "comment": "单次尸潮持续秒数，必须为正。"
+                }
+            }
+        },
+        "damage_refund_cap": {
+            "enabled": false,
+            "comment": "返现上限对每位玩家与每只怪物的组合分别累计，新怪租约获得新额度。",
+            "values": {
+                "damage_refund_max_per_monster": {
+                    "value": 1000,
+                    "comment": "每player-victim组合累计CS金钱上限，怪物新租约是新额度。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        }
+    }
+}

@@ -156,6 +156,57 @@ bool ReadEntries(const rapidjson::Value& object, Draft& draft, bool comments, Er
     }
     return true;
 }
+bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
+{
+    if (!object.IsObject()) return Fail(error, "features", "expected an object");
+    std::array<bool, FeatureCount> seen{};
+    for (const auto& member : object.GetObject())
+    {
+        const std::string_view key(member.name.GetString(), member.name.GetStringLength());
+        const auto feature = FindFeature(key);
+        if (!feature) return Fail(error, key, "unknown feature identity");
+        const auto index = static_cast<std::size_t>(*feature);
+        if (seen[index]) return Fail(error, key, "duplicate feature identity");
+        seen[index] = true;
+        const auto& group = member.value;
+        if (!Fields(group, std::array<std::string_view, 3>{"enabled", "comment", "values"}, key, error)) return false;
+        if (!group["enabled"].IsBool()) return Fail(error, key, "enabled must be a JSON boolean");
+        if (!group["comment"].IsString()) return Fail(error, key, "explanation must be a string");
+        if (!draft.Set(*feature, group["enabled"].GetBool(), error) ||
+            !draft.SetComment(*feature, {group["comment"].GetString(), group["comment"].GetStringLength()}, error)) return false;
+        const auto& values = group["values"];
+        if (!values.IsObject()) return Fail(error, key, "values must be an object");
+        std::array<bool, SettingCount> valueSeen{};
+        for (const auto& entry : values.GetObject())
+        {
+            const std::string_view name(entry.name.GetString(), entry.name.GetStringLength());
+            const auto setting = FindSetting(name);
+            if (!setting) return Fail(error, name, "unknown setting identity");
+            const auto settingIndex = static_cast<std::size_t>(*setting);
+            const auto& descriptor = SettingRows[settingIndex];
+            if (descriptor.feature != *feature) return Fail(error, name, "setting belongs to a different feature");
+            if (valueSeen[settingIndex]) return Fail(error, name, "duplicate setting identity");
+            valueSeen[settingIndex] = true;
+            const auto& leaf = entry.value;
+            if (!Fields(leaf, std::array<std::string_view, 2>{"value", "comment"}, name, error)) return false;
+            if (!leaf["comment"].IsString()) return Fail(error, name, "explanation must be a string");
+            const auto& number = leaf["value"];
+            if (number.IsNull())
+            {
+                if (descriptor.defaultValue) return Fail(error, name, "null is only valid for an optional setting without a default");
+                if (!draft.Set(*setting, std::nullopt, error)) return false;
+            }
+            else
+            {
+                if (!number.IsNumber() || (descriptor.type == ValueType::Integer && !number.IsInt64() && !number.IsUint64()))
+                    return Fail(error, name, "setting requires its declared numeric type");
+                if (!draft.Set(*setting, number.GetDouble(), error)) return false;
+            }
+            if (!draft.SetComment(*setting, {leaf["comment"].GetString(), leaf["comment"].GetStringLength()}, error)) return false;
+        }
+    }
+    return true;
+}
 }
 
 std::span<const FeatureDescriptor, FeatureCount> Features() noexcept { return FeatureRows; }
@@ -255,9 +306,18 @@ bool Parse(std::string_view json, SnapshotPtr& output, Error& error)
         rapidjson::kParseIterativeFlag | rapidjson::kParseFullPrecisionFlag>(json.data(), json.size());
     if (document.HasParseError())
     { error = {document.GetErrorOffset(), "root", "invalid JSON or UTF8 encoding"}; return false; }
+    if (!document.IsObject()) return Fail(error, "root", "expected an object");
+    const auto version = document.FindMember("version");
+    if (version == document.MemberEnd() || !version->value.IsInt() ||
+        (version->value.GetInt() != 1 && version->value.GetInt() != 2))
+        return Fail(error, "version", "version must be integer1 or2");
+    if (version->value.GetInt() == 2)
+    {
+        if (!Fields(document, std::array<std::string_view, 2>{"version", "features"}, "root", error)) return false;
+        Draft draft;
+        return ReadGrouped(document["features"], draft, error) && draft.Finish(output, error);
+    }
     if (!Fields(document, std::array<std::string_view, 4>{"version", "features", "values", "comments"}, "root", error)) return false;
-    if (!document["version"].IsInt() || document["version"].GetInt() != 1)
-        return Fail(error, "version", "version must be integer1");
     if (!Fields(document["comments"], std::array<std::string_view, 2>{"features", "values"}, "comments", error)) return false;
     Draft draft;
     return ReadEntries<true>(document["features"], draft, false, error) &&
@@ -271,22 +331,29 @@ std::string Serialize(const Snapshot& snapshot)
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     const auto key = [&](std::string_view text) { writer.Key(text.data(), static_cast<rapidjson::SizeType>(text.size())); };
     const auto text = [&](std::string_view value) { writer.String(value.data(), static_cast<rapidjson::SizeType>(value.size())); };
-    writer.StartObject(); key("version"); writer.Int(1);
+    writer.StartObject(); key("version"); writer.Int(2);
     key("features"); writer.StartObject();
-    for (const auto& descriptor : FeatureRows) { key(descriptor.key); writer.Bool(snapshot.Enabled(descriptor.id)); }
-    writer.EndObject(); key("values"); writer.StartObject();
-    for (const auto& descriptor : SettingRows)
-        if (const auto number = snapshot.Number(descriptor.id))
+    for (const auto& feature : FeatureRows)
+    {
+        key(feature.key); writer.StartObject();
+        key("enabled"); writer.Bool(snapshot.Enabled(feature.id));
+        key("comment"); text(snapshot.Comment(feature.id));
+        key("values"); writer.StartObject();
+        for (const auto& descriptor : SettingRows)
         {
-            key(descriptor.key);
-            if (descriptor.type == ValueType::Integer) writer.Int(static_cast<int>(*number));
-            else writer.Double(*number);
+            if (descriptor.feature != feature.id) continue;
+            key(descriptor.key); writer.StartObject(); key("value");
+            if (const auto number = snapshot.Number(descriptor.id))
+            {
+                if (descriptor.type == ValueType::Integer) writer.Int(static_cast<int>(*number));
+                else writer.Double(*number);
+            }
+            else writer.Null();
+            key("comment"); text(snapshot.Comment(descriptor.id)); writer.EndObject();
         }
-    writer.EndObject(); key("comments"); writer.StartObject(); key("features"); writer.StartObject();
-    for (const auto& descriptor : FeatureRows) { key(descriptor.key); text(snapshot.Comment(descriptor.id)); }
-    writer.EndObject(); key("values"); writer.StartObject();
-    for (const auto& descriptor : SettingRows) { key(descriptor.key); text(snapshot.Comment(descriptor.id)); }
-    writer.EndObject(); writer.EndObject(); writer.EndObject();
+        writer.EndObject(); writer.EndObject();
+    }
+    writer.EndObject(); writer.EndObject();
     return std::string(buffer.GetString(), buffer.GetSize()) + '\n';
 }
 }

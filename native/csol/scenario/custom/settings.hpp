@@ -94,13 +94,16 @@ public:
 private:
     Snapshot value_;
 };
-// Exactly {version:1, features:{known bools}, values:{known numbers},
-// comments:{features:{known strings}, values:{known strings}}}. Fields may
-// be omitted inside features/values to retain documented defaults; all four
-// root fields and both comments containers are mandatory. Missing
-// optional values are omitted from serialization, never emitted as null.
-// Both parse and Finish leave output unchanged on rejection. JSON // and
-// block comments are accepted; persistent prose lives in comments fields.
+// Canonical version2 is one grouped document:
+// {version:2, features:{feature:{enabled:bool,comment:string,
+// values:{setting:{value:number|null,comment:string}}}}}.
+// Settings must belong to their descriptor's feature. Null is permitted only
+// for absent optional settings without a default. Omitted feature/setting
+// objects retain defaults; present objects require every declared field.
+// Published version1's exact four-root features/values/comments envelope is
+// still accepted. Serialize always emits version2 with prose adjacent to the
+// setting it explains, including null optional entries so prose is preserved.
+// Parse/Finish preserve output on rejection. JSON // and block comments parse.
 bool Parse(std::string_view json, SnapshotPtr& output, Error& error);
 std::string Serialize(const Snapshot& snapshot);
 }

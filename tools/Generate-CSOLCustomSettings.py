@@ -34,10 +34,23 @@ def main():
         raise ValueError('Use the workspace-built pure settings executable')
     result = subprocess.run([str(executable), '--example'], cwd=ROOT,
                             capture_output=True, check=True, timeout=30)
-    text = result.stdout.decode('utf-8', errors='strict')
+    text = result.stdout.decode('utf-8', errors='strict').replace('\r\n', '\n')
     document = json.loads(text)
-    if set(document) != {'version', 'features', 'values', 'comments'} or document['version'] != 1:
-        raise ValueError('Codec did not produce the expected version1 envelope')
+    version = document.get('version')
+    if version == 1:
+        valid = set(document) == {'version', 'features', 'values', 'comments'}
+    elif version == 2:
+        valid = set(document) == {'version', 'features'} and isinstance(document['features'], dict)
+        for feature in document['features'].values():
+            valid = valid and isinstance(feature, dict) and set(feature) == {'enabled', 'comment', 'values'}
+            if not valid:
+                break
+            valid = isinstance(feature['enabled'], bool) and isinstance(feature['comment'], str) and \
+                isinstance(feature['values'], dict)
+    else:
+        valid = False
+    if not valid:
+        raise ValueError('Codec did not produce a supported single-file settings envelope')
     if args.output is None:
         sys.stdout.buffer.write(text.encode('utf-8'))
         return 0
