@@ -350,6 +350,10 @@ void CSOL_PrecacheGuestCof()
             ((current.effects.Capabilities() | EffectBit(GlockEffect::ShotLatch)) & HostEffects) != HostEffects||
             ((current.effects.P345Capabilities()|P345NativeSoundEffects|(1u<<unsigned(P345Effect::ShotLatch)))&P345RequiredEffects)!=P345RequiredEffects)
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Actual Glock consumers were not prepared\n"); return; }
+        const auto glockHud=PreparePistolPresentationResources(authority,Pistol::Glock);
+        const auto p345Hud=glockHud?PreparePistolPresentationResources(authority,Pistol::P345):glockHud;
+        if(!glockHud||!p345Hud||!Current(&current))
+        {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Guest HUD resource preparation failed: %s\n",p345Hud.path?p345Hud.path:"map authority");return;}
         current.ready = true;
         UTIL_PrecacheOtherWeapon(Pistols[0].classname.data());
         if (!Current(&current)) return;

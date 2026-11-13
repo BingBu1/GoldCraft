@@ -295,6 +295,30 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
 }
 }
 
+ResourceResult PreparePistolPresentationResources(const ResourceAuthority& authority,guest::cof::Pistol pistol) noexcept
+{
+    const auto lease=authority;
+    const auto paths=guest::cof::PistolPresentationResources(pistol);
+    if(!lease.current||!lease.generation)return {ResourceStatus::InvalidAuthority};
+    const auto current=[&]{return lease.current(lease.context);};
+    if(!current())return {ResourceStatus::Cancelled};
+    if(paths.empty())return {ResourceStatus::InvalidMetadata};
+    if(!g_engfuncs.pfnGetFileSize||!g_engfuncs.pfnPrecacheGeneric)return {ResourceStatus::MissingEngine};
+    for(const auto* path:paths)
+    {
+        const auto size=g_engfuncs.pfnGetFileSize(path);
+        if(!current())return {ResourceStatus::Cancelled,path};
+        if(size<=0)return {ResourceStatus::MissingFile,path};
+    }
+    for(const auto* path:paths)
+    {
+        const auto index=g_engfuncs.pfnPrecacheGeneric(path);
+        if(!current())return {ResourceStatus::Cancelled,path};
+        if(index<0)return {ResourceStatus::EngineRejected,path};
+    }
+    return {ResourceStatus::Prepared};
+}
+
 ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Resources& output) noexcept
 {
     return PrepareResources(authority, output, P345Models, P345Sounds, P345LocalWaves, P345Events,

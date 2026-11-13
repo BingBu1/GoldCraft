@@ -391,6 +391,8 @@ int main(int argc,char** argv){try{
     for(const auto* name:{"resource/private.cfg","resource/payload.dll","resource/combo.tga.exe","resource/../combo.tga","resource/CON.tga"})CHECK(!resource_name(name));
     for(const auto* name:{"resource/other.ttf","resource/font2/a.ttf","resource/font.ttf","resource/font/a.ttf.exe",
         "resource/font/a.otf","resource/font/../other.ttf","resource/font/CON.ttf","resource/font/font.ttf:private"})CHECK(!resource_name(name));
+    for(const char* name:{"inventoryitems/guest/cof/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/weapon_p345.txt","inventoryitems/guest/cof/weapons/weapon_revolver.txt","AURORA/GUEST/COF/GUNSMOKE.AUR"})CHECK(resource_name(name));
+    for(const char* name:{"inventoryitems/private.txt","inventoryitems/guest/cof2/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/../private.txt","inventoryitems/guest/cof/weapons/CON.txt","inventoryitems/guest/cof/weapons/item.txt.exe","aurora/private.aur","aurora/guest/cof2/gunsmoke.aur","aurora/guest/cof/gunsmoke.aur.exe","aurora/guest/cof/../secret.aur"})CHECK(!resource_name(name));
     transport_tests();server_tests();store_tests();adapter_tests();resource_sync_http_tests();WSACleanup();
     std::cout<<"HTTP production server/store/adapter checks="<<checks.load()<<" passed\n";
 }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;WSACleanup();return 1;}}

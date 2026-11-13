@@ -2,6 +2,7 @@
 #pragma once
 
 #include "native/guest/cof/magazine_model.hpp"
+#include "native/guest/cof/presentation_resources.hpp"
 #include "native/guest/cof/resource_catalog.hpp"
 #include "vector.h"
 #include <array>
@@ -102,6 +103,7 @@ struct ResourceResult
 // The caller authenticates map/content generation and caches this value before
 // input starts. Failure leaves output unchanged; precache side effects remain.
 // This is resource preparation, not P-model grip or effect/backend admission.
+ResourceResult PreparePistolPresentationResources(const ResourceAuthority&,guest::cof::Pistol) noexcept;
 ResourceResult PrepareP345Resources(const ResourceAuthority&, P345Resources&) noexcept;
 ResourceResult PrepareRevolverResources(const ResourceAuthority&, RevolverResources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.

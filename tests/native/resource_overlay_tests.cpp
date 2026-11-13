@@ -97,6 +97,8 @@ int main(int argc,char** argv) {
         CHECK(!overlay::SafeName(name));
     for(const char* name:{"models/v_test.mdl","sprites/HUD.spr","resource/cso_chn.txt","resource/font/font.ttf",
         "sound/a.wav","bgm/a.mp3","models/a.seq","materials/a.json","events/ak47.sc"})CHECK(overlay::SafeName(name));
+    for(const char* name:{"inventoryitems/guest/cof/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/weapon_p345.txt","inventoryitems/guest/cof/weapons/weapon_revolver.txt","AURORA/GUEST/COF/GUNSMOKE.AUR"})CHECK(overlay::SafeName(name));
+    for(const char* name:{"inventoryitems/private.txt","inventoryitems/guest/cof2/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/../private.txt","inventoryitems/guest/cof/weapons/CON.txt","inventoryitems/guest/cof/weapons/item.txt.exe","aurora/private.aur","aurora/guest/cof2/gunsmoke.aur","aurora/guest/cof/gunsmoke.aur.exe","aurora/guest/cof/../secret.aur"})CHECK(!overlay::SafeName(name));
     CHECK(!overlay::Begin(cacheRoot.string(),{{"models/plugin.dll",(cache/"models/update.mdl").string()}}));
     CHECK(!overlay::Begin(cacheRoot.string(),{{"models/update.mdl",(game/"models/update.mdl").string()}}));
     CHECK(Read(fs,"models/update.mdl")=="new!");

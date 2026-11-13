@@ -1,3 +1,4 @@
+#include "../include/goldcraft/cof_resource_paths.hpp"
 #include "http_download_server.h"
 #include "launcher_http.h"
 #include <algorithm>
@@ -158,7 +159,8 @@ bool resource_name(const std::string& name) {
            (root == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
            (root == "shader" && ext == ".txt") ||
            (root == "overviews" && (ext == ".txt" || ext == ".bmp" || ext == ".tga")) ||
-           (root == "events" && ext == ".sc");
+           (root == "events" && ext == ".sc") ||
+           goldcraft::cof::DownloadDataPath(lower(name));
 }
 
 bool public_url(const std::string& url) {

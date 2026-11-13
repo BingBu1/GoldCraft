@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../include/goldcraft/cof_resource_paths.hpp"
 #include <metahook.h>
 #include <IFileSystem.h>
 #include <bcrypt.h>
@@ -190,7 +191,8 @@ bool SafeName(const std::string& name) {
         (top == "gfx" && (ext == ".tga" || ext == ".bmp")) || lower == "gfx/tattoo/tattoo.cso" ||
         (top == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
         (top == "shader" && ext == ".txt") ||
-        (top == "overviews" && (ext == ".txt" || ext == ".bmp" || ext == ".tga")) || (top == "events" && ext == ".sc");
+        (top == "overviews" && (ext == ".txt" || ext == ".bmp" || ext == ".tga")) || (top == "events" && ext == ".sc") ||
+        goldcraft::cof::DownloadDataPath(lower);
 }
 bool Install(metahook_api_s* incoming, mh_interface_s* interfaces) {
     if (fs) return true;

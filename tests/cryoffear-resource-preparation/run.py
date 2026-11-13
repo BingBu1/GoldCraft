@@ -53,6 +53,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('sample', 'original', 'clip', 'clip-texture', 'environment', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument("--presentation",type=Path,help="Actual generated client HUD resources for both live pistols")
     args = parser.parse_args()
     output = args.output.absolute()
     for part in (output, *output.parents):
@@ -118,6 +119,9 @@ def main():
         args.sample.resolve(), proof, revolver_proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
+    if args.presentation:
+        for name in ('weapon_cof_glock.txt','weapon_cof_p345.txt','guest/cof/cglock.spr','guest/cof/cp345.spr','guest/cof/glock_ammo.spr','guest/cof/p345_ammo.spr'):
+            inputs.add((args.presentation/'sprites'/name).resolve(strict=True))
     includes = re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>',
                          project.read_text('utf-8-sig'))[1].split(';')
     includes = [(project.parent/v[len('$(ProjectDir)'):].replace('\\', '/').lstrip('/')).resolve()
@@ -158,7 +162,7 @@ def main():
     test = None
     if not compile_run.returncode:
         test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve()),
-                               str(args.clip_texture.resolve())],
+                               str(args.clip_texture.resolve())]+([str(args.presentation.resolve())]if args.presentation else []),
                               cwd=output, capture_output=True, text=True, timeout=30)
         (output/'test.log').write_text(test.stdout+test.stderr, 'utf-8')
     after = {str(p): sha(p) for p in sorted(inputs)}

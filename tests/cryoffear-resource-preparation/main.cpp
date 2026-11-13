@@ -135,7 +135,7 @@ bool Unchanged(const Resources& a, const Resources& b)
 
 int main(int argc, char** argv)
 {
-    if (argc != 4) return 2;
+    if (argc != 4 && argc != 5) return 2;
     g_engfuncs.pfnGetFileSize = FileSize;
     g_engfuncs.pfnLoadFileForMe = Load; g_engfuncs.pfnFreeFile = Free;
     g_engfuncs.pfnPrecacheModel = Model; g_engfuncs.pfnPrecacheSound = Sound;
@@ -397,6 +397,43 @@ int main(int argc, char** argv)
         exercise.template operator()<RevolverResources>(RevolverModels, RevolverSounds, RevolverLocalWaves, RevolverEvents,
             RevolverInventory, RevolverParticle, RevolverClipTexture, PrepareRevolverResources, 22, -6, 4.5f,
             "weapon_revolver", "\"4.5\"", "Revolver");
+        if(argc==5)for(auto pistol:{guest::cof::Pistol::Glock,guest::cof::Pistol::P345})
+        {
+            fixture=Fixture{};
+            const auto paths=guest::cof::PistolPresentationResources(pistol);
+            for(const auto* path:paths)fixture.files.emplace(path,Read(std::filesystem::path(argv[4])/path));
+            ResourceAuthority authority{&fixture,Current,19};
+            Check(bool(PreparePistolPresentationResources(authority,pistol)),"actual three authored HUD dependencies registered");
+            Check(fixture.steps==6&&fixture.precaches==3&&fixture.loads==0&&fixture.generics.size()==3,
+                "HUD cold preflight precedes generic registration without hot reads");
+            for(const auto* path:paths)
+            {
+                fixture.Reset();fixture.missing=path;
+                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::MissingFile&&fixture.precaches==0,
+                    "missing HUD resource rejects before any generic registration");
+            }
+            for(int edge=1;edge<=6;++edge)
+            {
+                fixture.Reset();fixture.cancelAt=edge;
+                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::Cancelled,
+                    "every HUD callback observes generation retirement");
+            }
+            for(int edge=4;edge<=6;++edge)
+            {
+                fixture.Reset();fixture.rejectAt=edge;
+                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::EngineRejected,
+                    "engine generic rejection never reports ready");
+            }
+            fixture.Reset();auto invalid=authority;invalid.current=nullptr;
+            Check(PreparePistolPresentationResources(invalid,pistol).status==ResourceStatus::InvalidAuthority,
+                "HUD needs a real generation provider");
+            fixture.Reset();g_engfuncs.pfnPrecacheGeneric=nullptr;
+            Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::MissingEngine,
+                "HUD missing actual generic consumer rejects");
+            g_engfuncs.pfnPrecacheGeneric=Generic;
+            Check(PreparePistolPresentationResources(authority,guest::cof::Pistol::Revolver).status==ResourceStatus::InvalidMetadata,
+                "unregistered Revolver presentation is not reported available");
+        }
     }
     catch (const std::exception& e) { std::printf("%s\n", e.what()); return 3; }
     std::printf("%u total checks, %u failures\n", checks, failures);
