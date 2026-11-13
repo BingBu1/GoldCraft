@@ -27,6 +27,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--compiler-dir', type=Path, required=True)
     parser.add_argument('--msbuild', type=Path, required=True)
+    parser.add_argument('--jobs', type=int, default=4, choices=range(1, 17))
     args = parser.parse_args()
     build, out = args.build.resolve(strict=True), args.output.resolve()
     if not build.is_relative_to(ROOT / 'build') or not out.is_relative_to(ROOT / 'build') or out.exists():
@@ -50,7 +51,7 @@ def main():
     if artifact.exists() and guard.identity(artifact)['nlink'] != 1:
         raise ValueError('Compiler output is a shared hard link')
     command = [str(msbuild),
-        str(ROOT / 'external/ReGameDLL_CS/msvc/ReGameDLL.sln'), '/m:4', '/nologo', '/v:normal',
+        str(ROOT / 'external/ReGameDLL_CS/msvc/ReGameDLL.sln'), '/m:' + str(args.jobs), '/nologo', '/v:normal',
         '/p:Configuration=Release', '/p:Platform=Win32', '/p:PlatformToolset=v145',
         '/p:PreferredToolArchitecture=x64', '/p:WindowsTargetPlatformVersion=10.0.26100.0',
         '/p:VcpkgEnabled=false', '/p:CLToolPath=' + compiler, '/p:CLToolExe=clang-cl.exe',
@@ -59,12 +60,14 @@ def main():
         '/p:ForceImportAfterCppTargets=' + str(build / 'Build-Isolated.targets'),
         '/p:PreBuildEventUseInBuild=false', '/p:PostBuildEventUseInBuild=false',
         '/p:MultiProcessorCompilation=false', '/p:UseMultiToolTask=true',
-        '/p:EnforceProcessCountAcrossBuilds=true', '/p:MultiProcMaxCount=4', '/p:CL_MPCount=4',
+        '/p:EnforceProcessCountAcrossBuilds=true', '/p:MultiProcMaxCount=' + str(args.jobs),
+        '/p:CL_MPCount=' + str(args.jobs),
         '/p:GoldCraftRoot=' + str(ROOT),
         '/p:ForceImportBeforeCppTargets=' + str(ROOT / 'native/server/GoldCraft.targets'),
         '/p:GoldCraftCommonLibrary=' + str(build / 'common/goldcraft_common.lib'),
         '/p:GoldCraftCsolWeaponTests=false', '/p:OutDir=' + str(build / 'regamedll') + '/']
     controls = [read_identity(path) for path in (Path(__file__), ROOT / 'tools/Build-CSOLCandidate.py',
+                                                 ROOT / 'tests/csol-rebuy/run_sdk.py',
                                                  environment, build / 'Build-Isolated.targets', msbuild,
                                                  Path(compiler) / 'clang-cl.exe', Path(compiler) / 'lld-link.exe',
                                                  Path(compiler) / 'llvm-lib.exe')]
@@ -92,7 +95,27 @@ def main():
         elapsedSeconds=time.monotonic() - started,
         validation='Full current-source x86 server link; no deployment or gameplay',
         artifact=guard.identity(artifact) if linked and artifact.is_file() else None)
-    (out / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', 'utf8')
+    receipt_path = out / 'receipt.json'
+    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n', 'utf8')
+    if receipt['success']:
+        # Seal the real output objects immediately after this unchanged full
+        # build. A later incremental build must not reseal overwritten objects
+        # and pretend that they belong to this baseline.
+        sdk_spec = importlib.util.spec_from_file_location('checkpoint_sdk', ROOT / 'tests/csol-rebuy/run_sdk.py')
+        sdk = importlib.util.module_from_spec(sdk_spec)
+        sdk_spec.loader.exec_module(sdk)
+        compile_command, link_command = sdk.commands(out / 'msbuild.log')
+        link_inputs = sdk.resolve_link_inputs(link_command, json.loads(environment.read_text('utf-8-sig')))
+        guard.check_sources(baseline)
+        for row in controls + link_inputs:
+            sdk.verify(row)
+        sdk.verify(receipt['artifact'])
+        seal = dict(receipt=sdk.identity(receipt_path), sourceInventory=sdk.identity(baseline / 'source-inputs.json'),
+                    log=sdk.identity(out / 'msbuild.log'), logEncoding=sdk.msbuild_text(out / 'msbuild.log')[1],
+                    environment=sdk.identity(environment), artifact=sdk.identity(artifact),
+                    compiler=sdk.identity(compile_command[0]), linker=sdk.identity(link_command[0]),
+                    compileCommand=compile_command, linkCommand=link_command, linkInputs=link_inputs)
+        (out / 'link-inputs.json').write_text(json.dumps(seal, indent=2) + '\n', 'utf8')
     print(json.dumps(receipt))
     return 0 if receipt['success'] else 1
 

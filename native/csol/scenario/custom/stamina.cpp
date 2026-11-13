@@ -16,13 +16,14 @@ float Capacity(const StaminaConfig& config, Phase phase) noexcept
 }
 bool Valid(const StaminaConfig& value) noexcept
 {
-    const float positive[]{value.maximum, value.recovery, value.duckRecovery,
-        value.duskMaximum, value.duskRecovery, value.exhaustionDelay,
+    const float positive[]{value.maximum,
+        value.duskMaximum, value.exhaustionDelay,
         value.walkReference, value.slowReference, value.sprintReference};
     for (const float number : positive) if (!std::isfinite(number) || number <= 0) return false;
-    const float costs[]{value.sprintEntry, value.sprintDrain, value.jumpCost, value.kickCost};
+    const float costs[]{value.sprintEntry, value.sprintDrain, value.jumpCost, value.kickCost,
+        value.recovery, value.duckRecovery, value.duskRecovery};
     for (const float number : costs) if (!std::isfinite(number) || number < 0) return false;
-    return value.duskMaximum >= 1 && value.duskRecovery >= 1 &&
+    return value.duskMaximum >= 1 &&
         std::isfinite(value.maximum * value.duskMaximum) &&
         std::isfinite(value.duckRecovery * value.duskRecovery) &&
         std::isfinite(value.recovery * value.duskRecovery) &&
@@ -45,12 +46,24 @@ StaminaView StaminaState::Current() const noexcept
     const bool infinite = phase_ == Phase::Noon;
     return {amount_, maximum_, sprinting_ ? config_.sprintReference :
         (slow_ || exhausted_ ? config_.slowReference : config_.walkReference), cycle_,
-        infinite, sprinting_, exhausted_, phase_ != Phase::Noon && amount_ >= config_.kickCost, key_.Valid()};
+        infinite, sprinting_, exhausted_, infinite || amount_ >= config_.kickCost, key_.Valid()};
 }
 std::optional<StaminaView> StaminaState::View(LifeKey key) const noexcept
 { return key_.Valid() && key == key_ ? std::optional{Current()} : std::nullopt; }
 bool StaminaState::CanKick(LifeKey key) const noexcept
 { const auto value = View(key); return value && value->kickAvailable; }
+bool StaminaState::DebitKick(LifeKey key) noexcept
+{
+    if (!CanKick(key)) return false;
+    if (phase_ != Phase::Noon) amount_ -= config_.kickCost;
+    return true;
+}
+bool StaminaState::Configure(LifeKey key, StaminaConfig config, Phase phase) noexcept
+{
+    if (!key_.Valid() || key != key_ || !Playing(phase) || !Valid(config)) return false;
+    config_ = config; phase_ = phase; maximum_ = Capacity(config_, phase);
+    amount_ = std::min(amount_, maximum_); return true;
+}
 std::optional<StaminaView> StaminaState::Step(const StaminaInput& input) noexcept
 {
     if (!key_.Valid() || input.key != key_ || !input.command || input.command <= command_ ||

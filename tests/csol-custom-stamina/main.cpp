@@ -78,7 +78,7 @@ void PhaseCapacityAndRecovery()
     input.wantsSprint = input.moving = input.acceptedJump = input.acceptedKick = true;
     auto value = Apply(state, input);
     Equal(value.amount, 100, "noon accepted run/jump/kick does not debit");
-    Check(value.infinite && !value.kickAvailable && value.sprinting, "noon infinite does not unlock kick");
+    Check(value.infinite && value.kickAvailable && value.sprinting, "noon infinite also permits the emergency kick");
     input = Input(180, 2, Phase::Dusk);
     value = Apply(state, input);
     Equal(value.maximum, 150, "balanced dusk capacity is150");

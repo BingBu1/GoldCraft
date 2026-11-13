@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -13,6 +14,8 @@
 
 namespace guest::cof::server
 {
+using csol::scenario::custom::ActionResumeResult;
+using csol::scenario::custom::ActionResumeToken;
 namespace
 {
 bool Finite(const Vector& v) noexcept
@@ -25,6 +28,189 @@ constexpr std::uint32_t EffectBit(GlockEffect effect) noexcept
 { return 1u << static_cast<unsigned>(effect); }
 template<class... T> constexpr std::uint32_t Effects(T... effects) noexcept
 { return (EffectBit(effects) | ...); }
+}
+
+goldcraft::scenario::GuestProfile GlockWeapon::ScenarioGuestProfile() const noexcept
+{
+    using namespace goldcraft::scenario;
+    return {Pistols[0].hostId,GuestMetadata::NoCsoItem,
+        GuestImpulse::WeaponOwnsHitBehavior,GuestKill::StandardPlayerProcessing};
+}
+struct GlockWeapon::InventoryState
+{
+    MagazineActionState action;
+    SpreadState spread;
+    SpreadTransitions transitions;
+    float actionDeadline{},emptyDeadline{},wearDeadline{},nextThink{};
+    float primary{},secondary{},idle{},ownerAttack{};
+    int reserveHud{},wearMaximum{},wear{},clip{},inReload{},fireOnEmpty{},ownerSerial{},weaponSerial{},modelIndex{},ownerSpawn{},viewSequence{};
+    std::uintptr_t map{},ownerContext{};
+    decltype(CBaseEntity::m_pfnThink) think{};
+    unsigned lightThink{};
+    bool selected{},meleePending{},taclightPending{},taclightInstalled{};
+    GlockStatus status{};
+};
+bool GlockWeapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output) const noexcept
+{
+    const auto lease=lease_;
+    if(!bound_||!pev||m_pPlayer!=lease.player||!Current(const_cast<Lease*>(&lease)))return false;
+    static_assert(std::is_trivially_copyable_v<InventoryState> && sizeof(InventoryState)<=512);
+    InventoryState saved{};
+    saved.action=action_;saved.spread=spread_;saved.transitions=transitions_;
+    saved.actionDeadline=actionDeadline_;saved.emptyDeadline=emptyDeadline_;saved.wearDeadline=wearDeadline_;
+    saved.nextThink=pev->nextthink;saved.think=m_pfnThink;saved.lightThink=lightThink_;
+    saved.primary=m_flNextPrimaryAttack;saved.secondary=m_flNextSecondaryAttack;saved.idle=m_flTimeWeaponIdle;
+    saved.ownerAttack=m_pPlayer->m_flNextAttack;saved.clip=m_iClip;
+    saved.inReload=m_fInReload;saved.fireOnEmpty=m_fFireOnEmpty;
+    saved.reserveHud=reserveHud_;saved.wearMaximum=wearMaximum_;saved.wear=wear_;
+    saved.ownerSerial=lease.ownerSerial;saved.weaponSerial=lease.weaponSerial;saved.modelIndex=lease.modelIndex;
+    saved.ownerSpawn=m_pPlayer->m_iNumSpawns;
+    saved.viewSequence=viewSequence_;
+    saved.map=reinterpret_cast<std::uintptr_t>(worldLease_.context);
+    saved.ownerContext=reinterpret_cast<std::uintptr_t>(lease.context);
+    saved.selected=selected_;saved.meleePending=meleePending_;
+    saved.taclightPending=taclightAttachPending_;saved.taclightInstalled=taclightInstalled_;saved.status=status_;
+    output.kind=0x434f46474c4f434bULL;output.bytes=sizeof(saved);
+    std::memcpy(output.data.data(),&saved,sizeof(saved));return true;
+}
+bool GlockWeapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
+{
+    if(overlay_.token.generation||!pev||m_pPlayer!=&player)return false;
+    const auto previous=lease_;
+    if(bound_&&Current(const_cast<Lease*>(&previous))&&pev->owner==player.edict())return true;
+    const auto world=worldLease_;const auto cold=cold_;const auto prepared=prepared_;
+    if(!WorldCurrent(world)||!cold.ownerBackends)return false;
+    const EHANDLE owner(&player);GlockBackends backend{};
+    const bool found=cold.ownerBackends(cold.context,player,backend);
+    if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found)return false;
+    if(Bind(player,prepared,backend)!=GlockStatus::Ready)return false;
+    const auto lease=lease_;
+    AttachToPlayer(&player);
+    if(!Current(const_cast<Lease*>(&lease)))return false;
+    selected_=player.m_pActiveItem==this;
+    if(pev->owner!=player.edict())return false;
+    return !selected_||PublishOwnerAim();
+}
+bool GlockWeapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapshot& input) noexcept
+{
+    const auto lease=lease_;
+    if(overlay_.token.generation||input.kind!=0x434f46474c4f434bULL||input.bytes!=sizeof(InventoryState)||!bound_||
+       !Current(const_cast<Lease*>(&lease))||m_pPlayer!=lease.player)return false;
+    InventoryState saved{};std::memcpy(&saved,input.data.data(),sizeof(saved));
+    if(saved.ownerSerial!=lease.ownerSerial||saved.weaponSerial!=lease.weaponSerial||saved.modelIndex!=lease.modelIndex||
+       saved.ownerSpawn!=m_pPlayer->m_iNumSpawns||
+       saved.map!=reinterpret_cast<std::uintptr_t>(worldLease_.context)||
+       saved.ownerContext!=reinterpret_cast<std::uintptr_t>(lease.context)||
+       (saved.selected && m_pPlayer->m_pActiveItem!=this))return false;
+    action_=saved.action;spread_=saved.spread;transitions_=saved.transitions;
+    actionDeadline_=saved.actionDeadline;emptyDeadline_=saved.emptyDeadline;wearDeadline_=saved.wearDeadline;
+    m_pfnThink=saved.think;pev->nextthink=saved.nextThink;lightThink_=saved.lightThink;
+    m_flNextPrimaryAttack=saved.primary;m_flNextSecondaryAttack=saved.secondary;m_flTimeWeaponIdle=saved.idle;
+    if(saved.selected)m_pPlayer->m_flNextAttack=saved.ownerAttack;
+    m_iClip=saved.clip;m_fInReload=saved.inReload;m_fFireOnEmpty=saved.fireOnEmpty;
+    reserveHud_=saved.reserveHud;wearMaximum_=saved.wearMaximum;wear_=saved.wear;
+    selected_=saved.selected;meleePending_=saved.meleePending;taclightAttachPending_=saved.taclightPending;
+    taclightInstalled_=saved.taclightInstalled;status_=saved.status;
+    viewSequence_=saved.viewSequence;
+    return !selected_||PublishOwnerAim();
+}
+bool GlockWeapon::PublishOwnerAim() noexcept
+{
+    auto lease=lease_;lease.active=true;
+    if(!selected_||!Current(&lease)||!prepared_.aimMetadataReady||!RequireEffects(EffectBit(GlockEffect::Aim)))return false;
+    // Host ownership handoff only: resend the existing proved state without
+    // invoking an aim transition, animation or new action deadline.
+    GlockEvent event{GlockEffect::Aim};event.enabled=action_.aiming;
+    event.first=action_.aiming?prepared_.aimOffset:Vector{};
+    event.value=action_.aiming?prepared_.aimZoom:0;event.a=350;
+    if(!Emit(event))return false;
+    if (!overlay_.token.generation || overlay_.resuming)
+        lease.player->pev->fov=action_.aiming?float(prepared_.aimZoom):90.0F;
+    return true;
+}
+
+bool GlockWeapon::OverlayCurrent() const noexcept
+{
+    auto lease = overlay_.lease;
+    return overlay_.token.generation && Current(&lease) &&
+        lease.player->m_iNumSpawns == overlay_.spawn && lease_.context == lease.context &&
+        lease_.owner == lease.owner && lease_.weapon == lease.weapon;
+}
+ActionResumeResult GlockWeapon::SuspendWeaponAction(ActionResumeToken token) noexcept
+{
+    if (!token.generation || overlay_.token.generation || !bound_ || viewSequence_ < 0)
+        return ActionResumeResult::Rejected;
+    auto lease = lease_; lease.active = true;
+    if (!Current(&lease)) return ActionResumeResult::Cancelled;
+    // Reserve before the authenticated owner-frame callback: synchronous reentry
+    // cannot acquire a second overlay over this same weapon action.
+    overlay_ = {token, lease, lease.player->m_iNumSpawns, false};
+    GlockOwnerFrame frame{};
+    if (!Check(frame) || !prepared_.aimMetadataReady ||
+        !RequireEffects(Effects(GlockEffect::Aim, GlockEffect::ViewAnimation)) ||
+        !RequireSequence(viewSequence_) || !OverlayCurrent() || overlay_.token != token)
+    {
+        if (overlay_.token == token) overlay_ = {};
+        return ActionResumeResult::Rejected;
+    }
+    return ActionResumeResult::Applied;
+}
+void GlockWeapon::CancelWeaponAction(ActionResumeToken token) noexcept
+{
+    if (!token.generation || overlay_.token != token) return;
+    overlay_ = {};
+    // Retirement is deliberately different from undoing failed overlay
+    // acquisition. The caller uses Resume for that non-destructive undo.
+    meleePending_ = false; lightThink_ = 0;
+    SetThink(nullptr); if (pev) pev->nextthink = 0;
+}
+ActionResumeResult GlockWeapon::ResumeWeaponAction(ActionResumeToken token) noexcept
+{
+    if (!token.generation || overlay_.token != token || overlay_.resuming)
+        return ActionResumeResult::Rejected;
+    if (!OverlayCurrent())
+    { CancelWeaponAction(token); return ActionResumeResult::Cancelled; }
+    overlay_.resuming = true;
+    GlockOwnerFrame frame{};
+    const auto current = [&]() noexcept { return overlay_.token == token && OverlayCurrent(); };
+    const auto rejected = [&]() noexcept
+    {
+        if (overlay_.token == token) overlay_.resuming = false;
+        return ActionResumeResult::Rejected;
+    };
+    if (!Check(frame) || !current()) return rejected();
+    if (action_.loading)
+    {
+        if (!RequireEffects(EffectBit(GlockEffect::InventoryChanged))) return rejected();
+        MagazineReload reload{action_.clip, action_.reserve, action_.ownerAttack, true};
+        ActionBridge bridge{this, lease_}; bridge.lease.active = true;
+        const auto result = CommitMagazineReload(reload, 15, 0, gpGlobals->time, ReloadCommitted, &bridge);
+        if (!Current(&bridge.lease)) return ActionResumeResult::Cancelled;
+        // The transfer already happened before the observer. Retain its consumed
+        // loading bit even if transport rejects; retry may never duplicate ammo.
+        action_.clip = reload.clip; action_.reserve = reload.reserve; action_.loading = reload.loading;
+        WriteAmmo();
+        if (result.status == ReloadCommitStatus::Committed)
+        {
+            if (action_.action == 2) action_.action = 0;
+            viewSequence_ = (action_.aiming ? 32 : 0) + (action_.clip == 0);
+        }
+        if (!current() || bridge.callbackFailed || result.status == ReloadCommitStatus::Invalid)
+            return rejected();
+    }
+    if (!UpdateBody(frame.lightOn) || !current() || !PublishOwnerAim() || !current()) return rejected();
+    const int sequence = viewSequence_;
+    if (!RequireSequence(sequence)) return rejected();
+    m_pPlayer->pev->viewmodel = prepared_.viewModelString;
+    m_pPlayer->pev->weaponmodel = prepared_.playerModelString;
+    std::memcpy(m_pPlayer->m_szAnimExtention, "onehanded", sizeof("onehanded"));
+    if (!View(sequence) || !current()) return rejected();
+    // Overlay still owns the player gate. Mirror only the live absolute weapon
+    // clocks; the generic controller releases its own lock after return.
+    MirrorTimers(true);
+    overlay_ = {};
+    status_ = GlockStatus::Applied;
+    return ActionResumeResult::Applied;
 }
 
 bool GlockWeapon::Current(void* context) noexcept
@@ -96,6 +282,7 @@ void GlockWeapon::Precache()
 GlockStatus GlockWeapon::Bind(CBasePlayer& owner, const GlockPrepared& p,
                           const GlockBackends& backends) noexcept
 {
+    if (overlay_.token.generation) CancelWeaponAction(overlay_.token);
     bound_ = selected_ = meleePending_ = false;
     status_ = GlockStatus::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect)
@@ -122,6 +309,7 @@ GlockStatus GlockWeapon::Bind(CBasePlayer& owner, const GlockPrepared& p,
 
 void GlockWeapon::Spawn()
 {
+    overlay_ = {}; viewSequence_ = -1;
     action_ = {};
     spread_ = {};
     transitions_ = {};
@@ -394,6 +582,8 @@ void GlockWeapon::WeaponReloadCompleted(int)
 
 bool GlockWeapon::Check(GlockOwnerFrame& frame, bool active) noexcept
 {
+    if (overlay_.token.generation && !OverlayCurrent())
+    { CancelWeaponAction(overlay_.token); status_ = GlockStatus::Cancelled; return false; }
     if (!bound_) { status_ = GlockStatus::MissingBackend; return false; }
     Lease l = lease_; l.active = active;
     if (!Current(const_cast<Lease*>(&l)) || (active &&
@@ -504,6 +694,11 @@ bool GlockWeapon::Emit(GlockEvent event) noexcept
     Lease l = lease_; l.active = selected_;
     auto effect = backends_.effect;
     if (!Current(&l) || !RequireEffects(EffectBit(event.kind))) return false;
+    // Custom overlay owns presentation, not the weapon's action state. Original
+    // Think callbacks may progress while their gun view/body/aim is obscured.
+    if (overlay_.token.generation && !overlay_.resuming &&
+        (event.kind == GlockEffect::ViewAnimation || event.kind == GlockEffect::Aim ||
+         event.kind == GlockEffect::Body)) return OverlayCurrent();
     const bool delivered = effect(l.context, *l.player, *this, event);
     if (!Current(&l)) return false;
     if (!delivered) status_ = GlockStatus::MissingBackend;
@@ -521,7 +716,9 @@ bool GlockWeapon::View(int sequence) noexcept
 {
     if (!RequireSequence(sequence)) return false;
     GlockEvent event{GlockEffect::ViewAnimation}; event.value = sequence;
-    return Emit(event);
+    if (!Emit(event)) return false;
+    viewSequence_ = sequence;
+    return true;
 }
 void GlockWeapon::ReadAmmo() noexcept
 {
@@ -543,9 +740,11 @@ void GlockWeapon::MirrorTimers(bool selected) noexcept
     m_flNextSecondaryAttack = action_.secondary;
     m_flTimeWeaponIdle = action_.idle;
 #ifdef CLIENT_WEAPONS
-    m_pPlayer->m_flNextAttack = selected ? 0.0f : action_.ownerAttack - gpGlobals->time;
+    if (!overlay_.token.generation)
+        m_pPlayer->m_flNextAttack = selected ? 0.0f : action_.ownerAttack - gpGlobals->time;
 #else
-    m_pPlayer->m_flNextAttack = selected ? gpGlobals->time : action_.ownerAttack;
+    if (!overlay_.token.generation)
+        m_pPlayer->m_flNextAttack = selected ? gpGlobals->time : action_.ownerAttack;
 #endif
 }
 BOOL GlockWeapon::CanDeploy()
@@ -555,6 +754,7 @@ BOOL GlockWeapon::CanDeploy()
 }
 BOOL GlockWeapon::Deploy()
 {
+    if (overlay_.token.generation) CancelWeaponAction(overlay_.token);
     GlockOwnerFrame frame{};
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     std::uint32_t effects = Effects(GlockEffect::DeployPrelude, GlockEffect::DeployReset, GlockEffect::InventoryChanged);
@@ -613,6 +813,7 @@ BOOL GlockWeapon::Deploy()
 }
 void GlockWeapon::Holster(int)
 {
+    if (overlay_.token.generation) CancelWeaponAction(overlay_.token);
     GlockOwnerFrame frame{};
     if (!Check(frame, false)) return;
     if (!RequireSequence(action_.clip ? 8 : 9) ||
@@ -666,6 +867,7 @@ void GlockWeapon::SetResult(MagazineActionResult result) noexcept
 }
 void GlockWeapon::Reload()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame) || !ReloadReady()) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     const auto result = StartMagazineReload(Pistol::Glock, action_, gpGlobals->time,
@@ -675,6 +877,7 @@ void GlockWeapon::Reload()
 }
 void GlockWeapon::SecondaryAttack()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame) || !MeleeReady(frame)) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     const auto result = StartPistolMelee(Pistol::Glock, action_, gpGlobals->time, ActionHost(bridge));
@@ -727,6 +930,7 @@ bool GlockWeapon::SetAim(bool enabled) noexcept
 
 void GlockWeapon::PrimaryAttack()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame) || !PrimaryReady(frame)) return;
     const float now = gpGlobals->time;
     if (action_.primary > now || !(frame.pressed & 1u) || action_.action)
@@ -831,6 +1035,7 @@ GlockStatus GlockWeapon::RequestTaclightAttachment() noexcept
 }
 void GlockWeapon::WeaponFunction()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame)) return;
     const float now = gpGlobals->time;
     if (action_.primary > now || action_.secondary > now || !taclightInstalled_ ||
@@ -897,6 +1102,7 @@ void GlockWeapon::AdvanceOwnerFrame() noexcept
 
 void GlockWeapon::ItemPostFrame()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame)) return;
     Lease l = lease_; l.active = true;
     const float now = gpGlobals->time;
@@ -1024,6 +1230,7 @@ void GlockWeapon::ItemPostFrame()
 }
 void GlockWeapon::WeaponIdle()
 {
+    if (overlay_.token.generation) return;
     GlockOwnerFrame frame{}; if (!Check(frame)) return;
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     if (action_.idle <= gpGlobals->time && !action_.action && !action_.special &&
@@ -1034,6 +1241,7 @@ void GlockWeapon::WeaponIdle()
 }
 void GlockWeapon::Invalidate() noexcept
 {
+    overlay_ = {};
     bound_ = selected_ = meleePending_ = false; lightThink_ = 0;
     SetThink(nullptr); if (pev) pev->nextthink = 0;
     status_ = GlockStatus::Cancelled;

@@ -93,7 +93,9 @@ def commands(log):
     templates = [line for line in lines if 'clang-cl.exe /c ' in line and
                  re.search(r'(?:scenario_light_zombie|player)\.cpp(?:["\s]|$)|'
                            r'(?:^|[\\/])native[\\/]csol[\\/]server[\\/]'
-                           r'(?:buy_menu|scenario[\\/]core[\\/]game_rules_gate)\.cpp(?:["\s]|$)',
+                           r'[^"\r\n]+\.cpp(?:["\s]|$)|'
+                           r'(?:^|[\\/])native[\\/]guest[\\/]cof[\\/]'
+                           r'[^"\r\n]+\.cpp(?:["\s]|$)',
                            line, re.I)]
     starts = [i for i, line in enumerate(lines) if 'lld-link.exe /ERRORREPORT:' in line]
     if not templates or len(starts) != 1:
@@ -241,6 +243,12 @@ def run(args):
     for directory in set(checked(p) for p in dirs if p.is_dir()):
         for path in directory.rglob('*'):
             if path.is_file() and (not path.suffix or path.suffix.lower() in ('.h', '.hpp', '.hxx', '.inl', '.inc', '.tcc', '.lib')):
+                # MSBuild bookkeeping can live below the SDK include root. It
+                # is not a compiler/linker input and changes in other builds.
+                # An actual dependency here still fails the unrecorded-input
+                # check rather than being silently accepted.
+                if any(part.lower().endswith('.tlog') for part in path.parts):
+                    continue
                 track(path)
     out.mkdir(); (out / 'temp').mkdir()
     receipt = dict(success=False, inputsUnchanged=False, sourceCopies=0, fullDLL=False,

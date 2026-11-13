@@ -9,6 +9,8 @@
 #include "../../scenario_character_skills/host.hpp"
 #include "../../../scenario/core/human_kick.hpp"
 #include "../monsters/scenario_monster_factory.h"
+#include "../../custom/action_stamina.h"
+#include "../../../scenario/custom/action_resume.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -33,6 +35,7 @@ struct ColdResources
 ColdResources resources;
 std::uint64_t resourceGeneration{};
 std::uint32_t nextLife{};
+std::uint64_t nextAction{};
 bool preparing{}, sending{};
 bool policyEnabled{true};
 
@@ -48,10 +51,14 @@ struct State
     EHANDLE player, weapon;
     std::uint64_t generation{}, round{}, spawn{}, actorGeneration{}, nativeSpawn{};
     std::uint32_t revision{};
+    csol::scenario::custom::ActionResumeToken action;
+    string_t savedViewmodel{}, savedWeaponmodel{};
+    float startedAt{}, savedOwnerAttack{}, savedFov{};
+    int savedAnimation{}, savedIntFov{};
     int nativeSpawns{}, modelIndex{}, activeModel{}, sequence{-1}, slot{};
     std::uint8_t sentFlags{255};
     kick::Clock clock;
-    bool busy{}, retired{}, locked{};
+    bool busy{}, retired{}, locked{}, resumable{}, restoring{};
 
     CBasePlayer* Current() const
     {
@@ -87,7 +94,7 @@ std::shared_ptr<State> Find(CBasePlayer& player)
     const int index = player.entindex();
     if (!access->Allowed() || handle.Get<CBaseEntity>() != &player || index < 1 || index > 32) return {};
     const auto state = states[index];
-    return state && state->Current() == &player ? state : nullptr;
+    return state && !state->restoring && state->Current() == &player ? state : nullptr;
 }
 std::shared_ptr<State> Prepare(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer& player)
 {
@@ -105,6 +112,7 @@ std::shared_ptr<State> Prepare(const std::shared_ptr<CCSOLScenarioRuntime>& runt
         runtime->players->Find(handle) != profile || handle.Get<CBaseEntity>() != &player ||
         index < 1 || index > 32) return {};
     auto state = states[index];
+    if (state && state->restoring) return {};
     if (!state || state->Current() != &player)
     {
         if (nextLife == UINT32_MAX) return {};
@@ -141,23 +149,20 @@ std::shared_ptr<State> Prepare(const std::shared_ptr<CCSOLScenarioRuntime>& runt
 bool Enabled(const State& state, const CBasePlayer& player)
 {
     const auto runtime = state.runtime.lock();
-    return policyEnabled && runtime && runtime->session->State() == CSOLScenarioSessionState::Active &&
+    return policyEnabled && !state.restoring && runtime && runtime->session->State() == CSOLScenarioSessionState::Active &&
         state.sequence >= 0 && player.pev->deadflag == DEAD_NO && player.pev->health > 0 &&
         !player.pev->iuser1 && !(player.pev->flags & FL_FROZEN);
 }
 bool Ready(const State& state, CBasePlayer& player)
 {
-    if (!Enabled(state, player) || !gpGlobals || !state.clock.ReadyAt(gpGlobals->time) ||
-        !player.m_bCanShoot || player.m_flNextAttack > 0 ||
-        (player.m_iFOV != 90 && player.m_iFOV != 0) ||
-        csol::scenario::skills::PreserveCharacterAction(player, PLAYER_IDLE)) return false;
-    // The original per-item zoom flag is not stock ItemInfo::iFlags. As in
-    // the existing action adapter, scoped state is preserved until mapped.
+    if (!Enabled(state, player) || !gpGlobals || !std::isfinite(gpGlobals->time) ||
+        state.clock.ActiveNow() || !nextLife || nextAction == UINT64_MAX) return false;
     auto* item = dynamic_cast<CBasePlayerWeapon*>(player.m_pActiveItem);
-    return item && !(item->pev->flags & FL_KILLME) && !item->m_fInReload &&
-        item->m_flStartThrow <= 0 && item->m_flReleaseThrow <= 0 &&
-        item->m_flNextPrimaryAttack <= UTIL_WeaponTimeBase() &&
-        item->m_flNextSecondaryAttack <= UTIL_WeaponTimeBase();
+    const auto runtime = state.runtime.lock();
+    // The user explicitly permits emergency kicks during attacks, reloads and
+    // aiming. Weapon timers continue to belong to the interrupted weapon.
+    return item && !(item->pev->flags & FL_KILLME) && runtime &&
+        CSOL_ActionStaminaCanKick(runtime, player);
 }
 bool Publish(const std::shared_ptr<State>& state, bool force = false)
 {
@@ -195,27 +200,63 @@ bool Animation(const std::shared_ptr<State>& state, int sequence)
 }
 bool Finish(const std::shared_ptr<State>& state, bool restore)
 {
+    if (state->restoring) return false;
+    Busy restoration(state->restoring);
     const bool wasActive = state->clock.ActiveNow();
     state->clock.Finish();
     auto* player = state->Current();
     if (!player) return false;
-    if (state->locked)
-    {
-        state->locked = false;
-        // Release only the lock still represented by our foot viewmodel. A
-        // callback's new weapon Deploy owns its replacement attack timer.
-        if (player->pev->viewmodel == resources.viewmodel) player->m_flNextAttack = -1;
-    }
-    if (!wasActive || !restore || player->pev->deadflag != DEAD_NO || player->pev->health <= 0) return true;
-    // A weapon selected by a callback already owns its Deploy and draw timers.
     auto* item = state->weapon.Get<CBasePlayerItem>();
-    if (player->m_pActiveItem != item) return true;
-    if (!item) { player->m_flNextAttack = 0; return true; }
-    const bool deployed = item->Deploy() != FALSE;
-    player = state->Current();
-    if (!player || state->weapon.Get<CBasePlayerItem>() != item || player->m_pActiveItem != item) return false;
-    // 0x23 is SVC_WEAPONANIM, not animation35. Deploy chooses the sequence.
-    return deployed && Animation(state, player->pev->weaponanim);
+    const bool ownsLock = state->locked && player->pev->viewmodel == resources.viewmodel &&
+        player->m_flNextAttack > 100000.0f;
+    state->locked = false;
+    const bool resume = wasActive && restore && item && player->m_pActiveItem == item &&
+        player->pev->deadflag == DEAD_NO && player->pev->health > 0;
+    bool applied = true;
+    if (auto* action = state->resumable ?
+        dynamic_cast<csol::scenario::custom::ResumableWeaponAction*>(item) : nullptr)
+    {
+        if (resume)
+        {
+            const auto result = action->ResumeWeaponAction(state->action);
+            applied = result == csol::scenario::custom::ActionResumeResult::Applied;
+            if (result == csol::scenario::custom::ActionResumeResult::Rejected && ownsLock &&
+                state->Current() == player && player->m_pActiveItem == item &&
+                player->pev->viewmodel == resources.viewmodel && player->m_flNextAttack > 100000.0f)
+            {
+                // A rejected observer may have already committed the real
+                // reload. Retain this overlay for a presentation-only retry;
+                // never lose the token or unlock a still-suspended guest gun.
+                state->locked = true;
+                state->clock.BeginEmergency(gpGlobals->time);
+                return true;
+            }
+        }
+        else action->CancelWeaponAction(state->action);
+        player = state->Current();
+        if (!player || state->weapon.Get<CBasePlayerItem>() != item) return false;
+    }
+    if (resume && (!state->resumable || !applied))
+    {
+        // Resume native presentation only. Deploy would restart its cooldown
+        // and may discard/repeat the in-flight reload or attack.
+        player->pev->viewmodel = state->savedViewmodel;
+        player->pev->weaponmodel = state->savedWeaponmodel;
+        player->pev->weaponanim = state->savedAnimation;
+        if (player->pev->fov == 90) player->pev->fov = state->savedFov;
+        if (player->m_iFOV == 90) player->m_iFOV = state->savedIntFov;
+        const bool restored = Animation(state, state->savedAnimation);
+        applied = applied && restored;
+        player = state->Current();
+        if (!player || state->weapon.Get<CBasePlayerItem>() != item) return false;
+    }
+    state->resumable = false; state->action = {};
+    // A callback may have selected another weapon or installed another timer.
+    // Preserve it. Only the still-owned large action lock is released here.
+    if (ownsLock && player->m_pActiveItem == item && player->m_flNextAttack > 100000.0f)
+        player->m_flNextAttack = std::max(-1.0f,
+            state->savedOwnerAttack - (gpGlobals->time - state->startedAt));
+    return applied;
 }
 
 bool ImpactSound(const std::shared_ptr<State>& state, const Vector& start,
@@ -346,6 +387,7 @@ bool CSOL_PrecacheHumanKick(const std::shared_ptr<const CSOLScenarioEntityAccess
     Busy guard(preparing);
     const auto revision = ++resourceGeneration;
     resources = {}; states = {}; operating = {};
+    CSOL_ResetActionStamina();
     const auto current = [&] { return access->Allowed() && resourceGeneration == revision; };
     const int size = g_engfuncs.pfnGetFileSize(kick::FootModel);
     if (!current()) return false;
@@ -385,6 +427,11 @@ bool CSOL_UpdateHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     if (!state || state->busy || operating[state->slot]) return true;
     Busy operation(operating[state->slot]);
     Busy guard(state->busy);
+    if (player.pev->deadflag == DEAD_NO && player.pev->health > 0)
+    {
+        if (!CSOL_TickActionStamina(runtime, player, gpGlobals->time, error)) return false;
+    }
+    else CSOL_RetireActionStamina(player);
     if (state->clock.ActiveNow())
     {
         const bool alive = player.pev->deadflag == DEAD_NO && player.pev->health > 0;
@@ -407,12 +454,35 @@ bool CSOL_TryHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, ConfigError& error)
 {
     const auto state = Prepare(runtime, player);
-    if (!state || state->busy || operating[state->slot] || !Ready(*state, player)) return true;
+    if (!state || state->busy || operating[state->slot]) return true;
     Busy operation(operating[state->slot]);
     Busy guard(state->busy);
+    if (!CSOL_TickActionStamina(runtime, player, gpGlobals->time, error)) return false;
+    if (!Ready(*state, player)) return true;
     auto* weapon = player.m_pActiveItem;
-    if (!weapon || !state->clock.Begin(gpGlobals->time)) return true;
+    if (!weapon || !state->clock.BeginEmergency(gpGlobals->time)) return true;
     state->weapon = weapon;
+    state->action = {++nextAction};
+    state->startedAt = gpGlobals->time; state->savedOwnerAttack = player.m_flNextAttack;
+    state->savedViewmodel = player.pev->viewmodel; state->savedWeaponmodel = player.pev->weaponmodel;
+    state->savedAnimation = player.pev->weaponanim;
+    state->savedFov = player.pev->fov; state->savedIntFov = player.m_iFOV;
+    if (auto* action = dynamic_cast<csol::scenario::custom::ResumableWeaponAction*>(weapon))
+    {
+        const auto result = action->SuspendWeaponAction(state->action);
+        if (state->Current() != &player || state->weapon.Get<CBasePlayerItem>() != weapon ||
+            player.m_pActiveItem != weapon) return false;
+        if (result != csol::scenario::custom::ActionResumeResult::Applied)
+        { state->clock.Finish(); state->action = {}; return true; }
+        state->resumable = true;
+    }
+    const auto debit = CSOL_TryDebitKickStamina(runtime, player, state->action.generation);
+    if (debit != CSOLKickStaminaDebit::Applied)
+    {
+        if (state->resumable) return Finish(state, true);
+        state->clock.Finish(); state->action = {};
+        return true;
+    }
     state->activeModel = player.pev->modelindex;
     player.pev->sequence = state->sequence; player.pev->frame = 0;
     player.ResetSequenceInfo();
@@ -421,6 +491,7 @@ bool CSOL_TryHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     player.m_flNextAttack = 1000000.0f; // Host CLIENT_WEAPONS duration, not a recovery timer.
     state->locked = true;
     player.pev->viewmodel = resources.viewmodel; player.pev->weaponmodel = 0;
+    player.pev->fov = 90; player.m_iFOV = 90;
     player.pev->weaponanim = 1; player.pev->framerate = 1;
     if (!Animation(state, 1)) return false;
     if (!Publish(state, true)) return false;
@@ -431,20 +502,12 @@ void CSOL_ResetHumanKick(CBasePlayer& player, bool restore)
 {
     const auto state = Find(player);
     if (!state) return;
-    // Revoke before any Deploy/message hook can create another state here.
     restore = restore && state->clock.ActiveNow() && player.pev->deadflag == DEAD_NO &&
         player.pev->health > 0 && player.m_pActiveItem == state->weapon.Get<CBasePlayerItem>();
-    state->clock.Finish();
+    // Finish guards restoration reentry. Keep the player's real weapon clocks
+    // and in-flight reload; reset never calls its ordinary Deploy method.
+    Finish(state, restore);
     state->retired = true;
-    if (state->locked && player.pev->viewmodel == resources.viewmodel) player.m_flNextAttack = -1;
-    state->locked = false;
-    // Keep the retired clock as a same-life tombstone. Prepare replaces it
-    // while preserving cooldown, and death/spawn identity starts a fresh life.
-    if (restore && state->access->Allowed())
-    {
-        auto* item = state->weapon.Get<CBasePlayerItem>();
-        if (item && player.m_pActiveItem == item) item->Deploy();
-    }
 }
 bool CSOL_PreserveHumanKickAnimation(CBasePlayer& player, int activity)
 {

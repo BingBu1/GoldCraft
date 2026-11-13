@@ -49,6 +49,9 @@ public:
     std::optional<StaminaView> Step(const StaminaInput&) noexcept;
     std::optional<StaminaView> View(LifeKey key) const noexcept;
     bool CanKick(LifeKey key) const noexcept;
+    // Accepted host action only, independent of PostThink recovery cadence.
+    bool DebitKick(LifeKey key) noexcept;
+    bool Configure(LifeKey key, StaminaConfig config, Phase phase) noexcept;
     bool Retire(LifeKey key) noexcept;
     void Reset() noexcept;
 private:

@@ -2290,7 +2290,24 @@
     "tests/cryoffear-hand-joints/README.md",
     "tests/csol-custom-admin/run_pawn.py",
     "docs/2026-11-13_修复-M玩家购买与管理员两级入口-report.md",
-    "docs/2026-11-13_修复-CoF技能扩容导致武器停用-report.md"
+    "docs/2026-11-13_修复-CoF技能扩容导致武器停用-report.md",
+    "native/csol/scenario/custom/action_resume.hpp",
+    "native/csol/server/custom/action_stamina.h",
+    "native/csol/server/custom/action_stamina.cpp",
+    "native/include/goldcraft/inventory_restore.hpp",
+    "native/include/goldcraft/scenario_guest_weapon.hpp",
+    "tests/csol-emergency-kick/sdk.cpp",
+    "tests/csol-emergency-kick/run.py",
+    "tests/csol-emergency-kick/README.md",
+    "tests/csol-cof-kick/sdk.cpp",
+    "tests/csol-cof-kick/emergency.cpp",
+    "tests/csol-cof-kick/run.py",
+    "tests/csol-cof-kick/run_emergency.py",
+    "tests/csol-cof-kick/README.md",
+    "tests/csol-cof-kick/RESUME_CONTRACT.md",
+    "tests/csol-cof-kick/EMERGENCY_DESIGN.md",
+    "tools/win32_processes.py",
+    "docs/2026-11-13_实现-应急踢击动作恢复与体力-report.md"
   ],
   "trees": {
     "native": [

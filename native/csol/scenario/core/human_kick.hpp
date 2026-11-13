@@ -86,18 +86,28 @@ public:
         if (!ReadyAt(now)) return false;
         last_ = now;
         active_ = true;
+        emergency_ = false;
+        return true;
+    }
+    // User's emergency rule: stamina owns admission and an active action is
+    // exclusive; no additional post-action cooldown blocks a second kick.
+    bool BeginEmergency(float now)
+    {
+        if (!std::isfinite(now) || active_) return false;
+        last_ = now; active_ = emergency_ = true;
         return true;
     }
     void Finish() { active_ = false; }
     bool ActiveNow() const { return active_; }
     float Remaining(float now) const
     {
+        if (emergency_) return 0;
         if (!std::isfinite(now)) return Cooldown;
         const float remaining = last_ + Cooldown - now;
         return remaining > 0 ? (remaining < Cooldown ? remaining : Cooldown) : 0;
     }
 private:
     float last_{};
-    bool active_{};
+    bool active_{}, emergency_{};
 };
 }

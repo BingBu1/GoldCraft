@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "native/include/goldcraft/scenario_guest_weapon.hpp"
+#include "native/include/goldcraft/inventory_restore.hpp"
+#include "native/csol/scenario/custom/action_resume.hpp"
 
 #include "weapons.h"
 #include "../magazine_actions.hpp"
@@ -99,9 +102,20 @@ struct GlockBackends
 
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
 // outside this translation unit. Original IDs never index CS's weapon tables.
-class GlockWeapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle
+class GlockWeapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
+    public goldcraft::scenario::GuestWeapon, public goldcraft::inventory::RestorableWeapon,
+    public csol::scenario::custom::ResumableWeaponAction
 {
 public:
+    csol::scenario::custom::ActionResumeResult SuspendWeaponAction(
+        csol::scenario::custom::ActionResumeToken) noexcept override;
+    csol::scenario::custom::ActionResumeResult ResumeWeaponAction(
+        csol::scenario::custom::ActionResumeToken) noexcept override;
+    void CancelWeaponAction(csol::scenario::custom::ActionResumeToken) noexcept override;
+    goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept override;
+    bool SaveInventorySnapshot(goldcraft::inventory::Snapshot&) const noexcept override;
+    bool RestoreInventoryBinding(CBasePlayer&) noexcept override;
+    bool RestoreInventorySnapshot(const goldcraft::inventory::Snapshot&) noexcept override;
     void ConfigureColdHost(GlockColdHost host) noexcept;
     GlockStatus Prepare(const GlockPrepared&) noexcept;
     // World/inventory resources only; this never promises combat/aim/light readiness.
@@ -161,6 +175,7 @@ public:
     const SpreadState& Spread() const noexcept { return spread_; }
 
 private:
+    struct InventoryState;
     struct Lease
     {
         edict_t* owner{};
@@ -173,6 +188,14 @@ private:
         bool active{};
     } lease_;
     struct ActionBridge { GlockWeapon* item; Lease lease; bool callbackFailed{}; };
+    struct ActionOverlay
+    {
+        csol::scenario::custom::ActionResumeToken token;
+        Lease lease;
+        int spawn{};
+        bool resuming{};
+    } overlay_;
+    bool OverlayCurrent() const noexcept;
     static bool Current(void*) noexcept;
     struct WorldLease
     {
@@ -201,6 +224,7 @@ private:
     bool View(int) noexcept;
     bool SetAim(bool) noexcept;
     bool UpdateBody(bool lightOn) noexcept;
+    bool PublishOwnerAim() noexcept;
     bool Fidget() noexcept;
     void ReadAmmo() noexcept;
     void WriteAmmo() noexcept;
@@ -218,6 +242,7 @@ private:
     float wearDeadline_{};
     bool preparedReady_{}, bound_{}, selected_{}, meleePending_{}, worldUse_{};
     bool taclightAttachPending_{}, taclightInstalled_{};
+    int viewSequence_{-1};
     unsigned lightThink_{}; // 1 switch,2 mid attach,3 final attach
     GlockStatus status_{GlockStatus::MissingBackend};
 };
