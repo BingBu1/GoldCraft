@@ -44,10 +44,16 @@ def main():
     parser.add_argument('--jobs', type=int, choices=range(1, 9), default=2)
     parser.add_argument('--compiler-dependencies', action='store_true',
                         help='Seal the actual Ninja client dependency closure; report unrelated broad drift separately')
+    parser.add_argument('--deployment-consumer', type=Path,
+                        help='Installed GoldCraft.dll whose resource-update capability must survive this build')
     args = parser.parse_args()
     build, out = args.build.resolve(strict=True), args.output.resolve()
     if not build.is_relative_to(ROOT / 'build') or not out.is_relative_to(ROOT / 'build') or out.exists():
         raise ValueError('Use an existing workspace compiler cache and fresh receipt directory')
+    capabilities = None
+    if args.deployment_consumer:
+        from csol_resource_capabilities import verify
+        capabilities = verify(args.deployment_consumer, build=build)
     spec = importlib.util.spec_from_file_location('guard', ROOT / 'tools/Build-CSOLCandidate.py')
     guard = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(guard)
@@ -56,6 +62,9 @@ def main():
     baseline = {row['path'].casefold(): row for row in json.loads((out / 'sources/source-inputs.json').read_text('utf8'))}
     controls = [guard.identity(path) for path in (Path(__file__), build / 'CMakeCache.txt', build / 'build.ninja',
                                                 build / 'CMakeFiles/rules.ninja', args.environment.resolve(strict=True))]
+    if args.deployment_consumer:
+        controls.extend(guard.identity(path) for path in
+                        (ROOT / 'tools/csol_resource_capabilities.py', args.deployment_consumer))
     controls.extend(row for row in baseline.values() if row['path'].endswith('CMakeLists.txt') or row['path'].endswith('.cmake'))
     environment = args.environment.resolve(strict=True)
     before = guard.identity(environment)
@@ -101,10 +110,20 @@ def main():
             unchanged = False
             error += '; compiler dependency audit: ' + str(failure)
     artifact = build / 'CSOLSupport.dll'
+    if capabilities is not None and done.returncode == 0:
+        try:
+            capabilities = verify(args.deployment_consumer, artifact, build)
+            for row in controls:
+                if guard.identity(Path(row['path'])) != row:
+                    raise ValueError('Client build control changed: ' + row['path'])
+        except Exception as failure:
+            unchanged = False
+            error += '; resource capability audit: ' + str(failure)
     receipt = dict(success=done.returncode == 0 and unchanged, command=command, exit=done.returncode,
                    inputsUnchanged=unchanged, error=error, environment=before,
                    broadInputsUnchanged=broad_unchanged, actualCompilerInputs=consumed,
                    coldCompilerInputs=cold_dependencies,
+                   resourceCapabilities=capabilities,
                    guardScope='actual Ninja compiler dependency closure and controls' if args.compiler_dependencies else 'full workspace source inventory',
                    elapsedSeconds=time.monotonic() - start, sourceCopies=0,
                    artifact=guard.identity(artifact) if artifact.is_file() and not done.returncode else None,

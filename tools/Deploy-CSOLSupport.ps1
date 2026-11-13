@@ -12,6 +12,11 @@ $list='cstrike/metahook/configs/plugins.lst'
 $source=Assert-SandboxPath (Join-Path $reference $plugin)
 $target=Assert-SandboxPath (Join-Path $game $plugin)
 $listPath=Assert-SandboxPath (Join-Path $game $list)
+$consumer=Assert-SandboxPath (Join-Path $game 'cstrike/metahook/plugins/GoldCraft.dll')
+if(Test-Path -LiteralPath $consumer){
+    & python -X utf8 -B (Join-Path $PSScriptRoot 'csol_resource_capabilities.py') --consumer $consumer --candidate $source
+    if($LASTEXITCODE){throw 'CSOLSupport would remove the installed resource-update provider.'}
+}
 $text=[IO.File]::ReadAllText($listPath)
 $names=@($text -split '\r?\n' | ForEach-Object {($_ -split '//',2)[0].Trim()} | Where-Object {$_ -and -not $_.StartsWith('#')})
 $referenceNames=@([IO.File]::ReadAllLines((Join-Path $reference $list)) | ForEach-Object {($_ -split '//',2)[0].Trim()} | Where-Object {$_ -and -not $_.StartsWith('#')})
