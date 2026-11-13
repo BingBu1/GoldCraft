@@ -39,3 +39,5 @@ E-05：继续核对同一原client SHA，1006D759以cl_lw调用引擎GetCvarPoin
 原活动muzzleflash事件的自身玩家接收／P绘制时序仍未闭合，继续沿原HW与玩家渲染入口查明。保留已证世界附件发射器，不增加猜测的视模附件、预测旗标或强制下半身绘制。此次仅补取证与文档，没有重新部署或进行新玩法／性能验收。
 
 后续原调用扫描确认MP1004742E也会调用1011CF70，但1004727D..10047292在规则为空或rules+20返回非零时跳过；已核原多人虚表对应100C90B0返回1。这个服务器TE抛壳属于单人分支，不能直接塞进当前多人路径。原HUD_PostRunCmd只做状态／视角更新，没有预测发射；HW01D22CEA仅在缺少TxferPredictionData回调时清cl_lw，也不支持强制关预测的猜测。原IDA字节／分支及完整调用扫描保留在私有own-player-next-exclusions.json、player-shell-all-calls.json；自身P绘制问题仍未据此关闭。
+
+后续匹配原HW9dd34e53的接口取证已定位：VA01D23C94..01D23CA0把引擎StudioAPI和输出指针01EC5BFC传给原客户端接口获取函数；01D68B77..01D68B7C、01DC47AD..01DC47B3通过该接口的+8调用人物绘制，参数含flags3。它证明这些世界人物绘制入口带RENDER／EVENTS，不证明第一人称自身实体必定进入可见表。客户端已确认的GetLocalPlayer槽定位出pfnPlaybackEvent／PrecacheEvent两个enginefunc槽，原PE没有这两个槽地址的直接引用；另217个EventAPI取指针的局部窗口也未见调用PlaybackEvent槽。后者是有界扫描，不能替代完整跨函数／运行证明，仍不据此宣称“原版没有弹壳”或编造本地发射路径。私有证据hw-studio-interface-capstone.json、hw-player-draw-gates-capstone.json、client-event-api-refs.json及client-alternate-playback-scan.json。
