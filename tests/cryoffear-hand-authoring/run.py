@@ -129,6 +129,30 @@ def main():
         for blend in range(source.i(at+120)):
             for frame in range(source.i(at+56)):
                 assert source.channels(sequence,frame,blend)==edited_model.channels(sequence,frame,blend);checks+=1
+    # Explicit per-vertex attachments are authored in the target rig. Inspect
+    # the real emitted Studio arrays and evaluate the selected bone's pose.
+    rebound=copy.deepcopy(profile)
+    base_part=result.bodyparts[0]['models'][0]
+    bone=next(b for b in used if b!=base_part['verticesBones'][0] and b!=base_part['normalsBones'][0])
+    rebound['meshEdits']=[dict(model=0,
+        vertices=[dict(index=0,offset=[1,-2,3],bone=source.bones[bone]['name'])],
+        normals=[dict(index=0,direction=[0,0,1],bone=source.bones[bone]['name'])])]
+    path.write_text(json.dumps(rebound),'utf8');rebound_bytes,rebound_receipt=author.prepare(args.model,args.model,path)
+    rebound_model=Studio(rebound_bytes);part=rebound_model.bodyparts[0]['models'][0]
+    assert rebound_receipt['explicitBoneAssignments']==2;checks+=1
+    assert part['verticesBones'][0]==bone and part['normalsBones'][0]==bone;checks+=1
+    assert part['verticesBones'][1:]==base_part['verticesBones'][1:] and part['normalsBones'][1:]==base_part['normalsBones'][1:];checks+=1
+    assert part['vertices'][1:]==base_part['vertices'][1:] and part['normals'][1:]==base_part['normals'][1:];checks+=1
+    assert all(abs(a+b-v)<1e-5 for a,b,v in zip(base_part['vertices'][0],(1,-2,3),part['vertices'][0]));checks+=1
+    expected_normal=(0,0,math.hypot(*base_part['normals'][0]))
+    assert all(abs(a-b)<1e-5 for a,b in zip(part['normals'][0],expected_normal));checks+=1
+    assert rebound_bytes[244:len(source.data)]==source.data[244:];checks+=1
+    matrices=source.sample(0,0,0)
+    expected=transform(matrices[bone],part['vertices'][0])
+    actual=transform(rebound_model.sample(0,0,0)[part['verticesBones'][0]],part['vertices'][0])
+    assert all(abs(a-b)<1e-6 for a,b in zip(expected,actual));checks+=1
+    path.write_text(json.dumps(profile),'utf8')
+    assert author.prepare(args.model,args.model,path)[0]==data;checks+=1
     for label,rows in [
         ("bad mesh list",{}),("unknown mesh field",[dict(model=0,typo=[])]),
         ("missing model",[dict(vertices=[])]),("bool model",[dict(model=True)]),
@@ -149,6 +173,12 @@ def main():
         ("huge direction",[dict(model=0,normals=[dict(index=0,direction=[65,0,0])])]),
         ("duplicate normal",[dict(model=0,normals=[dict(index=0,direction=[1,0,0])]*2)])]:
         bad=copy.deepcopy(profile);bad['meshEdits']=rows;rejects(label,bad)
+    for label,value in [('missing bone','no_such_target_bone'),('empty bone',''),('integer bone',3),('bool bone',False),('null bone',None)]:
+        for kind,key in [('vertices','offset'),('normals','direction')]:
+            bad=copy.deepcopy(profile)
+            entry={'index':0,key:[1,0,0],'bone':value}
+            bad['meshEdits']=[{'model':0,kind:[entry]}]
+            rejects(label+' '+kind,bad)
     assert author.digest(args.model.read_bytes())==source.sha256
     after={str(p):author.digest(p.read_bytes()) for p in controls}
     assert before==after

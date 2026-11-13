@@ -56,8 +56,9 @@ def geometry_transform(row):
         raise ValueError("Ill-conditioned authored geometry")
     return a,bound,normal
 
-def mesh_edits(profile, models):
-    edits=[{"vertices":{},"normals":{},"radius":0.} for _ in models]
+def mesh_edits(profile, models, target):
+    edits=[{"vertices":{},"normals":{},"verticesBones":{},"normalsBones":{},"radius":0.} for _ in models]
+    bone_indices={}
     rows=profile.get("meshEdits",[])
     if not isinstance(rows,list) or len(rows)>len(models):raise ValueError("Invalid authored mesh edits")
     seen=set()
@@ -73,7 +74,7 @@ def mesh_edits(profile, models):
             if not isinstance(values,list) or len(values)>len(models[model][kind]):
                 raise ValueError("Invalid authored mesh vector list")
             for value in values:
-                if not isinstance(value,dict) or set(value)!={"index",key}:
+                if not isinstance(value,dict) or not {"index",key}.issubset(value) or set(value)-{"index",key,"bone"}:
                     raise ValueError("Invalid authored mesh vector fields")
                 index,vector=value["index"],value[key]
                 if type(index) is not int or not 0<=index<len(models[model][kind]) or index in edits[model][kind]:
@@ -89,6 +90,16 @@ def mesh_edits(profile, models):
                     if not 1e-9<length<=64:raise ValueError("Invalid authored normal direction")
                     vector=[v/length for v in vector]
                 edits[model][kind][index]=vector
+                if "bone" in value:
+                    bone=value["bone"]
+                    if not isinstance(bone,str) or not bone:
+                        raise ValueError("Explicit authored bone requires a target bone name")
+                    target_index=bone_indices.get(bone)
+                    if target_index is None:
+                        target_index=target.bone_index(bone)
+                        bone_indices[bone]=target_index
+                    if target_index>255:raise ValueError("Explicit authored bone exceeds Studio index range")
+                    edits[model][kind+"Bones"][index]=target_index
     return edits
 
 class Writer:
@@ -115,7 +126,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     hand_models=groups[0]['models']
     used={i for model in hand_models for kind in ('vertices','normals') for i in model[kind+'Bones']}
     if not used.issubset(bindings):raise ValueError('Every weighted hand bone needs an explicit authored transform')
-    edits=mesh_edits(profile,hand_models)
+    edits=mesh_edits(profile,hand_models,target)
     selected=sorted({donor.skins[0][mesh['skinref']] for model in hand_models for mesh in model['meshes']})
     writer=Writer(target.data);texture_map={};textures=[];texels=[]
     # Keep original target bytes and absolute sequence/attachment offsets intact.
@@ -149,7 +160,7 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
                     else:
                         length=math.hypot(*p);p=tuple(v*length for v in change)
                 if any(not math.isfinite(v) or abs(v)>1e6 for v in p):raise ValueError('Invalid authored geometry')
-                positions.append(p);indices.append(to)
+                positions.append(p);indices.append(edits[gender][kind+'Bones'].get(vertex,to))
             struct.pack_into('<iii',descriptor,n_at,len(indices),writer.append(bytes(indices)),writer.append(b''.join(struct.pack('<3f',*p) for p in positions)))
             if kind=='vertices':vertices_total+=len(indices)
         meshes=[]
@@ -187,7 +198,9 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
         if check.i(offset)!=target.i(offset):raise ValueError('Target animation/skeleton/attachment identity changed')
     return result,dict(targetSha256=target.sha256,donorSha256=donor.sha256,profileSha256=digest(profile_path.read_bytes()),
         outputSha256=digest(result),vertices=vertices_total,triangles=triangles_total,mappedBones=len(used),
-        originalPayloadPreserved=True,skeletonAnimationPreserved=True,geometryDonorEventsDetached=True,visualAccepted=False,gameplayAccepted=False)
+        originalPayloadPreserved=True,skeletonAnimationPreserved=True,geometryDonorEventsDetached=True,
+        explicitBoneAssignments=sum(len(edit[kind+'Bones']) for edit in edits for kind in ('vertices','normals')),
+        visualAccepted=False,gameplayAccepted=False)
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
