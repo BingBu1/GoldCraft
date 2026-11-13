@@ -108,9 +108,8 @@ ShowPlayerMenu(id)
     new menu = menu_create("大灾变^n玩家功能", "PlayerMenuHandler");
     g_Menu[id] = menu;
     g_MenuUserid[id] = get_user_userid(id);
-    menu_additem(menu, "购买盲盒（消费服务尚未就绪）", "0");
-    menu_additem(menu, "查看本图熟练度（统计服务尚未就绪）", "1");
-    if (Administrator(id)) menu_additem(menu, "服务器管理", "2");
+    menu_additem(menu, "购买系统", "0");
+    if (Administrator(id)) menu_additem(menu, "管理员菜单", "2");
     menu_setprop(menu, MPROP_EXITNAME, "关闭");
     menu_display(id, menu);
 }
@@ -128,9 +127,7 @@ public PlayerMenuHandler(id, menu, item)
         if (Administrator(id, userid)) ShowFinishMenu(id);
         return PLUGIN_HANDLED;
     }
-    if (equal(value, "0")) client_print(id, print_chat, "[大灾变] 盲盒消费服务尚未就绪，本次没有扣款或发奖。");
-    else if (equal(value, "1")) client_print(id, print_chat, "[大灾变] 本图熟练度统计尚未接通，当前没有可核实的进度。");
-    ShowPlayerMenu(id);
+    if (equal(value, "0")) engclient_cmd(id, "buy");
     return PLUGIN_HANDLED;
 }
 

@@ -23,6 +23,8 @@ struct State : Context
         {"dusk_speed_multiplier","黄昏移速自定义倍率。",2,1.05f,.001f,1000,1},
         {"sprint_maximum","未知原体力，不提供猜测默认。",2,0,.001f,1000000,1,0}};
     std::vector<std::string> notices, commands;
+    struct Dispatch {int player;std::string command,arg1,arg2;bool menuDestroyed;};
+    std::vector<Dispatch> engineCommands;
     std::map<int,std::string> tasks;
     void Finish(bool success)
     {
@@ -41,6 +43,11 @@ cell AMX_NATIVE_CALL Notice(AMX* amx,cell* p)
     state->notices.push_back(std::move(text));return 1;
 }
 cell AMX_NATIVE_CALL Command(AMX* amx,cell* p){state->commands.push_back(Read(amx,p[2]));return 1;}
+cell AMX_NATIVE_CALL EngineCommand(AMX* amx,cell* p)
+{
+    state->engineCommands.push_back({p[1],Read(amx,p[2]),Read(amx,p[3]),Read(amx,p[4]),
+        state->menus.at(state->shown).destroyed});return 1;
+}
 cell AMX_NATIVE_CALL Task(AMX* amx,cell* p){state->tasks[p[3]]=Read(amx,p[2]);return 1;}
 cell AMX_NATIVE_CALL RemoveTask(AMX*,cell* p){return static_cast<cell>(state->tasks.erase(p[1]));}
 cell AMX_NATIVE_CALL Float(AMX*,cell* p){return std::bit_cast<cell>(static_cast<float>(p[1]));}
@@ -100,7 +107,7 @@ cell AMX_NATIVE_CALL Edit(AMX*,cell* p)
     return 1;
 }
 const AMX_NATIVE_INFO overrides[]{
-    {"get_user_userid",Userid},{"client_print",Notice},{"client_cmd",Command},{"formatex",Format},
+    {"get_user_userid",Userid},{"client_print",Notice},{"client_cmd",Command},{"engclient_cmd",EngineCommand},{"formatex",Format},
     {"set_task",Task},{"remove_task",RemoveTask},{"float",Float},{"floatround",FloatRound},{"str_to_float",FloatString},
     {"floatcmp",FloatCmp},{"floatadd",FloatAdd},{"floatsub",FloatSub},{"floatmul",FloatMul},{"floatdiv",FloatDiv},
     {"read_args",Args},{"remove_quotes",Quotes},{"trim",Trim},
@@ -141,16 +148,60 @@ struct VM
     void Poll(){Call("PollCustomSave",{27401});}
     bool NoticeContains(std::string_view text)const{return std::any_of(s.notices.begin(),s.notices.end(),[&](const auto& notice){return notice.find(text)!=notice.npos;});}
 };
+void RootCases()
+{
+    for(bool admin:{false,true})
+    {
+        VM v;if(!admin)v.s.flags=0;
+        Check(v.Call("CommandChooseTeam",{1})==1,"joined Scenario M is handled by genuine root homepage");
+        const int root=v.s.shown;const auto& menu=v.s.menus.at(root);
+        Check(menu.handler=="PlayerMenuHandler"&&menu.items.size()==(admin?2u:1u),"ordinary root hides administrator branch");
+        Check(menu.items[0]==std::pair<std::string,std::string>{"购买系统","0"},"root item1 is real purchase system");
+        if(admin)Check(menu.items[1]==std::pair<std::string,std::string>{"管理员菜单","2"},"root item2 preserves explicit admin data identity");
+        Check(std::none_of(menu.items.begin(),menu.items.end(),[](const auto& item)
+            {return item.first.find("盲盒")!=std::string::npos||item.first.find("熟练度")!=std::string::npos||item.first.find("就绪")!=std::string::npos;}),
+            "root contains no unavailable feature or implementation-status labels");
+        v.Call("PlayerMenuHandler",{1,root,0});
+        Check(v.s.engineCommands.size()==1,"purchase selection dispatches exactly one engine command");
+        const auto& dispatch=v.s.engineCommands.at(0);
+        Check(dispatch.player==1&&dispatch.command=="buy"&&dispatch.arg1.empty()&&dispatch.arg2.empty()&&dispatch.menuDestroyed,
+            "real engclient_cmd signature receives fixed buy after closing AMXX root");
+        Check(v.s.commands.empty()&&v.s.edits==0&&v.s.requests==0&&v.s.replays==0&&v.s.votes==0,
+            "purchase root cannot mutate saved settings or submit administrative actions");
+        v.Call("PlayerMenuHandler",{1,root,0});Check(v.s.engineCommands.size()==1,"late duplicate root selection cannot buy again");
+    }
+    {VM v;v.Call("CommandChooseTeam",{1});const int root=v.s.shown;v.Call("PlayerMenuHandler",{1,root,1});
+        const auto& menu=v.s.menus.at(v.s.shown);
+        Check(menu.handler=="FinishMenuHandler"&&menu.items.size()==9,"admin second item opens all8 original actions plus settings");
+        Check(menu.items[5].first.find("立即重玩")!=std::string::npos&&menu.items[7].first.find("立即发起选图投票")!=std::string::npos&&
+            menu.items[8].first.find("持久玩法设置")!=std::string::npos,"admin legacy replay/vote and persistent settings stay in place");}
+    for(int variant=0;variant<5;++variant)
+    {VM v;v.Call("CommandChooseTeam",{1});const int root=v.s.shown;
+        if(variant==0)v.s.userid++;else if(variant==1)v.s.mode=1;else if(variant==2)v.s.connected=false;else if(variant==3)v.s.joining=1;
+        else v.s.onDestroy=[&]{v.s.userid++;};
+        v.Call("PlayerMenuHandler",{1,root,0});v.s.onDestroy={};
+        Check(v.s.engineCommands.empty(),"stale userid/mode/connection/join state and synchronous menu retirement block purchase");}
+    {VM v;v.Call("CommandChooseTeam",{1});const int root=v.s.shown;v.s.flags=0;v.Call("PlayerMenuHandler",{1,root,1});
+        Check(v.s.shown==root&&v.s.menus.at(root).destroyed&&v.s.engineCommands.empty(),"admin item rechecks revoked ADMIN_CFG at submission");}
+    {VM v;v.s.flags=0;v.Call("CommandChooseTeam",{1});const int root=v.s.shown;v.Call("PlayerMenuHandler",{1,root,1});
+        Check(v.s.shown==root&&v.s.menus.at(root).destroyed&&v.s.engineCommands.empty(),"ordinary player forged absent admin index cannot enter management");}
+    for(int variant=0;variant<3;++variant)
+    {VM v;if(variant==0)v.s.joining=1;else if(variant==1)v.s.mode=1;else v.s.connected=false;
+        Check(v.Call("CommandChooseTeam",{1})==0&&v.s.shown==-1,"initial selection other modes and disconnect preserve native M");}
+    {VM v;v.Call("CommandChooseTeam",{1});const int old=v.s.shown;v.Call("CommandChooseTeam",{1});const int fresh=v.s.shown;
+        const auto destroys=v.s.destroys;v.Call("PlayerMenuHandler",{1,old,0});
+        Check(v.s.engineCommands.empty()&&v.s.shown==fresh&&v.s.destroys==destroys,"old root handler cannot close newer root or dispatch a command");}
+}
 void Cases()
 {
     {VM v;v.s.flags=0;Check(v.Call("CommandChooseTeam",{1})==1,"joined ordinary Scenario player gets M homepage");
-        const auto& menu=v.s.menus.at(v.s.shown);Check(menu.items.size()==2&&menu.handler=="PlayerMenuHandler","ordinary homepage has player actions and no server management");
-        v.Call("PlayerMenuHandler",{1,v.s.shown,0});Check(v.s.edits==0&&v.NoticeContains("没有扣款"),"unready blind box action reports no debit and never edits settings");}
+        const auto& menu=v.s.menus.at(v.s.shown);Check(menu.items.size()==1&&menu.handler=="PlayerMenuHandler","ordinary homepage has player actions and no server management");
+        v.Call("PlayerMenuHandler",{1,v.s.shown,0});Check(v.s.edits==0&&v.s.engineCommands.size()==1&&v.s.engineCommands[0].command=="buy","root purchase dispatches the real fixed native buy command without settings edits");}
     for(int mode=0;mode!=3;++mode){VM v;if(mode==0)v.s.joining=1;else if(mode==1)v.s.mode=1;else v.s.connected=false;
         Check(v.Call("CommandChooseTeam",{1})==0&&v.s.shown==-1,"initial selection other mode and disconnect retain native M");}
     {VM v;v.Call("CommandChooseTeam",{1});const int menu=v.s.shown;
-        Check(v.s.menus.at(menu).items.size()==3,"administrator homepage adds management branch");
-        v.Call("PlayerMenuHandler",{1,menu,2});const auto& management=v.s.menus.at(v.s.shown);
+        Check(v.s.menus.at(menu).items.size()==2,"administrator homepage adds management branch");
+        v.Call("PlayerMenuHandler",{1,menu,1});const auto& management=v.s.menus.at(v.s.shown);
         Check(management.items.size()==9&&management.items[5].first.find("立即重玩")!=std::string::npos&&management.items[7].first.find("立即发起选图投票")!=std::string::npos,
             "management preserves all eight legacy actions and adds persistent settings");}
     {VM v;const int menu=v.Management();v.Call("FinishMenuHandler",{1,menu,5});Check(v.s.replays==1,"legacy same-map replay still reaches actual plugin submission");}
@@ -189,10 +240,11 @@ int main(int argc,char** argv)
 {
     try
     {
-        if(argc!=2)throw std::runtime_error("provide extracted current administrator .amx");
+        if(argc<2||argc>3)throw std::runtime_error("provide extracted current administrator .amx [root|all]");
         std::ifstream file(argv[1],std::ios::binary);bytecode.assign(std::istreambuf_iterator<char>(file),{});
         if(bytecode.empty())throw std::runtime_error("empty bytecode");
-        custom_menu_test::Cases();
+        if(argc==3&&std::string_view(argv[2])=="root")custom_menu_test::RootCases();
+        else custom_menu_test::Cases();
     }
     catch(const std::exception& error){++failures;std::cerr<<"ERROR "<<error.what()<<'\n';}
     std::cout<<"checks="<<checks<<" failures="<<failures<<'\n';return failures?1:0;

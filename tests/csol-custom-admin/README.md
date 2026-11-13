@@ -39,3 +39,5 @@ provider validation: permission/ingame are rechecked after userid lookup, while
 same-slot userid changes and nonfinite values are rejected by the final provider
 Edit guard. This validates the module forwarding contract; actual server store
 authorization and durable disk writes require their own integration evidence.
+
+The M root now contains purchase first and an administrator-only second entry. Fresh root-only VM validation is build/csol-player-root-vm-20261113-02/receipt.json:112 checks,zero failures with stable inputs. The actual new Pawn artifact is build/csol-player-root-pawn-20261113-01/plugins/goldcraft_scenario_admin.amxx. This narrow pass covers fixed engclient_cmd buy dispatch and root identity/authorization lifecycle; it does not rerun the unrelated1059 settings suite or establish live rendering. Reproduce with run_pawn.py --output <fresh-build-directory> --plugin <current-amxx-artifact> --compiler <clang-cl.exe> --environment <compiler-environment.json>.
