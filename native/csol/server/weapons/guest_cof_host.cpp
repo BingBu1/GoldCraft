@@ -3,6 +3,7 @@
 #include "guest_cof_host.hpp"
 #include "guest_cof_effects.hpp"
 #include "guest_cof_p345_native_effects.hpp"
+#include "guest_cof_revolver_native_effects.hpp"
 #include "guest_cof_sound_field.hpp"
 #include "primary_purchase.h"
 #include "../characters.h"
@@ -24,6 +25,7 @@ using namespace guest::cof::server;
 constexpr char DamagePath[] = "configs/guest/cof/scenario_damage.json";
 constexpr auto GlockId = Pistols[0].hostId;
 constexpr auto P345Id = Pistols[1].hostId;
+constexpr auto RevolverId = Pistols[2].hostId;
 constexpr std::uint32_t EffectBit(GlockEffect kind) { return 1u << static_cast<unsigned>(kind); }
 constexpr std::uint32_t HostEffects =
     EffectBit(GlockEffect::DeployPrelude) | EffectBit(GlockEffect::ReserveHud) |
@@ -42,6 +44,7 @@ struct Map
         int serial{}, userid{}, modelIndex{}, modelString{};
         std::uint64_t revision{};
         NativeOwnerPersistentState persistent{};
+        RevolverLifecycle revolver;
         bool persistentCaptured{};
         bool capable{}, prepared{}, spawning{};
         std::uint32_t weapons{};
@@ -90,6 +93,11 @@ bool Entity(CBasePlayer& player, const Map::Player& row) noexcept
     return row.object == &player && entity && !entity->free && entity->serialnumber == row.serial &&
         entity->pvPrivateData == &player && player.pev == &entity->v && !player.has_disconnected;
 }
+RevolverConnection Connection(const Map& map,unsigned slot,CBasePlayer& player) noexcept
+{
+    const auto& row=map.players[slot];
+    return {map.epoch,slot,row.serial,row.userid,reinterpret_cast<std::uintptr_t>(&player)};
+}
 bool Owner(void* context, CBasePlayer& player, const NativeOwnerMode& mode) noexcept
 {
     auto& map = *static_cast<Map*>(context);
@@ -109,6 +117,11 @@ bool Prepare(void* context, const GlockResources& resources, GlockPrepared& outp
     return Current(&map) && map.ready && map.effects.FillPrepared(resources, output);
 }
 bool PrepareP345(void* context,const P345Resources& resources,P345Prepared& output) noexcept
+{
+    auto& map=*static_cast<Map*>(context);
+    return Current(&map)&&map.ready&&map.effects.FillPrepared(resources,output);
+}
+bool PrepareRevolver(void* context,const RevolverResources& resources,RevolverPrepared& output) noexcept
 {
     auto& map=*static_cast<Map*>(context);
     return Current(&map)&&map.ready&&map.effects.FillPrepared(resources,output);
@@ -149,6 +162,32 @@ bool EffectP345(void* context,const P345Resources& resources,const OwnerBinding&
         }});
     }
     return map.effects.Dispatch(resources,binding,player,weapon,event);
+}
+bool EffectRevolver(void* context,const RevolverResources& resources,const OwnerBinding& binding,
+    CBasePlayer& player,CBasePlayerWeapon& weapon,const RevolverEvent& event) noexcept
+{
+    auto& map=*static_cast<Map*>(context);MapCall call(map);
+    const auto slot=Slot(player);
+    if(!slot||!Current(&map)||!binding.runtime||!binding.runtime->Current(binding)||
+        !Entity(player,map.players[slot]))return false;
+    RevolverOwnerState value{};
+    if(!host.runtime.PersistentState(player,value)||!Current(&map))return false;
+    if(event.kind==RevolverEffect::FirstDraw||event.kind==RevolverEffect::Cylinder||event.kind==RevolverEffect::ReloadStage)
+    {
+        if(!map.players[slot].revolver.Store(Connection(map,slot,player),value))return false;
+    }
+    if(event.kind==RevolverEffect::ShotLatch)
+    {
+        const EHANDLE item(&weapon);
+        struct Call{Map& map;OwnerBinding binding;CBasePlayerWeapon& weapon;const EHANDLE& item;CBasePlayer& player;};
+        Call state{map,binding,weapon,item,player};
+        return map.sounds.ShotLatch(player,event.value,event.a,{&state,[](void* p) noexcept {
+            auto& c=*static_cast<Call*>(p);
+            return Current(&c.map)&&c.binding.runtime->Current(c.binding)&&
+                c.item.Get<CBasePlayerWeapon>()==&c.weapon&&c.weapon.m_pPlayer==&c.player&&c.player.m_pActiveItem==&c.weapon;
+        }});
+    }
+    return map.effects.Dispatch(resources,binding,player,weapon,event,value);
 }
 bool ReleaseRetired() noexcept
 {
@@ -242,6 +281,13 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
             if(!p345||p345->shot!=std::trunc(p345->shot)||p345->melee!=std::trunc(p345->melee))return;
             request.p345Rules=NativeOwnerRules{true,int(p345->shot),int(p345->melee),24};
         }
+        if(admission.weapons&PistolCapability(Pistol::Revolver))
+        {
+            const auto* revolver=map->damage.Find(Pistol::Revolver);RevolverOwnerState seed{};
+            if(!revolver||revolver->shot!=std::trunc(revolver->shot)||revolver->melee!=std::trunc(revolver->melee)||
+                !row.revolver.Bind(Connection(*map,slot,player),spawn,seed))return;
+            request.revolver=GlockPlayerPreparation::RevolverPreparation{{true,int(revolver->shot),int(revolver->melee),15},seed};
+        }
         std::string error;
         const bool prepared = spawn ? host.runtime.PlayerSpawned(player, request, error) :
             host.runtime.PlayerModelChanged(player, request, error);
@@ -263,6 +309,12 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
                 else if(auto* p345=dynamic_cast<P345Weapon*>(item);p345&&p345->m_pPlayer==&player&&p345->m_iId==P345Id)
                 {
                     const bool rebound=p345->RestoreInventoryBinding(player);
+                    if(!current())return;
+                    if(!rebound){row.prepared=false;return;}
+                }
+                else if(auto* revolver=dynamic_cast<RevolverWeapon*>(item);revolver&&revolver->m_pPlayer==&player&&revolver->m_iId==RevolverId)
+                {
+                    const bool rebound=revolver->RestoreInventoryBinding(player);
                     if(!current())return;
                     if(!rebound){row.prepared=false;return;}
                 }
@@ -336,6 +388,7 @@ void CSOL_PrecacheGuestCof()
             auto& value = *static_cast<Map*>(p); return generation == value.epoch && Current(p);
         }, Owner, Prepare, Effect, HostEffects, false};
         callbacks.p345={PrepareP345,EffectP345,P345RequiredEffects&~P345NativeSoundEffects};
+        callbacks.revolver={PrepareRevolver,EffectRevolver,RevolverRequiredEffects&~RevolverNativeSoundEffects};
         callbacks.weaponCurrent=[](void* p,CBasePlayer& player,int id) noexcept {
             auto& map=*static_cast<Map*>(p);const auto index=Slot(player);const auto* definition=FindPistol(id);
             return definition&&index&&Current(&map)&&Entity(player,map.players[index])&&
@@ -347,15 +400,18 @@ void CSOL_PrecacheGuestCof()
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Glock resource preparation failed: %s\n", prepared.path ? prepared.path : "map authority"); return; }
         const auto* resources = host.runtime.Resources();
         const ResourceAuthority authority{&current, Current, current.epoch};
-        if (!resources || !current.effects.Prepare(authority, *resources, {true, true}) ||
+        const auto* revolverResources=host.runtime.PreparedRevolverResources();
+        if (!resources || !revolverResources || !current.effects.Prepare(authority, *resources, {true, true, true}) ||
             !current.sounds.BeginMap(authority) ||
             ((current.effects.Capabilities() | EffectBit(GlockEffect::ShotLatch)) & HostEffects) != HostEffects||
-            ((current.effects.P345Capabilities()|P345NativeSoundEffects|(1u<<unsigned(P345Effect::ShotLatch)))&P345RequiredEffects)!=P345RequiredEffects)
+            ((current.effects.P345Capabilities()|P345NativeSoundEffects|(1u<<unsigned(P345Effect::ShotLatch)))&P345RequiredEffects)!=P345RequiredEffects||
+            ((current.effects.RevolverCapabilities(*revolverResources)|RevolverNativeSoundEffects|(1u<<unsigned(RevolverEffect::ShotLatch)))&RevolverRequiredEffects)!=RevolverRequiredEffects)
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Actual Glock consumers were not prepared\n"); return; }
         const auto glockHud=PreparePistolPresentationResources(authority,Pistol::Glock);
         const auto p345Hud=glockHud?PreparePistolPresentationResources(authority,Pistol::P345):glockHud;
-        if(!glockHud||!p345Hud||!Current(&current))
-        {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Guest HUD resource preparation failed: %s\n",p345Hud.path?p345Hud.path:"map authority");return;}
+        const auto revolverHud=p345Hud?PreparePistolPresentationResources(authority,Pistol::Revolver):p345Hud;
+        if(!glockHud||!p345Hud||!revolverHud||!Current(&current))
+        {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Guest HUD resource preparation failed: %s\n",revolverHud.path?revolverHud.path:"map authority");return;}
         current.ready = true;
         UTIL_PrecacheOtherWeapon(Pistols[0].classname.data());
         if (!Current(&current)) return;
@@ -367,6 +423,11 @@ void CSOL_PrecacheGuestCof()
         const auto* p345=CSOL_ItemInfo(P345Id);
         if(!p345||!p345->pszName||Q_strcmp(p345->pszName,Pistols[1].classname.data()))
         {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] P345 registration failed\n");return;}
+        UTIL_PrecacheOtherWeapon(Pistols[2].classname.data());
+        if(!Current(&current))return;
+        const auto* revolver=CSOL_ItemInfo(RevolverId);
+        if(!revolver||!revolver->pszName||Q_strcmp(revolver->pszName,Pistols[2].classname.data()))
+        {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Revolver registration failed\n");return;}
         PRECACHE_GENERIC(DamagePath);
     }
     catch (...) { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Guest weapon initialization failed\n"); }
@@ -455,10 +516,11 @@ void CSOL_GuestCofClientSnapshot(CBasePlayer& player) noexcept
 }
 bool CSOL_GuestCofCanUse(CBasePlayer& player, int id) noexcept
 {
-    if ((id!=GlockId&&id!=P345Id) || !host.active || !Current(host.active)) return false;
+    if ((id!=GlockId&&id!=P345Id&&id!=RevolverId) || !host.active || !Current(host.active)) return false;
     const auto slot = Slot(player);
     if (!slot || !host.active->players[slot].prepared) return false;
     if(id==P345Id){P345Backends backend{};return host.runtime.Backend(player,backend);}
+    if(id==RevolverId){RevolverBackends backend{};return host.runtime.Backend(player,backend);}
     GlockBackends backend{};return host.runtime.Backend(player,backend);
 }
 bool CSOL_GuestCofPreserveReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept
@@ -472,7 +534,8 @@ bool CSOL_IsGuestCof(const CBasePlayerWeapon& weapon) noexcept
 {
     if(!weapon.pev)return false;
     return (weapon.m_iId==GlockId&&dynamic_cast<const GlockWeapon*>(&weapon)&&FClassnameIs(weapon.pev,Pistols[0].classname.data()))||
-        (weapon.m_iId==P345Id&&dynamic_cast<const P345Weapon*>(&weapon)&&FClassnameIs(weapon.pev,Pistols[1].classname.data()));
+        (weapon.m_iId==P345Id&&dynamic_cast<const P345Weapon*>(&weapon)&&FClassnameIs(weapon.pev,Pistols[1].classname.data()))||
+        (weapon.m_iId==RevolverId&&dynamic_cast<const RevolverWeapon*>(&weapon)&&FClassnameIs(weapon.pev,Pistols[2].classname.data()));
 }
 const char* CSOL_GuestCofWorldModel(const CBasePlayerItem& item) noexcept
 {
@@ -496,8 +559,10 @@ bool CSOL_DeliverGuestCof(CBasePlayer& player,int id)
             if(!identity || item.Get<CBaseEntity>()!=&weapon || !owner || actor.Get<CBaseEntity>()!=owner)return false;
             const auto* glock=dynamic_cast<const GlockWeapon*>(&weapon);
             const auto* p345=dynamic_cast<const P345Weapon*>(&weapon);
+            const auto* revolver=dynamic_cast<const RevolverWeapon*>(&weapon);
             return weapon.m_pPlayer==owner&&owner->m_pActiveItem==&weapon&&
-                ((glock&&glock->Status()==GlockStatus::Applied)||(p345&&p345->Status()==P345Status::Applied));
+                ((glock&&glock->Status()==GlockStatus::Applied)||(p345&&p345->Status()==P345Status::Applied)||
+                    (revolver&&revolver->Status()==RevolverStatus::Applied));
         },true};
     return CSOL_DeliverAdaptedGun(player,adapter);
 }

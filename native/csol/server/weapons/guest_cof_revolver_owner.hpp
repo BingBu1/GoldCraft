@@ -2,18 +2,12 @@
 #pragma once
 #include "guest_cof_owner_runtime.hpp"
 #include "native/guest/cof/server/revolver_weapon.hpp"
+#include "native/guest/cof/revolver_lifecycle.hpp"
 #include <optional>
 
 namespace csol::server::cof
 {
-struct RevolverOwnerState
-{
-    bool firstDrawn;
-    float cylinderAngle,cylinderGate;
-    // Native player upper-body deadline, explicitly carried across a model
-    // rebind. No active deadline exists before a verified reload stage.
-    std::optional<float> reloadUntil{};
-};
+using RevolverOwnerState=guest::cof::RevolverPlayerState;
 class RevolverOwnerView;
 struct RevolverOwnerBinding
 {

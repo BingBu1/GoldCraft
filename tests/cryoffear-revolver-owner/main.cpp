@@ -18,6 +18,39 @@ void ReadModel(const char* path)
     const std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
     model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
 }
+void ConnectionLifecycle()
+{
+    std::array<guest::cof::RevolverLifecycle,32> owners;
+    for(unsigned slot=1;slot<=32;++slot)
+    {
+        const guest::cof::RevolverConnection key{31,slot,int(slot*3),int(100+slot),0x1000+slot};
+        auto& owner=owners[slot-1];guest::cof::RevolverPlayerState state{true,144,29,33};
+        Check(owner.Bind(key,true,state)&&!state.firstDrawn&&state.cylinderAngle==0&&state.cylinderGate==0&&!state.reloadUntil);
+        state={true,float((slot%6)*72),float(slot)+.5F,99};Check(owner.Store(key,state));
+        guest::cof::RevolverPlayerState modelState{};Check(owner.Bind(key,false,modelState)&&modelState.reloadUntil==99);
+        Check(owner.Bind(key,true,modelState)&&modelState.firstDrawn&&modelState.cylinderAngle==state.cylinderAngle&&
+            modelState.cylinderGate==state.cylinderGate&&!modelState.reloadUntil);
+        for(int changed=0;changed<5;++changed)
+        {
+            auto stale=key;
+            switch(changed){case 0:++stale.map;break;case 1:stale.slot=slot==32?1:slot+1;break;
+            case 2:++stale.serial;break;case 3:++stale.userid;break;case 4:++stale.player;break;}
+            Check(!owner.Store(stale,state));
+        }
+        for(int changed=0;changed<4;++changed)
+        {
+            auto bad=state;switch(changed){case 0:bad.cylinderAngle=-1;break;case 1:bad.cylinderAngle=361;break;
+            case 2:bad.cylinderGate=INFINITY;break;case 3:bad.reloadUntil=NAN;break;}
+            Check(!owner.Store(key,bad));
+        }
+        Check(owner.Bind(key,false,modelState)&&!modelState.reloadUntil&&modelState.cylinderAngle==state.cylinderAngle);
+        auto replacement=key;++replacement.userid;
+        Check(owner.Bind(replacement,true,modelState)&&!modelState.firstDrawn&&modelState.cylinderAngle==0);
+        Check(!owner.Store(key,state));owner.Reset();Check(!owner.Store(replacement,state));
+        const auto invalid=guest::cof::RevolverConnection{0,slot,1,1,1};
+        modelState={true,72,6,8};Check(!owner.Bind(invalid,true,modelState)&&modelState.firstDrawn&&modelState.reloadUntil==8);
+    }
+}
 void ReloadWindows(RevolverOwnerView& revolver,RevolverOwnerBackendView& backend)
 {
     const float previousTime=globals.time;
@@ -71,6 +104,7 @@ void ReloadWindows(RevolverOwnerView& revolver,RevolverOwnerBackendView& backend
 int main(int argc,char** argv)
 {
     if(argc!=4)return 1;
+    ConnectionLifecycle();
     ReadModel(argv[1]);RuntimeInitialize();
     RevolverOwnerView revolver;RevolverOwnerBackendView backend{};std::string error;
     const auto prepare=[&](NativeOwnerRules rules=NativeOwnerRules{false,61,17,15}) {

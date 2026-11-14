@@ -29,7 +29,7 @@ cvar_t *protocol{},*weaponMask{};
 DWORD ownerThread{};
 std::uint64_t generation{}, resources{};
 std::uint32_t admittedWeapons{};
-std::array<bool,2> menuAttempted{},menuPrepared{};
+std::array<bool,3> menuAttempted{},menuPrepared{};
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
 void Publish(std::uint32_t weapons) noexcept
 {

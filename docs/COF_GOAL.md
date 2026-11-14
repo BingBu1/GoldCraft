@@ -43,7 +43,7 @@ P345 原生四类声音2563 SDK、canonical玩家视图69、原Glock所有者180
 | `weapon_nightstick` | Nightstick | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_p345` | P345 .45 | 已有原 P，待扩展人物/接触校准 | 配套版本已部署，HTTP和B下载内容57/57核同；用户确认测试正常、继续其他武器。多人、扩展握姿与实机性能待验 |
 | `weapon_radio` | Police radio | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
-| `weapon_revolver` | Taurus .357 MAG | 已有原 P，待动作/接触校准 | 地图运行时/完整MP、退壳桥、四本地声音/Studio及原枪焰6.0分支已过；完整客户端d569封存未部署，效果分发及原换弹人物时钟组件已过；扩容显示原差分/SDK已过；模型重绑5221/13192/371及Host编译已过；生命种子/HUD/购买与实机待完成 |
+| `weapon_revolver` | Taurus .357 MAG | 已有原 P，待动作/接触校准 | 实际三枪Host／购买交付／六帧HUD准入与连接生命周期已接；原死亡／重生五段5550字节核同，Owner13768／准入10363／地图371及实际Host编译通过；资源58项候选；完整双端稳定封存、部署和实机／多人／性能待完成 |
 | `weapon_rifle` | Hunting Rifle | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_shotgun` | Remington 870 | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_sledgehammer` | Pickaxe | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |

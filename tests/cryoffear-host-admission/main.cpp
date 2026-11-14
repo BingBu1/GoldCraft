@@ -34,7 +34,7 @@ bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mo
      control{true}, ironsight{true}, viewmodel{true}, hud{true}, menu{true}, retireInMenu{};
 cvar_t protocol{};
 cvar_t weaponMask{};
-bool p345Hud{true},p345Muzzle{true};
+bool p345Hud{true},p345Muzzle{true},revolverHud{true},revolverMuzzle{true};
 GuestCofResourceState resources;
 csol::WeaponCurrent current;
 std::map<std::string, cmd_function_t> commands;
@@ -87,7 +87,7 @@ GuestCofResourceState GuestCofResourcesState() noexcept{return resources;}
 bool GuestCofParticlesReady() noexcept{return particles;}
 bool GuestCofEffectsReady() noexcept{return effects&&audio;}
 bool GuestCofMuzzleReady() noexcept{return muzzle;}
-bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle));}
+bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle)||(originalWeapon==21&&revolverMuzzle));}
 bool GuestCofPointLightsReady() noexcept{return points;}
 bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
@@ -97,8 +97,8 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK((id==896||id==897)&&frames==1);return hud&&(id!=897||p345Hud);}
-bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897);++menuLoads;if(retireInMenu)++generation;return menu;}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897)&&frames==1)||(id==898&&frames==6));return hud&&(id!=897||p345Hud)&&(id!=898||revolverHud);}
+bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897||id==898);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
 int main(int argc,char** argv)
@@ -194,6 +194,14 @@ int main(int argc,char** argv)
     GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(897));
     p345Muzzle=false;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(896)&&!GuestCofAdmitted(897));
     p345Muzzle=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(897));
+    resources.weapons|=guest::cof::PistolCapability(guest::cof::Pistol::Revolver);
+    GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(896)&&GuestCofAdmitted(897)&&GuestCofAdmitted(898)&&weaponMask.value==7);
+    current.id=898;Press();CreateMove(.01F,&chain,1);CHECK(chain.buttons&IN_CANCEL);Release();
+    revolverHud=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(898)&&GuestCofAdmitted(897)&&weaponMask.value==3);
+    Press();CreateMove(.01F,&chain,1);CHECK(!(chain.buttons&IN_CANCEL));Release();
+    revolverHud=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(898));
+    revolverMuzzle=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(898)&&weaponMask.value==3);
+    revolverMuzzle=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(898)&&weaponMask.value==7);
     using guest::cof::ParsePistolAdmission;
     CHECK(ParsePistolAdmission("1","").weapons==1&&ParsePistolAdmission("1","3").weapons==3);
     CHECK(ParsePistolAdmission("0","3").weapons==0&&ParsePistolAdmission("1","0").weapons==0);
