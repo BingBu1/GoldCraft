@@ -36,3 +36,15 @@
 ## 共享文档精确待同步
 
 按人类要求不发非打包跨聊，不覆盖协调者文档。待应用：PROJECT_STATE.md / docs/PROGRESS.md 记录“P345 人工确认正常，左轮换弹人物时钟源码及三组13192/282/1109通过，SetAnimation窄补丁已核；新完整MP/部署/实机/性能待验”。docs/GOAL.md 保留 CoF 25 身份及变体；TODO.md 保留左轮扩容显示/模型重绑/生命种子/购买/HUD、VP70及其余武器，不能以组件通过关闭。
+
+## 扩充弹药接续（同日）
+
+新增前再次核对原 MP 完整 SHA 与119段已保存 IDA 字节，逐段匹配实际 PE；证据 `analysis/cof-weapons-20261111/revolver-integration-20261114/expanded-ammo/implementation-before.json`。原 Shoot10064C60 的 clip--/clip×72、SetCylinder10065760、Deploy10063BC0 的 body 赋值及 Reload/Insert/pending 提交仍为依据。实际宿主 `scenario_character_skills/player_effects.cpp` 直接扩充可信 m_iClip，灾变买弹也可超过原元数据上限，故这些原参数不能再作当前库存的有效性上限。
+
+已移除仅由宿主 Check 加入的 clip<=5/reserve<=50，保留非负、世界 sentinel、模型 body 和实体生命检查。原0..5行为不改；明确的宿主差异为：五个实体壳位的 body 最多显示5，高库存射击后的弹巢目标用余数映射到可达的0..288度；直接 SetCylinder 仅对>5取余。实际全量弹药不截断。扩充状态下手动 Reload 拒绝，避免旧原逻辑丢掉技能弹药；已开始的原插弹在可信库存被补满后沿已有 clip<5 分支跳过扣备弹并结束。没有新计时器、队列或额外消息。
+
+`build/cof-revolver-expanded-negative-20261114-01` 在未修改的生产源码上复现失败：SDK4150/line293，合法高弹夹/500备弹不能 Deploy。保留失败。最终 `build/cof-revolver-expanded-20261114-03/receipt.json`：792原武器场景+180原世界场景零差异，5,054真实SDK检查通过、依赖前后稳定。额外覆盖6/25/75/511/65535/INT_MAX弹药、部署/射击/切枪、不误丢弹药、延迟插弹时被技能填满、负数拒绝，并从0/72/288/360四个初始角按原12度步进32次检验每个目标可达。02为前一版4,262检查，同样通过；03因补可达性关注而合理扩大。
+
+之前完整 `build/cof-revolver-dispatch-server-20261114-01` 已终态失败：37分钟、common成功、MP链接有 CSOL_MountgunCommand/CSOL_PackMountgunWeapon/CSOL_ResetMountgun 三个未解析符号，且源码漂移。当前实际 wpn_mountgun.cpp 已有全部实现，GoldCraft.targets 也已列入；旧 MSBuild 评估早于并发清单修改，原日志没有编译此输入。保留失败，不做无操作替代、不部署。需待共用编译窗口/当前输入稳定后复用缓存重新完整编链。整枪、网络多人、游戏画面和真实CPU性能仍未验收。
+
+共享待同步补充：扩容/弹巢源码和原指令+SDK通过，不能关闭完整MP或整枪验收；本批先小提交，随后继续生命种子/模型重绑/HUD与购买接线。

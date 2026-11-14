@@ -499,8 +499,10 @@ bool RevolverWeapon::Check(RevolverOwnerFrame& frame, bool active) noexcept
         !Finite(m_pPlayer->pev->v_angle) || !Finite(m_pPlayer->pev->punchangle))
     { status_ = RevolverStatus::InvalidInput; return false; }
     ReadAmmo();
-    if ((action_.clip < 0 && (active || action_.clip != -666)) || action_.clip > 5 ||
-        action_.reserve < 0 || action_.reserve > 50 || pev->body < 0 || pev->body > 5 ||
+    // The server can grant more rounds than the original physical cylinder or
+    // reserve metadata. Geometry is projected separately; inventory stays whole.
+    if ((action_.clip < 0 && (active || action_.clip != -666)) ||
+        action_.reserve < 0 || pev->body < 0 || pev->body > 5 ||
         (active && (m_pPlayer->pev->weaponanim < 0 || m_pPlayer->pev->weaponanim > 20)))
     { status_ = RevolverStatus::InvalidInput; return false; }
     status_ = RevolverStatus::Ready;
@@ -637,7 +639,7 @@ void RevolverWeapon::Reload()
     RevolverOwnerFrame frame{}; if (!Check(frame)) return;
     const float now = gpGlobals->time;
     const int remaining = 5 - action_.clip;
-    if (action_.reserve <= 0 || action_.primary > now || action_.action == 1 ||
+    if (action_.clip > 5 || action_.reserve <= 0 || action_.primary > now || action_.action == 1 ||
         action_.action > 2 || (!(remaining >= action_.reserve) && remaining == 0) ||
         cylinder_.loading || action_.pendingReload)
     { status_ = RevolverStatus::Ineligible; return; }
@@ -750,8 +752,11 @@ void RevolverWeapon::PrimaryAttack()
     if (!Emit(smoke)) return;
     if (!frame.infiniteAmmo)
     {
+        const bool expanded = action_.clip > 5;
         --action_.clip;
-        cylinder_.targetAngle = action_.clip * 72;
+        // Keep the original 0..5 branch exact. Extra logical rounds rotate the
+        // five physical chambers without overflow or an unreachable 360 target.
+        cylinder_.targetAngle = (expanded ? action_.clip % 5 : action_.clip) * 72;
     }
     WriteAmmo();
     // Original direct event: no Glock gun-position/right-vector payload.
@@ -942,6 +947,7 @@ void RevolverWeapon::Invalidate() noexcept
 }
 bool RevolverWeapon::Body(int value) noexcept
 {
+    if (value > 5) value = 5;
     pev->body = value;
     RevolverEvent event{RevolverEffect::Body}; event.value = value;
     return Emit(event);
@@ -1042,7 +1048,7 @@ void RevolverWeapon::SetCylinder()
     RevolverOwnerFrame frame{}; if (!Check(frame)) return;
     if (!frame.infiniteAmmo)
     {
-        cylinder_.targetAngle = action_.clip * 72;
+        cylinder_.targetAngle = (action_.clip > 5 ? action_.clip % 5 : action_.clip) * 72;
         RevolverEvent event{RevolverEffect::Cylinder};
         event.value = cylinder_.targetAngle; event.a = float(cylinder_.targetAngle);
         if (!Emit(event)) return;

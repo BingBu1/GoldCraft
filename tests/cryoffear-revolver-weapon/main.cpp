@@ -9,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <sstream>
 #include <vector>
 
@@ -283,6 +284,64 @@ void DeploySuppressionCases()
     }
 }
 
+void ExpandedAmmoCases()
+{
+    for(int clip:{6,25,75,511,65535,std::numeric_limits<int>::max()})
+    {
+        Initialize();globals.time=10;weapon.m_iClip=clip;player.m_rgAmmo[1]=500;
+        frame.firstDrawn=false;events.clear();
+        Check(weapon.Deploy()&&weapon.m_iClip==clip&&player.m_rgAmmo[1]==500&&weapon.pev->body==5);
+        globals.time=20;frame.pressed=1;weapon.PrimaryAttack();
+        const int remaining=clip-1;
+        Check(weapon.Status()==RevolverStatus::Applied&&weapon.m_iClip==remaining&&player.m_rgAmmo[1]==500);
+        const int shotPhysical=remaining%5;
+        Check(weapon.CylinderState().targetAngle==shotPhysical*72);
+        for(float angle:{0.0F,72.0F,288.0F,360.0F})
+        {
+            frame.cylinderAngle=angle;frame.cylinderGate=0;
+            for(int step=0;step<32;++step)
+            {
+                globals.time+=.1F;weapon.AdvanceOwnerFrame();
+                Check(weapon.Status()==RevolverStatus::Ready&&frame.cylinderAngle>=0&&frame.cylinderAngle<=360);
+            }
+            Check(frame.cylinderAngle==float(shotPhysical*72));
+        }
+        weapon.SetCylinder();
+        const int physical=remaining>5?remaining%5:remaining;
+        Check(weapon.Status()==RevolverStatus::Applied&&frame.cylinderAngle==float(physical*72));
+        Check(frame.cylinderAngle>=0&&frame.cylinderAngle<=360);
+        if(remaining>5)
+        {
+            globals.time=30;events.clear();weapon.Reload();
+            Check(weapon.Status()==RevolverStatus::Ineligible&&weapon.m_iClip==remaining&&
+                player.m_rgAmmo[1]==500&&events.empty()&&!weapon.CylinderState().loading);
+        }
+        globals.time=40;weapon.Holster();globals.time=41;
+        Check(weapon.Deploy()&&weapon.m_iClip==remaining&&player.m_rgAmmo[1]==500);
+    }
+    // A delayed original insertion must not consume reserve after an authority
+    // skill has already refilled/overfilled the actual clip.
+    Initialize();globals.time=10;weapon.m_iClip=3;weapon.Reload();
+    globals.time=weapon.pev->nextthink;weapon.DispatchThink();
+    globals.time=weapon.pev->nextthink;weapon.DispatchThink();
+    Check(weapon.CylinderState().pending);
+    weapon.m_iClip=75;player.m_rgAmmo[1]=500;
+    globals.time=std::nextafter(weapon.CylinderState().commitDeadline,INFINITY);
+    frame.pressed=0;weapon.ItemPostFrame();
+    Check(weapon.m_iClip==75&&player.m_rgAmmo[1]==500&&!weapon.CylinderState().pending);
+    globals.time=weapon.pev->nextthink;weapon.DispatchThink();
+    Check(!weapon.CylinderState().loading&&weapon.m_iClip==75&&player.m_rgAmmo[1]==500);
+    globals.time=30;frame.pressed=1;weapon.PrimaryAttack();
+    Check(weapon.Status()==RevolverStatus::Applied&&weapon.m_iClip==74);
+    // Native corruption checks stay distinct from legitimate high counts.
+    for(int mutation=0;mutation<2;++mutation)
+    {
+        Initialize();globals.time=10;frame.pressed=1;
+        if(mutation)player.m_rgAmmo[1]=-1;else weapon.m_iClip=-1;
+        events.clear();weapon.PrimaryAttack();
+        Check(weapon.Status()==RevolverStatus::InvalidInput&&events.empty());
+    }
+}
 int main(int argc,char** argv)
 {
     if(argc!=6)return 1;
@@ -486,6 +545,6 @@ int main(int argc,char** argv)
     Initialize();globals.time=10;frame.pressed=1;weapon.m_iClip=0;weapon.pev->body=0;weapon.m_fFireOnEmpty=0;failEffect=true;
     events.clear();weapon.PrimaryAttack();Check(weapon.Status()==RevolverStatus::MissingBackend&&weapon.ActionState().primary<10&&events.size()==3&&events[0]==unsigned(RevolverEffect::ViewAnimation));
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==898&&info.iMaxClip==5&&info.iMaxAmmo1==50&&info.iMaxAmmo2==-1&&weapon.iItemSlot()==PISTOL_SLOT);
-    InventoryRestoreCases();DeploySuppressionCases();
+    InventoryRestoreCases();DeploySuppressionCases();ExpandedAmmoCases();
     std::cout<<rows<<" Revolver original scenarios, "<<worldRows<<" original world scenarios, "<<checks<<" SDK checks, zero failures\n";
 }
