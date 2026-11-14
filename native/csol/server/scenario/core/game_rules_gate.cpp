@@ -4,6 +4,7 @@
 #include "human_kick.h"
 #include "../../custom/gameplay_settings.h"
 #include "../../custom/action_stamina.h"
+#include "../../custom/challenge_environment.h"
 #include "../../../scenario/custom/challenge_cycle.hpp"
 #include "../../../scenario/custom/phase_snapshot.hpp"
 #include "../../../scenario/custom/phase_art.hpp"
@@ -107,6 +108,7 @@ bool CCSOLScenarioRuntime::SetClearPointProtection(bool enabled)
 
 void CCSOLScenarioRuntime::RequestClose()
 {
+    if (environment) environment->Revoke();
     // No callbacks: retire owned render references while edicts still belong
     // to this map. Once access is revoked, finalization only drops records.
     if (!m_closing && players) players->ReleaseProtectionState();
@@ -139,6 +141,7 @@ bool CCSOLScenarioRuntime::TryFinalize()
     {
         if (!m_shutdownPrepared)
         {
+            if (environment) environment->Restore();
             if (!m_archiveMap)
             {
                 const auto* tables = session->Map().Tables();
@@ -365,6 +368,15 @@ public:
         m_timeSettings = CSOL_CustomSettings();
         if (m_timeSettings && m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle))
         {
+            const auto environment = std::make_shared<CCSOLChallengeEnvironment>();
+            m_runtime->environment = environment;
+            const bool environmentReady = environment->Precache(*m_timeSettings);
+            if (!OwnsRules()) return;
+            if (!environmentReady)
+            {
+                CSOL_RejectGameRules("Scenario environment configuration or matching engine lightstyle service is unavailable.");
+                return;
+            }
             const auto noon = m_timeSettings->Number(csol::scenario::custom::Setting::MiddaySeconds);
             const auto dusk = m_timeSettings->Number(csol::scenario::custom::Setting::DuskSeconds);
             if (!noon || !dusk || !m_timeCycle.Configure({static_cast<float>(*noon), static_cast<float>(*dusk)}))
@@ -583,6 +595,9 @@ public:
         if (!scope.Current() || !player || handle.Get<CBaseEntity>()!=player) return;
         if (!PublishCustomTime(player) && scope.Current())
             CSOL_RejectGameRules("Scenario custom time could not be replayed to joining player.");
+        if (!scope.Current() || !player || handle.Get<CBaseEntity>() != player) return;
+        if (m_runtime->environment && !m_runtime->environment->Replay(m_runtime, *player) && scope.Current())
+            CSOL_RejectGameRules("Scenario environment could not be replayed to joining player.");
     }
     void ServerDeactivate() override
     {
@@ -710,6 +725,16 @@ public:
         if (!value)
         {
             CSOL_RejectGameRules("Scenario custom challenge clock lost its current stage.");
+            return false;
+        }
+        const auto runtime = m_runtime;
+        const auto environment = runtime->environment;
+        const bool environmentUpdated = environment && environment->Update(runtime,
+            value->challenge, value->time.phase, gpGlobals->time);
+        if (!Ready() || m_runtime != runtime || runtime->session->Map().RoundGeneration() != round) return false;
+        if (!environmentUpdated)
+        {
+            CSOL_RejectGameRules("Scenario environment lost its current challenge or map lightstyle owner.");
             return false;
         }
         if (m_timePublishedRound != round || m_timePublishedPhase != value->time.phase)

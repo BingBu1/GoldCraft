@@ -21,6 +21,7 @@
 #include "scenario/core/scenario_abilities.hpp"
 #include "scenario/core/human_kick.hpp"
 #include "scenario/core/challenge_phase.hpp"
+#include "scenario/core/challenge_environment.hpp"
 #include "scenario/core/stamina_audio.hpp"
 #include "scenario/core/stamina_hud.hpp"
 #include "scenario/bosses/boss_health.hpp"
@@ -64,6 +65,7 @@ void ResetSession()
     ResetScenarioAbilities();
     ResetHumanKick();
     ResetChallengePhase();
+    ResetChallengeEnvironment();
     ResetStaminaAudio();
     ResetStaminaHud();
     ResetBossHealth();

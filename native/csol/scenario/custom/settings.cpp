@@ -69,7 +69,15 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::HordeIntervalSeconds, Feature::RandomHorde, "horde_interval_seconds", "csol_custom_horde_interval_seconds", "随机尸潮抽样间隔秒数，必须为正。", ValueType::Real, .001, 86400, {}, Scope::NextMapSession},
     {Setting::HordeProbability, Feature::RandomHorde, "horde_probability", "csol_custom_horde_probability", "每次抽样尸潮概率，0到1而非百分整数。", ValueType::Real, 0, 1, {}, Scope::NextMapSession},
     {Setting::HordeDurationSeconds, Feature::RandomHorde, "horde_duration_seconds", "csol_custom_horde_duration_seconds", "单次尸潮持续秒数，必须为正。", ValueType::Real, .001, 86400, {}, Scope::NextMapSession},
-    {Setting::DamageRefundMaximumPerMonster, Feature::DamageRefundCap, "damage_refund_max_per_monster", "csol_custom_damage_refund_max_per_monster", "每player-victim组合累计CS金钱上限，怪物新租约是新额度。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 1000, Scope::NextMapSession}
+    {Setting::DamageRefundMaximumPerMonster, Feature::DamageRefundCap, "damage_refund_max_per_monster", "csol_custom_damage_refund_max_per_monster", "每player-victim组合累计CS金钱上限，怪物新租约是新额度。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 1000, Scope::NextMapSession},
+    {Setting::DuskLightLevel, Feature::TimeCycle, "dusk_light_level", "csol_custom_dusk_light_level", "黄昏光照字符的ASCII值，97最暗到122最亮；默认105为原版i档。", ValueType::Integer, 97, 122, 105, Scope::NextMapSession},
+    {Setting::NightLightLevel, Feature::TimeCycle, "night_light_level", "csol_custom_night_light_level", "永夜最终光照档，不得高于黄昏；默认99为原版c档。", ValueType::Integer, 97, 122, 99, Scope::NextMapSession},
+    {Setting::LightStepSeconds, Feature::TimeCycle, "light_step_seconds", "csol_custom_light_step_seconds", "永夜逐次降低一档的间隔秒数；默认原版2.5，超时不追赶多档。", ValueType::Real, .001, 3600, 2.5, Scope::NextMapSession},
+    {Setting::NightFogDensity, Feature::TimeCycle, "night_fog_density", "csol_custom_night_fog_density", "永夜最暗档的雾密度；0关闭。默认原版float位型3A378034。", ValueType::Real, 0, .01, 0.000699999975040555, Scope::NextMapSession},
+    {Setting::NightFogColor, Feature::TimeCycle, "night_fog_color", "csol_custom_night_fog_color", "雾颜色的十进制RGB打包值0xRRGGBB；默认65793对应原版(1,1,1)。", ValueType::Integer, 0, 16777215, 65793, Scope::NextMapSession},
+    {Setting::NightFogStart, Feature::TimeCycle, "night_fog_start", "csol_custom_night_fog_start", "标准Fog接口起始距离，默认原版100，须小于结束距离。", ValueType::Real, 0, 999999, 100, Scope::NextMapSession},
+    {Setting::NightFogEnd, Feature::TimeCycle, "night_fog_end", "csol_custom_night_fog_end", "标准Fog接口结束距离，默认原版2000，须大于起始距离。", ValueType::Real, .001, 1000000, 2000, Scope::NextMapSession},
+    {Setting::NightFogSkybox, Feature::TimeCycle, "night_fog_skybox", "csol_custom_night_fog_skybox", "雾是否影响天空盒：0否，1是；默认原版1。", ValueType::Integer, 0, 1, 1, Scope::NextMapSession}
 }};
 
 constexpr bool DescriptorOrder()
@@ -295,6 +303,10 @@ bool Draft::Finish(SnapshotPtr& output, Error& error) const
         return Fail(error, "blind_box_price_1..3", "blind box prices must be strictly increasing");
     if (!increasing(Setting::MasteryThreshold1, Setting::MasteryThreshold2, Setting::MasteryThreshold3))
         return Fail(error, "mastery_threshold_1..3", "mastery thresholds must be strictly increasing");
+    if (value_.Number(Setting::NightLightLevel) > value_.Number(Setting::DuskLightLevel))
+        return Fail(error, "night_light_level", "night light level must not exceed dusk level");
+    if (value_.Number(Setting::NightFogStart) >= value_.Number(Setting::NightFogEnd))
+        return Fail(error, "night_fog_start", "fog start must be below fog end");
     output = std::make_shared<const Snapshot>(value_); error = {}; return true;
 }
 bool Parse(std::string_view json, SnapshotPtr& output, Error& error)

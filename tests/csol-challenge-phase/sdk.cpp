@@ -328,22 +328,28 @@ void HudCancel()
     Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,101,error)&&c.packets.size()==count,"closed owner cannot publish another HUD update");
 }
 }
+namespace phase_sdk
+{
+void Run(std::string_view group)
+{
+    if(group=="enabled"||group=="disabled")Flow(group=="enabled");
+    else if(group=="join")Flow(true,true);
+    else if(group=="rex"||group=="rex-join")Flow(true,group=="rex-join",true);
+    else if(group=="failed"||group=="replay")FailureAndReplay(group=="replay");
+    else if(group=="night-failed"||group=="night-replay")FailureAndReplay(group=="night-replay",true);
+    else if(group=="breath-male"||group=="breath-female"||group=="breath-cancel")
+        Breath(group!="breath-female",group=="breath-cancel");
+    else if(group=="hud-cancel")HudCancel();
+    else sdk_test::Require(false,"known phase SDK group");
+}
+}
 #ifndef CSOL_PHASE_SDK_LIBRARY
 int main(int argc,char** argv)
 {
     try
     {
         sdk_test::Require(argc==2,"one phase SDK group");
-        const std::string_view group=argv[1];
-        if(group=="enabled"||group=="disabled")phase_sdk::Flow(group=="enabled");
-        else if(group=="join")phase_sdk::Flow(true,true);
-        else if(group=="rex"||group=="rex-join")phase_sdk::Flow(true,group=="rex-join",true);
-        else if(group=="failed"||group=="replay")phase_sdk::FailureAndReplay(group=="replay");
-        else if(group=="night-failed"||group=="night-replay")phase_sdk::FailureAndReplay(group=="night-replay",true);
-        else if(group=="breath-male"||group=="breath-female"||group=="breath-cancel")
-            phase_sdk::Breath(group!="breath-female",group=="breath-cancel");
-        else if(group=="hud-cancel")phase_sdk::HudCancel();
-        else sdk_test::Require(false,"known phase SDK group");
+        phase_sdk::Run(argv[1]);
     }
     catch(const std::exception& error){++sdk_test::failures;std::cerr<<"ERROR "<<error.what()<<'\n';}
     std::cout<<"behaviorChecks="<<kick_test::behaviorChecks<<" checks="<<sdk_test::checks<<" failures="<<sdk_test::failures<<'\n';

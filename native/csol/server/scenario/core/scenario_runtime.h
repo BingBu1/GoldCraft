@@ -21,6 +21,7 @@ class CCSOLMonsterDamageServices;
 class CSOLScenarioRecoveryNotice;
 class CSOLScenarioSdkScope;
 class CCSOLScenarioWallUpgradeServices;
+class CCSOLChallengeEnvironment;
 namespace csol::scenario { class TriggerWaveEvents; }
 
 struct CSOLScenarioCtCounts
@@ -70,6 +71,7 @@ public:
 
     std::shared_ptr<CCSOLScenarioSession> session;
     std::shared_ptr<CCSOLScenarioPlayerRuntime> players;
+    std::shared_ptr<CCSOLChallengeEnvironment> environment;
     // The original elite target is owned by its manager, independently of the
     // current Boss or nearest monster. This owner is scoped to this map.
     std::shared_ptr<CCSOLScenarioEliteManager> eliteManager;

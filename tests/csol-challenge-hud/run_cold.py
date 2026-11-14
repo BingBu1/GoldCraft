@@ -31,7 +31,10 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for key in ('mp','engine','output','resource-plan'):parser.add_argument('--'+key,type=Path,required=True)
     parser.add_argument('--pdb',type=Path)
+    parser.add_argument('--challenge-environment',action='store_true',
+                        help='Read the actual environment service/profile through its matching PDB')
     args=parser.parse_args();out=args.output.resolve();game=ROOT/'sandbox/cs-dione-probe/Half-Life';cstrike=game/'cstrike'
+    if args.challenge_environment and not args.pdb:raise ValueError('Environment inspection requires the exact candidate PDB')
     if out.exists()or not out.is_relative_to(ROOT/'build'):raise ValueError('fresh workspace receipt required')
     if any(p.get('image')and str(game).casefold()in p['image'].casefold()for p in processes(('hlds.exe',))):
         raise ValueError('isolated server is in use')
@@ -127,6 +130,34 @@ def main():
                 native['runtimeFields']={name:process.read(runtime+offset,8).hex()for name,offset in runtime_layout['members'].items()if any(word in name.lower()for word in ('clos','gener','oper'))}
                 session_layout=symbols.layout('CCSOLScenarioSession')
                 native['sessionFields']={name:process.read(session+offset,8).hex()for name,offset in session_layout['members'].items()if any(word in name.lower()for word in ('state','error','map','ready'))}
+                if args.challenge_environment:
+                    environment=shared_object(runtime+runtime_layout['members']['environment'])
+                    if not environment:raise ValueError('Actual scenario runtime has no environment owner')
+                    env_layout=symbols.layout('CCSOLChallengeEnvironment')['members']
+                    config=environment+env_layout['config_']
+                    config_layout=symbols.layout('csol::scenario::custom::EnvironmentConfig')['members']
+                    fog=config+config_layout['fog']
+                    fog_layout=symbols.layout('csol::scenario::custom::FogProfile')['members']
+                    engine_module=next(row for row in process.modules()if Path(row['path']).name.casefold()=='swds.dll')
+                    lights=u32(environment+env_layout['lights_'])
+                    actual=dict(address=environment,lights=lights,
+                        prepared=bool(process.read(environment+env_layout['prepared_'],1)[0]),
+                        revoked=bool(process.read(environment+env_layout['revoked_'],1)[0]),
+                        message=u32(environment+env_layout['message_']),
+                        dusk=process.read(config+config_layout['dusk'],1)[0],night=process.read(config+config_layout['night'],1)[0],
+                        step=struct.unpack('<f',process.read(config+config_layout['stepSeconds'],4))[0],
+                        densityBits=process.read(fog+fog_layout['density'],4).hex(),
+                        color=list(process.read(fog+fog_layout['color'],3)),
+                        start=struct.unpack('<f',process.read(fog+fog_layout['start'],4))[0],
+                        end=struct.unpack('<f',process.read(fog+fog_layout['end'],4))[0],
+                        sky=bool(process.read(fog+fog_layout['sky'],1)[0]))
+                    receipt['environment']=actual
+                    receipt['checks'].update(environmentPrepared=actual['prepared']and not actual['revoked'],
+                        realEngineService=engine_module['base']<=lights<engine_module['base']+engine_module['size'],
+                        fixedEnvironmentMessage=64<=actual['message']<=255,
+                        originalLightProfile=(actual['dusk'],actual['night'],actual['step'])==(105,99,2.5),
+                        originalFogProfile=actual['densityBits']=='3480373a'and actual['color']==[1,1,1]and
+                            actual['start']==100 and actual['end']==2000 and actual['sky'])
                 receipt['nativeRules']=native
             finally:process.close()
         receipt['checks'].update(mode2='"2"'in receipt['responses']['mode'],timeEnabled='"1"'in receipt['responses']['time'],slots32='32 max'in receipt['responses']['status'],noPlayers='0 active'in receipt['responses']['status'],difficultyReady='1..6'in receipt['responses']['difficulty'])

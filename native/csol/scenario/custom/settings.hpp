@@ -27,7 +27,9 @@ enum class Setting : std::uint8_t
     NightDamageMultiplier, NightSpeedMultiplier, NightRegenPerSecond,
     MiddayZombieBase, DuskZombieBase, NightZombieBase, ZombiesPerPlayer,
     HordeIntervalSeconds, HordeProbability, HordeDurationSeconds,
-    DamageRefundMaximumPerMonster, Count
+    DamageRefundMaximumPerMonster,
+    DuskLightLevel, NightLightLevel, LightStepSeconds, NightFogDensity,
+    NightFogColor, NightFogStart, NightFogEnd, NightFogSkybox, Count
 };
 enum class ValueType : std::uint8_t { Boolean, Integer, Real };
 enum class Scope : std::uint8_t { Immediate, NextMapSession };

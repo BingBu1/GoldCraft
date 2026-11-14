@@ -2450,7 +2450,24 @@
     "docs/2026-11-14_修复-重认证清除左轮装填任务-report.md",
     "docs/2026-11-14_接入-VP70冷资源原生声音与地图运行时-report.md",
     "tests/cryoffear-vp70-native-effects/README.md",
-    "tests/cryoffear-vp70-factory/README.md"
+    "tests/cryoffear-vp70-factory/README.md",
+    "native/csol/scenario/custom/environment.hpp",
+    "native/csol/scenario/custom/environment_snapshot.hpp",
+    "native/csol/scenario/custom/environment_config.hpp",
+    "native/csol/scenario/custom/fog_owner.hpp",
+    "native/csol/server/custom/challenge_environment.cpp",
+    "native/csol/server/custom/challenge_environment.h",
+    "native/csol/client/scenario/core/challenge_environment.cpp",
+    "native/csol/client/scenario/core/challenge_environment.hpp",
+    "tests/csol-challenge-hud/run_cold.py",
+    "docs/2026-11-14_接入-挑战渐暗与永夜雾-report.md",
+    "tests/csol-challenge-environment/client.cpp",
+    "tests/csol-challenge-environment/light_provider.cpp",
+    "tests/csol-challenge-environment/prepare_provider.py",
+    "tests/csol-challenge-environment/protocol.cpp",
+    "tests/csol-challenge-environment/README.md",
+    "tests/csol-challenge-environment/run.py",
+    "tests/csol-challenge-environment/sdk.cpp"
   ],
   "trees": {
     "native": [
