@@ -14,6 +14,11 @@ std::optional<PlayerAnimationPlan> RecommendedPistolAnimationPlan(Pistol weapon,
     const PlayerActionLabels melee = rig == PistolAnimationRig::CSO ?
         PlayerActionLabels{"ref_shoot_nataknife", "crouch_shoot_nataknife"} :
         PlayerActionLabels{"ref_shoot_knife", "crouch_shoot_knife"};
+    if(weapon==Pistol::VP70)
+        return PlayerAnimationPlan{{
+            {"ref_aim_mp5","crouch_aim_mp5"},{"ref_aim_mp5","crouch_aim_mp5"},
+            {"ref_shoot_mp5","crouch_shoot_mp5"},{"ref_reload_mp5","crouch_reload_mp5"},
+            {"ref_aim_mp5","crouch_aim_mp5"},melee}};
     return PlayerAnimationPlan{{
         {"ref_aim_onehanded", "crouch_aim_onehanded"},
         {"ref_aim_onehanded", "crouch_aim_onehanded"},

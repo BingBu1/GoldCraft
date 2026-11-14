@@ -53,6 +53,7 @@ def main():
         ROOT / 'native/csol/server/weapons/guest_cof_effects.cpp',
         ROOT / 'native/guest/cof/server/p345_weapon.cpp',
         ROOT / 'native/guest/cof/server/revolver_weapon.cpp',
+        ROOT / 'native/guest/cof/server/vp70_weapon.cpp',
         *[ROOT/('native/guest/cof/server/'+name+'.cpp') for name in ('control_dispatch','crosshair_dispatch','effects_dispatch','screen_shake','sound_dispatch')],
         *[ROOT/('native/guest/cof/'+name+'.cpp') for name in ('control_protocol','crosshair_protocol','particle_protocol','presentation_protocol','sound_protocol')],
         ROOT / 'native/csol/server/weapons/guest_cof_owner.cpp',

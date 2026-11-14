@@ -40,10 +40,12 @@ def main():
     prefix=factory_fixture.read_text('utf-8-sig').split('int main(int argc,char** argv)',1)[0]
     prefix=prefix.replace('../cryoffear-glock-weapon/main.cpp','tests/cryoffear-glock-weapon/main.cpp')
     (output/'shared-factory-sdk.inc').write_text(prefix,'utf-8')
+    host_source=ROOT/'native/csol/server/weapons/guest_cof_host.cpp'
+    (output/'sdk-player-authority.inc').write_text(body(host_source,'bool PlayerAuthority('),'utf8')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     host=ROOT/'native/csol/server/weapons/guest_cof_host.cpp' if a.compile_host else None
-    inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
+    inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),host_source}
     if host:inputs.add(host)
     for root in (a.resources.resolve(),a.deployed_root.resolve()):
         if not root.is_relative_to(ROOT/'build') and not root.is_relative_to(ROOT/'sandbox'):raise ValueError('Runtime fixture assets must be in isolated workspace roots')

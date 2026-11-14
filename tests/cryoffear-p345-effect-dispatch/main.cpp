@@ -7,6 +7,7 @@
 #include "native/guest/cof/crosshair_protocol.hpp"
 #include "native/guest/cof/sound_protocol.hpp"
 #include "native/guest/cof/control_protocol.hpp"
+#include "native/guest/cof/first_draw_lifecycle.hpp"
 #include "shared-owner-runtime-sdk.inc"
 #include <map>
 
@@ -49,7 +50,7 @@ void Engine()
         Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
         else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
-        else Check(flags==1&&index==35&&i==7&&j==19);
+        else Check(flags==1&&index==35&&(i==7||i==19)&&j==19);
         ++playbacks;
     };
 }
@@ -199,6 +200,47 @@ int main(int argc,char** argv)
     Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revAim,revolverState));
     const auto newInstance=State();Check(newInstance.key.generation>movedCylinder.key.generation);
     revolverEntity.serialnumber=oldSerial;
+    VP70Resources vp70Resources{};vp70Resources.generation=glock.generation;vp70Resources.events=glock.events;
+    vp70Resources.viewModelString=100;vp70Resources.models[unsigned(VP70Model::Shell)]=31;
+    VP70Prepared vp70Cold{};Check(effects.FillPrepared(vp70Resources,vp70Cold));
+    Check((effects.VP70Capabilities()&(1u<<unsigned(VP70Effect::Shell)))&&
+        (effects.VP70Capabilities()&(1u<<unsigned(VP70Effect::FirstDraw)))&&
+        !(effects.VP70Capabilities()&(1u<<unsigned(VP70Effect::FireSound))));
+    VP70Weapon vp70;edict_t vp70Entity{};vp70Entity.serialnumber=91;vp70Entity.pvPrivateData=&vp70;
+    vp70Entity.v.pContainingEntity=&vp70Entity;vp70.pev=&vp70Entity.v;vp70.m_iId=899;
+    vp70.m_iPrimaryAmmoType=1;vp70.m_iClip=18;vp70.m_pPlayer=&player;player.m_pActiveItem=&vp70;
+    VP70Event vpAim{VP70Effect::Aim};vpAim.enabled=true;vpAim.value=55;vpAim.a=350;
+    Check(effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpAim,true));
+    const auto vpPresentation=State();Check(vpPresentation.originalWeapon==19&&vpPresentation.aimEnabled&&
+        !vpPresentation.revolverAngle&&vpPresentation.key.generation>newInstance.key.generation);
+    const auto beforeFirstDraw=packets.size();
+    Check(effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,{VP70Effect::FirstDraw},true));
+    Check(!effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,{VP70Effect::FirstDraw},false)&&packets.size()==beforeFirstDraw);
+    Check(!effects.Dispatch(vp70Resources,runtimeView.binding,player,pistol,{VP70Effect::FirstDraw},true));
+    Check(!effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,{VP70Effect::FireSound},true)&&packets.size()==beforeFirstDraw);
+    VP70Event vpShell{VP70Effect::Shell};vpShell.first={1,2,3};vpShell.second={4,5,6};
+    vpShell.a=7;vpShell.value=31;vpShell.other=1;
+    Check(effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpShell,true)&&
+        packets.back().bytes[0]==std::byte(TE_MODEL));
+    VP70Event vpFire{VP70Effect::FireEvent};vpFire.value=19;vpFire.other=1;
+    const auto beforeVpFire=playbacks;
+    Check(effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpFire,true)&&playbacks==beforeVpFire+1);
+    VP70Event vpView{VP70Effect::ViewAnimation};vpView.value=22;
+    Check(effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpView,true));
+    vpView.value=23;Check(!effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpView,true));
+    Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    CrosshairSnapshot vpSpread{};Check(DecodeCrosshair(packets.back().bytes,vpSpread)&&vpSpread.scalar==0&&vpSpread.key==vpPresentation.key);
+    for(unsigned slot=1;slot<=32;++slot)
+    {
+        FirstDrawLifecycle ledger;FirstDrawConnection key{1,slot,0,int(slot),slot};bool drawn=true;
+        Check(ledger.Bind(key,drawn)&&!drawn&&ledger.MarkDrawn(key));
+        Check(ledger.Bind(key,drawn)&&drawn); // Ordinary death/respawn/model keeps the connection.
+        auto replacement=key;++replacement.userid;
+        Check(ledger.Bind(replacement,drawn)&&!drawn&&!ledger.MarkDrawn(key));
+        auto invalid=replacement;invalid.map=0;drawn=true;
+        Check(!ledger.Bind(invalid,drawn)&&drawn);
+        ledger.Reset();Check(!ledger.MarkDrawn(replacement)&&ledger.Bind(replacement,drawn)&&!drawn);
+    }
     player.m_pActiveItem=nullptr;Check(effects.SynchronizeSelection(player));
     Check(State().originalWeapon==0&&!State().revolverAngle);
     player.m_pActiveItem=&pistol;retireBegin=true;
@@ -206,5 +248,5 @@ int main(int argc,char** argv)
     Check(packets.back().bytes.size()==StateBytes);retireBegin=false;valid=true;
     effects.EndMap();Check(!effects.Dispatch(resources,runtimeView.binding,player,pistol,aim));
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;runtime.EndMap();
-    std::cout<<"P345/Revolver actual shared presentation/effect dispatch: "<<checks<<" SDK checks, zero failures; engine packets are captured, no network/gameplay acceptance\n";
+    std::cout<<"P345/Revolver/VP70 actual shared presentation/effect dispatch: "<<checks<<" SDK checks, zero failures; engine packets are captured, no network/gameplay acceptance\n";
 }

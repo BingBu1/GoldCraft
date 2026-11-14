@@ -8,6 +8,9 @@
 #include "native/csol/server/weapons/guest_cof_revolver_native_effects.hpp"
 #include "native/csol/server/weapons/guest_cof_vp70_factory.hpp"
 #include "native/csol/server/weapons/guest_cof_vp70_native_effects.hpp"
+#include "native/guest/cof/sound_protocol.hpp"
+#include "native/guest/cof/server/sound_dispatch.hpp"
+#include "native/guest/cof/admission.hpp"
 #include "shared-factory-sdk.inc"
 #include <filesystem>
 #include <map>
@@ -15,11 +18,13 @@
 namespace runtime_fixture
 {
 using namespace csol::server::cof;
+using guest::cof::PlaySfxCall;
 namespace fs=std::filesystem;
 struct Context
 {
     GlockRuntime* runtime{};
     std::uint64_t epoch{};
+    std::uint32_t enabledWeapons{15};
     bool active{true},retireOnRecoil{},releaseWhileBorrowed{};
     unsigned loads{},frees{},sounds{},p345Effects{},glockEffects{};
     unsigned revolverEffects{};
@@ -31,6 +36,14 @@ struct Context
     std::map<std::string,std::vector<byte>> files;
     std::map<std::string,int> stringIds,models,soundIds,generics,events;
 } context;
+struct RuntimeAdapter
+{
+    template<class T>
+    bool Backend(CBasePlayer& player,T& output) noexcept
+    {return context.runtime&&context.runtime->Backend(player,output);}
+};
+struct {RuntimeAdapter runtime;} host;
+#include "sdk-player-authority.inc"
 
 struct ModelRetireProbe final:CBasePlayerWeapon,OwnerFrameWeapon
 {
@@ -168,6 +181,10 @@ GlockRuntimeHost Callbacks(bool p345,bool revolver=false,bool vp70=false)
     if(p345)host.p345={PrepareP345,P345EffectBoundary,P345RequiredEffects&~P345NativeSoundEffects};
     if(revolver)host.revolver={PrepareRevolver,RevolverEffectBoundary,RevolverRequiredEffects&~RevolverNativeSoundEffects};
     if(vp70)host.vp70={PrepareVP70,VP70EffectBoundary,VP70RequiredEffects&~VP70NativeSoundEffects};
+    host.weaponCurrent=[](void*,CBasePlayer&,int id) noexcept {
+        const auto* definition=guest::cof::FindPistol(id);
+        return definition&&(context.enabledWeapons&guest::cof::PistolCapability(definition->identity));
+    };
     return host;
 }
 GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false,bool vp70=false)
@@ -422,6 +439,14 @@ int main(int argc,char** argv)
     VP70Backends vp70Backend{};Check(runtime.Backend(player,vp70Backend));
     VP70OwnerFrame vp70Frame{};Check(vp70Backend.ownerFrame(vp70Backend.context,vp70Frame)&&
         vp70Frame.reserveLimit==54&&vp70Frame.bulletDamage==45&&!vp70Frame.firstDrawn);
+    for(unsigned mask:{1u,2u,4u,8u})
+    {
+        context.enabledWeapons=mask;guest::cof::PlaySfxCall call{};
+        Check(PlayerAuthority(player,call)&&call.current&&call.current(call.context));
+    }
+    context.enabledWeapons=0;guest::cof::PlaySfxCall unchanged{&context,nullptr};
+    Check(!PlayerAuthority(player,unchanged)&&unchanged.context==&context&&!unchanged.current);
+    context.enabledWeapons=15;
     edict_t vp70Entity{};InitEdict(vp70Entity);auto* vp70=CreateVP70(vp70Entity.v);Check(vp70);
     vp70->Spawn();Check(vp70->ResourcesReady()&&vp70->m_iId==899&&vp70->m_iDefaultAmmo==18);
     Check(vp70->AddToPlayer(&player)&&vp70->m_iClip==18&&vp70->m_iPrimaryAmmoType==4);

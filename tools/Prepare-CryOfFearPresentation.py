@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Add authored CoF Glock cards to an isolated, existing CSO presentation.
+"""Add reviewed CoF pistol cards to an isolated, existing CSO presentation.
 
 Only the new build directory is written. Original game files, the baseline,
 runtime clients and servers are never modified. This is host UI adaptation,
@@ -36,6 +36,11 @@ REVOLVER_PINS={
     'inventoryitems/weapons/weapon_revolver.txt':'584ecbd431f86ee5d1d385cc63c4116109d028c4814b7c7436d85c539396ae4b',
     'gfx/vgui/weapons/revolver/640_revolver_slot.tga':'93e840af2e0cba5732118eecc3b42961a8fc447c8aa3b10a6a69a7396915b0b7',
     'sprites/cof_revolver_cylinder.spr':'1abc649e0684796805236ebd0442db4e518cfa3c400a710db27a6e09906693a0',
+}
+VP70_PINS={
+    "inventoryitems/weapons/weapon_vp70.txt": "96b54688cd5733995a31fff1d2d49569f21611272a56ed8cfb1933f743165846",
+    "gfx/vgui/weapons/vp70/640_vp70_slot.tga": "527ae58a905d13bee62e6b778dc573bddbab35417d71ec0c1774be60d0a1d99f",
+    "sprites/cof_vp70_mag_icon.spr": "2638312b229c7a755a0ed6aa43c8b136fbc7988b749098ffa25e6cf8e3fafa35"
 }
 REVOLVER_AMMO_SHA = '1abc649e0684796805236ebd0442db4e518cfa3c400a710db27a6e09906693a0'
 
@@ -120,9 +125,9 @@ def native_sprite(width,height,rgba):
         struct.pack('<H',256)+palette+struct.pack('<5i',0,-width//2,height//2,width,height)+pixels
 
 def prepare(original_root, baseline_root, output, weapon='glock'):
-    if weapon not in ('glock','p345','revolver'):raise ValueError('Unreviewed guest presentation weapon')
-    p345=weapon=='p345';revolver=weapon=='revolver'
-    kind='Revolver' if revolver else 'P345' if p345 else 'Glock';key='cof_'+weapon
+    if weapon not in ('glock','p345','revolver','vp70'):raise ValueError('Unreviewed guest presentation weapon')
+    p345=weapon=='p345';revolver=weapon=='revolver';vp70=weapon=='vp70'
+    kind={'glock':'Glock','p345':'P345','revolver':'Revolver','vp70':'VP70'}[weapon];key='cof_'+weapon
     original_root, baseline_root, output = map(Path, (original_root, baseline_root, output))
     for path in (original_root, baseline_root, output):
         hud.no_reparse(path.absolute())
@@ -152,7 +157,7 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         raise ValueError('Glock author definition is missing or unsupported')
     ident, original_id, clip, reserve, price, ammo_price, ammo_count = map(int, match.groups()[:7])
     classname, ammunition, title = match.groups()[7:]
-    expected=(898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
+    expected=(899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
     if (ident, original_id, classname, ammunition, clip) != expected:
         raise ValueError('Unreviewed host/original Glock identity')
     shop = read(ROOT/'native/csol/buy_menu.cpp').decode('utf8')
@@ -173,8 +178,8 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
     info = result_menu['weaponInfo']['items']
     if any(r['name'] == classname for r in rows) or any(r['id'] == ident for r in images+info):
         raise ValueError('Guest presentation already exists; supply the unmodified baseline')
-    assets = {name: read(original_root/name, pin) for name, pin in (REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
-    if p345 or revolver:
+    assets = {name: read(original_root/name, pin) for name, pin in (VP70_PINS if vp70 else REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
+    if p345 or revolver or vp70:
         text=assets['inventoryitems/weapons/weapon_'+weapon+'.txt'].decode('utf8')
         picture='gfx/vgui/weapons/'+weapon+'/640_'+weapon+'_slot.tga'
         if not re.search(r'"inventory_picture"\s*\{\s*data\s*"'+re.escape(picture)+r'"\s*\}',text):
@@ -215,11 +220,12 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
     info.append(dict(id=ident, itemId=ident, name=title,
         description=f'Cry of Fear 客串手枪。{clip} 发弹匣，支持机瞄与枪托推击。',
         table=False, values=['']*10, grade=[-1]*3))
+    if vp70:info[-1]['description']=f'Cry of Fear 客串手枪。{clip} 发弹匣，三连发，支持机瞄与枪托推击。'
     native_list = ('6\n'
         'weapon 320 guest/cof/cglock 0 0 170 80\nweapon_s 320 guest/cof/cglock 0 0 170 80\n'
         'weapon 640 guest/cof/cglock 0 0 170 80\nweapon_s 640 guest/cof/cglock 0 0 170 80\n'
         'ammo 320 guest/cof/glock_ammo 0 0 32 32\nammo 640 guest/cof/glock_ammo 0 0 32 32\n').encode('ascii')
-    if p345:native_list=native_list.replace(b'cglock',b'cp345').replace(b'glock_ammo',b'p345_ammo')
+    if p345 or vp70:native_list=native_list.replace(b'cglock',('c'+weapon).encode()).replace(b'glock_ammo',(weapon+'_ammo').encode())
     if revolver:native_list=native_list.replace(b'cglock',b'crever').replace(b'glock_ammo',b'revolver_ammo')
     selection_name='crever' if revolver else 'c'+weapon
     generated = {
@@ -262,7 +268,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('original-game-root', 'baseline', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
-    parser.add_argument('--weapon',choices=('glock','p345','revolver'),default='glock')
+    parser.add_argument('--weapon',choices=('glock','p345','revolver','vp70'),default='glock')
     args = parser.parse_args()
     receipt = prepare(args.original_game_root, args.baseline, args.output,args.weapon)
     print(json.dumps(dict(success=True, files=len(receipt['files']), bytes=sum(r['bytes'] for r in receipt['files']))))

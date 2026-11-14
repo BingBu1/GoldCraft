@@ -13,6 +13,8 @@ inline constexpr std::array<const char*,3> P345PresentationResources{
     "sprites/weapon_cof_p345.txt","sprites/guest/cof/cp345.spr","sprites/guest/cof/p345_ammo.spr"};
 inline constexpr std::array<const char*,3> RevolverPresentationResources{
     "sprites/weapon_cof_revolver.txt","sprites/guest/cof/crever.spr","sprites/guest/cof/revolver_ammo.spr"};
+inline constexpr std::array<const char*,3> VP70PresentationResources{
+    "sprites/weapon_cof_vp70.txt","sprites/guest/cof/cvp70.spr","sprites/guest/cof/vp70_ammo.spr"};
 constexpr unsigned PistolHudAmmoFrames(Pistol weapon) noexcept
 { return weapon==Pistol::Revolver?6u:1u; }
 constexpr std::span<const char* const> PistolPresentationResources(Pistol weapon) noexcept
@@ -22,6 +24,7 @@ constexpr std::span<const char* const> PistolPresentationResources(Pistol weapon
     case Pistol::Glock:return GlockPresentationResources;
     case Pistol::P345:return P345PresentationResources;
     case Pistol::Revolver:return RevolverPresentationResources;
+    case Pistol::VP70:return VP70PresentationResources;
     default:return {};
     }
 }

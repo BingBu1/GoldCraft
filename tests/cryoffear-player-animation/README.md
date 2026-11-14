@@ -33,7 +33,9 @@ plans demonstrating explicit standard/extended binding. They are not selected
 production mappings. The separately named `RecommendedPistolAnimationPlan`
 does make a first-batch host authoring choice: stock knife shoot, or CSO
 nataknife shoot, as a pistol-whip gesture; all other actions use explicit
-onehanded aim/shoot/reload pairs. This recommendation covers the four pistol
+onehanded aim/shoot/reload pairs for Glock, P345 and Revolver. VP70 uses the
+originally verified `mp5` deployment extension and explicit mp5 aim/shoot/reload
+pairs for both postures. This recommendation covers the four pistol
 identities and still requires actual grip/gameplay review. Missing onehanded
 shoot2 and missing stock CSO tracks must fail.
 

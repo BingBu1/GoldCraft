@@ -29,14 +29,18 @@ public:
     bool Current() const noexcept;
     std::uint32_t Capabilities() const noexcept;
     std::uint32_t P345Capabilities() const noexcept;
+    std::uint32_t VP70Capabilities() const noexcept;
     std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
+    bool FillPrepared(const VP70Resources&, guest::cof::server::VP70Prepared&) noexcept;
     bool FillPrepared(const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept;
     bool Dispatch(const GlockResources&, const OwnerBinding&, CBasePlayer&,
         CBasePlayerWeapon&, const guest::cof::server::GlockEvent&) noexcept;
     bool Dispatch(const P345Resources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::P345Event&) noexcept;
+    bool Dispatch(const VP70Resources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::VP70Event&,bool firstDrawn) noexcept;
     bool Dispatch(const RevolverResources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&,RevolverOwnerState) noexcept;
     // Call after real native item processing, and on life/ownership retirement.

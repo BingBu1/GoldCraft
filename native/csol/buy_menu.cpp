@@ -13,6 +13,7 @@ constexpr Item items[]{
     {896,1,"cof_glock","客串武器·Glock 19","cof_glock",650},
     {897,1,"cof_p345","客串武器·P345","cof_p345",800},
     {898,1,"cof_revolver","客串武器·Taurus .357","cof_revolver",1300},
+    {899,1,"cof_vp70","客串武器·VP70","cof_vp70",1100},
     {220,1,"tknifeex2","三重战术飞刀","tknifeex2",30},
     {130,1,"skull1","噬魂SKULL-1","skull1",1200},
     {312,1,"skull2","噬血狂袭SKULL-2","skull2",1550},
@@ -93,7 +94,7 @@ bool Decode(std::span<const std::uint8_t> b,Packet& p){
 }
 Presentation ParsePresentation(std::string_view json){
     Require(!json.empty()&&json.size()<=128*1024);rapidjson::Document d;d.Parse(json.data(),json.size());Require(!d.HasParseError());
-    const int version=Number(Field(d,"version"),1,3);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
+    const int version=Number(Field(d,"version"),1,4);Presentation p;p.width=Number(Field(d,"width"),320,1280);p.height=Number(Field(d,"height"),240,960);
     p.title=Text(Field(d,"title"),128);p.font=Text(Field(d,"font"),128);p.info=Rect(Field(d,"info"));p.previous=Rect(Field(d,"previous"));p.next=Rect(Field(d,"next"));p.quit=Rect(Field(d,"quit"));p.account=Rect(Field(d,"account"));
     Array(Field(d,"slots"),p.slots,Rect);Array(Field(d,"frame"),p.frame,Texture);Array(Field(d,"close"),p.close,Texture);
     const auto& buttons=Field(d,"buttons");Require(buttons.IsArray()&&buttons.Size()==3);for(int i=0;i<3;++i)Array(buttons[i],p.buttons[i],Texture);
@@ -103,6 +104,11 @@ Presentation ParsePresentation(std::string_view json){
         p.listTitle=Text(Field(d,"listTitle"),128);p.favoriteDescription=Text(Field(d,"favoriteDescription"),256);
         Array(Field(d,"teamNames"),p.teamNames,[](const Value& v){return Text(v,128);});
         const auto& tabs=Field(d,"tabs");Require(tabs.IsArray()&&tabs.Size()==6);for(int i=0;i<6;++i)Array(tabs[i],p.tabs[i],Texture);
+    }
+    if(version>=4){
+        p.rebuyLabel=Text(Field(d,"rebuyLabel"),128);
+        const auto& team=Field(d,"teamTabs");Require(team.IsBool());p.teamTabs=team.GetBool();
+        const auto& glow=Field(d,"rebuyButtons");Require(glow.IsArray()&&glow.Size()==3);for(int i=0;i<3;++i)Array(glow[i],p.rebuyButtons[i],Texture);
     }
     for(int i=0;i<8;++i)p.favorites[i]={374+(i%2)*110,52+(i/2)*35,107,31};
     if(version>=2){
@@ -155,6 +161,7 @@ Presentation ParsePresentation(std::string_view json){
 std::vector<std::string> Resources(const Presentation& p){
     std::vector<std::string> r{PresentationResource,MenuFontResource,MenuTabClickResource};for(const auto& t:p.frame)r.push_back(t.path);for(const auto& row:p.buttons)for(const auto& t:row)r.push_back(t.path);for(const auto& row:p.tabs)for(const auto& t:row)if(!t.path.empty())r.push_back(t.path);for(const auto& t:p.close)r.push_back(t.path);for(const auto& [id,t]:p.images)r.push_back(t.path);
     for(const auto& t:p.slotBackground)if(!t.path.empty())r.push_back(t.path);
+    for(const auto& row:p.rebuyButtons)for(const auto& t:row)if(!t.path.empty())r.push_back(t.path);
     for(const auto* t:{&p.keyboard,&p.favoriteBackground,&p.weaponInfo.background,&p.weaponInfo.divider})if(!t->path.empty())r.push_back(t->path);
     for(const auto& [id,image]:p.weaponInfo.grades)r.push_back(image.path);
     for(const auto& image:p.weaponInfo.scroll.slider)if(!image.path.empty())r.push_back(image.path);
