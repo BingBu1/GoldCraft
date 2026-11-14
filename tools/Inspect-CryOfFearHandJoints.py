@@ -19,9 +19,15 @@ from cryoffear_studio import Studio, multiply, pose_matrix, transform
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def poses(model, channels=None):
+def poses(model, channels=None, *, bone_scope=None):
+    if model.controllers and bone_scope is None:
+        raise ValueError("Controlled poses need an explicit sampled state or independent bone scope")
+    required = None if bone_scope is None else model.uncontrolled_scope(bone_scope)
     result = []
     for index, bone in enumerate(model.bones):
+        if required is not None and index not in required:
+            result.append(None)
+            continue
         values = bone["pose"] if channels is None else [
             a + b*c for a, b, c in zip(bone["pose"], bone["scale"], channels[index])]
         local = pose_matrix(values)
@@ -56,12 +62,17 @@ def connections(source, candidate, donor, bind):
 
 
 def inspect(target_path, donor_path, candidate_path):
-    target, donor, candidate = [Studio.read(path) for path in (target_path, donor_path, candidate_path)]
+    target = Studio.read(target_path, opaque_controllers=True)
+    donor = Studio.read(donor_path)
+    candidate = Studio.read(candidate_path, opaque_controllers=True)
     if candidate.data[244:len(target.data)] != target.data[244:]:
         raise ValueError("Original target payload changed")
     if candidate.bones != target.bones or candidate.attachments != target.attachments or candidate.i(164) != target.i(164):
         raise ValueError("Original skeleton, attachments or sequence count changed")
     source_parts, candidate_parts = hands(donor), hands(candidate)
+    scope = {bone for part in candidate_parts for kind in ("vertices", "normals") for bone in part[kind+"Bones"]}
+    target.uncontrolled_scope(scope)
+    candidate.uncontrolled_scope(scope)
     bind = poses(donor)
     edges = [connections(a, b, donor, bind) for a, b in zip(source_parts, candidate_parts)]
     programs = []
@@ -84,7 +95,7 @@ def inspect(target_path, donor_path, candidate_path):
                 channels = target.channels(sequence, frame, blend)
                 if channels != candidate.channels(sequence, frame, blend):
                     raise ValueError("Original animation channels changed")
-                matrices = poses(target, channels)
+                matrices = poses(target, channels, bone_scope=scope if target.controllers else None)
                 for (points, links), state in zip(programs, stats):
                     world = [transform(matrices[bone], point) for bone, point in points]
                     ratios = []

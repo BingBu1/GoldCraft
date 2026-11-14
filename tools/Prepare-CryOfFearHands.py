@@ -111,7 +111,9 @@ class Writer:
     def integer(self,offset,value):struct.pack_into('<i',self.data,offset,value)
 
 def prepare(target_path: Path, donor_path: Path, profile_path: Path):
-    target,donor=Studio.read(target_path),Studio.read(donor_path)
+    # Controllers remain opaque, untouched target data. Geometry is authored
+    # only on branches proved independent below; never invent a cylinder pose.
+    target,donor=Studio.read(target_path,opaque_controllers=True),Studio.read(donor_path)
     profile=json.loads(profile_path.read_text('utf-8-sig'))
     if profile.get('version')!=1 or profile.get('targetSha256')!=target.sha256 or profile.get('donorSha256')!=donor.sha256:
         raise ValueError('Explicit profile identities do not match the actual models')
@@ -127,6 +129,9 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     used={i for model in hand_models for kind in ('vertices','normals') for i in model[kind+'Bones']}
     if not used.issubset(bindings):raise ValueError('Every weighted hand bone needs an explicit authored transform')
     edits=mesh_edits(profile,hand_models,target)
+    if target.controllers:
+        target.uncontrolled_scope({binding[0] for binding in bindings.values()} |
+            {bone for edit in edits for kind in ('vertices','normals') for bone in edit[kind+'Bones'].values()})
     selected=sorted({donor.skins[0][mesh['skinref']] for model in hand_models for mesh in model['meshes']})
     writer=Writer(target.data);texture_map={};textures=[];texels=[]
     # Keep original target bytes and absolute sequence/attachment offsets intact.
@@ -192,13 +197,14 @@ def prepare(target_path: Path, donor_path: Path, profile_path: Path):
     for i,pixels in enumerate(texels):
         writer.integer(texture_table+i*80+76,cursor);cursor+=len(pixels)
     for offset,value in [(180,len(textures)),(184,texture_table),(188,texture_pixels),(192,len(textures)),(196,1),(200,skin_table),(204,1),(208,group_table),(168,donor_sequences),(72,len(writer.data))]:writer.integer(offset,value)
-    result=bytes(writer.data);check=Studio(result)
+    result=bytes(writer.data);check=Studio(result,opaque_controllers=True)
     if result[244:len(target.data)]!=target.data[244:]:raise ValueError('Original target payload changed')
     for offset in (140,144,148,152,164,172,176,212,216):
         if check.i(offset)!=target.i(offset):raise ValueError('Target animation/skeleton/attachment identity changed')
     return result,dict(targetSha256=target.sha256,donorSha256=donor.sha256,profileSha256=digest(profile_path.read_bytes()),
         outputSha256=digest(result),vertices=vertices_total,triangles=triangles_total,mappedBones=len(used),
         originalPayloadPreserved=True,skeletonAnimationPreserved=True,geometryDonorEventsDetached=True,
+        opaqueControllerCount=len(target.controllers),controllerIndependentGeometry=True,
         explicitBoneAssignments=sum(len(edit[kind+'Bones']) for edit in edits for kind in ('vertices','normals')),
         visualAccepted=False,gameplayAccepted=False)
 

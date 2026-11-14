@@ -7,6 +7,8 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <filesystem>
+#include <fstream>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -76,6 +78,42 @@ void CofSoundCases(){
  files.erase(mapped);bool rejected=false;GoldCraftBeginCsolResources();
  try{Precache(view);}catch(const std::exception&){rejected=true;}
  CHECK(rejected);resourceBatch.reset();
+}
+void RealCofHandCases(const char* runtimeRoot,const char* candidateRoot){
+ namespace fs=std::filesystem;
+ Reset();
+ const auto load=[&](const fs::path& root,const fs::path& relative){
+  const auto directory=root/relative;CHECK(fs::is_directory(directory));
+  for(const auto& entry:fs::recursive_directory_iterator(directory))if(entry.is_regular_file()){
+   CHECK(!entry.is_symlink()&&entry.file_size()<=64*1024*1024);
+   std::ifstream stream(entry.path(),std::ios::binary);CHECK(stream.good());
+   const std::vector<char> raw{std::istreambuf_iterator<char>(stream),{}};
+   Bytes data(raw.size());std::memcpy(data.data(),raw.data(),raw.size());
+   files[entry.path().lexically_relative(root).generic_string()]=std::move(data);
+  }
+ };
+ for(const char* path:{"models/guest/cof","sound/guest/cof","events/guest/cof",
+     "aurora/guest/cof","gfx/guest/cof","gfx/tattoo","sprites/guest/cof","inventoryitems/guest/cof"})load(runtimeRoot,path);
+ load(candidateRoot,"models");
+ const std::set<std::string> expected{
+  "models/csol/hands/cof/v_glock.mdl","models/csol/hands/cof/v_p345.mdl","models/csol/hands/cof/v_revolver.mdl"};
+ for(int pass=0;pass<2;++pass){
+  models.clear();generic.clear();GoldCraftBeginCsolResources();
+  for(const char* weapon:{"glock","p345","revolver"}){
+   const std::string path="models/guest/cof/"+std::string(weapon)+"/v_"+weapon+".mdl";
+   Precache(path.c_str());Precache(path.c_str());
+   const auto profile=path.substr(0,path.size()-4)+"_hands.json";
+   CHECK(std::find(generic.begin(),generic.end(),profile)!=generic.end());
+  }
+  CHECK(models.empty()&&resourceBatch->registeredHands==expected&&opens==closes);
+  CHECK(pass?resourceBatch->rebuilt==0:resourceBatch->rebuilt==3);
+  GoldCraftEndCsolResources();CHECK(std::set<std::string>(models.begin(),models.end())==expected&&models.size()==3);
+ }
+ // A real missing donor must fail the same cold transaction; cached readiness
+ // must not turn a previous valid model into a permanent success.
+ files.erase("models/csol/hands/cof/v_revolver.mdl");models.clear();GoldCraftBeginCsolResources();
+ bool rejected=false;try{Precache("models/guest/cof/revolver/v_revolver.mdl");}catch(const std::exception&){rejected=true;}
+ CHECK(rejected&&models.empty()&&opens==closes);resourceBatch.reset();
 }
 void Cases(){
  Setup();const auto before=files;
@@ -151,4 +189,4 @@ void* Hunk_AllocName(int,const char*){throw std::runtime_error("unexpected sprit
 double Sys_FloatTime(){return 0;}
 char loadname[MAX_MODEL_NAME]{};
 char* va(char* format,...){static char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);return text;}
-int main(){try{fixture::Cases();fixture::CofSoundCases();std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}
+int main(int argc,char** argv){try{CHECK(argc==1||argc==3);fixture::Cases();fixture::CofSoundCases();if(argc==3)fixture::RealCofHandCases(argv[1],argv[2]);std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}

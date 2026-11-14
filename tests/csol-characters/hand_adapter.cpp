@@ -36,18 +36,23 @@ model_t* LoadEngineModel(const char*){throw std::runtime_error("unexpected sprit
 }
 int main(int argc,char** argv){using namespace csol;using namespace csol::client;using fixture::Check;
 try {
-    Check(argc==3 || argc==6);fixture::stock=argv[1];fixture::resources=argv[2];
+    Check(argc==3 || argc==6 || argc==7 || argc==8);fixture::stock=argv[1];fixture::resources=argv[2];
     Check(glfwInit()!=0);glfwWindowHint(GLFW_VISIBLE,GLFW_FALSE);auto* window=glfwCreateWindow(64,64,"Hand adapter GL",nullptr,nullptr);Check(window);
     glfwMakeContextCurrent(window);glewExperimental=true;Check(glewInit()==GLEW_OK);while(glGetError()){}
     engine.Con_Printf=fixture::Console;event_api_t event{};event.EV_FindModelIndex=[](const char*){return fixture::advertised?1:0;};engine.pEventAPI=&event;
     const auto data=ReadResource("models/csol/characters.json");auto catalog=ParseCharacters({(char*)data.data(),data.size()});
     fixture::character=&catalog.front();const auto donor=ReadResource("models/csol/hands/v_hegrenade.mdl");
-    if(argc==6) {
-        constexpr char targetPath[]="models/guest/cof/glock/v_glock.mdl";
+    if(argc>=6) {
+        const std::string targetPath=argc>=7?argv[6]:"models/guest/cof/glock/v_glock.mdl";
+        Check(targetPath.starts_with("models/guest/cof/")&&targetPath.ends_with(".mdl")&&
+            targetPath.find("..")==targetPath.npos&&targetPath.size()<sizeof(model_t::name));
         fixture::injected[targetPath]=fixture::Read(argv[3]);
-        fixture::injected["models/csol/hands/v_cof_authored.mdl"]=fixture::Read(argv[4]);
-        fixture::injected["models/guest/cof/glock/v_glock_hands.json"]=fixture::Read(argv[5]);
-        model_t model{};strcpy_s(model.name,targetPath);auto* original=GetAsset(&model);Check(original);
+        const std::string donorPath=argc==8?argv[7]:"models/csol/hands/v_cof_authored.mdl";
+        Check(donorPath.starts_with("models/csol/hands/")&&donorPath.ends_with(".mdl")&&
+            donorPath.find("..")==donorPath.npos&&donorPath.size()<sizeof(model_t::name));
+        fixture::injected[donorPath]=fixture::Read(argv[4]);
+        fixture::injected[targetPath.substr(0,targetPath.size()-4)+"_hands.json"]=fixture::Read(argv[5]);
+        model_t model{};strcpy_s(model.name,targetPath.c_str());auto* original=GetAsset(&model);Check(original);
         const auto bytes=original->bytes;const auto header=original->Header();
         auto* adapted=ViewHandAsset(original);Check(adapted!=original&&adapted->vao&&adapted->adaptedHands==nullptr);
         Check(adapted->adaptedMeshes>0&&adapted->adaptedBones>0);

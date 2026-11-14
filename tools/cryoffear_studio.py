@@ -32,13 +32,22 @@ def pose_matrix(p):
 
 
 class Studio:
-    def __init__(self, data):
+    def __init__(self, data, *, opaque_controllers=False):
         self.data = bytes(data)
         if len(data) < 244 or data[:4] != b'IDST' or self.i(4) != 10 or self.i(72) != len(data):
             raise ValueError('A complete studio v10 model is required')
         self.sha256 = hashlib.sha256(data).hexdigest()
-        if self.i(148):
+        if type(opaque_controllers) is not bool:
+            raise ValueError('Opaque controller access must be explicit')
+        if self.i(148) and not opaque_controllers:
             raise ValueError('Bone controllers require an explicit sampled controller state')
+        self.controllers = []
+        self.span(self.i(152), self.i(148), 24, 8)
+        for i in range(self.i(148)):
+            at = self.i(152) + i*24
+            self.controllers.append(dict(bone=self.i(at), type=self.i(at + 4),
+                                         bounds=self.f(at + 8, 2), rest=self.i(at + 16),
+                                         index=self.i(at + 20), raw=self.data[at:at + 24]))
         self.bones = []
         self.span(self.i(144), self.i(140), 112, 128)
         if self.i(140) < 1:
@@ -48,11 +57,16 @@ class Studio:
             parent = self.i(at + 32)
             if parent < -1 or parent >= i:
                 raise ValueError('Invalid skeleton hierarchy')
-            self.bones.append(dict(name=self.string(at, 32), parent=parent,
+            controls = struct.unpack_from('<6i', self.data, at + 40)
+            if any(c < -1 or c >= len(self.controllers) for c in controls):
+                raise ValueError('Invalid bone controller reference')
+            self.bones.append(dict(name=self.string(at, 32), parent=parent, controllers=controls,
                                    pose=self.f(at + 64, 6), scale=self.f(at + 88, 6),
                                    raw=self.data[at:at + 112]))
         if len({b['name'] for b in self.bones}) != len(self.bones):
             raise ValueError('Ambiguous bone names')
+        if any(c['bone'] < 0 or c['bone'] >= len(self.bones) for c in self.controllers):
+            raise ValueError('Invalid controller bone')
         self.span(self.i(168), self.i(164), 176, 2048)
         self.textures = []
         self.span(self.i(184), self.i(180), 80, 512)
@@ -132,8 +146,8 @@ class Studio:
                                          origin=self.f(at + 40, 3), vectors=[self.f(at + 52 + 12*j, 3) for j in range(3)]))
 
     @classmethod
-    def read(cls, path):
-        return cls(Path(path).read_bytes())
+    def read(cls, path, *, opaque_controllers=False):
+        return cls(Path(path).read_bytes(), opaque_controllers=opaque_controllers)
 
     def span(self, offset, count, size, maximum=65536):
         if count < 0 or count > maximum or offset < 0 or offset > len(self.data) or count*size > len(self.data) - offset:
@@ -195,10 +209,31 @@ class Studio:
             values.append(row)
         return values
 
-    def sample(self, sequence, frame, blend):
+    def uncontrolled_scope(self, bones):
+        """Prove that selected geometry and all its ancestors need no controls."""
+        required = set()
+        for index in bones:
+            if type(index) is not int or not 0 <= index < len(self.bones):
+                raise ValueError('Invalid sampled bone scope')
+            while index >= 0 and index not in required:
+                if any(c >= 0 for c in self.bones[index]['controllers']):
+                    raise ValueError('Sampled geometry depends on a bone controller')
+                required.add(index)
+                index = self.bones[index]['parent']
+        if not required:
+            raise ValueError('Empty sampled bone scope')
+        return frozenset(required)
+
+    def sample(self, sequence, frame, blend, *, bone_scope=None):
+        if self.controllers and bone_scope is None:
+            raise ValueError('Bone controllers require an explicit sampled controller state or independent bone scope')
+        required = None if bone_scope is None else self.uncontrolled_scope(bone_scope)
         channels = self.channels(sequence, frame, blend)
         poses = []
-        for bone, values in zip(self.bones, channels):
+        for i, (bone, values) in enumerate(zip(self.bones, channels)):
+            if required is not None and i not in required:
+                poses.append(None)
+                continue
             local = pose_matrix([a + b*c for a, b, c in zip(bone['pose'], bone['scale'], values)])
             poses.append(multiply(poses[bone['parent']], local) if bone['parent'] >= 0 else local)
         return poses

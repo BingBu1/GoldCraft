@@ -6,7 +6,10 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
- p=argparse.ArgumentParser();p.add_argument('--environment',type=Path,required=True);p.add_argument('--output',type=Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--environment',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+ p.add_argument('--runtime-root',type=Path);p.add_argument('--candidate-root',type=Path);a=p.parse_args()
+ if bool(a.runtime_root)!=bool(a.candidate_root):raise ValueError('Both real resource roots are required')
+ if a.runtime_root and (not a.runtime_root.resolve().is_relative_to(ROOT/'sandbox') or not a.candidate_root.resolve().is_relative_to(ROOT/'build')):raise ValueError('Use workspace resource roots')
  out=a.output.absolute()
  if out.exists() or not out.resolve().is_relative_to(ROOT/'build'):raise ValueError('Fresh workspace output required')
  out.mkdir(parents=True);(out/'temp').mkdir()
@@ -30,6 +33,10 @@ def main():
  flags+=['/imsvc'+str(ROOT/x) for x in include]+['/I'+str(out)]
  sources=[ROOT/'tests/csol-hand-precache/main.cpp']+[ROOT/('native/csol/'+n+'.cpp') for n in ('dependencies','model_codec','sprite_codec','texture_model','model_json','events','model_source','sequences')]
  inputs=set(sources)|{Path(__file__).resolve(),a.environment.resolve(),compiler,compiler.with_name('lld-link.exe'),ROOT/'external/ReHLDS/rehlds/lib/libacof32.lib',native,out/'native_studio_sounds.inc'}
+ if a.runtime_root:
+  for relative in ('models/guest/cof','sound/guest/cof','events/guest/cof','aurora/guest/cof','gfx/guest/cof','gfx/tattoo','sprites/guest/cof','inventoryitems/guest/cof'):
+   inputs.update(p.resolve() for p in (a.runtime_root/relative).rglob('*') if p.is_file())
+  inputs.update(p.resolve() for p in (a.candidate_root/'models').rglob('*') if p.is_file())
  for i,src in enumerate(sources):
   dep=out/(str(i)+'.d');cmd=[str(compiler),*flags,'/clang:-M','/clang:-MF','/clang:'+str(dep),str(src)]
   proc=subprocess.run(cmd,cwd=ROOT,env=env,capture_output=True,text=True,timeout=90);(out/(str(i)+'-headers.log')).write_text(proc.stdout+proc.stderr,'utf8');proc.check_returncode()
@@ -47,7 +54,8 @@ def main():
   proc=subprocess.run(cmd,cwd=out,env=env,capture_output=True,text=True,timeout=150);(out/'link.log').write_text(proc.stdout+proc.stderr,'utf8')
   if proc.returncode:print(proc.stdout+proc.stderr)
   proc.check_returncode()
-  proc=subprocess.run([str(exe)],cwd=out,capture_output=True,text=True,timeout=30);(out/'test.log').write_text(proc.stdout+proc.stderr,'utf8');print(proc.stdout+proc.stderr);proc.check_returncode()
+  arguments=[str(exe)]+([str(a.runtime_root.resolve()),str(a.candidate_root.resolve())] if a.runtime_root else [])
+  proc=subprocess.run(arguments,cwd=out,capture_output=True,text=True,timeout=30);(out/'test.log').write_text(proc.stdout+proc.stderr,'utf8');print(proc.stdout+proc.stderr);proc.check_returncode()
  except Exception as e:error=str(e)
  after={str(x):sha(x) for x in sorted(inputs)}
  receipt=dict(success=error is None and before==after,error=error,commands=commands,before=before,after=after,inputsUnchanged=before==after,sourceCopies=0,gameplay=False,performance=False,boundary='Current complete loader/collector/cache with actual ReHLDS SDK; VFS and model registry doubled; no full engine/gameplay')

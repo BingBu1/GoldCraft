@@ -2421,7 +2421,9 @@
     "docs/2026-11-14_修复-Revolver准星与自定义穿透-report.md",
     "tools/Prepare-ChallengeMoon.py",
     "patches/csol-stamina-resource-refresh.patch",
-    "docs/2026-11-14_实现-血月动画与权威体力HUD-report.md"
+    "docs/2026-11-14_实现-血月动画与权威体力HUD-report.md",
+    "docs/2026-11-14_接入-CoF三枪角色手模控制器隔离-report.md",
+    "tests/cryoffear-hand-controller-scope/README.md"
   ],
   "trees": {
     "native": [
