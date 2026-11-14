@@ -89,11 +89,27 @@ int main()
     // The real original leftwheel shares the three-bar stage. A previous
     // pistol presentation must not render after switching its host identity.
     current.id=898;current.clip=5;Draw(0);
-    state.originalWeapon=21;state.aimEnabled=false;++state.revision;Present();
+    state.originalWeapon=21;state.aimEnabled=false;state.revolverAngle=144;++state.revision;Present();
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     current.clip=75;Draw(3);
+    // Reliable cylinder state may precede the next unreliable spread snapshot.
+    // Keep only the last actually accepted value for this same weapon/aim.
+    state.revolverAngle=132;++state.revision;Present();Draw(3);
+    const auto previousGap=rectangles[0].x;
+    auto oldAngle=snap;oldAngle.scalar=10;++oldAngle.sequence;Send(oldAngle);Draw(3);
+    CHECK(rectangles[0].x==previousGap); // Older revision still cannot change it.
+    snap.presentationRevision=state.revision;snap.sequence=oldAngle.sequence+1;snap.scalar=9;Send(snap);Draw(3);
+    CHECK(rectangles[0].x==987);
+    state.revolverAngle=120;++state.revision;Present();Draw(3);CHECK(rectangles[0].x==987);
+    const auto stableCylinderLookups=lookups,stableCylinderScreens=screens;
+    for(int i=0;i<100;++i){GuestCofCrosshairFrame();Draw(3);}
+    CHECK(lookups==stableCylinderLookups&&screens==stableCylinderScreens);
+    ++state.key.generation;++state.revision;Present();Draw(0);Send(snap);Draw(0);
+    snap.key=state.key;snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
-    state.aimEnabled=false;state.originalWeapon=3;current.id=896;++state.revision;Present();
+    state.aimEnabled=false;++state.revision;Present();Draw(0); // Aim exit needs its own accepted snapshot.
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    state.originalWeapon=3;state.revolverAngle.reset();current.id=896;++state.revision;Present();Draw(0);
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     GuestCofCrosshairVideoInit();CHECK(!GuestCofCrosshairReady());GuestCofCrosshairFrame();Draw(3);
     auto wrong=snap;++wrong.key.lifeEpoch;++wrong.sequence;Send(wrong);Draw(3);

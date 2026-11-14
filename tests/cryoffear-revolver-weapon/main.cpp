@@ -31,6 +31,7 @@ RevolverOwnerFrame frame{};
 bool current=true;
 int cancel=-1, checks{}, meleeCalls{};
 bool failEffect{}, observeReload{};
+int rejectedEffect=-1;
 bool traceDeploy{};
 std::vector<unsigned> deployOrder;
 std::vector<std::pair<int,int>> deployRandom;
@@ -76,7 +77,7 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const RevolverEvent& e) n
     default:break;
     }
     if(cancel==int(k))current=false;
-    return !failEffect;
+    return !failEffect&&int(e.kind)!=rejectedEffect;
 }
 
 struct Player final:CBasePlayer
@@ -105,7 +106,7 @@ bool extendedAllowed=true;
 
 void Initialize()
 {
-    events.clear();current=true;cancel=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=reloadDeadline=0;frame={};frame.bulletDamage=37;frame.meleeDamage=11;
+    events.clear();current=true;cancel=rejectedEffect=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=reloadDeadline=0;frame={};frame.bulletDamage=37;frame.meleeDamage=11;
     frame.randomSeed=17;frame.sourceMode=PistolSource::NormalMuzzle;
     frame.reserveLimit=15;
     globals={};globals.maxClients=2;globals.time=0;
@@ -616,6 +617,25 @@ int main(int argc,char** argv)
     events.clear();weapon.PrimaryAttack();Check(weapon.Status()==RevolverStatus::MissingBackend&&weapon.ActionState().primary<10&&events.size()==3&&events[0]==unsigned(RevolverEffect::ViewAnimation));
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==898&&info.iMaxClip==5&&info.iMaxAmmo1==50&&info.iMaxAmmo2==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     InventoryRestoreCases();DeploySuppressionCases();ExpandedAmmoCases();ModelRebindCases();
+    // A rejected insertion callback reproduces the live clip1/loading/no-think
+    // state. Diagnostics retain that boundary after successful frame reads;
+    // they must not synthesize a retry or change original scheduler behavior.
+    for(auto rejected:{RevolverEffect::Body,RevolverEffect::ViewAnimation,RevolverEffect::ReloadStage})
+    {
+        Initialize();globals.time=10;weapon.m_iClip=2;weapon.pev->body=2;weapon.Reload();
+        globals.time=weapon.pev->nextthink;weapon.pev->nextthink=0;weapon.Think();
+        const auto count=weapon.LastFailure().count;
+        globals.time=weapon.pev->nextthink;weapon.pev->nextthink=0;rejectedEffect=int(rejected);weapon.Think();
+        Check(weapon.LastFailure().count==count+1&&weapon.LastFailure().effect==rejected&&
+            weapon.LastFailure().point==RevolverFailurePoint::EffectRejected&&
+            weapon.LastFailure().pending&&weapon.CylinderState().loading&&weapon.pev->nextthink==0&&weapon.m_pfnThink==nullptr);
+        rejectedEffect=-1;globals.time=weapon.CylinderState().commitDeadline+.001F;weapon.ItemPostFrame();
+        Check(weapon.m_iClip==1&&weapon.CylinderState().loading&&weapon.pev->nextthink==0);
+        const auto observed=weapon.LastFailure();globals.time+=10;weapon.ItemPostFrame();
+        Check(weapon.LastFailure().count==observed.count&&weapon.LastFailure().effect==rejected&&
+            weapon.LastFailure().enteredAt==observed.enteredAt&&weapon.LastFailure().pending&&
+            weapon.m_iClip==1&&weapon.Status()==RevolverStatus::Ready);
+    }
     // Execute a complete uninterrupted reload through engine-like think
     // clearing and ordinary weapon frames, rather than one insert/cancel only.
     Initialize();globals.time=10;weapon.m_iClip=2;weapon.pev->body=2;weapon.Reload();

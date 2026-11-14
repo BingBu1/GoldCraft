@@ -535,10 +535,25 @@ bool RevolverWeapon::Emit(RevolverEvent event) noexcept
     Lease l = lease_; l.active = selected_;
     auto effect = backends_.effect;
     if (!Current(&l)) return false;
+    const float enteredAt = gpGlobals->time;
     const bool delivered = effect(l.context, *l.player, *this, event);
     if (!Current(&l)) return false;
-    if (!delivered) status_ = RevolverStatus::MissingBackend;
+    if (!delivered)
+    {
+        RecordFailure(RevolverFailurePoint::EffectRejected,event.kind,enteredAt,event.a);
+        status_ = RevolverStatus::MissingBackend;
+    }
     return delivered;
+}
+void RevolverWeapon::RecordFailure(RevolverFailurePoint point,RevolverEffect effect,
+    float enteredAt,float argument) noexcept
+{
+    const auto count=failure_.count==UINT32_MAX?UINT32_MAX:failure_.count+1;
+    // Called only after the real boundary's retained entity/life check succeeds.
+    // No resource lookup, I/O, allocation, callback or gameplay state mutation.
+    failure_={count,point,effect,enteredAt,gpGlobals->time,argument,
+        m_pPlayer->pev->weaponanim,pev->body,m_iClip,m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType],
+        cylinder_.loading,cylinder_.cancel,cylinder_.pending};
 }
 bool RevolverWeapon::Animate(PlayerAction action) noexcept
 {
@@ -547,7 +562,12 @@ bool RevolverWeapon::Animate(PlayerAction action) noexcept
     const auto result = backends_.playerAnimation->Apply(*l.player,
         backends_.playerModelGeneration, Pistol::Revolver, action, gpGlobals->time);
     if (!Current(&l)) { status_ = RevolverStatus::Cancelled; return false; }
-    if (result == PlayerAnimationResult::Rejected) { status_ = RevolverStatus::MissingBackend; return false; }
+    if (result == PlayerAnimationResult::Rejected)
+    {
+        RecordFailure(RevolverFailurePoint::AnimationRejected,RevolverEffect::ReloadStage,gpGlobals->time,
+            float(static_cast<unsigned>(action)));
+        status_ = RevolverStatus::MissingBackend; return false;
+    }
     return true;
 }
 bool RevolverWeapon::View(int sequence) noexcept

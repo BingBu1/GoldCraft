@@ -28,6 +28,18 @@ enum class RevolverEffect : unsigned char
     PickupSound, DeployReset, Sleeve, AmmoPickupSound, Body, FirstDraw,
     ReloadStage, AmmoX, Cylinder, Count
 };
+enum class RevolverFailurePoint : unsigned char { None, EffectRejected, AnimationRejected };
+// Sticky, process-local observation of an actual failed external boundary.
+// Ordinary successful frame reads must not erase the failure's cause.
+struct RevolverFailure
+{
+    std::uint32_t count{};
+    RevolverFailurePoint point{};
+    RevolverEffect effect{};
+    float enteredAt{}, failedAt{}, argument{};
+    int animation{}, body{}, clip{}, reserve{};
+    bool loading{}, cancel{}, pending{};
+};
 struct RevolverEvent
 {
     RevolverEffect kind{};
@@ -157,6 +169,7 @@ public:
     void Invalidate() noexcept override;
     void OwnerModelChanging() noexcept override;
     RevolverStatus Status() const noexcept { return status_; }
+    const RevolverFailure& LastFailure() const noexcept { return failure_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const RevolverCylinder& CylinderState() const noexcept { return cylinder_; }
     const SpreadState& Spread() const noexcept { return spread_; }
@@ -186,6 +199,7 @@ private:
     void RetireWorld(bool) noexcept;
     bool Check(RevolverOwnerFrame&, bool active = true) noexcept;
     bool Emit(RevolverEvent) noexcept;
+    void RecordFailure(RevolverFailurePoint,RevolverEffect,float enteredAt,float argument) noexcept;
     bool Animate(PlayerAction) noexcept;
     bool View(int) noexcept;
     bool SetAim(bool) noexcept;
@@ -226,5 +240,6 @@ private:
     float cylinderDeadline_{}, meleeDeadline_{};
     bool preparedReady_{}, bound_{}, selected_{}, meleePending_{}, worldUse_{};
     RevolverStatus status_{RevolverStatus::MissingBackend};
+    RevolverFailure failure_{};
 };
 }

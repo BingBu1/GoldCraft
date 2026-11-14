@@ -114,7 +114,9 @@ class Symbols:
 
 
 class Process:
-    def __init__(self, pid, instance):
+    def __init__(self, pid, instance, *, executable="MetaHook.exe"):
+        if executable != "MetaHook.exe" and (instance, executable) != ("cs-server", "hlds.exe"):
+            raise ValueError("Unsupported sandbox process image")
         self.kernel = C.WinDLL("kernel32", use_last_error=True)
         psapi = C.WinDLL("psapi", use_last_error=True)
         self.kernel.OpenProcess.argtypes = [W.DWORD, W.BOOL, W.DWORD]
@@ -138,9 +140,9 @@ class Process:
             length = W.DWORD(len(path))
             if not self.kernel.QueryFullProcessImageNameW(self.handle, 0, path, C.byref(length)):
                 raise C.WinError(C.get_last_error())
-            self.expected = (ROOT / "sandbox" / instance / "Half-Life/MetaHook.exe").resolve(strict=True)
+            self.expected = (ROOT / "sandbox" / instance / "Half-Life" / executable).resolve(strict=True)
             if Path(path.value).resolve() != self.expected:
-                raise ValueError("PID does not belong to the selected sandbox client")
+                raise ValueError("PID does not belong to the selected sandbox process")
             array = (W.HMODULE * 1024)()
             needed = W.DWORD()
             if not psapi.EnumProcessModulesEx(self.handle, array, C.sizeof(array), C.byref(needed), 3):

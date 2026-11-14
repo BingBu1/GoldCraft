@@ -2433,7 +2433,9 @@
     "tests/csol-stamina-jump/run_native.py",
     "tests/csol-stamina-jump/sdk.cpp",
     "tests/csol-stamina-jump/README.md",
-    "docs/2026-11-14_接入-真实起跳体力扣费-report.md"
+    "docs/2026-11-14_接入-真实起跳体力扣费-report.md",
+    "docs/2026-11-14_排查-左轮持久卡弹与准星中断-report.md",
+    "tools/Observe-CoFReload.py"
   ],
   "trees": {
     "native": [

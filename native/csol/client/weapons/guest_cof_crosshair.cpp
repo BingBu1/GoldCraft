@@ -9,6 +9,7 @@
 #include "../../../guest/cof/crosshair_protocol.hpp"
 #include "../../../guest/cof/presentation_protocol.hpp"
 #include "../../../guest/cof/client/crosshair.hpp"
+#include <optional>
 #include "../../../include/goldcraft/connection_api.h"
 #include <limits>
 
@@ -19,6 +20,7 @@ namespace
 const GoldCraftConnectionAPI* connection{};
 guest::cof::CrosshairReceiver receiver;
 guest::cof::PresentationState presentation;
+std::optional<std::uint8_t> cylinderSpread;
 cvar_t *option{},*drawHud{};
 SCREENINFO screen{};
 DWORD ownerThread{};
@@ -34,7 +36,7 @@ bool Synchronize() noexcept
     const auto revision=serial;
     const auto now=connection->generation();
     if(!Owner()||serial!=revision||!initialized)return false;
-    if(now!=generation){Advance();generation=now;receiver.Reset();presentation={};screen={};}
+    if(now!=generation){Advance();generation=now;receiver.Reset();presentation={};screen={};cylinderSpread.reset();}
     return now&&serial;
 }
 int Receive(const char*,int length,void* bytes)
@@ -48,7 +50,7 @@ void InitializeGuestCofCrosshair() {InitializeGuestCofCrosshair(GoldCraftConnect
 void InitializeGuestCofCrosshair(const GoldCraftConnectionAPI* provider)
 {
     if(ownerThread&&!Owner())return;
-    Advance();initialized=false;connection=nullptr;receiver.Reset();presentation={};screen={};
+    Advance();initialized=false;connection=nullptr;receiver.Reset();presentation={};screen={};cylinderSpread.reset();
     option=drawHud=nullptr;ownerThread=GetCurrentThreadId();generation=0;
     if(!serial||!provider||provider->size<sizeof(*provider)||provider->version!=1||!provider->generation||
        !api||!api->HookUserMsg||!engine.pfnHookUserMsg||!engine.pfnGetCvarPointer||
@@ -67,7 +69,7 @@ void InitializeGuestCofCrosshair(const GoldCraftConnectionAPI* provider)
     connection=provider;initialized=true;
 }
 void ResetGuestCofCrosshair() noexcept
-{if(Owner()){Advance();receiver.Reset();presentation={};}}
+{if(Owner()){Advance();receiver.Reset();presentation={};cylinderSpread.reset();}}
 void GuestCofCrosshairVideoInit() noexcept {if(Owner()){Advance();screen={};}}
 void ShutdownGuestCofCrosshair() noexcept
 {
@@ -89,6 +91,12 @@ bool GuestCofCrosshairReady() noexcept
 void GuestCofCrosshairPresentation(const guest::cof::PresentationState& state) noexcept
 {
     if(!Synchronize())return;
+    const bool sameCylinderScope=presentation.originalWeapon==21&&state.originalWeapon==21&&
+        presentation.revolverAngle&&state.revolverAngle&&presentation.key==state.key&&
+        presentation.aimEnabled==state.aimEnabled&&presentation.fovMode==state.fovMode&&
+        presentation.zoomSpeedEighths==state.zoomSpeedEighths;
+    if(!sameCylinderScope)cylinderSpread.reset();
+    else if(const auto* accepted=receiver.Current())cylinderSpread=accepted->scalar;
     Advance();presentation=state;
     receiver.Present(state.key,state.revision,CrosshairWeapon(state.originalWeapon));
 }
@@ -99,12 +107,12 @@ void DrawGuestCofCrosshair(int hidden,int intermission,bool) noexcept
     const auto& weapon=CurrentExtendedWeapon();
     const auto* snapshot=receiver.Current();
     const auto* definition=guest::cof::FindPistol(weapon.id);
-    if(!snapshot||!weapon.state||!definition||weapon.clip<0||
+    if((!snapshot&&!cylinderSpread)||!weapon.state||!definition||weapon.clip<0||
        !CrosshairWeapon(definition->originalId)||
        presentation.originalWeapon!=definition->originalId)return;
     std::array<guest::cof::client::CrosshairRect,3> bars;
     if(!guest::cof::client::PistolCrosshair({screen.iWidth,screen.iHeight,definition->originalId,hidden,true,true,
-        presentation.aimEnabled,false,option->value,snapshot->scalar},bars))return;
+        presentation.aimEnabled,false,option->value,snapshot?snapshot->scalar:*cylinderSpread},bars))return;
     const auto revision=serial;
     for(const auto& bar:bars)
     {
