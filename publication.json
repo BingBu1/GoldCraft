@@ -2435,7 +2435,18 @@
     "tests/csol-stamina-jump/README.md",
     "docs/2026-11-14_接入-真实起跳体力扣费-report.md",
     "docs/2026-11-14_排查-左轮持久卡弹与准星中断-report.md",
-    "tools/Observe-CoFReload.py"
+    "tools/Observe-CoFReload.py",
+    "native/include/goldcraft/lightstyle_owner.hpp",
+    "native/include/goldcraft/lightstyle_api.hpp",
+    "native/engine/lightstyles.cpp",
+    "native/engine/lightstyles.h",
+    "tests/csol-environment-lightstyles/fixture/precompiled.h",
+    "tests/csol-environment-lightstyles/main.cpp",
+    "tests/csol-environment-lightstyles/run.py",
+    "tests/csol-environment-lightstyles/dll.cpp",
+    "tests/csol-environment-lightstyles/run_dll.py",
+    "tests/csol-environment-lightstyles/README.md",
+    "docs/2026-11-14_接入-地图光照基线与原版雾消费者-report.md"
   ],
   "trees": {
     "native": [

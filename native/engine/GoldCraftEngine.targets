@@ -17,6 +17,7 @@
     <ClCompile><AdditionalIncludeDirectories>$(GoldCraftRoot)\native\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReHLDS'">
+    <ClCompile Include="$(GoldCraftRoot)\native\engine\lightstyles.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\engine\steam_approval.cpp;$(GoldCraftRoot)\native\engine\steam_approval_registry.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\engine\launcher_http.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\engine\csol_loader.cpp;$(GoldCraftRoot)\native\engine\csol_sequence_guard.cpp;$(GoldCraftRoot)\native\csol\model_codec.cpp;$(GoldCraftRoot)\native\csol\sprite_codec.cpp;$(GoldCraftRoot)\native\csol\dependencies.cpp;$(GoldCraftRoot)\native\csol\texture_model.cpp;$(GoldCraftRoot)\native\csol\model_json.cpp;$(GoldCraftRoot)\native\csol\events.cpp;$(GoldCraftRoot)\native\csol\model_source.cpp;$(GoldCraftRoot)\native\csol\sequences.cpp">

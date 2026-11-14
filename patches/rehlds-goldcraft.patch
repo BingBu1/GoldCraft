@@ -846,20 +846,20 @@ index 0b36057..ad54dda 100644
  			else
  			{
 diff --git a/rehlds/engine/pr_cmds.cpp b/rehlds/engine/pr_cmds.cpp
-index 4f88929..2fb7e1c 100644
 --- a/rehlds/engine/pr_cmds.cpp
 +++ b/rehlds/engine/pr_cmds.cpp
-@@ -27,6 +27,9 @@
+@@ -27,6 +27,10 @@
  */
  
  #include "precompiled.h"
++#include "lightstyles.h"
 +#include "userinfo.h"
 +#include "precache.h"
 +#include "reliable_message_trace.h"
  
  vec_t gHullMins[4][3] = {
  		{ 0.0f,   0.0f,   0.0f },
-@@ -112,45 +115,22 @@ void EXT_FUNC PF_setsize_I(edict_t *e, const float *rgflMin, const float *rgflMa
+@@ -112,45 +116,22 @@
  
  void EXT_FUNC PF_setmodel_I(edict_t *e, const char *m)
  {
@@ -868,26 +868,28 @@ index 4f88929..2fb7e1c 100644
 -
 -#ifdef REHLDS_CHECKS
 -	for (; *check && i < MAX_MODELS; i++, check++)
--#else
--	for (; *check; i++, check++)
 +    if (!m) Host_Error("%s: NULL model name", __func__);
 +    int i = gc_precache.ModelIndex(m);
 +#ifndef REHLDS_FIXES
 +    for (size_t n = 0; !i && n < gc_precache.modelNames.size(); ++n)
 +        if (gc_precache.modelNames[n] && !Q_stricmp(gc_precache.modelNames[n], m)) i = int(n);
++#endif
++    if (!i && *m) Host_Error("%s: no precache: %s\n", __func__, m);
++    e->v.modelindex = i;
++#ifdef REHLDS_FIXES
++    e->v.model = gc_precache.modelNames[i] - pr_strings;
+ #else
+-	for (; *check; i++, check++)
++    e->v.model = m - pr_strings;
  #endif
 -	{
 -
 -		//use case-sensitive names to increase performance
-+    if (!i && *m) Host_Error("%s: no precache: %s\n", __func__, m);
-+    e->v.modelindex = i;
- #ifdef REHLDS_FIXES
+-#ifdef REHLDS_FIXES
 -		if (!Q_strcmp(*check, m))
-+    e->v.model = gc_precache.modelNames[i] - pr_strings;
- #else
+-#else
 -		if (!Q_stricmp(*check, m))
-+    e->v.model = m - pr_strings;
- #endif
+-#endif
 -
 -		{
 -			e->v.modelindex = i;
@@ -917,7 +919,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  int EXT_FUNC PF_modelindex(const char *pstr)
-@@ -160,13 +140,13 @@ int EXT_FUNC PF_modelindex(const char *pstr)
+@@ -160,13 +141,13 @@
  
  int EXT_FUNC ModelFrames(int modelIndex)
  {
@@ -933,14 +935,15 @@ index 4f88929..2fb7e1c 100644
  }
  
  void EXT_FUNC PF_bprint(char *s)
-@@ -276,16 +256,16 @@ void EXT_FUNC PF_ambientsound_I(edict_t *entity, float *pos, const char *samp, f
+@@ -276,16 +257,16 @@
  	}
  	else
  	{
 -		for (i = 0; i < MAX_SOUNDS; i++)
-+		for (i = 0; i < (int)gc_precache.sounds.size(); i++)
- 		{
+-		{
 -			if (g_psv.sound_precache[i] && !Q_stricmp(g_psv.sound_precache[i], samp))
++		for (i = 0; i < (int)gc_precache.sounds.size(); i++)
++		{
 +			if (gc_precache.sounds[i] && !Q_stricmp(gc_precache.sounds[i], samp))
  			{
  				soundnum = i;
@@ -953,7 +956,7 @@ index 4f88929..2fb7e1c 100644
  		{
  			Con_Printf("no precache: %s\n", samp);
  			return;
-@@ -302,7 +282,7 @@ void EXT_FUNC PF_ambientsound_I(edict_t *entity, float *pos, const char *samp, f
+@@ -302,7 +283,7 @@
  	MSG_WriteCoord(pout, pos[1]);
  	MSG_WriteCoord(pout, pos[2]);
  
@@ -962,7 +965,7 @@ index 4f88929..2fb7e1c 100644
  	MSG_WriteByte(pout, (vol * 255.0));
  	MSG_WriteByte(pout, (attenuation * 64.0));
  	MSG_WriteShort(pout, ent);
-@@ -393,7 +373,7 @@ void EXT_FUNC TraceModel(const float *v1, const float *v2, int hullNumber, edict
+@@ -393,7 +374,7 @@
  	if (hullNumber < 0 || hullNumber > 3)
  		hullNumber = 0;
  
@@ -971,7 +974,7 @@ index 4f88929..2fb7e1c 100644
  	if (pmodel && pmodel->type == mod_brush)
  	{
  		oldMovetype = pent->v.movetype;
-@@ -498,7 +478,7 @@ const char* EXT_FUNC TraceTexture(edict_t *pTextureEntity, const float *v1, cons
+@@ -498,7 +479,7 @@
  	firstnode = 0;
  	if (pTextureEntity)
  	{
@@ -980,7 +983,7 @@ index 4f88929..2fb7e1c 100644
  		if (!pmodel || pmodel->type)
  			return NULL;
  
-@@ -1017,49 +997,14 @@ int EXT_FUNC PF_precache_sound_I(const char *s)
+@@ -1017,49 +998,14 @@
  
  int EXT_FUNC PF_precache_sound_I_internal(const char *s)
  {
@@ -1038,7 +1041,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  unsigned short EXT_FUNC EV_Precache(int type, const char *psz)
-@@ -1290,7 +1235,7 @@ void EXT_FUNC EV_Playback(int flags, const edict_t *pInvoker, unsigned short eve
+@@ -1290,7 +1236,7 @@
  
  		if (pInvoker && !(flags & FEV_GLOBAL))
  		{
@@ -1047,7 +1050,7 @@ index 4f88929..2fb7e1c 100644
  				continue;
  		}
  
-@@ -1364,26 +1309,7 @@ void EXT_FUNC EV_SV_Playback(int flags, int clientindex, unsigned short eventind
+@@ -1364,26 +1310,7 @@
  
  int SV_LookupModelIndex(const char *name)
  {
@@ -1075,7 +1078,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  int EXT_FUNC PF_precache_model_I(const char *s)
-@@ -1393,74 +1319,16 @@ int EXT_FUNC PF_precache_model_I(const char *s)
+@@ -1393,74 +1320,16 @@
  
  int EXT_FUNC PF_precache_model_I_internal(const char *s)
  {
@@ -1159,7 +1162,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  int EXT_FUNC PF_precache_generic_I(const char *s)
-@@ -1489,31 +1357,12 @@ int EXT_FUNC PF_precache_generic_I_internal(const char *s)
+@@ -1489,31 +1358,12 @@
  	bool isSoundPrefixed = !Q_strnicmp(resName, "sound/", soundPrefixLength);
  
  	// TODO: check sound with index 0?
@@ -1193,7 +1196,15 @@ index 4f88929..2fb7e1c 100644
  }
  #else // REHLDS_FIXES
  int EXT_FUNC PF_precache_generic_I_internal(const char *s)
-@@ -1997,6 +1846,7 @@ edict_t *EXT_FUNC CreateFakeClient_internal(const char *netname)
+@@ -1728,6 +1578,7 @@
+ 
+ void EXT_FUNC PF_lightstyle_I(int style, const char *val)
+ {
++	val = GoldCraftLightStyleWrite(style, val);
+ #ifdef REHLDS_FIXES
+ 	Q_strlcpy(g_rehlds_sv.lightstyleBuffers[style], val);
+ 	g_psv.lightstyles[style] = g_rehlds_sv.lightstyleBuffers[style];
+@@ -1997,6 +1848,7 @@
  	if (fakeclient->frames)
  		SV_ClearFrames(&fakeclient->frames);
  
@@ -1201,7 +1212,7 @@ index 4f88929..2fb7e1c 100644
  	Q_memset(fakeclient, 0, sizeof(client_t));
  	fakeclient->resourcesneeded.pPrev = &fakeclient->resourcesneeded;
  	fakeclient->resourcesneeded.pNext = &fakeclient->resourcesneeded;
-@@ -2097,6 +1947,8 @@ sizebuf_t* EXT_FUNC WriteDest_Parm(int dest)
+@@ -2097,6 +1949,8 @@
  		return &g_psv.reliable_datagram;
  	case MSG_PVS:
  	case MSG_PAS:
@@ -1210,7 +1221,7 @@ index 4f88929..2fb7e1c 100644
  		return &g_psv.multicast;
  	case MSG_SPEC:
  		return &g_psv.spectator;
-@@ -2128,7 +1980,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
+@@ -2128,7 +1982,7 @@
  	gMsgType = msg_type;
  	gMsgEntity = ed;
  	gMsgDest = msg_dest;
@@ -1219,7 +1230,7 @@ index 4f88929..2fb7e1c 100644
  	{
  		if (pOrigin)
  		{
-@@ -2144,6 +1996,7 @@ void EXT_FUNC PF_MessageBegin_I(int msg_dest, int msg_type, const float *pOrigin
+@@ -2144,6 +1998,7 @@
  
  	gMsgBuffer.flags = SIZEBUF_ALLOW_OVERFLOW;
  	gMsgBuffer.cursize = 0;
@@ -1227,7 +1238,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  // Validates user message type and checks to see if it's variable length
-@@ -2222,6 +2075,14 @@ void WriteMessageToBuffer(qboolean isVariableLengthMsg, sizebuf_t *buf)
+@@ -2222,6 +2077,14 @@
  		}
  	}
  
@@ -1242,7 +1253,7 @@ index 4f88929..2fb7e1c 100644
  	// write the message type to the buffer
  	MSG_WriteByte(buf, gMsgType);
  
-@@ -2343,7 +2204,7 @@ void EXT_FUNC PF_MessageEnd_I(void)
+@@ -2343,7 +2206,7 @@
  		break;
  
  	case MSG_PVS_R:
@@ -1251,7 +1262,7 @@ index 4f88929..2fb7e1c 100644
  		break;
  
  	case MSG_PAS_R:
-@@ -2374,7 +2235,7 @@ void EXT_FUNC PF_WriteShort_I(int iValue)
+@@ -2374,7 +2237,7 @@
  {
  	if (!gMsgStarted)
  		Sys_Error("%s: called with no active message\n", __func__);
@@ -1260,7 +1271,7 @@ index 4f88929..2fb7e1c 100644
  }
  
  void EXT_FUNC PF_WriteLong_I(int iValue)
-@@ -2415,7 +2276,7 @@ void EXT_FUNC PF_WriteEntity_I(int iValue)
+@@ -2415,7 +2278,7 @@
  void EXT_FUNC PF_makestatic_I(edict_t *ent)
  {
  	MSG_WriteByte(&g_psv.signon, svc_spawnstatic);
@@ -1269,7 +1280,7 @@ index 4f88929..2fb7e1c 100644
  	MSG_WriteByte(&g_psv.signon, ent->v.sequence);
  	MSG_WriteByte(&g_psv.signon, (int)ent->v.frame);
  	MSG_WriteWord(&g_psv.signon, ent->v.colormap);
-@@ -2451,7 +2312,7 @@ void EXT_FUNC PF_StaticDecal(const float *origin, int decalIndex, int entityInde
+@@ -2451,7 +2314,7 @@
  	MSG_WriteShort(&g_psv.signon, entityIndex);
  
  	if (entityIndex)
