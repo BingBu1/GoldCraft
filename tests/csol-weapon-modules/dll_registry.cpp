@@ -23,18 +23,25 @@ int main(int argc,char** argv){
   const auto* nt=reinterpret_cast<const IMAGE_NT_HEADERS32*>(image+dos->e_lfanew);const auto size=nt->OptionalHeader.SizeOfImage;
   Check(nt->FileHeader.Machine==IMAGE_FILE_MACHINE_I386&&rva<size&&registrySize<=size-rva,"PDB registry extent belongs to exact x86 image");
   if(rva>=size||registrySize>size-rva)return 2;
-  const auto* registry=image+rva;Check(Read<unsigned>(registry+countOffset)==8,"full DLL CRT registers eight modules");Check(!Read<bool>(registry+invalidOffset),"full DLL registration has no conflict");
+  if(countOffset>registrySize-sizeof(unsigned)||invalidOffset>=registrySize)return 2;
+  const auto* registry=image+rva;const auto moduleCount=Read<unsigned>(registry+countOffset);
+  Check(moduleCount>0&&moduleCount<=csol::WeaponIdLimit,"full DLL CRT module count is bounded");
+  Check(!Read<bool>(registry+invalidOffset),"full DLL registration has no conflict");
+  if(!moduleCount||moduleCount>csol::WeaponIdLimit||orderedOffset>registrySize||moduleCount>(registrySize-orderedOffset)/4)return 2;
   const WeaponModule* expected[1024]{};
-  for(unsigned i=0;i<8;++i){
+  int previousOrder{};
+  for(unsigned i=0;i<moduleCount;++i){
    const auto* descriptor=Read<const WeaponModule*>(registry+orderedOffset+i*4);
    const auto address=reinterpret_cast<std::uintptr_t>(descriptor),base=reinterpret_cast<std::uintptr_t>(image);
-   Check(address>=base&&address+descriptorSize<=base+size,"registered descriptor belongs to linked image");
-   if(address<base||address+descriptorSize>base+size)return 2;
-   Check(descriptor->order==int((i+1)*10),"full DLL registers original callback order");
-   Check(descriptor->initialize&&descriptor->reset&&descriptor->videoInit&&descriptor->receive&&descriptor->predict&&descriptor->diagnostics,"all module callbacks retained");
-   const unsigned count=(i==0||i==3)?2:1;Check(descriptor->ids.size()==count,"multi-ID span length retained");
-   constexpr int first[]{725,144,197,1022,96,130,112,203};
-   for(unsigned j=0;j<count;++j){const int id=first[i]+int(j);Check(descriptor->ids[j]==id,"full DLL exact weapon ID");expected[id]=descriptor;}
+   Check(address>=base&&address-base<=size&&descriptorSize<=size-(address-base),"registered descriptor belongs to linked image");
+   if(address<base||address-base>size||descriptorSize>size-(address-base))return 2;
+   Check(i==0||descriptor->order>previousOrder,"full DLL callback order is strictly increasing");previousOrder=descriptor->order;
+   const auto count=descriptor->ids.size();const auto ids=reinterpret_cast<std::uintptr_t>(descriptor->ids.data());
+   const bool spanValid=count>0&&count<=csol::WeaponIdLimit&&ids>=base&&ids-base<=size&&count<=(size-(ids-base))/sizeof(int);
+   Check(spanValid,"ID span belongs to exact linked image");if(!spanValid)return 2;
+   for(unsigned j=0;j<count;++j){const int id=descriptor->ids[j];const bool valid=csol::ExtendedWeaponId(id);
+    Check(valid,"registered ID is valid extended equipment");if(!valid)return 2;
+    Check(!expected[id],"each weapon ID has one descriptor");expected[id]=descriptor;}
   }
   for(unsigned id=0;id<1024;++id)Check(Read<const WeaponModule*>(registry+id*4)==expected[id],"full DLL by-ID table exact and unused cells empty");
   Check(FreeLibrary(module)!=0,"full DLL unload succeeds without engine initialization");

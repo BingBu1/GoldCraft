@@ -1,12 +1,16 @@
 param(
     [ValidateSet('cs-client-a','cs-client-b')][string]$Instance='cs-client-b',
     [Parameter(Mandatory)][string]$VerifiedClient,
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,40}$')][string]$ServerInstance='cs-server',
     [switch]$ValidateOnly
 )
 . (Join-Path $PSScriptRoot 'SandboxPaths.ps1')
 $reference=Assert-SandboxPath $VerifiedClient
 $game=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$Instance/Half-Life")
 if($reference -eq $game){throw 'Use a separately verified client as the deployment source.'}
+$hudSource=Assert-SandboxPath (Join-Path $script:GoldCraftRoot "sandbox/$ServerInstance/Half-Life/cstrike")
+& python -X utf8 -B (Join-Path $PSScriptRoot 'csol_hud_resources.py') --root $hudSource
+if($LASTEXITCODE){throw 'The target server HUD download closure is incomplete. Resolve all missing or invalid resources before updating this client.'}
 $plugin='cstrike/metahook/plugins/CSOLSupport.dll'
 $list='cstrike/metahook/configs/plugins.lst'
 $source=Assert-SandboxPath (Join-Path $reference $plugin)
