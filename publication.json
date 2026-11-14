@@ -2423,7 +2423,9 @@
     "patches/csol-stamina-resource-refresh.patch",
     "docs/2026-11-14_实现-血月动画与权威体力HUD-report.md",
     "docs/2026-11-14_接入-CoF三枪角色手模控制器隔离-report.md",
-    "tests/cryoffear-hand-controller-scope/README.md"
+    "tests/cryoffear-hand-controller-scope/README.md",
+    "tools/Deploy-ChallengeUi.py",
+    "amxx/tests/csol/goldcraft_phase_audio_live.sma"
   ],
   "trees": {
     "native": [
