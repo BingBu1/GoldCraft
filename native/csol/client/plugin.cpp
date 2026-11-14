@@ -297,6 +297,7 @@ static int StudioDrawModel(int flags)
 }
 static int GetStudioInterface(int version,r_studio_interface_t** result,engine_studio_api_t* functions)
 {
+    InstallChallengeEnvironmentStudio(functions);
     // The client and earlier plugins copy this public table. Track the actual
     // studio context; currententity can be a brush at PostScene time.
     if(functions->StudioSetHeader!=SetStudioHeader){originalSetHeader=functions->StudioSetHeader;functions->StudioSetHeader=SetStudioHeader;}
@@ -546,7 +547,7 @@ static void CalcRefdef(ref_params_t* params)
     }
     GuestCofForwardDisplacementViewStage(*params);
     CameraRefdef(params);
-    ChallengeEnvironmentView(params->waterlevel);
+    ChallengeEnvironmentView(params->waterlevel, params->movevars);
     view=*params;
 }
 static void Normal()
@@ -622,7 +623,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownScenarioMusic();csol::client::ShutdownStaminaHud();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownScenarioMusic();csol::client::ShutdownStaminaHud();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
 void IPluginsV4::ExitGame(int){csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownHumanKick();csol::client::ShutdownStaminaHud();csol::client::ShutdownChallengePhase();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

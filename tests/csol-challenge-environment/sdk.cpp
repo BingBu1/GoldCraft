@@ -53,9 +53,9 @@ void Start(Case& c)
 }
 void Dark(Case& c)
 {
-    for (const float now : {128.f, 131.f, 134.f, 137.f, 140.f, 143.f}) Tick(c, now);
-    Expect(State().applied && State().level == 'c' && Last(c).view.fog,
-        "actual rules reach original darkest level and exact fog authority");
+    for (const float now : {128.f, 131.f, 134.f, 137.f, 140.f, 143.f, 146.f}) Tick(c, now);
+    Expect(State().applied && State().level == 'b' && Last(c).view.fog,
+        "actual rules reach requested darker target with original fog authority");
 }
 void Flow(bool join, bool replay)
 {
@@ -69,13 +69,13 @@ void Flow(bool join, bool replay)
     Dark(c);
     const auto token = State().owner;
     external("klm");
-    Expect(State().applied && State().level == 'c' && std::string_view(State().baseline) == "klm",
+    Expect(State().applied && State().level == 'b' && std::string_view(State().baseline) == "klm",
         "external writes update the actual engine baseline while retaining night");
     const auto count = Count(c);
-    for (unsigned i = 0; i != 50; ++i) Tick(c, 143.001f + float(i) * .001f);
+    for (unsigned i = 0; i != 50; ++i) Tick(c, 146.001f + float(i) * .001f);
     Expect(Count(c) == count, "50 unchanged actual Think frames never flood environment messages");
     Restart(c);
-    Expect(State().owner == token && Last(c).owner == owner && State().level == 'c',
+    Expect(State().owner == token && Last(c).owner == owner && State().level == 'b',
         "ordinary intermediate-stage restart keeps current light lease and environment owner");
     if (join)
     {
@@ -85,13 +85,13 @@ void Flow(bool join, bool replay)
         g_pGameRules->InitHUD(&c.player);
         const auto id = c.f.engine.messages.at(custom::EnvironmentMessage);
         const auto packet = std::find_if(c.packets.rbegin(), c.packets.rend(), [&](const auto& p) { return p.id == id; });
-        Expect(Count(c) == before + 1 && Last(c).owner == owner && Last(c).view.level == 'c' && Last(c).view.fog &&
+        Expect(Count(c) == before + 1 && Last(c).owner == owner && Last(c).view.level == 'b' && Last(c).view.fog &&
             packet->destination == MSG_ONE && packet->receiver == c.player.entindex(),
             "actual InitHUD replays the final night profile only to the late joining player");
     }
-    Tick(c, 164);
+    Tick(c, 170);
     c.player.pev->health = 0; c.player.pev->deadflag = DEAD_DEAD;
-    Tick(c, 165);
+    Tick(c, 171);
     Expect(!State().applied && !State().owner && std::string_view(State().baseline) == "klm" && !Last(c).view.active,
         "actual all-dead failure restores latest map light and retires client fog");
     if (!replay) return;
@@ -99,7 +99,7 @@ void Flow(bool join, bool replay)
     Require(service && service->RequestReplay(98), "actual administration accepts one replay");
     Expect(Last(c).owner == owner && !Last(c).view.active, "queued replay leaves the old result intact");
     c.player.m_iMenu = Menu_ChooseAppearance;
-    Tick(c, 166);
+    Tick(c, 172);
     Expect(Last(c).owner > owner && !Last(c).view.active && !State().applied,
         "committed replay creates a new inactive noon environment without erasing map baseline");
 }

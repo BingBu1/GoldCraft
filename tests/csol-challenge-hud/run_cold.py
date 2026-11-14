@@ -31,6 +31,8 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for key in ('mp','engine','output','resource-plan'):parser.add_argument('--'+key,type=Path,required=True)
     parser.add_argument('--pdb',type=Path)
+    parser.add_argument('--settings-file',type=Path,
+                        help='Optional existing workspace gameplay JSON for the isolated test; original runtime file is restored')
     parser.add_argument('--challenge-environment',action='store_true',
                         help='Read the actual environment service/profile through its matching PDB')
     args=parser.parse_args();out=args.output.resolve();game=ROOT/'sandbox/cs-dione-probe/Half-Life';cstrike=game/'cstrike'
@@ -69,7 +71,10 @@ def main():
     cs_port,http_port=free_port(socket.SOCK_DGRAM),free_port(socket.SOCK_STREAM);token=secrets.token_hex(24)
     private=ROOT/'sandbox/cs-dione-probe/challenge-hud-cold-private.json'
     private.write_text(json.dumps(dict(csPort=cs_port,csRconToken=token))+'\n','utf8')
-    config=cstrike/'addons/goldcraft/config/gameplay.json';settings=json.loads(config.read_text('utf-8-sig'))
+    config=cstrike/'addons/goldcraft/config/gameplay.json'
+    settings_source=args.settings_file.resolve(strict=True)if args.settings_file else config
+    if not settings_source.is_relative_to(ROOT):raise ValueError('Test settings must stay in the workspace')
+    settings=json.loads(settings_source.read_text('utf-8-sig'))
     settings['features']['time_cycle']['enabled']=True
     (out/'gameplay.json').write_text(json.dumps(settings,ensure_ascii=False,indent=2)+'\n','utf8')
     (out/'server.cfg').write_text(f'hostname "GoldCraft isolated HUD cold"\nrcon_password "{token}"\nsv_lan 0\nlog off\nsv_logecho 0\nmp_timelimit 0\nmp_autokick 0\nsypb_quota 0\ncsol_weapons 1\ncsol_scenario_difficulty 1\nmc_http_download 1\nmc_http_bind "127.0.0.1"\nmc_http_port {http_port}\nmc_http_public_url "http://127.0.0.1:{http_port}/goldcraft/"\n','utf8')
@@ -155,7 +160,7 @@ def main():
                     receipt['checks'].update(environmentPrepared=actual['prepared']and not actual['revoked'],
                         realEngineService=engine_module['base']<=lights<engine_module['base']+engine_module['size'],
                         fixedEnvironmentMessage=64<=actual['message']<=255,
-                        originalLightProfile=(actual['dusk'],actual['night'],actual['step'])==(105,99,2.5),
+                        configuredLightProfile=(actual['dusk'],actual['night'],actual['step'])==(105,98,2.5),
                         originalFogProfile=actual['densityBits']=='3480373a'and actual['color']==[1,1,1]and
                             actual['start']==100 and actual['end']==2000 and actual['sky'])
                 receipt['nativeRules']=native

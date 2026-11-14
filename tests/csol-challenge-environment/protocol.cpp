@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/scenario/custom/environment_config.hpp"
 #include "../../native/csol/scenario/custom/fog_owner.hpp"
+#include "../../native/csol/scenario/custom/sky_lighting.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -17,7 +18,7 @@ int main()
     custom::Draft draft; custom::Error error; custom::SnapshotPtr settings;
     Check(draft.Set(custom::Feature::TimeCycle, true, error) && draft.Finish(settings, error), "existing grouped configuration enables time defaults");
     const auto config = custom::ReadEnvironmentConfig(*settings);
-    Check(config && config->dusk == 'i' && config->night == 'c' && config->stepSeconds == 2.5f, "recovered light levels and step duration");
+    Check(config && config->dusk == 'i' && config->night == 'b' && config->stepSeconds == 2.5f, "requested darker night with recovered cadence");
     Check(std::bit_cast<std::uint32_t>(config->fog.density) == 0x3a378034 && config->fog.color == std::array<std::uint8_t, 3>{1, 1, 1}, "exact original fog bits and unnormalized RGB");
     const auto json = custom::Serialize(*settings);
     custom::SnapshotPtr roundtrip;
@@ -40,7 +41,8 @@ int main()
     Check(!fade.Advance(1, custom::Phase::Night, 999), "time reversal cannot mutate state");
     for (const auto [now, level] : {std::pair{1003.f, 'f'}, {1006.f, 'e'}, {1009.f, 'd'}, {1012.f, 'c'}})
         Check(fade.Advance(1, custom::Phase::Night, now)->level == level, "bounded original light sequence reaches terminal level");
-    Check(fade.Advance(1, custom::Phase::Night, 1015)->fog, "terminal dark level owns fog");
+    const auto final = fade.Advance(1, custom::Phase::Night, 1015);
+    Check(final->level == 'b' && final->fog, "requested darker terminal level owns fog");
     Check(fade.Advance(1, custom::Phase::Ended, 1020) == custom::EnvironmentView{}, "end restores map presentation");
     Check(!fade.Advance(1, custom::Phase::Night, 1021), "ended owner cannot restart");
     Check(fade.Begin(2, *config) && fade.Advance(2, custom::Phase::Noon, 1021) == custom::EnvironmentView{}, "committed replay gets a fresh noon");
@@ -80,5 +82,16 @@ int main()
     Check(fog.Baseline().draw.color[0] == 80 && fog.Desired(nullptr, 0, true)->draw.color[0] == 80, "later external fog retained for restoration");
     fog.Reset(); client.Reset();
     Check(!fog.Known() && !client.View(), "map transition forgets prior baseline and owner");
+    Check(custom::ScaleSkyLight({35, 68, 84}, 'c') == custom::SkyColor{6, 11, 14}, "original sky multiplier uses integer channels and truncates");
+    Check(custom::ScaleSkyLight({35.9f, 68.9f, 84.9f}, 'b') == custom::SkyColor{3, 5, 7}, "fractional input truncates before recovered scale");
+    Check(custom::ScaleSkyLight({35, 68, 84}, 'a') == custom::SkyColor{}, "darkest level has zero sky contribution");
+    Check(!custom::ScaleSkyLight({-1, 0, 0}, 'c') && !custom::ScaleSkyLight({0, 0, std::numeric_limits<float>::infinity()}, 'c'), "unsupported sky input is never invented or clamped");
+    custom::NumericCvarOwner owner;
+    float cvar = 0;
+    owner.Force(cvar, "0", 1); Check(cvar == 1, "temporary renderer flag applies");
+    owner.Release(cvar, "0"); Check(cvar == 0, "unchanged archived preference restores");
+    owner.Force(cvar, "0", 1); owner.Release(cvar, "1"); Check(cvar == 1, "native edit equal to forced value is retained");
+    cvar = .5f; owner.Force(cvar, "0", 1); cvar = .25f; owner.Force(cvar, "0", 1); owner.Release(cvar, "0");
+    Check(cvar == .25f, "external direct numeric edits survive release");
     std::printf("environment protocol/config: %u checks passed\n", checks);
 }

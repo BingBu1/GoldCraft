@@ -24,7 +24,8 @@ inline bool Valid(const FogProfile& value) noexcept
 }
 struct EnvironmentConfig
 {
-    char dusk{'i'}, night{'c'};
+    // User requested a darker night after the original c preset was deployed.
+    char dusk{'i'}, night{'b'};
     float stepSeconds{2.5f};
     FogProfile fog;
 };
@@ -42,7 +43,7 @@ struct EnvironmentView
 };
 
 // Custom challenge schedule using recovered CSOL light levels/cadence. Noon
-// preserves the map, dusk owns i, and night steps to c with no catchup. Unlike
+// preserves the map, dusk owns i, and night steps to its target with no catchup. Unlike
 // the original old-value message, the terminal value reaches every client.
 class EnvironmentFade final
 {

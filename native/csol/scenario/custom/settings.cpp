@@ -71,7 +71,7 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::HordeDurationSeconds, Feature::RandomHorde, "horde_duration_seconds", "csol_custom_horde_duration_seconds", "单次尸潮持续秒数，必须为正。", ValueType::Real, .001, 86400, {}, Scope::NextMapSession},
     {Setting::DamageRefundMaximumPerMonster, Feature::DamageRefundCap, "damage_refund_max_per_monster", "csol_custom_damage_refund_max_per_monster", "每player-victim组合累计CS金钱上限，怪物新租约是新额度。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 1000, Scope::NextMapSession},
     {Setting::DuskLightLevel, Feature::TimeCycle, "dusk_light_level", "csol_custom_dusk_light_level", "黄昏光照字符的ASCII值，97最暗到122最亮；默认105为原版i档。", ValueType::Integer, 97, 122, 105, Scope::NextMapSession},
-    {Setting::NightLightLevel, Feature::TimeCycle, "night_light_level", "csol_custom_night_light_level", "永夜最终光照档，不得高于黄昏；默认99为原版c档。", ValueType::Integer, 97, 122, 99, Scope::NextMapSession},
+    {Setting::NightLightLevel, Feature::TimeCycle, "night_light_level", "csol_custom_night_light_level", "永夜最终光照档，不得高于黄昏；按用户要求默认98为更暗b档，99保留原版c档。", ValueType::Integer, 97, 122, 98, Scope::NextMapSession},
     {Setting::LightStepSeconds, Feature::TimeCycle, "light_step_seconds", "csol_custom_light_step_seconds", "永夜逐次降低一档的间隔秒数；默认原版2.5，超时不追赶多档。", ValueType::Real, .001, 3600, 2.5, Scope::NextMapSession},
     {Setting::NightFogDensity, Feature::TimeCycle, "night_fog_density", "csol_custom_night_fog_density", "永夜最暗档的雾密度；0关闭。默认原版float位型3A378034。", ValueType::Real, 0, .01, 0.000699999975040555, Scope::NextMapSession},
     {Setting::NightFogColor, Feature::TimeCycle, "night_fog_color", "csol_custom_night_fog_color", "雾颜色的十进制RGB打包值0xRRGGBB；默认65793对应原版(1,1,1)。", ValueType::Integer, 0, 16777215, 65793, Scope::NextMapSession},

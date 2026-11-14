@@ -3,7 +3,9 @@
 #include "../../user_message_chain.hpp"
 #include "challenge_environment.hpp"
 #include "../../../scenario/custom/fog_owner.hpp"
+#include "../../../scenario/custom/sky_lighting.hpp"
 #include <triangleapi.h>
+#include <pm_movevars.h>
 #include <ostream>
 
 namespace csol::client
@@ -16,7 +18,15 @@ custom::EnvironmentPresentation environment;
 custom::FogOwner fog;
 custom::FogPair output;
 bool outputParameters{}, outputDraw{}, viewKnown{}, applying{}, enabled{};
+bool borrowingSky{};
 int waterlevel{};
+movevars_t* movement{};
+custom::PreparedSkyLight preparedSky;
+custom::NumericCvarOwner skyFogOwner;
+cvar_t* skyFog{};
+engine_studio_api_t* studioTable{};
+decltype(engine_studio_api_t::StudioDynamicLight) previousStudioLight{};
+std::uint64_t skyEpoch{}, scopedSkyCalls{}, skyConflicts{};
 triangleapi_t* triangle{};
 decltype(triangleapi_t::FogParams) previousParameters{};
 decltype(triangleapi_t::Fog) previousFog{};
@@ -24,8 +34,56 @@ pfnUserMsgHook previousMessage{}, previousInit{};
 std::uint64_t appliedCalls{}, accepted{}, rejected{};
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
 
+custom::SkyColor Sky(movevars_t& value) noexcept
+{ return {value.skycolor_r, value.skycolor_g, value.skycolor_b}; }
+void SkyFog()
+{
+    if (!skyFog) return;
+    const auto* value = environment.View();
+    if (enabled && viewKnown && value && value->view.active && value->view.fog)
+        skyFogOwner.Force(skyFog->value, skyFog->string, value->profile.sky ? 1.0f : 0.0f);
+    else skyFogOwner.Release(skyFog->value, skyFog->string);
+}
+void StudioLight(cl_entity_t* entity, alight_t* light)
+{
+    if (!previousStudioLight) return;
+    if (!Owner()) { previousStudioLight(entity, light); return; }
+    const auto* value = environment.View();
+    if (!enabled || borrowingSky || !movement || !viewKnown || !value ||
+        !value->view.active || !preparedSky.Output())
+    { previousStudioLight(entity, light); return; }
+    const auto source = Sky(*movement);
+    if (source != preparedSky.Source())
+    { ++skyConflicts; previousStudioLight(entity, light); return; }
+    const auto target = *preparedSky.Output();
+    auto* vars = movement;
+    const auto epoch = skyEpoch;
+    vars->skycolor_r = target[0]; vars->skycolor_g = target[1]; vars->skycolor_b = target[2];
+    borrowingSky = true; ++scopedSkyCalls;
+    struct RestoreSky
+    {
+        movevars_t* vars;
+        custom::SkyColor source, target;
+        std::uint64_t epoch;
+        ~RestoreSky()
+        {
+            if (skyEpoch == epoch)
+            {
+                if (vars->skycolor_r == target[0]) vars->skycolor_r = source[0];
+                if (vars->skycolor_g == target[1]) vars->skycolor_g = source[1];
+                if (vars->skycolor_b == target[2]) vars->skycolor_b = source[2];
+            }
+            borrowingSky = false;
+        }
+    } restore{vars, source, target, epoch};
+    // Preserve the native sky trace, map samples, fullbright and subsequent
+    // dynamic/entity lights. Only the original sky-color input is adapted.
+    previousStudioLight(entity, light);
+}
+
 void Apply()
 {
+    if (Owner()) SkyFog();
     if (!Owner() || !enabled || applying || !previousParameters || !previousFog) return;
     const auto value = fog.Desired(environment.View(), waterlevel, viewKnown);
     if (!value) return;
@@ -92,6 +150,7 @@ void InitializeChallengeEnvironment()
     enabled = true;
     InstallChainedUserMessage(custom::EnvironmentMessage, Receive, previousMessage);
     InstallChainedUserMessage("InitHUD", Init, previousInit);
+    if (!skyFog && engine.pfnGetCvarPointer) skyFog = engine.pfnGetCvarPointer("r_wsurf_sky_fog");
     if (triangle) return;
     auto* current = engine.pTriAPI;
     if (!current || !current->FogParams || !current->Fog) return;
@@ -100,15 +159,32 @@ void InitializeChallengeEnvironment()
     previousParameters = current->FogParams; previousFog = current->Fog;
     triangle = current; triangle->FogParams = Parameters; triangle->Fog = Draw;
 }
-void ChallengeEnvironmentView(int level)
+void ChallengeEnvironmentView(int level, movevars_t* vars)
 {
     if (!Owner() || !enabled) return;
     waterlevel = level; viewKnown = level >= 0 && level <= 3;
+    movement = vars;
+    const auto* value = environment.View();
+    if (movement && value && value->view.active)
+        preparedSky.Prepare(Sky(*movement), value->view.level);
+    else preparedSky.Reset();
+    SkyFog();
+}
+void InstallChallengeEnvironmentStudio(engine_studio_api_t* functions)
+{
+    if (!functions || !functions->StudioDynamicLight) return;
+    if (ownerThread && !Owner()) return;
+    if (!ownerThread) ownerThread = GetCurrentThreadId();
+    if (functions->StudioDynamicLight != StudioLight)
+    { previousStudioLight = functions->StudioDynamicLight; functions->StudioDynamicLight = StudioLight; }
+    studioTable = functions;
 }
 void DrawChallengeEnvironment() { Apply(); }
 void ResetChallengeEnvironment()
 {
     if (!Owner()) return;
+    if (skyFog) skyFogOwner.Release(skyFog->value, skyFog->string);
+    ++skyEpoch; movement = nullptr; preparedSky.Reset();
     // Map/connection boundary: the host resets its fog. Never send an old
     // baseline into the next scene.
     environment.Reset(); fog.Reset(); output = {};
@@ -128,12 +204,16 @@ void ShutdownChallengeEnvironment()
         if (triangle->FogParams == previousParameters && triangle->Fog == previousFog) triangle = nullptr;
     }
     ResetChallengeEnvironment();
+    if (studioTable && studioTable->StudioDynamicLight == StudioLight)
+        studioTable->StudioDynamicLight = previousStudioLight;
 }
 void ChallengeEnvironmentDiagnostics(std::ostream& out)
 {
     out << "challengeEnvironment baseline=" << fog.Known() << " view=" << viewKnown
         << " water=" << waterlevel << " accepted=" << accepted << " rejected=" << rejected
         << " apiUpdates=" << appliedCalls;
+    out << " skyScopes=" << scopedSkyCalls << " skyConflicts=" << skyConflicts
+        << " rendererSkyFog=" << (skyFog ? skyFog->value : -1.0f);
     if (const auto* value = environment.View())
         out << " owner=" << value->owner << " revision=" << value->revision
             << " active=" << value->view.active << " level=" << int(value->view.level)

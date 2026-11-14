@@ -1,8 +1,10 @@
 # Challenge lighting and fog
 
-The environment implementation uses the existing authoritative challenge clock. Noon keeps the map baseline, dusk uses the recovered `i` light level, and eternal night decreases one level at a strict 2.5-second cadence until `c`. A delayed frame advances one step. This schedule is the requested custom challenge adaptation; the final `c` is explicitly synchronized to all clients instead of copying the original MP's old-value emission ambiguity.
+The environment implementation uses the existing authoritative challenge clock. Noon keeps the map baseline, dusk uses the recovered `i` light level, and eternal night decreases one level at a strict 2.5-second cadence. The user's darker-night correction changes the default final level to `b` (98); `c` (99) remains the original preset. A delayed frame advances one step. This schedule is the requested custom challenge adaptation; the final level is explicitly synchronized to all clients instead of copying the original MP's old-value emission ambiguity.
 
-All numeric overrides live in the existing `time_cycle` group of the single `gameplay.json`. The default fog has exact float bits `3A378034`, integer RGB `(1,1,1)`, distances 100/2000 and skybox enabled. TriangleAPI receives RGB in that integer scale; the engine performs the normalization. The ordinary map's complete fog API arguments are observed and restored, including external updates made during the override.
+All numeric overrides live in the existing `time_cycle` group of the single `gameplay.json`. The default fog has exact float bits `3A378034`, integer RGB `(1,1,1)`, distances 100/2000 and skybox enabled. TriangleAPI receives RGB in that integer scale; the engine performs the normalization. The ordinary map's complete fog API arguments are observed and restored, including external updates made during the override. Renderer uses a separate `r_wsurf_sky_fog` gate; its numeric value is temporarily owned according to the authoritative sky flag, with the archived user string retained and the original/current external setting restored.
+
+Model sky light is prepared from the real SDK `ref_params.movevars` fields outside individual model draws. The actual `StudioDynamicLight` call borrows the recovered integer-channel × `style0 / 256` input and restores those three fields immediately afterwards. The native implementation still chooses map/sky samples and adds muzzle/skill/entity lighting; its final result is not clamped. This applies the recovered CSOL mode-specific scaling to the requested custom scenario cycle. It does not claim that ordinary original scenario mode 15 enabled that branch.
 
 ## Configuration and client
 
@@ -15,7 +17,7 @@ python -X utf8 -B tests/csol-challenge-environment/run.py \
   --output build/environment-consumers-new --settings-regression
 ```
 
-This compiles production configuration, wire validation and fade state. The client test includes the actual client implementation with matched SDK types, real hook installation and controlled downstream TriangleAPI sinks. It checks original fog parameters, waterlevel 2/3, unknown views, malformed/stale messages, end restoration to a later external baseline, connection reset, shutdown and a later plugin wrapping the same API. The warm path checks allocations and repeated API writes; it does not establish game FPS or real Renderer output.
+This compiles production configuration, wire validation and fade state. The client test includes the actual client implementation with matched SDK types, real hook installation and controlled downstream TriangleAPI/Studio sinks. It checks original fog parameters, waterlevel 2/3, unknown views, malformed/stale messages, end restoration to a later external baseline, connection reset, shutdown and a later plugin wrapping the same API. Model-light checks cover exact sky scaling, native dynamic-light results, no double scaling on nested calls, foreign threads, downstream updates and map retirement during a callback. The warm path checks allocations, lookups and repeated API writes; it does not establish game FPS or real Renderer output.
 
 ## Server and engine ownership
 
