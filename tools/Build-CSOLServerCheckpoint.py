@@ -28,6 +28,10 @@ def main():
     parser.add_argument('--compiler-dir', type=Path, required=True)
     parser.add_argument('--msbuild', type=Path, required=True)
     parser.add_argument('--jobs', type=int, default=4, choices=range(1, 17))
+    parser.add_argument('--process-budget', choices=('shared', 'per-build'), default='shared',
+                        help='Use per-build only with an independently coordinated CPU budget')
+    parser.add_argument('--no-node-reuse', action='store_true',
+                        help='Do not adopt or retain MSBuild worker nodes from other builds')
     args = parser.parse_args()
     build, out = args.build.resolve(strict=True), args.output.resolve()
     if not build.is_relative_to(ROOT / 'build') or not out.is_relative_to(ROOT / 'build') or out.exists():
@@ -60,12 +64,15 @@ def main():
         '/p:ForceImportAfterCppTargets=' + str(build / 'Build-Isolated.targets'),
         '/p:PreBuildEventUseInBuild=false', '/p:PostBuildEventUseInBuild=false',
         '/p:MultiProcessorCompilation=false', '/p:UseMultiToolTask=true',
-        '/p:EnforceProcessCountAcrossBuilds=true', '/p:MultiProcMaxCount=' + str(args.jobs),
+        '/p:EnforceProcessCountAcrossBuilds=' + ('true' if args.process_budget == 'shared' else 'false'),
+        '/p:MultiProcMaxCount=' + str(args.jobs),
         '/p:CL_MPCount=' + str(args.jobs),
         '/p:GoldCraftRoot=' + str(ROOT),
         '/p:ForceImportBeforeCppTargets=' + str(ROOT / 'native/server/GoldCraft.targets'),
         '/p:GoldCraftCommonLibrary=' + str(build / 'common/goldcraft_common.lib'),
         '/p:GoldCraftCsolWeaponTests=false', '/p:OutDir=' + str(build / 'regamedll') + '/']
+    if args.no_node_reuse:
+        command.append('/nr:false')
     controls = [read_identity(path) for path in (Path(__file__), ROOT / 'tools/Build-CSOLCandidate.py',
                                                  ROOT / 'tests/csol-rebuy/run_sdk.py',
                                                  environment, build / 'Build-Isolated.targets', msbuild,
@@ -92,7 +99,8 @@ def main():
     receipt = dict(steps=steps, inputsUnchanged=unchanged, controls=controls, sourceCopies=0,
         success=linked and all(row['exit'] == 0 for row in steps) and unchanged,
         revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
-        elapsedSeconds=time.monotonic() - started,
+        elapsedSeconds=time.monotonic() - started, processBudget=args.process_budget,
+        jobs=args.jobs, nodeReuse=not args.no_node_reuse,
         validation='Full current-source x86 server link; no deployment or gameplay',
         artifact=guard.identity(artifact) if linked and artifact.is_file() else None)
     receipt_path = out / 'receipt.json'

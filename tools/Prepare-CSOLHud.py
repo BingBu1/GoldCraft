@@ -198,34 +198,24 @@ def sprite_rows(data, wanted):
     return rows
 
 
-def decode_sprite(data):
-    """Decode a version-2, one-frame HUD SPR without guessing grouped frames."""
+def decode_sprite_frames(data):
+    """Decode bounded, independent version-2 HUD frames during cold export."""
     if len(data) < 42 or data[:4] != b'IDSP' or struct.unpack_from('<i', data, 4)[0] != 2:
         raise ValueError('Expected an IDSP version 2 sprite')
     mode = struct.unpack_from('<i', data, 12)[0]
     frames = struct.unpack_from('<i', data, 28)[0]
     count = struct.unpack_from('<H', data, 40)[0]
-    if mode not in (0, 1, 2, 3) or frames != 1 or not 1 <= count <= 256:
+    # Offline author limits; grouped/temporal sprites need their own consumer.
+    if mode not in (0, 1, 2, 3) or not 1 <= frames <= 256 or not 1 <= count <= 256:
         raise ValueError(f'Unsupported HUD sprite: mode={mode}, frames={frames}, palette={count}')
     at = 42 + count * 3
-    if len(data) < at + 20 or struct.unpack_from('<i', data, at)[0] != 0:
-        raise ValueError('Truncated or grouped HUD sprite')
-    width, height = struct.unpack_from('<ii', data, at + 12)
-    if not 1 <= width <= 4096 or not 1 <= height <= 4096 or len(data) != at + 20 + width * height:
-        raise ValueError('Invalid HUD sprite dimensions/pixel count')
+    if len(data) < at or mode == 2 and count != 256:
+        raise ValueError('Truncated or invalid HUD sprite palette')
     palette = [tuple(data[42 + i * 3:45 + i * 3]) for i in range(count)]
-    indices = data[at + 20:]
-    if max(indices) >= count or mode == 2 and count != 256:
-        raise ValueError('HUD sprite palette index is unavailable')
     colors = []
     for i, color in enumerate(palette):
         if mode == 1:
-            # Additive sprites contain black background and intensity in RGB.
-            # Export straight RGBA coverage: black is transparent, gray edges
-            # become white+alpha, colored edges retain normalized chroma.
-            # alpha*RGB recreates the original additive source contribution
-            # (within byte rounding). Source-over still attenuates background;
-            # it is not mathematically identical to additive on every backdrop.
+            # Preserve the established straight-RGBA export of additive art.
             alpha = max(color)
             rgb = tuple((value * 255 + alpha // 2) // alpha for value in color) if alpha else (0, 0, 0)
         elif mode == 2:
@@ -235,12 +225,38 @@ def decode_sprite(data):
         else:
             rgb, alpha = color, 255
         colors.append(bytes((*rgb, alpha)))
-    rgba = b''.join(colors[index] for index in indices)
-    return width, height, rgba, dict(renderMode=mode, paletteEntries=count,
-        dimensions=[width, height], grayscale=all(r == g == b for r, g, b in palette),
-        conversion={0: 'opaque palette RGB', 1: 'straight RGBA: alpha=max(R,G,B), RGB=round(255*sourceRGB/alpha); black alpha=0',
-                    2: 'palette[255] RGB, index as alpha', 3: 'palette RGB, index255 transparent'}[mode])
+    grayscale = all(r == g == b for r, g, b in palette)
+    conversion = {0: 'opaque palette RGB', 1: 'straight RGBA: alpha=max(R,G,B), RGB=round(255*sourceRGB/alpha); black alpha=0',
+                  2: 'palette[255] RGB, index as alpha', 3: 'palette RGB, index255 transparent'}[mode]
+    result = []
+    remaining_pixels = 4096 * 4096
+    for _ in range(frames):
+        if len(data) < at + 20 or struct.unpack_from('<i', data, at)[0] != 0:
+            raise ValueError('Truncated or grouped HUD sprite')
+        width, height = struct.unpack_from('<ii', data, at + 12)
+        end = at + 20 + width * height
+        pixels = width * height
+        if (not 1 <= width <= 4096 or not 1 <= height <= 4096 or
+                pixels > remaining_pixels or end > len(data)):
+            raise ValueError('Invalid HUD sprite dimensions/pixel count')
+        remaining_pixels -= pixels
+        indices = data[at + 20:end]
+        if max(indices) >= count:
+            raise ValueError('HUD sprite palette index is unavailable')
+        rgba = b''.join(colors[index] for index in indices)
+        result.append((width, height, rgba, dict(renderMode=mode, paletteEntries=count,
+            dimensions=[width, height], grayscale=grayscale, conversion=conversion)))
+        at = end
+    if at != len(data):
+        raise ValueError('Unexpected bytes after HUD sprite frames')
+    return tuple(result)
 
+
+def decode_sprite(data):
+    """Keep single-frame callers strict; multi-frame consumers opt in explicitly."""
+    if len(data) < 32 or struct.unpack_from('<i', data, 28)[0] != 1:
+        raise ValueError('Expected exactly one HUD sprite frame')
+    return decode_sprite_frames(data)[0]
 
 def tga(width, height, rgba):
     if len(rgba) != width * height * 4:

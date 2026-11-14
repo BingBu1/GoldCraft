@@ -48,3 +48,21 @@
 之前完整 `build/cof-revolver-dispatch-server-20261114-01` 已终态失败：37分钟、common成功、MP链接有 CSOL_MountgunCommand/CSOL_PackMountgunWeapon/CSOL_ResetMountgun 三个未解析符号，且源码漂移。当前实际 wpn_mountgun.cpp 已有全部实现，GoldCraft.targets 也已列入；旧 MSBuild 评估早于并发清单修改，原日志没有编译此输入。保留失败，不做无操作替代、不部署。需待共用编译窗口/当前输入稳定后复用缓存重新完整编链。整枪、网络多人、游戏画面和真实CPU性能仍未验收。
 
 共享待同步补充：扩容/弹巢源码和原指令+SDK通过，不能关闭完整MP或整枪验收；本批先小提交，随后继续生命种子/模型重绑/HUD与购买接线。
+
+## 原 HUD 消费者与六帧离线导出
+
+已补齐原 client 的完整对象链：vtable1013FDE8 包含 VidInit1001BB40 与 Draw100177C0；VidInit 将 cof_revolver_cylinder 索引保存到 HUD+A0，并由同一索引构建 HUD+134 的矩形。Draw100177D0 的 EDI 是真实 HUDthis，HUD+8C 是活动武器；原21分支10018C27..10018CC0 实际调用 SPR_Set/SPR_DrawAdditive，frame 来自活动武器+A0。CurWeapon1001C0D0→1001B150 从有符号消息读取 clip，写入这个字段并安装活动指针。100195BF 的旧局部推断继续撤回，不与实际10018CC0混淆。
+
+原 client 完整 SHA 与十段918字节重新核同，见私有 hud-next/final-consumer-evidence.json、final-byte-receipt.json。实际 cylinder SPR SHA `1abc649e0684796805236ebd0442db4e518cfa3c400a710db27a6e09906693a0`，六个64×64独立帧。原资源/消费者足以证明帧语义，但不能冒称现有 CSO 布局已完成动态显示。
+
+`tools/Prepare-CSOLHud.py` 新增显式 decode_sprite_frames 冷导出；调色板只准备一次，拒绝分组、截断、尾随字节和无效索引，最多256帧且总像素不超过既有单图4096×4096预算。旧 decode_sprite 仍只接受单帧。`tests/cryoffear-revolver-presentation/run.py` 使用实际原六帧，将每帧拆成独立文件格式后交给 Git固定旧解码器逐像素/元数据对照；保留两枪单帧完全一致，12类坏输入/严格单帧拒绝也覆盖。最终 build/cof-revolver-cylinder-export-20261114-02/receipt.json：32检查通过、输入稳定，六帧独立输出，仅生成资源候选、未部署或更改运行 HUD。
+
+另已闭合原新玩家私有内存零初始化：匹配 CoF hw SHA `9dd34e536c4bb7cda3bc1bc4f0f5f6163687566a16f35c0ea0be59f93da62875`，LoadDLL1DF3929 把引擎表1ECED18传给 MP GiveFnptrs100B4AA0；player_0 100125E0 经对应表项调用1DA8534→1D8CFD2→calloc(1,size)。这只证明新私有对象；正常合作重生复用对象与 survival 全01分支仍分别审查，未用清零猜测重生规则。证据 original-lifecycle/player-allocation-closed.json。
+
+## 编译空等的实际调用栈
+
+第二轮完整构建02源码稳定但7分29秒未产生任何 clang 子进程。真实 Windows等待链及匹配x86 CDB逐线程栈显示两条 Microsoft.Build.CPPTasks.SemaphoreProcessCounter.TryGetResource→TaskDependencyScheduler.InnerWorker 等待；不是通过单次总计时猜瓶颈。证据 build/cof-revolver-build-wait-20261114-01/fixed-managed-stacks.log；最初错误架构/命令格式采样也保留。只按创建时间和进程路径终止本任务 PID6920，保留 exit130/inputsUnchanged=true 失败回执，没有结束其他构建。
+
+`Build-CSOLServerCheckpoint.py` 增加显式 --process-budget per-build 和 --no-node-reuse；默认 shared 不变。独立预算仍受 --jobs2/MultiProcMaxCount2 约束，关闭的是发生空等的跨进程计数，/nr:false 禁止本次结束后保留节点。没有更改游戏功能、优化级别、精确浮点、完整源门禁或产物校验。第三轮沿同一编译缓存实际产生两个 clang 子进程并持续编译；完整MP终态/封存仍待，不宣称构建或游戏加速倍数。后续需给旧缓存补独立 TLog 配置，不能覆盖活动控制输入或误称整编完成。
+
+VP70 当前源重新验证：build/cof-vp70-current-20261114-01 的320开火/180世界/279Fidget/90转换和4450实际SDK通过。新增高备弹测试实际在03执行，旧源复现 SDK4454/line504 失败；02因不存在的插入锚未修改测试，是重复基线而非负例。75段8419原字节已重核，适配前证据 vp70-integration-20261114/ammo-implementation-before.json。VP70生产修复仍待当前完整构建结束后写入，避免污染其冻结输入；后续注册/Owner/effects/客户端/购买/实机均未完成。
