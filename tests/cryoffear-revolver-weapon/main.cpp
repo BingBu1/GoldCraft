@@ -38,6 +38,7 @@ bool fidgetMode{};
 unsigned fidgetChance{},fidgetChoice{};
 std::vector<unsigned> fidgetOrder;
 int shotLatch{};
+unsigned csBallisticsCalls{};
 float shotLatchDeadline{},reloadDeadline{};
 RevolverWeapon* live{};
 std::uint32_t Bits(float x){return std::bit_cast<std::uint32_t>(x);}
@@ -170,6 +171,13 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
     Event(31,Bits(shot.source.x),Bits(shot.source.y),Bits(shot.source.z),Bits(shot.direction.x),Bits(shot.direction.y),Bits(shot.direction.z),
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
     return {BallisticsStatus::Fired,{}};
+}
+BallisticsResult FireCSPistolBallistics(CBaseEntity& owner,const PistolBallistics& shot,
+    const BallisticsEffects& fx,const BallisticsCall& call,int penetration) noexcept
+{
+    Check(penetration==5&&shot.damage==100);
+    ++csBallisticsCalls;
+    return FirePistolBallistics(owner,shot,fx,call);
 }
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
 {
@@ -608,5 +616,27 @@ int main(int argc,char** argv)
     events.clear();weapon.PrimaryAttack();Check(weapon.Status()==RevolverStatus::MissingBackend&&weapon.ActionState().primary<10&&events.size()==3&&events[0]==unsigned(RevolverEffect::ViewAnimation));
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==898&&info.iMaxClip==5&&info.iMaxAmmo1==50&&info.iMaxAmmo2==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     InventoryRestoreCases();DeploySuppressionCases();ExpandedAmmoCases();ModelRebindCases();
+    // Execute a complete uninterrupted reload through engine-like think
+    // clearing and ordinary weapon frames, rather than one insert/cancel only.
+    Initialize();globals.time=10;weapon.m_iClip=2;weapon.pev->body=2;weapon.Reload();
+    unsigned inserted{};
+    for(unsigned tick=1;tick<=640;++tick)
+    {
+        globals.time=10+float(tick)/64;
+        if(weapon.pev->nextthink>0&&weapon.pev->nextthink<=globals.time)
+        {weapon.pev->nextthink=0;weapon.Think();}
+        const auto clip=weapon.m_iClip;weapon.ItemPostFrame();
+        if(weapon.m_iClip>clip)++inserted;
+    }
+    Check(inserted==5&&weapon.m_iClip==5&&player.m_rgAmmo[1]==10&&
+        !weapon.CylinderState().loading&&!weapon.CylinderState().pending&&
+        weapon.ActionState().action==0&&weapon.m_pfnThink==nullptr);
+    Initialize();auto hostPrepared=prepared;hostPrepared.csPenetration=5;
+    Check(weapon.Bind(player,hostPrepared,backends)==RevolverStatus::Ready&&weapon.Deploy());
+    globals.time=12;frame.bulletDamage=100;frame.pressed=1;player.pev->button=IN_ATTACK;
+    const auto oldCSCalls=csBallisticsCalls;weapon.PrimaryAttack();
+    Check(csBallisticsCalls==oldCSCalls+1&&weapon.m_iClip==4&&weapon.Status()==RevolverStatus::Applied);
+    for(int invalid:{-1,33})
+    {hostPrepared.csPenetration=invalid;Check(weapon.Prepare(hostPrepared)==RevolverStatus::InvalidInput);}
     std::cout<<rows<<" Revolver original scenarios, "<<worldRows<<" original world scenarios, "<<checks<<" SDK checks, zero failures\n";
 }

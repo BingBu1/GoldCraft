@@ -124,7 +124,11 @@ bool PrepareP345(void* context,const P345Resources& resources,P345Prepared& outp
 bool PrepareRevolver(void* context,const RevolverResources& resources,RevolverPrepared& output) noexcept
 {
     auto& map=*static_cast<Map*>(context);
-    return Current(&map)&&map.ready&&map.effects.FillPrepared(resources,output);
+    if(!Current(&map)||!map.ready||!map.effects.FillPrepared(resources,output))return false;
+    const auto* rules=map.damage.Find(Pistol::Revolver);
+    if(!rules)return false;
+    output.csPenetration=rules->penetration;
+    return Current(&map);
 }
 bool Effect(void* context, const GlockResources& resources, const OwnerBinding& binding,
     CBasePlayer& player, CBasePlayerWeapon& weapon, const GlockEvent& event) noexcept

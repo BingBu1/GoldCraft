@@ -57,4 +57,10 @@ BallisticsStatus CheckPistolBallistics(const PistolBallistics& shot,
 // No CS FireBullets/FireBullets3 substitution; no host health/armor writes.
 BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
     const BallisticsEffects& effects, const BallisticsCall& call) noexcept;
+
+// Human-requested host deviation: keep CoF's seeded ray, then use the actual
+// CS .357SIG material/shield/hookchain path with no additional spread or range
+// falloff. This is opt-in for Revolver; the original adapter above is unchanged.
+BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept;
 }

@@ -69,6 +69,7 @@ struct RevolverPrepared
     int viewModelString{}, playerModelString{}, shellModel{};
     int worldModelString{}, inventoryItemString{};
     int hostSlot{}, hostPosition{};
+    int csPenetration{}; // Cold per-map host rule, never original CoF metadata.
     bool modelsReady{}, soundsReady{}, particleReady{}, aimMetadataReady{};
     bool inventoryReady{}, pickupSoundReady{}, deployPreludeReady{};
     bool cylinderReady{}, ejectEventReady{}, reloadStagesReady{}, ammoXReady{};

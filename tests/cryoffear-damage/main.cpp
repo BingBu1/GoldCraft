@@ -34,7 +34,7 @@ int main(int argc, char** argv)
     Check(!config.Loaded() && !config.Find(Pistol::Glock), "Uninitialized damage became available");
     Check(!config.Parse("{}", error) && !error.empty() && !config.Loaded(), "Initial failure became ready");
     Check(config.Parse(json, error) && error.empty() && config.Loaded(), "Shipped balance config rejected");
-    constexpr ScenarioDamage expected[]{{110, 120}, {165, 120}, {330, 120}, {80, 120}};
+    constexpr ScenarioDamage expected[]{{110, 120}, {165, 120}, {100, 120, 5}, {80, 120}};
     for (unsigned i = 0; i < std::size(expected); ++i)
         Check(config.Find(static_cast<Pistol>(i)) && *config.Find(static_cast<Pistol>(i)) == expected[i],
               "Shipped weapon balance or profile identity changed");
@@ -53,6 +53,12 @@ int main(int argc, char** argv)
         Changed(json, "\"shot\": 110", "\"shot\": \"110\""),
         Changed(json, "\"shot\": 110", "\"shot\": null"),
         Changed(json, "\"shot\": 110", "\"shot\": 0, \"extra\": 1"),
+        Changed(json, "\"penetration\": 5", "\"penetration\": -1"),
+        Changed(json, "\"penetration\": 5", "\"penetration\": 33"),
+        Changed(json, "\"penetration\": 5", "\"penetration\": 5.5"),
+        Changed(json, "\"penetration\": 5", "\"penetration\": true"),
+        Changed(json, "\"penetration\": 5", "\"extra\": 5"),
+        Changed(json, "\"shot\": 110", "\"shot\": 110, \"penetration\": 5"),
         Changed(json, "\"pistols\"", "\"extra\": 1, \"pistols\""),
         Changed(json, "\"glock\"", std::string("\"glock") + char(0xff) + "\""),
         json + " trailing", json + std::string(1, '\0') + "trailing"
@@ -72,6 +78,12 @@ int main(int argc, char** argv)
                                     "\"melee\": 120", "\"melee\": 1000000");
     Check(config.Parse(boundaries, error) && config.Find(Pistol::Glock)->shot == 0 &&
           config.Find(Pistol::Glock)->melee == 1'000'000, "Allowed balance limits were rejected");
+    const auto legacy = Changed(json, ", \"penetration\": 5", "");
+    Check(config.Parse(legacy,error) && config.Find(Pistol::Revolver)->penetration==0 &&
+        config.Find(Pistol::Revolver)->shot==100,"Legacy config must retain original CoF ballistics");
+    for(int count:{0,5,32})
+        Check(config.Parse(Changed(json,"\"penetration\": 5","\"penetration\": "+std::to_string(count)),error)&&
+            config.Find(Pistol::Revolver)->penetration==count,"Explicit host penetration boundary rejected");
     std::cout << "checks=" << checks << " failures=" << failures << '\n';
     return failures ? 1 : 0;
 }

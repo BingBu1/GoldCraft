@@ -193,7 +193,8 @@ RevolverStatus RevolverWeapon::Prepare(const RevolverPrepared& p) noexcept
         !g_engfuncs.pfnIndexOfEdict)
         return status_;
     if (!Finite(p.aimOffset) || p.aimZoom < 0 || p.aimZoom > 255 ||
-        p.hostSlot != RevolverHudSlot || p.hostPosition != RevolverHudPosition)
+        p.hostSlot != RevolverHudSlot || p.hostPosition != RevolverHudPosition ||
+        p.csPenetration < 0 || p.csPenetration > 32)
         return status_ = RevolverStatus::InvalidInput;
     for (int i = 0; i <= 20; ++i)
         if (!(p.sequences.present & (std::uint64_t{1} << i)) ||
@@ -802,7 +803,9 @@ void RevolverWeapon::PrimaryAttack()
     // Original100DFEA0 only copies the global forward vector; no autoaim query.
     shot.direction = gpGlobals->v_forward; shot.right = gpGlobals->v_right; shot.up = gpGlobals->v_up;
     spread_.scalar += 3.15f; spread_.recoveryDeadline = AddDouble(now, .35);
-    const auto result = FirePistolBallistics(*m_pPlayer, shot, prepared_.ballistics, {Current, &l});
+    const auto result = prepared_.csPenetration ?
+        FireCSPistolBallistics(*m_pPlayer, shot, prepared_.ballistics, {Current, &l}, prepared_.csPenetration) :
+        FirePistolBallistics(*m_pPlayer, shot, prepared_.ballistics, {Current, &l});
     if (!Current(&l)) return;
     if (result.status != BallisticsStatus::Fired) { status_ = RevolverStatus::Cancelled; return; }
     action_.idle = now + 1.0f;

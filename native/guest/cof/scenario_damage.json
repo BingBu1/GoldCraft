@@ -3,7 +3,7 @@
   "pistols": {
     "glock": { "shot": 110, "melee": 120 },
     "p345": { "shot": 165, "melee": 120 },
-    "revolver": { "shot": 330, "melee": 120 },
+    "revolver": { "shot": 100, "melee": 120, "penetration": 5 },
     "vp70": { "shot": 80, "melee": 120 }
   }
 }

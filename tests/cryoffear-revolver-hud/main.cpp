@@ -6,14 +6,19 @@
 #include "native/guest/cof/client/revolver_hud.hpp"
 #include <limits>
 
-// Crosshair is independently verified; these functions are never invoked here.
+// Rendering is independently verified. This boundary checks that the real
+// shared module registry invokes its crosshair consumer once, not per pistol.
 namespace csol::client
 {
+unsigned crosshairCalls{};
+int crosshairHidden{},crosshairIntermission{};
+bool crosshairAmmo{};
 void InitializeGuestCofCrosshair() { std::abort(); }
 void ResetGuestCofCrosshair() noexcept { std::abort(); }
 void GuestCofCrosshairVideoInit() noexcept { std::abort(); }
 void ShutdownGuestCofCrosshair() noexcept { std::abort(); }
-void DrawGuestCofCrosshair(int,int,bool) noexcept { std::abort(); }
+void DrawGuestCofCrosshair(int hidden,int intermission,bool ammo) noexcept
+{++crosshairCalls;crosshairHidden=hidden;crosshairIntermission=intermission;crosshairAmmo=ammo;}
 }
 
 int main(int argc,char** argv)
@@ -27,6 +32,10 @@ int main(int argc,char** argv)
     Check(module&&module->hudState&&module->ammoKind==csol::hud_style::AmmoKind::Magazine,
         "real statically registered leftwheel module supplies typed frame producer");
     Check(FindWeaponModule(896)&&FindWeaponModule(897),"previous guest modules remain registered");
+    crosshairCalls=0;
+    for(const auto* item:WeaponModules())if(item->drawHud)item->drawHud(13,1,false);
+    Check(crosshairCalls==1&&crosshairHidden==13&&crosshairIntermission==1&&!crosshairAmmo,
+        "one shared guest crosshair callback preserves actual dispatcher arguments without duplicate blending");
     const std::string base=prefix;
     std::string frames;
     for(int i=0;i<6;++i)

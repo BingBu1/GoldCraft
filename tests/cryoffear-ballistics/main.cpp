@@ -28,6 +28,17 @@ bool valid = true;
 int cancelEvent{}, recycleEvent{}, recycleEntity{}, phase{}, privateAction{};
 void* replacementPrivate{};
 void (*nested)(){};
+struct NativeShot
+{
+    CBaseEntity* shooter{};
+    Vector source{},direction{};
+    float spread{},distance{},range{};
+    int penetration{},bullet{},damage{},seed{};
+    entvars_t* attacker{};
+    bool pistol{};
+    unsigned calls{};
+} nativeShot;
+bool nativeAllowed{},nativeCancel{},nativeRecycle{};
 
 std::uint32_t Bits(float value) { return std::bit_cast<std::uint32_t>(value); }
 float Float(std::uint32_t value) { return std::bit_cast<float>(value); }
@@ -147,9 +158,66 @@ BOOL CBaseEntity::FVisible(CBaseEntity*) { std::abort(); }
 BOOL CBaseEntity::FVisible(const Vector&) { std::abort(); }
 const Vector g_vecZero{};
 
+// The unchanged native material algorithm remains a real SDK boundary here.
+// Verify its invocation, original ray and cancellation; do not simulate walls.
+VectorRef CBaseEntity::FireBullets3(VectorRef source,VectorRef direction,float spread,float distance,
+    int penetration,int bullet,int damage,float range,entvars_t* attacker,bool pistol,int seed)
+{
+    Check(nativeAllowed);
+    nativeShot={this,source,direction,spread,distance,range,penetration,bullet,damage,seed,
+        attacker,pistol,nativeShot.calls+1};
+    gMultiDamage.amount=999;gMultiDamage.type=12345;
+    if(nativeCancel)valid=false;
+    if(nativeRecycle)++edicts[1].serialnumber;
+    source={99,98,97};direction={96,95,94};
+    static Vector result{9,8,7};return result;
+}
+
+void NativePenetrationChecks()
+{
+    using namespace guest::cof;
+    const BallisticsEffects fx{77,13};const BallisticsCall call{Current,nullptr};
+    for(bool aim:{false,true})for(unsigned seed:{0u,1u,65535u,0xffffffffu})
+    {
+        Initialize();valid=true;cancelEvent=recycleEvent=0;players=0;finalTarget=2;water=0;
+        PistolBallistics shot{{1.25f,-3.5f,7.75f},{.7f,.2f,-.1f},{.11f,.13f,.17f},
+            {.3f,.5f,.7f},{.2f,.6f,.8f},seed,100,aim,
+            PistolPlayerHits::OriginalCooperativeSkipPlayers,PistolSource::NormalMuzzle};
+        events.clear();traces=0;nativeAllowed=false;
+        const auto original=FirePistolBallistics(targets[1],shot,fx,call);
+        Check(original.status==BallisticsStatus::Fired);
+        auto trace=events.size();
+        for(std::size_t at=0;at<events.size();at+=events[at+1]+2)if(events[at]==2){trace=at;break;}
+        Check(trace<events.size());
+        const std::array<std::uint32_t,3> endpoint{events[trace+6],events[trace+7],events[trace+8]};
+        gMultiDamage.amount=123;gMultiDamage.type=456;
+        nativeAllowed=true;nativeCancel=nativeRecycle=false;nativeShot.calls=0;
+        const auto result=FireCSPistolBallistics(targets[1],shot,fx,call,5);
+        Check(result.status==BallisticsStatus::Fired&&nativeShot.calls==1&&nativeShot.shooter==&targets[1]);
+        Check(nativeShot.penetration==5&&nativeShot.bullet==BULLET_PLAYER_357SIG&&nativeShot.damage==100&&
+            nativeShot.spread==0&&nativeShot.distance==8192&&nativeShot.range==1&&nativeShot.pistol&&
+            nativeShot.attacker==targets[1].pev&&std::uint32_t(nativeShot.seed)==seed);
+        Check(nativeShot.source==shot.source&&shot.direction==Vector(.7f,.2f,-.1f));
+        for(int i=0;i<3;++i)Check(Bits(nativeShot.source[i]+nativeShot.direction[i]*8192)==endpoint[i]);
+        Check(result.spread==original.spread&&gMultiDamage.amount==123&&gMultiDamage.type==456);
+        for(int count:{-1,0,33})
+        {
+            const auto before=nativeShot.calls;
+            Check(FireCSPistolBallistics(targets[1],shot,fx,call,count).status==BallisticsStatus::InvalidInput&&
+                nativeShot.calls==before);
+        }
+        nativeCancel=true;
+        Check(FireCSPistolBallistics(targets[1],shot,fx,call,5).status==BallisticsStatus::Cancelled);
+        nativeCancel=false;valid=true;nativeRecycle=true;
+        Check(FireCSPistolBallistics(targets[1],shot,fx,call,5).status==BallisticsStatus::Cancelled);
+        nativeRecycle=false;nativeAllowed=false;
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc != 3) return 1;
+    NativePenetrationChecks();
     Initialize();
     std::ifstream input(argv[1]), expected(argv[2]);
     if (!input || !expected) return 1;

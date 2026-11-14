@@ -23,7 +23,7 @@ constinit const WeaponModule p345Module{
     .ids=p345Ids,.order=91,
     .ammoKind=hud_style::AmmoKind::Magazine,
     .ammoSprite="sprites/guest/cof/p345_ammo.spr",.ammoRect={0,32,0,32},
-    .dynamicCrosshair=false,.drawHud=DrawGuestCofCrosshair};
+    .dynamicCrosshair=false};
 const WeaponModuleRegistration p345Registration{p345Module};
 constexpr int revolverIds[]{guest::cof::Pistols[2].hostId};
 void RevolverHudState(hud_style::WeaponState& state)

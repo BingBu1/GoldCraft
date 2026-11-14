@@ -47,11 +47,19 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
         if (seen[index]) return reject("Duplicate CoF pistol damage identity");
         seen[index] = true;
         const auto& entry = it->value;
-        if (!entry.IsObject() || entry.MemberCount() != 2 ||
+        if (!entry.IsObject() || (entry.MemberCount() != 2 && entry.MemberCount() != 3) ||
             !entry.HasMember("shot") || !entry.HasMember("melee") ||
             !DamageValue(entry["shot"], prepared[index].shot) ||
             !DamageValue(entry["melee"], prepared[index].melee))
             return reject("Each CoF pistol requires finite shot and melee damage in 0..1000000");
+        if (entry.MemberCount() == 3)
+        {
+            if (index != static_cast<std::size_t>(Pistol::Revolver) || !entry.HasMember("penetration") ||
+                !entry["penetration"].IsInt() || entry["penetration"].GetInt() < 0 ||
+                entry["penetration"].GetInt() > 32)
+                return reject("Only Revolver supports an explicit CS penetration count in 0..32");
+            prepared[index].penetration = entry["penetration"].GetInt();
+        }
     }
 
     values_ = prepared;

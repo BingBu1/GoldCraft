@@ -194,6 +194,9 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
     return {BallisticsStatus::Fired,{}};
 }
+BallisticsResult FireCSPistolBallistics(CBaseEntity&,const PistolBallistics&,
+    const BallisticsEffects&,const BallisticsCall&,int) noexcept
+{std::abort();} // This shared Glock fixture never opts into Revolver's host rule.
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
 {
     Check(&owner==&player&&r.world==MeleeWorld::Multiplayer&&r.damage==frame.meleeDamage);

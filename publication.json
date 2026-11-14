@@ -2417,7 +2417,8 @@
     "docs/2026-11-14_接入-Revolver整枪Host与连接生命周期-report.md",
     "tests/cryoffear-vp70-owner/README.md",
     "tools/csol_hud_resources.py",
-    "docs/2026-11-14_修复-HUD部署闭包与实测回退-report.md"
+    "docs/2026-11-14_修复-HUD部署闭包与实测回退-report.md",
+    "docs/2026-11-14_修复-Revolver准星与自定义穿透-report.md"
   ],
   "trees": {
     "native": [

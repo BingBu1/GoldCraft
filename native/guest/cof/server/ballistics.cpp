@@ -234,4 +234,36 @@ BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallisti
     ApplyMultiDamage(inflictor, inflictor);
     return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
 }
+
+BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept
+{
+    if (penetration <= 0 || penetration > 32) return {BallisticsStatus::InvalidInput, {0,0,0}};
+    const auto ready = CheckPistolBallistics(shot, effects, call);
+    if (ready != BallisticsStatus::Ready) return {ready, {0,0,0}};
+    const Owner owner{EntityHandle<CBaseEntity>(&shooter), &shooter};
+    if (!Current(call, owner)) return {BallisticsStatus::Cancelled, {0,0,0}};
+    Vector spread = shot.spread;
+    if (shot.aiming) { spread.x *= .5f; spread.y *= .5f; spread.z *= .5f; }
+    const float xFirst = UTIL_SharedRandomFloat(shot.seed + 2u, -.5f, .5f);
+    const float xSecond = UTIL_SharedRandomFloat(shot.seed + 1u, -.5f, .5f);
+    const float yFirst = UTIL_SharedRandomFloat(shot.seed + 4u, -.5f, .5f);
+    const float ySecond = UTIL_SharedRandomFloat(shot.seed + 3u, -.5f, .5f);
+    const float horizontal = (xFirst + xSecond) * spread.x;
+    const float vertical = (yFirst + ySecond) * spread.y;
+    Vector direction{
+        (shot.direction.x + shot.right.x * horizontal) + shot.up.x * vertical,
+        (shot.direction.y + shot.right.y * horizontal) + shot.up.y * vertical,
+        (shot.direction.z + shot.right.z * horizontal) + shot.up.z * vertical
+    };
+    const Vector result{horizontal, vertical, 0};
+    Vector source = shot.source;
+    DamageRegister transaction;
+    // Direction already contains the original CoF spread. Passing zero here
+    // prevents CS from changing it; .357SIG supplies native material power25
+    // and penetration distance800. Unit range modifier is authored policy.
+    shooter.FireBullets3(source, direction, 0, PistolDistance, penetration,
+        BULLET_PLAYER_357SIG, shot.damage, 1.0f, shooter.pev, true, static_cast<int>(shot.seed));
+    return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
+}
 }
