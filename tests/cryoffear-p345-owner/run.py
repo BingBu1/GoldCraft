@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70"),default="p345")
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
@@ -150,7 +150,7 @@ def main():
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=dependency_commands,
         compiled=compiled.returncode, tested=tested.returncode if tested else None,
         before=before, after=after, compilerSha256=compiler_hash, unchanged=before == after, sourceCopies=0,
-        boundary='Actual P345 canonical owner view, native inventory frame capability and actual models; controlled authority/effects; no external production hooks, whole DLL, deployment, gameplay or live performance acceptance')
+        boundary=f'Actual {args.weapon} canonical owner view, native inventory frame capability and actual models; controlled authority/effects; no external production hooks, whole DLL, deployment, gameplay or live performance acceptance')
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2), 'utf-8')
     print((tested.stdout + tested.stderr) if tested else compiled.stdout + compiled.stderr)
     raise SystemExit(0 if success else 1)

@@ -50,7 +50,7 @@ P345 原生四类声音2563 SDK、canonical玩家视图69、原Glock所有者180
 | `weapon_switchblade` | Switchblade | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_syringe` | Morphine Syringe | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
 | `weapon_tmp` | MP9 | 已有原 P，待动作/接触校准 | 整枪接通与全部验收待完成 |
-| `weapon_vp70` | VP70 | 已有原 P，待动作/接触校准 | 原burst/装填等组件与高备弹兼容已验：原320/180/279/90+SDK4549；完整注册、认证Owner/effects、客户端与实机待接 |
+| `weapon_vp70` | VP70 | 已有原 P，待动作/接触校准 | 原burst/装填及高备弹原320/180/279/90+SDK4549已过；认证Owner与stock／两个CSO模型10102检查、607输入稳定；实际资源／工厂／effects／Host注册、客户端与实机待接 |
 
 ## 变体与内部资源
 

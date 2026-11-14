@@ -2414,7 +2414,8 @@
     "tests/csol-scenario-music/closure.py",
     "docs/2026-11-14_接入-黄昏曲与永夜随机顺序-report.md",
     "docs/2026-11-14_接入-Revolver动态弹巢HUD-report.md",
-    "docs/2026-11-14_接入-Revolver整枪Host与连接生命周期-report.md"
+    "docs/2026-11-14_接入-Revolver整枪Host与连接生命周期-report.md",
+    "tests/cryoffear-vp70-owner/README.md"
   ],
   "trees": {
     "native": [
