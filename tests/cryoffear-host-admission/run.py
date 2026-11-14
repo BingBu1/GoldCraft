@@ -57,7 +57,18 @@ def main():
     inputs=set(sources)|set(chain_sources)|{Path(__file__).resolve(),args.commands.resolve(),args.environment.resolve(),
                           config,compiler,compiler.with_name('lld-link.exe')}
     inputs.update(ROOT/p for p in EXTRA_INPUTS)
-    if args.presentation:inputs.update(p.resolve() for p in args.presentation.rglob('*') if p.is_file())
+    if args.presentation:
+        root=args.presentation.resolve(strict=True)
+        if not (root.is_relative_to(ROOT/'build') or root.is_relative_to(ROOT/'sandbox')) or any(
+                p.is_symlink() or os.path.isjunction(p) for p in (root,*root.parents)):
+            raise ValueError('Use an isolated presentation resource root')
+        contract=ROOT/'native/csol/buy_menu.hpp'
+        match=re.search(r'PresentationResource\[\]="(models/csol/buymenu_v\d+\.json)";',contract.read_text('utf8'))
+        if not match:raise ValueError('Missing versioned buy-menu presentation contract')
+        # These are the only files opened by this suite's actual parsers. Service
+        # readiness is controlled here; scanning live configs/assets adds no proof.
+        inputs.update((contract,(root/'models/csol/hud_v7.json').resolve(strict=True),
+                       (root/match[1]).resolve(strict=True)))
     environment=os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp=output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
     for i,source in enumerate(sources):

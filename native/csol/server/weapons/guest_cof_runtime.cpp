@@ -360,7 +360,7 @@ struct GlockRuntime::State
         auto* owner=map.players[index].backend;
         if(!owner||owner->player!=&player||!VP70Current(owner))return false;
         output={owner,VP70Current,VP70Frame,VP70Effect,map.host.vp70.effects|VP70NativeSoundEffects,
-            owner->vp70View.animation,owner->vp70View.animationGeneration};
+            owner->vp70View.animation,owner->vp70View.animationGeneration,owner->view.binding.life};
         return true;
     }
     static bool P345InventoryPickup(void* opaque,CBasePlayer& player,P345Weapon& weapon,int itemString) noexcept

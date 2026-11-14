@@ -20,10 +20,13 @@ class Replay:
   for a in [m.STUB+0x200,m.STUB+0x220,m.STUB+0x240,m.STUB+0x280,m.STUB+0x2A0,m.STUB+0x2C0,m.STUB+0x2E0,m.STUB+0x300]:u.mem_write(a,b'\xC3')
   u.mem_write(m.STUB+0x260,b'\xD9\x05'+m.u32(m.DATA+16)+b'\xC3');u.hook_add(unicorn.UC_HOOK_CODE,self.hook)
   self.ranges={hex(a):hashlib.sha256(u.mem_read(a,n)).hexdigest() for a,n in [(0x1004BC30,1166),(0x10090130,1209),(0x1004BB80,169),(0x1005C0F0,137),(0x1005C180,128),(0x1005BFF0,79),(0x1005C3D0,21)]}
-  self.default_weapon=21 if weapon=='Revolver' else 7
+  self.default_weapon={'P345':7,'Revolver':21,'VP70':19}[weapon]
   if weapon=='Revolver':
    u.mem_write(MODEL,b'models/weapons/revolver/v_revolver.mdl\0')
    u.mem_write(WORLD,b'police/models/weapons/revolver/p_revolver.mdl\0')
+  elif weapon=='VP70':
+   u.mem_write(MODEL,b'models/weapons/vp70/v_vp70.mdl\0')
+   u.mem_write(WORLD,b'police/models/weapons/vp70/p_vp70.mdl\0')
  def string(self,a):
   b=bytearray()
   while self.u.mem_read(a,1)!=b'\0':b+=self.u.mem_read(a,1);a+=1
@@ -89,7 +92,7 @@ def cases():
     radius=m.f32(rng.choice([0,-0.0,128,rng.uniform(-10,300)]));die=m.f32(now+rng.choice([-1,0,1]));decay=m.f32(rng.uniform(-10,1000));key=rng.choice([0,0,17]);struct.pack_into('<f',pool,i*124+12,radius);struct.pack_into('<ffi',pool,i*124+28,die,decay,key)
    yield HEADER_IN.pack(op,now,size,roll,scale,cheap,att),bytes(local),bytes(view),bytes(pool)
 def main():
- p=argparse.ArgumentParser();p.add_argument('--sample',type=Path,required=True);p.add_argument('--runner',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--weapon',choices=['P345','Revolver'],default='P345');a=p.parse_args();r=Replay(a.sample,a.weapon);rows=list(cases());named=[]
+ p=argparse.ArgumentParser();p.add_argument('--sample',type=Path,required=True);p.add_argument('--runner',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--weapon',choices=['P345','Revolver','VP70'],default='P345');a=p.parse_args();r=Replay(a.sample,a.weapon);rows=list(cases());named=[]
  for name,dies,keys,key,slot in [('equal-deadline',[1]*32,[0]*32,0,0),('strict-expired-slot1',[1,0]+[1]*30,[0]*32,0,1),('full-slot0',[2]*32,[0]*32,0,0),('matching-key-before-expiry',[0]*32,[0]*7+[17]+[0]*24,17,7)]:
   h,l,v,pool=rows[240];pool=bytearray(pool)
   for i in range(32):struct.pack_into('<f',pool,i*124+28,dies[i]);struct.pack_into('<i',pool,i*124+36,keys[i])

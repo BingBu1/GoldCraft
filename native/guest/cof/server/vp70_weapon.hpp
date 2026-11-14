@@ -10,6 +10,8 @@
 #include "weapon_melee.hpp"
 #include "owner_frame_weapon.hpp"
 #include "native/include/goldcraft/scenario_guest_weapon.hpp"
+#include "native/include/goldcraft/inventory_restore.hpp"
+#include <optional>
 #include "native/csol/server/weapons/weapons.h"
 
 namespace guest::cof::server
@@ -97,15 +99,20 @@ struct VP70Backends
     std::uint32_t preparedEffects{};
     const PlayerAnimationAdapter* playerAnimation{};
     PlayerModelGeneration playerModelGeneration{};
+    std::uint64_t ownerLife{};
 };
 
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
 // outside this translation unit. Original IDs never index CS's weapon tables.
 class VP70Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
-                         public OwnerFrameWeapon, public goldcraft::scenario::GuestWeapon
+                         public OwnerFrameWeapon, public goldcraft::scenario::GuestWeapon,
+                         public goldcraft::inventory::RestorableWeapon
 {
 public:
     goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept override;
+    bool SaveInventorySnapshot(goldcraft::inventory::Snapshot&) const noexcept override;
+    bool RestoreInventoryBinding(CBasePlayer&) noexcept override;
+    bool RestoreInventorySnapshot(const goldcraft::inventory::Snapshot&) noexcept override;
     void ConfigureColdHost(VP70ColdHost host) noexcept;
     VP70Status Prepare(const VP70Prepared&) noexcept;
     bool ResourcesReady() const noexcept;
@@ -154,6 +161,7 @@ public:
     // Must be called on death, map/life change and ownership removal. Host
     // generation must also change; invalidation alone is not an identity token.
     void Invalidate() noexcept override;
+    void OwnerModelChanging() noexcept override;
     VP70Status Status() const noexcept { return status_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const SpreadState& Spread() const noexcept { return spread_; }
@@ -191,6 +199,7 @@ private:
     bool Animate(PlayerAction) noexcept;
     bool View(int) noexcept;
     bool SetAim(bool) noexcept;
+    bool PublishOwnerState() noexcept;
     bool FireEvent(const VP70OwnerFrame&) noexcept;
     void ReadAmmo() noexcept;
     void WriteAmmo() noexcept;
@@ -209,6 +218,17 @@ private:
     bool preparedReady_{}, bound_{}, selected_{}, meleePending_{}, worldUse_{};
     bool burstPending_{}, burstDispatch_{};
     float meleeDeadline_{}, burstDeadline_{};
+    struct InventoryState;
+    struct ModelRebind
+    {
+        edict_t* owner{};
+        void* map{};
+        std::uint64_t life{};
+        int ownerSerial{},weaponSerial{},spawn{};
+        float burstDeadline{},meleeDeadline{};
+        bool selected{},burstPending{},meleePending{};
+    };
+    std::optional<ModelRebind> modelRebind_;
     VP70Status status_{VP70Status::MissingBackend};
 };
 }

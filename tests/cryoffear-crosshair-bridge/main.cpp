@@ -88,6 +88,13 @@ int main()
     state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
     // The real original leftwheel shares the three-bar stage. A previous
     // pistol presentation must not render after switching its host identity.
+    current.id=899;current.clip=18;Draw(0);
+    state.originalWeapon=19;state.aimEnabled=false;++state.revision;Present();Draw(0);
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    current.clip=90;Draw(3);
+    state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
+    state.aimEnabled=false;++state.revision;Present();Draw(0);Send(snap);Draw(0);
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     current.id=898;current.clip=5;Draw(0);
     state.originalWeapon=21;state.aimEnabled=false;state.revolverAngle=144;++state.revision;Present();
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);

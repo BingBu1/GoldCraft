@@ -433,9 +433,23 @@ int main(int argc,char** argv)
     Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
     vp70->PrimaryAttack();Check(vp70->m_iClip==17&&context.vp70NativeShots==1&&context.vp70FireEvents==1);
     Check(runtime.EndPostThink(player));
+    const auto vp70Think=vp70->pev->nextthink,vp70Gate=vp70->m_flNextPrimaryAttack;
+    Check(vp70Backend.ownerLife&&runtime.PersistentVP70FirstDraw(player,firstDraw)&&firstDraw);
+    vp70Request.vp70->firstDrawn=firstDraw;
+    const auto vp70Life=vp70Backend.ownerLife;
+    runtime.PlayerModelChanging(player);Check(!vp70->m_pfnThink&&!vp70Backend.current(vp70Backend.context));
+    Check(runtime.PlayerModelChanged(player,vp70Request,error)&&runtime.Backend(player,vp70Backend)&&
+        vp70Backend.ownerLife==vp70Life&&vp70->RestoreInventoryBinding(player));
+    Check(vp70->m_iClip==17&&vp70->pev->nextthink==vp70Think&&vp70->m_flNextPrimaryAttack==vp70Gate&&
+        context.vp70NativeShots==1&&context.vp70FireEvents==1);
     for(int i=0;i<2;++i){globals.time=vp70->pev->nextthink;vp70->DispatchThink();}
     Check(vp70->m_iClip==15&&context.vp70NativeShots==3&&context.vp70FireEvents==1&&context.loads==loadsBeforeBurst);
     globals.time=vp70->m_flNextPrimaryAttack+1;vp70->PrimaryAttack();Check(vp70->m_iClip==14);
+    goldcraft::inventory::Snapshot vp70Snapshot;Check(vp70->SaveInventorySnapshot(vp70Snapshot));
+    const auto rollbackThink=vp70->pev->nextthink;
+    vp70->Holster();vp70->m_iClip=75;
+    Check(vp70->RestoreInventoryBinding(player)&&vp70->RestoreInventorySnapshot(vp70Snapshot)&&
+        vp70->m_iClip==14&&vp70->pev->nextthink==rollbackThink&&context.vp70NativeShots==4&&context.vp70FireEvents==2);
     const auto shotsBeforeDeath=context.vp70NativeShots;player.pev->health=0;runtime.PlayerDied(player);
     Check(!vp70Backend.current(vp70Backend.context)&&vp70->m_pfnThink==nullptr);
     vp70->DispatchThink();Check(context.vp70NativeShots==shotsBeforeDeath);

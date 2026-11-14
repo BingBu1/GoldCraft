@@ -28,10 +28,13 @@ cl_entity_t local{},viewEntity{},remote{},lastVisible{};
 model_t viewModel{},playerModel{},flashModel{},otherModel{},bodyModel{};
 model_t p345ViewModel{},p345PlayerModel{};
 model_t revolverViewModel{},revolverPlayerModel{};
+model_t vp70ViewModel{},vp70PlayerModel{};
 std::vector<std::byte> p345PlayerBytes;
 std::vector<std::byte> revolverPlayerBytes;
+std::vector<std::byte> vp70PlayerBytes;
 bool p345Available{},p345Owned{};
 bool revolverAvailable{},revolverOwned{};
+bool vp70Available{},vp70Owned{};
 cl_enginefunc_t muzzleEngine{};
 event_api_t cachedEvents{};
 std::vector<std::byte> playerBytes;
@@ -62,10 +65,12 @@ int Find(const char* path){
  if(!std::strcmp(path,P345Models[unsigned(P345Model::Player)].host))return p345Available?22:0;
  if(!std::strcmp(path,RevolverModels[0].host))return revolverAvailable?31:0;
  if(!std::strcmp(path,RevolverModels[unsigned(RevolverModel::Player)].host))return revolverAvailable?32:0;
+ if(!std::strcmp(path,VP70Models[0].host))return vp70Available?41:0;
+ if(!std::strcmp(path,VP70Models[unsigned(VP70Model::Player)].host))return vp70Available?42:0;
  CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Player)].host));return 12;
 }
-model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:nullptr;}
-void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel||model==&revolverPlayerModel);return model==&p345PlayerModel?p345PlayerBytes.data():model==&revolverPlayerModel?revolverPlayerBytes.data():playerBytes.data();}
+model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:id==41?&vp70ViewModel:id==42?&vp70PlayerModel:nullptr;}
+void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel||model==&revolverPlayerModel||model==&vp70PlayerModel);return model==&p345PlayerModel?p345PlayerBytes.data():model==&revolverPlayerModel?revolverPlayerBytes.data():model==&vp70PlayerModel?vp70PlayerBytes.data():playerBytes.data();}
 model_t* Flash(const char* path,int* id){CHECK(!std::strcmp(path,"models/flash1.mdl"));*id=13;return &flashModel;}
 int MuzzleIndex(const char* path){CHECK(!std::strcmp(path,"models/shell.mdl"));return 14;}
 int Visible(int type,cl_entity_t* entity){CHECK(type==0);++visible;lastVisible=*entity;if(retireVisible)InvalidateGuestCofMuzzle();if(retireEffects)effectsReady=false;return 1;}
@@ -83,7 +88,7 @@ namespace csol::client
 {
 bool GuestCofEffectsReady() noexcept{return effectsReady;}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept{return effectsReady?effectResources:0;}
-bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(revolverOwned?value==Weapon::Revolver:p345Owned?value==Weapon::P345:value==Weapon::Glock);}
+bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(vp70Owned?value==Weapon::Vp70:revolverOwned?value==Weapon::Revolver:p345Owned?value==Weapon::P345:value==Weapon::Glock);}
 cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept{return effectsReady?&muzzleEngine:nullptr;}
 bool GuestCofPointLightsReady() noexcept{return pointReady;}
 bool GuestCofMainStudioView() noexcept{return mainView;}
@@ -100,7 +105,7 @@ static void (*originalDrawPoints)()=NativePoints;
 }
 int main(int argc,char** argv)
 {
- if(argc<2||argc>4)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
+ if(argc<2||argc>5)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
  std::fseek(file,0,SEEK_END);const long size=std::ftell(file);std::rewind(file);if(size<=0)return 4;
  playerBytes.resize(std::size_t(size));if(std::fread(playerBytes.data(),playerBytes.size(),1,file)!=1)return 5;std::fclose(file);
  auto* header=reinterpret_cast<studiohdr_t*>(playerBytes.data());CHECK(header->length==size&&header->numattachments>=2);
@@ -213,7 +218,7 @@ int main(int argc,char** argv)
   CHECK(visible==oldVisible+3&&shells==oldShells&&!GuestCofMuzzleWorldPending());
   ShutdownGuestCofMuzzle();p345Owned=false;
  }
- if(argc==4)
+ if(argc>=4)
  {
   FILE* rfile=std::fopen(argv[3],"rb");CHECK(rfile!=nullptr);if(!rfile)return 3;
   std::fseek(rfile,0,SEEK_END);const long rsize=std::ftell(rfile);std::rewind(rfile);CHECK(rsize>0);
@@ -241,6 +246,35 @@ int main(int argc,char** argv)
    ra[1].bone=bone;rh->numattachments=count;
   }
   ShutdownGuestCofMuzzle();revolverOwned=false;
+ }
+ if(argc==5)
+ {
+  FILE* rfile=std::fopen(argv[4],"rb");CHECK(rfile!=nullptr);if(!rfile)return 3;
+  std::fseek(rfile,0,SEEK_END);const long rsize=std::ftell(rfile);std::rewind(rfile);CHECK(rsize>0);
+  vp70PlayerBytes.resize(std::size_t(rsize));CHECK(std::fread(vp70PlayerBytes.data(),vp70PlayerBytes.size(),1,rfile)==1);std::fclose(rfile);
+  auto* rh=reinterpret_cast<studiohdr_t*>(vp70PlayerBytes.data());CHECK(rh->length==rsize&&rh->numattachments>=1);
+  auto* ra=reinterpret_cast<mstudioattachment_t*>(vp70PlayerBytes.data()+rh->attachmentindex);
+  vp70ViewModel.type=vp70PlayerModel.type=mod_studio;
+  std::strcpy(vp70ViewModel.name,VP70Models[0].host);std::strcpy(vp70PlayerModel.name,VP70Models[2].host);
+  vp70Available=true;InitializeGuestCofMuzzle(&provider);CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(21)&&GuestCofMuzzleReady(19));
+  const auto beforeVP70=visible,beforeShells=shells,queriesBeforeVP70=modelQueries;
+  remote.curstate.weaponmodel=42;event.iparam1=19;eventCallback(&event);CHECK(GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,header,bones);CHECK(visible==beforeVP70&&GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,rh,bones);
+  CHECK(visible==beforeVP70+1&&shells==beforeShells&&!GuestCofMuzzleWorldPending()&&modelQueries==queriesBeforeVP70);
+  const auto position=Transform(ra[0]);CHECK(std::equal(position.begin(),position.end(),lastVisible.origin));
+  vp70Owned=true;viewEntity.model=&vp70ViewModel;
+  CHECK(GuestCofMuzzleStudioEvent(&studioEvent,&viewEntity)&&visible==beforeVP70+2&&shells==beforeShells&&modelQueries==queriesBeforeVP70);
+  CHECK(lastVisible.curstate.scale==4.0F);
+  const int count=rh->numattachments;
+  if(count>1)
+  {
+   const int bone=ra[1].bone;ra[1].bone=rh->numbones;
+   CHECK(!PrepareGuestCofMuzzle()); // Cold validation still covers unused declared attachments.
+   rh->numattachments=1;CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(19));
+   ra[1].bone=bone;rh->numattachments=count;
+  }
+  ShutdownGuestCofMuzzle();vp70Owned=false;
  }
  std::printf("checks=%u failures=%u actualGlockPlayerModel=yes sceneServices=controlled live=no performance=no\n",checks,failures);
  return failures?1:0;

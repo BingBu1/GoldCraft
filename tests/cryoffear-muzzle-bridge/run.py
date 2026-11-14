@@ -22,6 +22,8 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--p345-model',type=Path)
     parser.add_argument('--revolver-model',type=Path)
+    parser.add_argument('--vp70-model',type=Path)
+    parser.add_argument('--vp70-attachment-proof',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build') or any(
@@ -33,6 +35,26 @@ def main():
         raise ValueError('Actual original P345 P model differs')
     if args.revolver_model and (not args.p345_model or sha(args.revolver_model)!='2a54b7b911ed2e5145947eed39779db5ec83b6707701eeaf9826cb73f8f69312'):
         raise ValueError('Use the actual Revolver P model together with the P345 model')
+    vp70_inputs=[]
+    if args.vp70_model:
+        if not args.p345_model or not args.revolver_model:
+            raise ValueError('Use the VP70 P model together with P345 and Revolver')
+        original_hash='a4412beb27cbd51478651b87290bb1bff66133478229c56c5879136c5cab93e8'
+        if args.vp70_attachment_proof:
+            proof=json.loads(args.vp70_attachment_proof.read_text('utf8'))
+            source=Path(proof['source']['path']);profile=Path(proof['profile']['path'])
+            tool=ROOT/'tools/Author-MissingStudioAttachment.py';helper=ROOT/'tools/cryoffear_studio.py'
+            raw=source.read_bytes();derived=args.vp70_model.read_bytes()
+            restored=bytearray(derived[:len(raw)])
+            restored[72:76]=raw[72:76];restored[212:220]=raw[212:220]
+            if not (proof['success'] and proof['candidateOnly'] and proof['source']['sha256']==sha(source)==original_hash and
+                    proof['artifact']['sha256']==sha(args.vp70_model) and Path(proof['artifact']['path']).resolve()==args.vp70_model.resolve() and
+                    proof['profile']['sha256']==sha(profile) and proof['toolSha256']==sha(tool) and proof['studioHelperSha256']==sha(helper) and
+                    len(derived)==len(raw)+88 and restored==raw):
+                raise ValueError('VP70 authored attachment provenance/preserved payload differs')
+            vp70_inputs=[args.vp70_attachment_proof.resolve(),source.resolve(),profile.resolve(),tool,helper]
+        elif sha(args.vp70_model)!=original_hash:
+            raise ValueError('Original VP70 P identity differs; derived models require their actual author receipt')
     output.mkdir(parents=True)
     helper=ROOT/"tests/common/cpp_function.py"
     spec=importlib.util.spec_from_file_location("cpp_function",helper)
@@ -57,6 +79,8 @@ def main():
                           args.model.resolve(),compiler,compiler.with_name('lld-link.exe')}
     if args.p345_model:inputs.add(args.p345_model.resolve())
     if args.revolver_model:inputs.add(args.revolver_model.resolve())
+    if args.vp70_model:inputs.add(args.vp70_model.resolve())
+    inputs.update(vp70_inputs)
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
     commands = []
@@ -80,6 +104,7 @@ def main():
         arguments=[str(executable),str(args.model.resolve())]
         if args.p345_model:arguments.append(str(args.p345_model.resolve()))
         if args.revolver_model:arguments.append(str(args.revolver_model.resolve()))
+        if args.vp70_model:arguments.append(str(args.vp70_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

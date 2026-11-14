@@ -181,7 +181,10 @@ bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* en
     Lifetime lifetime{serial,generation,effectResources};const auto host=Host(lifetime);
     if(definition->identity==guest::cof::Pistol::Revolver)
         RevolverMuzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
-    else P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else if(definition->identity==guest::cof::Pistol::Glock||definition->identity==guest::cof::Pistol::P345||
+            definition->identity==guest::cof::Pistol::VP70)
+        P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else return false;
     return true;
 }
 void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,const void* header,
@@ -203,6 +206,6 @@ void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,co
     Lifetime lifetime{serial,generation,effectResources};
     if(type==3)GlockMuzzle(Host(lifetime)).World(world[0],world[1],latch.eventVector,1.0F);
     else if(type==21)RevolverMuzzle(Host(lifetime)).World(world[0],1.0F);
-    else P345Muzzle(Host(lifetime)).World(world[0],1.0F);
+    else if(type==7||type==19)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
 }
 }

@@ -27,7 +27,7 @@ DWORD ownerThread{};
 std::uint64_t generation{},serial{1};
 bool initialized{};
 bool Owner() noexcept {return ownerThread&&ownerThread==GetCurrentThreadId();}
-bool CrosshairWeapon(unsigned id) noexcept {return id==3||id==7||id==21;}
+bool CrosshairWeapon(unsigned id) noexcept {return guest::cof::OriginalPistolId(id);}
 void Advance() noexcept
 {if(serial)serial=serial==std::numeric_limits<std::uint64_t>::max()?0:serial+1;}
 bool Synchronize() noexcept

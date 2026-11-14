@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 #if defined(__clang__)
 #pragma clang fp contract(off)
@@ -28,6 +29,133 @@ bool Finite(const Vector& v) noexcept
 }
 float AddDouble(float now, double delay) noexcept { return static_cast<float>(double(now) + delay); }
 constexpr unsigned OriginalId = 19;
+constexpr std::uint64_t InventoryKind = 0x434f465650373000ULL;
+}
+
+
+struct VP70Weapon::InventoryState
+{
+    MagazineActionState action;
+    SpreadState spread;
+    SpreadTransitions transitions;
+    float actionDeadline{},emptyDeadline{},wearDeadline{},nextThink{};
+    float burstDeadline{},meleeDeadline{},armor{};
+    int body{};
+    float primary{},secondary{},idle{},ownerAttack{};
+    int reserveHud{},wearMaximum{},wear{},clip{},inReload{},fireOnEmpty{};
+    int ownerSerial{},weaponSerial{},modelIndex{},ownerSpawn{};
+    std::uintptr_t map{},ownerContext{};
+    decltype(CBaseEntity::m_pfnThink) think{};
+    bool selected{},meleePending{},burstPending{},burstDispatch{};
+    VP70Status status{};
+};
+bool VP70Weapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output) const noexcept
+{
+    const auto lease=lease_;
+    if(!bound_||!pev||m_pPlayer!=lease.player||!Current(const_cast<Lease*>(&lease)))return false;
+    static_assert(std::is_trivially_copyable_v<InventoryState> && sizeof(InventoryState)<=512);
+    InventoryState saved{};
+    saved.action=action_;saved.spread=spread_;saved.transitions=transitions_;
+    saved.actionDeadline=actionDeadline_;saved.emptyDeadline=emptyDeadline_;saved.wearDeadline=wearDeadline_;
+    saved.burstDeadline=burstDeadline_;saved.meleeDeadline=meleeDeadline_;
+    saved.body=pev->body;saved.armor=pev->armorvalue;
+    saved.nextThink=pev->nextthink;saved.think=m_pfnThink;
+    saved.primary=m_flNextPrimaryAttack;saved.secondary=m_flNextSecondaryAttack;saved.idle=m_flTimeWeaponIdle;
+    saved.ownerAttack=m_pPlayer->m_flNextAttack;saved.clip=m_iClip;
+    saved.inReload=m_fInReload;saved.fireOnEmpty=m_fFireOnEmpty;
+    saved.reserveHud=reserveHud_;saved.wearMaximum=wearMaximum_;saved.wear=wear_;
+    saved.ownerSerial=lease.ownerSerial;saved.weaponSerial=lease.weaponSerial;saved.modelIndex=lease.modelIndex;
+    saved.ownerSpawn=m_pPlayer->m_iNumSpawns;saved.map=reinterpret_cast<std::uintptr_t>(worldLease_.context);
+    saved.ownerContext=reinterpret_cast<std::uintptr_t>(lease.context);
+    saved.selected=selected_;saved.meleePending=meleePending_;saved.burstPending=burstPending_;
+    saved.burstDispatch=burstDispatch_;saved.status=status_;
+    output.kind=InventoryKind;output.bytes=sizeof(saved);
+    std::memcpy(output.data.data(),&saved,sizeof(saved));return true;
+}
+bool VP70Weapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
+{
+    if(!pev||m_pPlayer!=&player)return false;
+    const auto pending=modelRebind_;modelRebind_.reset();
+    const auto previous=lease_;
+    if(bound_&&Current(const_cast<Lease*>(&previous))&&pev->owner==player.edict())return true;
+    const auto world=worldLease_;const auto cold=cold_;const auto prepared=prepared_;
+    if(!WorldCurrent(world)||!cold.ownerBackends)return false;
+    const auto sameInventory=[&]() noexcept {
+        return !pending||(pending->owner==player.edict()&&
+            pending->ownerSerial==player.edict()->serialnumber&&pending->weaponSerial==edict()->serialnumber&&
+            pending->spawn==player.m_iNumSpawns&&pending->map==worldLease_.context&&
+            pending->selected==(player.m_pActiveItem==this));
+    };
+    if(!sameInventory()){Invalidate();return false;}
+    const EHANDLE owner(&player);VP70Backends backend{};
+    const bool found=cold.ownerBackends(cold.context,player,backend);
+    if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found||!sameInventory()||
+        (backends_.ownerLife&&backends_.ownerLife!=backend.ownerLife)||
+        (pending&&(!backend.ownerLife||pending->life!=backend.ownerLife)))return false;
+    if(Bind(player,prepared,backend)!=VP70Status::Ready)return false;
+    const auto lease=lease_;AttachToPlayer(&player);
+    if(!Current(const_cast<Lease*>(&lease)))return false;
+    selected_=player.m_pActiveItem==this;
+    if(pev->owner!=player.edict())return false;
+    if(selected_&&!PublishOwnerState())
+    {const auto result=status_;Invalidate();status_=result;return false;}
+    if(pending)
+    {
+        burstPending_=pending->burstPending;burstDeadline_=pending->burstDeadline;
+        meleePending_=pending->meleePending;meleeDeadline_=pending->meleeDeadline;
+        ScheduleThink();
+    }
+    return true;
+}
+bool VP70Weapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapshot& input) noexcept
+{
+    const auto lease=lease_;
+    if(input.kind!=InventoryKind||input.bytes!=sizeof(InventoryState)||!bound_||
+        !Current(const_cast<Lease*>(&lease))||m_pPlayer!=lease.player)return false;
+    InventoryState saved{};std::memcpy(&saved,input.data.data(),sizeof(saved));
+    if(saved.ownerSerial!=lease.ownerSerial||saved.weaponSerial!=lease.weaponSerial||saved.modelIndex!=lease.modelIndex||
+        saved.ownerSpawn!=m_pPlayer->m_iNumSpawns||saved.map!=reinterpret_cast<std::uintptr_t>(worldLease_.context)||
+        saved.ownerContext!=reinterpret_cast<std::uintptr_t>(lease.context)||
+        (saved.selected&&m_pPlayer->m_pActiveItem!=this))return false;
+    action_=saved.action;spread_=saved.spread;transitions_=saved.transitions;
+    actionDeadline_=saved.actionDeadline;emptyDeadline_=saved.emptyDeadline;wearDeadline_=saved.wearDeadline;
+    burstDeadline_=saved.burstDeadline;meleeDeadline_=saved.meleeDeadline;
+    pev->body=saved.body;pev->armorvalue=saved.armor;
+    m_pfnThink=saved.think;pev->nextthink=saved.nextThink;
+    m_flNextPrimaryAttack=saved.primary;m_flNextSecondaryAttack=saved.secondary;m_flTimeWeaponIdle=saved.idle;
+    if(saved.selected)m_pPlayer->m_flNextAttack=saved.ownerAttack;
+    m_iClip=saved.clip;m_fInReload=saved.inReload;m_fFireOnEmpty=saved.fireOnEmpty;
+    reserveHud_=saved.reserveHud;wearMaximum_=saved.wearMaximum;wear_=saved.wear;
+    selected_=saved.selected;meleePending_=saved.meleePending;burstPending_=saved.burstPending;
+    burstDispatch_=saved.burstDispatch;status_=saved.status;
+    return !selected_||PublishOwnerState();
+}
+bool VP70Weapon::PublishOwnerState() noexcept
+{
+    auto lease=lease_;lease.active=true;
+    if(!selected_||!Current(&lease)||!prepared_.aimMetadataReady)return false;
+    VP70Event event{VP70Effect::Aim};event.enabled=action_.aiming;
+    event.first=action_.aiming?prepared_.aimOffset:Vector{};
+    event.value=action_.aiming?prepared_.aimZoom:0;event.a=350;
+    if(!Emit(event))return false;
+    lease.player->pev->fov=action_.aiming?float(prepared_.aimZoom):90.0F;
+    return true;
+}
+
+
+void VP70Weapon::OwnerModelChanging() noexcept
+{
+    VP70OwnerFrame frame{};
+    const auto dispatch=static_cast<decltype(m_pfnThink)>(&VP70Weapon::DispatchThink);
+    if(!Check(frame,false)||!ResourcesReady()||!backends_.ownerLife||
+        selected_!=(m_pPlayer->m_pActiveItem==this)||
+        ((burstPending_||meleePending_)&&m_pfnThink!=dispatch)||
+        !std::isfinite(burstDeadline_)||!std::isfinite(meleeDeadline_))
+    {Invalidate();return;}
+    const ModelRebind pending{lease_.owner,worldLease_.context,backends_.ownerLife,
+        lease_.ownerSerial,lease_.weaponSerial,m_pPlayer->m_iNumSpawns,
+        burstDeadline_,meleeDeadline_,selected_,burstPending_,meleePending_};
+    Invalidate();modelRebind_=pending;
 }
 
 bool VP70Weapon::Current(void* context) noexcept
@@ -104,6 +232,7 @@ VP70Status VP70Weapon::Bind(CBasePlayer& owner, const VP70Prepared& p,
                           const VP70Backends& backends) noexcept
 {
     bound_ = selected_ = meleePending_ = burstPending_ = burstDispatch_ = false;
+    modelRebind_.reset();
     status_ = VP70Status::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
         backends.preparedEffects != VP70RequiredEffects || !backends.playerAnimation)
@@ -134,6 +263,7 @@ VP70Status VP70Weapon::Bind(CBasePlayer& owner, const VP70Prepared& p,
 
 void VP70Weapon::Spawn()
 {
+    modelRebind_.reset();
     action_ = {};
     spread_ = {};
     transitions_ = {};
@@ -902,6 +1032,7 @@ void VP70Weapon::WeaponIdle()
 }
 void VP70Weapon::Invalidate() noexcept
 {
+    modelRebind_.reset();
     bound_ = selected_ = meleePending_ = burstPending_ = burstDispatch_ = false;
     SetThink(nullptr); if (pev) pev->nextthink = 0;
     status_ = VP70Status::Cancelled;

@@ -212,6 +212,63 @@ bool CSOL_ExtendedWeapon(int id){Check(id==899);return true;}
 bool CSOL_CanUseExtendedWeapons(CBasePlayer* p){Check(p==&player);return extendedAllowed;}
 unsigned CSOL_LegacyWeaponMask(int id){Check(id==899);return 0;}
 
+
+void InventoryRestoreCases()
+{
+    const auto prime=[] {
+        Initialize();
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});weapon.Precache();
+        backends.ownerLife=17;Check(weapon.Bind(player,prepared,backends)==VP70Status::Ready);
+        weapon.AttachToPlayer(&player);Check(weapon.pev->owner==player.edict()&&weapon.Deploy());
+        globals.time=5;player.m_rgAmmo[1]=500;weapon.m_iClip=18;
+    };
+    prime();weapon.PrimaryAttack();Check(weapon.m_iClip==17&&weapon.m_pfnThink);
+    const auto burstThink=weapon.pev->nextthink;const auto callback=weapon.m_pfnThink;
+    const auto primary=weapon.m_flNextPrimaryAttack;
+    goldcraft::inventory::Snapshot snapshot;Check(weapon.SaveInventorySnapshot(snapshot));
+    weapon.Holster();weapon.m_iClip=75;globals.time=8;
+    Check(weapon.RestoreInventoryBinding(player));
+    traceDeploy=true;deployOrder.clear();Check(weapon.RestoreInventorySnapshot(snapshot));traceDeploy=false;
+    Check(weapon.m_iClip==17&&weapon.m_pfnThink==callback&&weapon.pev->nextthink==burstThink&&
+        weapon.m_flNextPrimaryAttack==primary&&deployOrder==std::vector<unsigned>{unsigned(VP70Effect::Aim)});
+    globals.time=burstThink;weapon.DispatchThink();Check(weapon.m_iClip==16);
+    globals.time=weapon.pev->nextthink;weapon.DispatchThink();Check(weapon.m_iClip==15&&!weapon.m_pfnThink);
+    auto wrong=snapshot;++wrong.kind;Check(!weapon.RestoreInventorySnapshot(wrong));
+    wrong=snapshot;--wrong.bytes;Check(!weapon.RestoreInventorySnapshot(wrong));
+    ++ownerEdict.serialnumber;Check(!weapon.RestoreInventorySnapshot(snapshot));
+
+    for(int mode:{0,1,2})
+    {
+        const bool melee=mode==1,holstered=mode==2;
+        prime();if(melee)weapon.SecondaryAttack();else weapon.PrimaryAttack();
+        if(holstered){weapon.Holster();player.m_pActiveItem=nullptr;}
+        const auto next=weapon.pev->nextthink,gate=weapon.m_flNextPrimaryAttack;
+        const auto clip=weapon.m_iClip,oldMelee=meleeCalls;
+        Check(weapon.m_pfnThink&&weapon.SaveInventorySnapshot(snapshot));
+        weapon.OwnerModelChanging();Check(!weapon.m_pfnThink&&weapon.Status()==VP70Status::Cancelled);
+        player.pev->modelindex=2;backends.playerModelGeneration={1,2};
+        std::string error;const auto plan=RecommendedPistolAnimationPlan(Pistol::VP70,PistolAnimationRig::Stock);
+        Check(plan&&animations.Prepare(player,model,backends.playerModelGeneration,Pistol::VP70,*plan,_stricmp,error));
+        traceDeploy=true;deployOrder.clear();Check(weapon.RestoreInventoryBinding(player));traceDeploy=false;
+        Check(weapon.m_iClip==clip&&weapon.pev->nextthink==next&&weapon.m_flNextPrimaryAttack==gate&&
+            deployOrder==(holstered?std::vector<unsigned>{}:std::vector<unsigned>{unsigned(VP70Effect::Aim)}));
+        Check(!weapon.RestoreInventorySnapshot(snapshot));
+        globals.time=next;weapon.DispatchThink();
+        if(melee)Check(meleeCalls==oldMelee+1&&!weapon.m_pfnThink);
+        else Check(weapon.m_iClip==clip-1);
+    }
+    prime();weapon.PrimaryAttack();weapon.OwnerModelChanging();++backends.ownerLife;
+    Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
+    prime();weapon.SecondaryAttack();weapon.OwnerModelChanging();++player.m_iNumSpawns;
+    Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
+    prime();weapon.PrimaryAttack();weapon.OwnerModelChanging();++weaponEdict.serialnumber;
+    Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
+    prime();weapon.PrimaryAttack();weapon.OwnerModelChanging();player.m_pActiveItem=nullptr;
+    Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
+    prime();weapon.PrimaryAttack();weapon.OwnerModelChanging();current=false;
+    Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
+}
+
 int main(int argc,char** argv)
 {
     if(argc!=10)return 1;
@@ -519,5 +576,6 @@ int main(int argc,char** argv)
     Check(!weapon.m_fInReload&&weapon.m_iClip==90&&player.m_rgAmmo[1]==500);
     Initialize();globals.time=10;player.m_rgAmmo[1]=-1;events.clear();weapon.PrimaryAttack();
     Check(weapon.Status()==VP70Status::InvalidInput&&events.empty());
+    InventoryRestoreCases();
     std::cout<<rows<<" original Primary/Shoot cases; "<<worldRows<<" original world cases; "<<fidgetRows<<" original Fidget cases; "<<transitionRows<<" original transition cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }

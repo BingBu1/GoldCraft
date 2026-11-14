@@ -16,7 +16,8 @@ struct PistolResourceGroup
 inline constexpr std::array PistolResourceGroups{
     PistolResourceGroup{Pistol::P345,resources::P345AudioResources},
     PistolResourceGroup{Pistol::Glock,resources::GlockAudioResources},
-    PistolResourceGroup{Pistol::Revolver,resources::RevolverAudioResources}
+    PistolResourceGroup{Pistol::Revolver,resources::RevolverAudioResources},
+    PistolResourceGroup{Pistol::VP70,resources::VP70AudioResources}
 };
 inline constexpr std::size_t PistolLocalSampleCount=[] {
     std::size_t count{};

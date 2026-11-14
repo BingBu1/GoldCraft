@@ -2467,7 +2467,9 @@
     "tests/csol-challenge-environment/protocol.cpp",
     "tests/csol-challenge-environment/README.md",
     "tests/csol-challenge-environment/run.py",
-    "tests/csol-challenge-environment/sdk.cpp"
+    "tests/csol-challenge-environment/sdk.cpp",
+    "docs/2026-11-14_接入-VP70库存角色重绑与客户端枪口-report.md",
+    "tools/Author-MissingStudioAttachment.py"
   ],
   "trees": {
     "native": [
