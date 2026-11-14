@@ -1,0 +1,16 @@
+{
+  "sha256": "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2",
+  "crc64": "124D6034A6B28B40",
+  "functions": [
+    {
+      "name": "GoldCraftCofInput_CreateMove",
+      "rva": "0x5b320",
+      "size": "0x5cd",
+      "sha256": "b50596643e3395b46cb63dc45b8986c1799ee50f4e75d10be024885971cad2a6"
+    }
+  ],
+  "maximumSlotRva": "0x1179d8",
+  "maximumCallRva": "0x5b6fc",
+  "maximumCallBytes": "ff15d8791110",
+  "scope": "Native matched client raw-input adapter only; maximum callback lives in zero-initialized virtual data, validated by its exact call operand and nonnull runtime value"
+}

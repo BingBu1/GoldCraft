@@ -2478,7 +2478,16 @@
     "tests/cof-ground-movement/main.cpp",
     "tests/cof-ground-movement/run.py",
     "tests/cof-ground-movement/README.md",
-    "docs/2026-11-14_接入-CoF地面速度原指令对照-report.md"
+    "docs/2026-11-14_接入-CoF地面速度原指令对照-report.md",
+    "native/client/cof_input_10210.json",
+    "native/csol/scenario/custom/movement_input.hpp",
+    "native/csol/client/scenario/core/cof_movement_input.hpp",
+    "native/csol/client/scenario/core/cof_movement_input.cpp",
+    "tests/cof-movement-input/client.cpp",
+    "tests/cof-movement-input/run.py",
+    "tests/cof-movement-input/gamedata.py",
+    "tests/cof-movement-input/README.md",
+    "docs/2026-11-14_接入-CoF原生移动输入适配-report.md"
   ],
   "trees": {
     "native": [

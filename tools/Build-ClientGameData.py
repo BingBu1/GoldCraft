@@ -239,6 +239,24 @@ def main():
                     "kind": "global", "payload": {"gv_rva": clock["stateRva"], "gv_va": hex(address),
                         "gv_sig": "D9 05 ?? ?? ?? ?? C3", "gv_sig_va": hex(IMAGE_BASE + int(clock["accessorRva"], 16)),
                         "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
+    movement_input = json.loads((ROOT / "native/client/cof_input_10210.json").read_text())
+    if (movement_input["sha256"] != identity["sha256"] or
+            movement_input["crc64"].lower() != identity["crc64xz"].lower()):
+        raise ValueError("CoF input adapter catalog identity mismatch")
+    for entry in movement_input["functions"]:
+        if hashlib.sha256(raw(int(entry["rva"], 16), int(entry["size"], 16))).hexdigest() != entry["sha256"]:
+            raise ValueError("CoF native input function changed: " + entry["name"])
+        records.append({"platform": "windows", "module": "client", "symbolName": entry["name"],
+                        "kind": "function", "payload": {"func_rva": entry["rva"], "func_size": entry["size"]}})
+    maximum_call = int(movement_input["maximumCallRva"], 16)
+    maximum_slot = int(movement_input["maximumSlotRva"], 16)
+    expected_call = b"\xff\x15" + struct.pack("<I", IMAGE_BASE + maximum_slot)
+    if bytes.fromhex(movement_input["maximumCallBytes"]) != expected_call or raw(maximum_call, 6) != expected_call:
+        raise ValueError("CoF native maximum-speed callback operand changed")
+    records.append({"platform": "windows", "module": "client", "symbolName": "GoldCraftCofInput_MaximumSlot",
+                    "kind": "global", "payload": {"gv_rva": hex(maximum_slot), "gv_va": hex(IMAGE_BASE + maximum_slot),
+                        "gv_sig": "FF 15 ?? ?? ?? ??", "gv_sig_va": hex(IMAGE_BASE + maximum_call),
+                        "gv_inst_offset": "0x0", "gv_inst_disp": "0x2", "gv_inst_length": "0x6"}})
     shared_random = json.loads((ROOT / "native/client/shared_random_10210.json").read_text())
     if shared_random["clientSha256"] != identity["sha256"]:
         raise ValueError("Shared random catalog identity mismatch")

@@ -18,7 +18,11 @@ def main():
         parser.add_argument("--" + key, type=Path, required=True)
     parser.add_argument("--settings-regression", action="store_true",
                         help="Also run the complete existing commented/grouped settings codec suite")
+    parser.add_argument("--input-fixture", type=Path,
+                        help="Run a matched native input consumer fixture instead of the environment groups")
     args = parser.parse_args()
+    if args.input_fixture and (not args.input_fixture.resolve().is_relative_to(ROOT / "tests") or not args.input_fixture.is_file()):
+        raise ValueError("Native input fixture must be an existing workspace test")
     spec = importlib.util.spec_from_file_location("client_tools", ROOT / "tests/csol-challenge-hud/run_owner.py")
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
@@ -93,6 +97,8 @@ def main():
                   ("client", [Path(__file__).with_name("client.cpp")])]
         if args.settings_regression:
             groups.append(("settings", [ROOT / "tests/csol-custom-settings/main.cpp", settings]))
+        if args.input_fixture:
+            groups = [("native-input", [args.input_fixture.resolve()])]
         compiled = {}
         for group, sources in groups:
             objects = []
@@ -115,7 +121,9 @@ def main():
         (out / "receipt.json").write_text(json.dumps(dict(success=success and stable, inputsUnchanged=stable,
             controls=before, actualDependencies=list(consumed.values()), steps=steps, sourceCopies=0,
             deployed=False, gameplay=False, performance=False,
-            boundary="Real configuration/protocol/fade and actual client SDK hooks with controlled TriangleAPI sinks; no live Renderer or multiplayer evidence"), indent=2) + "\n", "utf-8")
+            boundary=("Actual native input SDK adapter with an explicit simulated downstream command boundary; no original whole-client execution, live PM, FPS or multiplayer evidence"
+                      if args.input_fixture else
+                      "Real configuration/protocol/fade and actual client SDK hooks with controlled TriangleAPI sinks; no live Renderer or multiplayer evidence")), indent=2) + "\n", "utf-8")
     if not success or not stable:
         raise SystemExit(1)
 
