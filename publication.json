@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-14_实现-TMP与MP5原版弹匣装填-report.md",
     "tests/cryoffear-host-cold/README.md",
     "tests/csol-scenario-teddy-messages/METEOR.md",
     "docs/2026-11-11_实现-泰迪熊流星手部与停止事件-report.md",

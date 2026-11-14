@@ -7,6 +7,7 @@
 
 namespace guest::cof
 {
+namespace server { enum class LongGun : unsigned char; }
 // Explicit original state, not offsets into a host player or weapon.
 // All times are absolute authoritative seconds. Do not pass CS prediction
 // countdowns here or reset this state when merely switching weapons.
@@ -60,6 +61,12 @@ enum class MagazineActionResult : std::uint8_t
 // separate CompleteMagazineReload helper owns the eventual ammo transfer.
 // Revolver is deliberately unsupported here: it has cylinder/insert logic.
 MagazineActionResult StartMagazineReload(Pistol pistol, MagazineActionState& state,
+    float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept;
+
+// Original automatic TMP/MP5 reload start, using their own sequence/action
+// order. This does not implement automatic fire, sound latches or pump/bolt
+// insertion. Long-gun identities use the existing typed host catalog.
+MagazineActionResult StartAutomaticMagazineReload(server::LongGun weapon, MagazineActionState& state,
     float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept;
 
 // Original pistol-whip scheduling; not CoF's separate long-gun pushback path.

@@ -178,13 +178,21 @@ def main():
     parser.add_argument("--ida-bytes", required=True, type=Path)
     parser.add_argument("--environment", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--automatic", action="store_true", help="Replay original TMP/MP5 magazine reload starts")
     args = parser.parse_args()
+    if args.automatic:
+        FUNCS.clear()
+        FUNCS.update({(0, 4): 0x1007F8D0, (0, 5): 0x1005BB60})
+        ORIGINAL_ID.update({4: 14, 5: 27})
+        NAMES.clear()
+        NAMES.update({4: "tmp", 5: "mp5"})
     out = args.output.resolve()
     if out.exists() or not out.is_relative_to(ROOT/"build"):
         parser.error("Use a new dedicated build directory")
     out.mkdir(parents=True)
     source = ("native/guest/cof/magazine_actions.hpp", "native/guest/cof/magazine_actions.cpp",
               "native/guest/cof/scenario_damage.hpp", "tests/cryoffear-magazine-actions/main.cpp",
+              "native/guest/cof/server/player_animation.hpp", "native/guest/cof/player_actions.hpp",
               "tests/cryoffear-magazine-actions/run.py")
     def sha(path): return hashlib.sha256(path.read_bytes()).hexdigest()
     before = {p: sha(ROOT/p) for p in source}
@@ -207,6 +215,8 @@ def main():
     env = os.environ.copy()
     env.update({k: v for k, v in json.loads(args.environment.read_text("utf-8-sig")).items()
                 if k in ("INCLUDE", "LIB", "LIBPATH", "PATH")})
+    (out / "temp").mkdir()
+    env["TEMP"] = env["TMP"] = str(out / "temp")
     compiler = Path(json.loads((ROOT/".tools/clang-toolchain.json").read_text("utf-8-sig"))["root"])/"bin/clang-cl.exe"
     flags = ["/nologo", "--target=i686-pc-windows-msvc", "/std:c++20", "/EHsc", "/MT", "/utf-8", "/W4", "/WX",
              "/O2", "/clang:-O3", "/clang:-flto=thin", "/clang:-fuse-ld=lld", "/arch:AVX2", "/fp:precise",
@@ -221,7 +231,7 @@ def main():
     safety.check_returncode()
     cases, expected = [], []
     for operation, pistol in FUNCS:
-        cap = {0: 15, 1: 8, 3: 18}[pistol]
+        cap = {0: 15, 1: 8, 3: 18, 4: 30, 5: 30}[pistol]
         for clip, reserve, action, special, aimed, pending, locked in itertools.product(
                 (0, 1, cap-1, cap), (0, 1, cap+1), (0, 1, 2, 5), (0, 1), (0, 1), (0, 1), (0, 1, 2, 3, 4)):
             now = bits(10.25)
@@ -237,7 +247,8 @@ def main():
             cases.append(row); expected.append(oracle.run(row))
     inputs = "".join(" ".join(map(str, times[key]))+"\n" for key in NAMES)
     inputs += "".join(" ".join(map(str, row))+"\n" for row in cases)
-    run = subprocess.run([str(exe)], cwd=out, input=inputs, capture_output=True, text=True, timeout=40)
+    run = subprocess.run([str(exe), *(["--automatic"] if args.automatic else [])], cwd=out,
+                         input=inputs, capture_output=True, text=True, timeout=40)
     actual = [list(map(int, line.split())) for line in run.stdout.splitlines()]
     failures = [dict(case=case, expected=wanted, actual=got) for case, wanted, got in zip(cases, expected, actual) if wanted != got]
     after = {p: sha(ROOT/p) for p in source}

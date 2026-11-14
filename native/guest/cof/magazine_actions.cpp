@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "magazine_actions.hpp"
+#include "server/player_animation.hpp"
 
 #include <cmath>
 
@@ -97,6 +98,41 @@ MagazineActionResult StartMagazineReload(Pistol pistol, MagazineActionState& sta
         !Emit(host, {loaded ? MagazineEventKind::PlayerReloadLoaded :
             MagazineEventKind::PlayerReloadEmpty, OriginalId(pistol)}))
         return MagazineActionResult::Cancelled;
+    return MagazineActionResult::Applied;
+}
+
+MagazineActionResult StartAutomaticMagazineReload(server::LongGun weapon, MagazineActionState& state,
+    float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept
+{
+    if (weapon != server::LongGun::TMP && weapon != server::LongGun::MP5)
+        return MagazineActionResult::UnsupportedWeapon;
+    if (!Valid(state, now)) return MagazineActionResult::InvalidInput;
+    const auto ready = CheckHost(host);
+    if (ready != MagazineActionResult::Applied) return ready;
+    // Preserve host skill grants instead of discarding an overfilled magazine.
+    if (state.clip >= 30 || state.reserve <= 0 || state.primary > now ||
+        state.action == 1 || state.action > 2 || state.special || state.pendingReload)
+        return MagazineActionResult::Ineligible;
+    if (state.aiming)
+    {
+        state.pendingReload = true;
+        return MagazineActionResult::Deferred;
+    }
+    const bool loaded = state.clip != 0;
+    const int sequence = (weapon == server::LongGun::TMP ? 5 : 2) + !loaded;
+    if (!HasSequence(times, sequence)) return MagazineActionResult::MissingSequence;
+    const float deadline = now + times.duration[sequence];
+    if (!std::isfinite(deadline)) return MagazineActionResult::InvalidInput;
+
+    state.shotPhase = 0;
+    state.action = 2;
+    state.clip = 0;
+    state.ownerAttack = state.primary = state.secondary = state.idle = deadline;
+    if (!Emit(host, {MagazineEventKind::ViewAnimation, sequence}))
+        return MagazineActionResult::Cancelled;
+    state.loading = true;
+    if (!Emit(host, {loaded ? MagazineEventKind::PlayerReloadLoaded : MagazineEventKind::PlayerReloadEmpty,
+        weapon == server::LongGun::TMP ? 14 : 27})) return MagazineActionResult::Cancelled;
     return MagazineActionResult::Applied;
 }
 

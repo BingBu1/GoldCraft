@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native/guest/cof/magazine_actions.hpp"
+#include "native/guest/cof/server/player_animation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -8,6 +9,7 @@
 #include <iostream>
 #include <limits>
 #include <cstdlib>
+#include <string_view>
 
 using namespace guest::cof;
 using Words = std::array<std::uint32_t, 14>;
@@ -99,14 +101,59 @@ void Safety()
         require(idle==(pistol==Pistol::VP70?MagazineActionResult::Ineligible:MagazineActionResult::Applied));
         require(state.clip==75&&state.reserve==initial.reserve);
     }
+    for (const auto weapon : {server::LongGun::TMP, server::LongGun::MP5})
+    {
+        auto state = initial;
+        Context context{&state};
+        require(StartAutomaticMagazineReload(weapon, state, 10, times, {}) == MagazineActionResult::MissingHost);
+        require(Save(state) == Save(initial));
+        state.clip = 75;
+        const auto expanded = Save(state);
+        require(StartAutomaticMagazineReload(weapon, state, 10, times, context.Host()) == MagazineActionResult::Ineligible);
+        require(Save(state) == expanded && context.count == 0);
+        state = initial;
+        context = Context{&state};
+        context.cancelAt = 1;
+        require(StartAutomaticMagazineReload(weapon, state, 10, times, context.Host()) == MagazineActionResult::Cancelled);
+        require(state.clip == 0 && state.action == 2 && !state.loading && context.count == 1);
+        state = initial;
+        context = Context{&state};
+        context.cancelAt = 2;
+        require(StartAutomaticMagazineReload(weapon, state, 10, times, context.Host()) == MagazineActionResult::Cancelled);
+        require(state.clip == 0 && state.action == 2 && state.loading && context.count == 2);
+        state = initial;
+        context = Context{&state};
+        state.aiming = true;
+        require(StartAutomaticMagazineReload(weapon, state, 10, times, context.Host()) == MagazineActionResult::Deferred);
+        require(state.clip == initial.clip && state.pendingReload && context.count == 0);
+        state = initial;
+        context = Context{&state};
+        const auto before = Save(state);
+        require(StartAutomaticMagazineReload(weapon, state, std::numeric_limits<float>::infinity(), times,
+            context.Host()) == MagazineActionResult::InvalidInput);
+        auto missing = times;
+        missing.present = 0;
+        require(StartAutomaticMagazineReload(weapon, state, 10, missing, context.Host()) == MagazineActionResult::MissingSequence);
+        require(Save(state) == before && context.count == 0);
+    }
+    {
+        auto state = initial;
+        Context context{&state};
+        require(StartAutomaticMagazineReload(server::LongGun::Shotgun, state, 10, times, context.Host()) ==
+            MagazineActionResult::UnsupportedWeapon);
+        require(Save(state) == Save(initial));
+    }
     std::cout << "safety=" << checks << '\n';
 }
 
-int main(int argc, char**)
+int main(int argc, char** argv)
 {
-    if (argc != 1) { Safety(); return 0; }
-    std::array<MagazineSequenceTimes, 4> times{};
-    for (unsigned id : {0u, 1u, 3u})
+    const bool automatic = argc == 2 && std::string_view(argv[1]) == "--automatic";
+    if (argc != 1 && !automatic) { Safety(); return 0; }
+    std::array<MagazineSequenceTimes, 6> times{};
+    const auto identities = automatic ? std::initializer_list<unsigned>{4u, 5u} :
+                                       std::initializer_list<unsigned>{0u, 1u, 3u};
+    for (unsigned id : identities)
     {
         for (unsigned i = 0; i < 38; ++i)
         {
@@ -120,14 +167,16 @@ int main(int argc, char**)
     while (std::cin >> row[0])
     {
         for (unsigned i = 1; i < row.size(); ++i) if (!(std::cin >> row[i])) return 5;
-        if (row[1] > 3 || row[0] > 2) return 6;
+        if (automatic ? row[0] != 0 || row[1] < 4 || row[1] > 5 : row[1] > 3 || row[0] > 2) return 6;
         auto f = [&](unsigned i) { return std::bit_cast<float>(row[i]); };
         MagazineActionState state{int(row[2]), int(row[3]), int(row[4]), int(row[5]), int(row[6]), int(row[7]),
             row[8] != 0, row[9] != 0, row[10] != 0, f(11), f(12), f(13), f(14), f(15)};
         Context context{&state}; const auto host = context.Host();
         const auto pistol = static_cast<Pistol>(row[1]);
         MagazineActionResult result;
-        if (row[0] == 0) result = StartMagazineReload(pistol, state, f(16), times[row[1]], host);
+        if (automatic) result = StartAutomaticMagazineReload(row[1] == 4 ? server::LongGun::TMP : server::LongGun::MP5,
+            state, f(16), times[row[1]], host);
+        else if (row[0] == 0) result = StartMagazineReload(pistol, state, f(16), times[row[1]], host);
         else if (row[0] == 1) result = StartPistolMelee(pistol, state, f(16), host);
         else result = MagazineIdle(pistol, state, f(16), times[row[1]], host);
         if (result != MagazineActionResult::Applied && result != MagazineActionResult::Deferred &&

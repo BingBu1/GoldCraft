@@ -16,9 +16,20 @@ python tests/cryoffear-magazine-actions/run.py \
 
 Requires the user's authorized original DLL/models and private IDA-byte receipt;
 none are embedded in this repository. The sample SHA, IDA windows, model hashes,
-compiler and production inputs are checked and recorded. The verified suite
-contains 17,334 original-function cases and 48 safety checks, with 562 visited
-instruction addresses. Compilation disables floating-point contraction.
+compiler and production inputs are checked and recorded. The pistol suite
+contains 17,334 original-function cases. The shared safety checks also cover
+the automatic reload API; the current run has 94 checks. Compilation disables
+floating-point contraction, and compiler temporaries stay inside the selected
+build directory.
+
+Add `--automatic` to execute the original TMP/MP5 reload-start functions using
+their actual view models. Supply the corresponding private IDA proof containing
+those two complete windows and the same common helper windows. This mode checks
+3,852 original-function cases, including snapshots observed at animation
+callbacks, aimed deferral, all input gates, equality and large-time rounding.
+It does not emulate automatic fire or its sound latch. Skill-expanded magazines
+are separate host safety checks: physical reload must preserve granted rounds
+instead of discarding an overfilled magazine.
 
 The revolver and special-state paths are outside this module. This does not
 register a weapon, apply actual melee damage, run a full server or establish
