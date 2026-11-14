@@ -2378,7 +2378,11 @@
     "docs/2026-11-13_接入-Revolver地图运行时与状态绑定-report.md",
     "docs/2026-11-13_优化-并行构建跟踪日志隔离-report.md",
     "docs/2026-11-13_接入-Revolver原退壳事件双端桥-report.md",
-    "docs/2026-11-14_接入-Revolver本地声音与原枪焰分支-report.md"
+    "docs/2026-11-14_接入-Revolver本地声音与原枪焰分支-report.md",
+    "tools/Verify-CSOLServerBuildScope.py",
+    "tests/csol-build-scope/pinned_archive.py",
+    "tests/csol-build-scope/dependency_replay.py",
+    "docs/2026-11-14_修复-服务端依赖重放命令与路径热点-report.md"
   ],
   "trees": {
     "native": [
