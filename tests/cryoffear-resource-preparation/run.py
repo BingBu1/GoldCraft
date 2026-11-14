@@ -65,6 +65,14 @@ def main():
     rows = verify_original(args.sample, proof)
     revolver_proof = ROOT/'analysis/cof-weapons-20261111/revolver-integration-20261113/resource-byte-proof.json'
     revolver_rows = verify_original(args.sample, revolver_proof)
+    vp70_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/vp70-byte-raw.json'
+    vp70_chunks = json.loads(vp70_raw.read_text('utf8'))['chunks']
+    vp70_rows = verify_original(args.sample, revolver_proof, [dict(
+        va=row['addr'], size=len(row['data'].split()),
+        sha256=hashlib.sha256(bytes(int(b, 16) for b in row['data'].split())).hexdigest(),
+        idaEqualsPE=True) for row in vp70_chunks])
+    if len(vp70_rows) != 75 or sum(row['size'] for row in vp70_rows) != 8419:
+        raise ValueError('Incomplete VP70 original gate')
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)
@@ -116,7 +124,7 @@ def main():
         path=str(args.clip_texture.resolve()), sha256=sha(args.clip_texture)))
     project = SDK/'msvc/ReGameDLL.vcxproj'
     inputs = set(sources) | {header, Path(__file__).resolve(), Path(__file__).with_name('README.md'),
-        args.sample.resolve(), proof, revolver_proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
+        args.sample.resolve(), proof, revolver_proof, vp70_raw, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
     if args.presentation:
@@ -169,7 +177,7 @@ def main():
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')

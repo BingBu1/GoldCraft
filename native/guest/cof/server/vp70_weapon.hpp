@@ -8,6 +8,8 @@
 #include "ballistics.hpp"
 #include "player_animation.hpp"
 #include "weapon_melee.hpp"
+#include "owner_frame_weapon.hpp"
+#include "native/include/goldcraft/scenario_guest_weapon.hpp"
 #include "native/csol/server/weapons/weapons.h"
 
 namespace guest::cof::server
@@ -99,9 +101,11 @@ struct VP70Backends
 
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
 // outside this translation unit. Original IDs never index CS's weapon tables.
-class VP70Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle
+class VP70Weapon final : public CBasePlayerWeapon, public CSOLWeaponLifecycle,
+                         public OwnerFrameWeapon, public goldcraft::scenario::GuestWeapon
 {
 public:
+    goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept override;
     void ConfigureColdHost(VP70ColdHost host) noexcept;
     VP70Status Prepare(const VP70Prepared&) noexcept;
     bool ResourcesReady() const noexcept;
@@ -142,14 +146,14 @@ public:
     // Parent calls once from the original-equivalent player frame, before the
     // weapon input path, even while ownerAttack locks ItemPostFrame. Per-player
     // spread transitions are an explicit host multiplayer isolation adaptation.
-    void AdvanceOwnerFrame() noexcept;
+    void AdvanceOwnerFrame() noexcept override;
     void EXPORT DelayedMelee();
     void Shoot();
     void EXPORT DispatchThink();
     void ScheduledBurst();
     // Must be called on death, map/life change and ownership removal. Host
     // generation must also change; invalidation alone is not an identity token.
-    void Invalidate() noexcept;
+    void Invalidate() noexcept override;
     VP70Status Status() const noexcept { return status_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const SpreadState& Spread() const noexcept { return spread_; }

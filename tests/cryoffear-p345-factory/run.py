@@ -20,7 +20,7 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver'),default='p345',help='Actual native factory/subclass to exercise')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70'),default='p345',help='Actual native factory/subclass to exercise')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')

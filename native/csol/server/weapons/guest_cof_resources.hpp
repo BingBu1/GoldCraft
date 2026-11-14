@@ -39,6 +39,15 @@ using guest::cof::resources::RevolverEvents;
 using guest::cof::resources::RevolverInventory;
 using guest::cof::resources::RevolverParticle;
 using guest::cof::resources::RevolverClipTexture;
+using guest::cof::resources::VP70Model;
+using guest::cof::resources::VP70Models;
+using guest::cof::resources::VP70Sound;
+using guest::cof::resources::VP70Sounds;
+using guest::cof::resources::VP70LocalWaves;
+using guest::cof::resources::VP70Events;
+using guest::cof::resources::VP70Inventory;
+using guest::cof::resources::VP70Particle;
+using guest::cof::resources::VP70ClipTexture;
 using guest::cof::resources::ShotDecals;
 struct ResourceAuthority
 {
@@ -70,6 +79,20 @@ struct RevolverResources
     std::array<int, RevolverSounds.size()> sounds{};
     std::array<int, RevolverLocalWaves.size()> localWaveDownloads{};
     std::array<unsigned short, RevolverEvents.size()> events{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{};
+    int inventoryDownload{}, particleDownload{};
+};
+struct VP70Resources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, VP70Models.size()> models{};
+    std::array<int, VP70Sounds.size()> sounds{};
+    std::array<int, VP70LocalWaves.size()> localWaveDownloads{};
+    std::array<unsigned short, VP70Events.size()> events{};
     int viewModelString{}, playerModelString{}, worldModelString{};
     int inventoryItemString{}, particleScriptString{};
     int inventoryDownload{}, particleDownload{};
@@ -106,6 +129,7 @@ struct ResourceResult
 ResourceResult PreparePistolPresentationResources(const ResourceAuthority&,guest::cof::Pistol) noexcept;
 ResourceResult PrepareP345Resources(const ResourceAuthority&, P345Resources&) noexcept;
 ResourceResult PrepareRevolverResources(const ResourceAuthority&, RevolverResources&) noexcept;
+ResourceResult PrepareVP70Resources(const ResourceAuthority&, VP70Resources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }

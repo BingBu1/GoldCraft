@@ -11,12 +11,13 @@ bits=shared.bits
 SAMPLES={
  'weapons/weapon_fire_empty.wav':21,'weapons/weapon_fire_empty_noclick.wav':22,
  'weapons/sleeve_generic1.wav':10,'weapons/sleeve_generic2.wav':11,'weapons/sleeve_generic3.wav':12,
- 'weapons/weapon_get.wav':9,'weapons/item_get.wav':8,'weapons/rifle/rifle_insert.wav':7}
+ 'weapons/weapon_get.wav':9,'weapons/item_get.wav':8,'weapons/rifle/rifle_insert.wav':7,
+ 'weapons/vp70/vp70_fire.wav':23}
 
 class Original(shared.Original):
     def __init__(self,sample,weapon="p345"):
         super().__init__(sample)
-        slot={'p345':0x101b55f4,'revolver':0x101b71cc}[weapon]
+        slot={'p345':0x101b55f4,'revolver':0x101b71cc,'vp70':0x101be334}[weapon]
         if self.read(slot)!=0x1011e4a0:
             raise ValueError('Original '+weapon+' EmptyPlay virtual target differs')
         self.write(self.weapon+4,self.pev(4));self.write(self.weapon+0x160,self.obj(1))
@@ -45,7 +46,7 @@ class Original(shared.Original):
         self.write(self.weapon+0x1b4,empty)
         self.write(self.pev(4)+0x1b4,armor)
         self.write(0x10226480,suppressed);self.write(0x10226489,quiet)
-        start,end={4:(0x1011e4a0,EDGE+0xff00),16:(0x1011c3fe,0x1011c4bc),
+        start,end={4:(0x1011e4a0,EDGE+0xff00),11:(0x100851eb,0x1008521c),16:(0x1011c3fe,0x1011c4bc),
                    14:(0x1011cc54,0x1011ccc6),17:(0x1011b737,0x1011b77a)}.get(kind,(0,0))
         self.uc.reg_write(UC_X86_REG_ECX,self.weapon);self.uc.reg_write(UC_X86_REG_ESI,self.weapon)
         self.uc.reg_write(UC_X86_REG_EDI,self.weapon if kind==16 else self.obj(1))
@@ -58,7 +59,7 @@ class Original(shared.Original):
 
 def generate(sample,cases,expected,weapon="p345"):
     original=Original(sample,weapon);count=0
-    for kind in (4,16,14,17):
+    for kind in ((4,16,14,17,11) if weapon=='vp70' else (4,16,14,17)):
         for quiet in (0,1):
             for armor in (bits(-2),bits(0),bits(.5),bits(1),bits(2),0x7fc00001):
                 for value in (range(3) if kind==16 else (0,)):

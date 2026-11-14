@@ -229,6 +229,13 @@ int main(int argc, char** argv)
                 std::string_view(sounds[1].original) == "weapons/revolver/revolver_shell.wav" && waves.size() == 4,
                 "original delayed native shell sound is distinct from four local samples");
         }
+        if constexpr (std::is_same_v<Resources, VP70Resources>)
+        {
+            Check(std::string_view(models[2].original) == "police/models/weapons/vp70/p_vp70.mdl" &&
+                std::string_view(sounds[unsigned(VP70Sound::Fire)].original) == "weapons/vp70/vp70_fire.wav" &&
+                std::string_view(waves[4].original) == "weapons_new/vp70/vp70_fire.wav" && events.size() == 2,
+                "VP70 original multiplayer P and independent native/local sound identities");
+        }
         for (std::size_t i = 0; i < events.size(); ++i)
             Check(fixture.events.at(events[i].host) == prepared.events[i], "actual event IDs preserved");
         Check(fixture.generics.at(inventory.host) == prepared.inventoryDownload &&
@@ -397,6 +404,12 @@ int main(int argc, char** argv)
         exercise.template operator()<RevolverResources>(RevolverModels, RevolverSounds, RevolverLocalWaves, RevolverEvents,
             RevolverInventory, RevolverParticle, RevolverClipTexture, PrepareRevolverResources, 22, -6, 4.5f,
             "weapon_revolver", "\"4.5\"", "Revolver");
+        fixture = Fixture{};
+        Inputs(argv[1], argv[2], argv[3], VP70Models, VP70Sounds, VP70LocalWaves, VP70Events,
+            VP70Inventory, VP70Particle, VP70ClipTexture);
+        exercise.template operator()<VP70Resources>(VP70Models, VP70Sounds, VP70LocalWaves, VP70Events,
+            VP70Inventory, VP70Particle, VP70ClipTexture, PrepareVP70Resources, 23, -3.6f, 3.1f,
+            "weapon_vp70", "\"3.1\"", "VP70");
         if(argc==5)for(auto pistol:{guest::cof::Pistol::Glock,guest::cof::Pistol::P345})
         {
             fixture=Fixture{};

@@ -7,6 +7,8 @@
 #include "guest_cof_p345_factory.hpp"
 #include "guest_cof_revolver_factory.hpp"
 #include "guest_cof_revolver_native_effects.hpp"
+#include "guest_cof_vp70_native_effects.hpp"
+#include "guest_cof_vp70_factory.hpp"
 #include "guest_cof_melee.hpp"
 #include "native/guest/cof/catalog.hpp"
 #include <limits>
@@ -28,6 +30,8 @@ struct GlockRuntime::State
         P345OwnerBackendView p345View{};
         std::unique_ptr<RevolverOwnerView> revolver;
         RevolverOwnerBackendView revolverView{};
+        std::unique_ptr<VP70OwnerView> vp70;
+        VP70OwnerBackendView vp70View{};
     };
     struct Player
     {
@@ -45,11 +49,12 @@ struct GlockRuntime::State
         GlockResources resources{};
         P345Resources p345Resources{};
         RevolverResources revolverResources{};
+        VP70Resources vp70Resources{};
         GlockOwnerRuntime owners;
         std::array<Player, GlockOwnerRuntime::SlotCount> players{};
         std::vector<std::unique_ptr<Owner>> bindings;
         unsigned calls{};
-        bool active{}, prepared{}, p345Prepared{}, revolverPrepared{};
+        bool active{}, prepared{}, p345Prepared{}, revolverPrepared{}, vp70Prepared{};
     };
     struct Call
     {
@@ -122,11 +127,24 @@ struct GlockRuntime::State
         return WeaponCurrent(owner,guest::cof::Pistols[1].hostId)&&owner.p345&&
             owner.p345->Current(owner.p345View.binding)&&OwnerCurrent(&owner);
     }
+    static bool VP70Current(void* opaque) noexcept
+    {
+        auto& owner=*static_cast<Owner*>(opaque);
+        Call call(*owner.map);
+        return WeaponCurrent(owner,guest::cof::Pistols[3].hostId)&&owner.vp70&&
+            owner.vp70->Current(owner.vp70View.binding)&&OwnerCurrent(&owner);
+    }
     static bool P345Frame(void* opaque,P345OwnerFrame& output) noexcept
     {
         auto& owner=*static_cast<Owner*>(opaque);
         Call call(*owner.map);
         return P345Current(&owner)&&owner.p345->Read(owner.p345View.binding,output)&&P345Current(&owner);
+    }
+    static bool VP70Frame(void* opaque,VP70OwnerFrame& output) noexcept
+    {
+        auto& owner=*static_cast<Owner*>(opaque);
+        Call call(*owner.map);
+        return VP70Current(&owner)&&owner.vp70->Read(owner.vp70View.binding,output)&&VP70Current(&owner);
     }
     static bool RevolverCurrent(void* opaque) noexcept
     {
@@ -151,7 +169,8 @@ struct GlockRuntime::State
     {
         auto& lease = *static_cast<EffectLease*>(opaque);
         const bool current=lease.pistol==guest::cof::Pistol::Revolver?RevolverCurrent(&lease.owner):
-            lease.pistol==guest::cof::Pistol::P345?P345Current(&lease.owner):GlockCurrent(&lease.owner);
+            lease.pistol==guest::cof::Pistol::P345?P345Current(&lease.owner):
+            lease.pistol==guest::cof::Pistol::VP70?VP70Current(&lease.owner):GlockCurrent(&lease.owner);
         return current && lease.entity && !lease.entity->free &&
             lease.entity->serialnumber == lease.serial && lease.entity->pvPrivateData == &lease.weapon &&
             lease.weapon.pev == &lease.entity->v && lease.weapon.m_pPlayer == lease.owner.player;
@@ -174,6 +193,26 @@ struct GlockRuntime::State
         }
         return map.host.p345.effect&&(bit&map.host.p345.effects)&&map.host.p345.effect(map.host.context,
             map.p345Resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
+    }
+    static bool VP70Effect(void* opaque,CBasePlayer& player,CBasePlayerWeapon& weapon,
+        const VP70Event& event) noexcept
+    {
+        auto& owner=*static_cast<Owner*>(opaque);auto& map=*owner.map;Call call(map);
+        if(owner.player!=&player||!weapon.pev)return false;
+        auto* entity=weapon.edict();if(!entity)return false;
+        EffectLease lease{owner,weapon,entity,entity->serialnumber,guest::cof::Pistol::VP70};
+        if(!EffectCurrent(&lease)||static_cast<unsigned>(event.kind)>=static_cast<unsigned>(guest::cof::server::VP70Effect::Count))return false;
+        const auto bit=1u<<static_cast<unsigned>(event.kind);
+        if(event.kind==VP70Effect::FirstDraw&&!owner.vp70->FirstDraw(owner.vp70View.binding))return false;
+        if(bit&VP70NativeSoundEffects)
+        {
+            VP70OwnerFrame frame{};if(!VP70Frame(&owner,frame))return false;
+            const NativeSoundAuthority authority{&lease,EffectCurrent,map.vp70Resources.generation,
+                frame.quietAudio,map.host.pickupSuppressed};
+            return NativeSoundSucceeded(EmitVP70NativeSound(authority,map.vp70Resources,player,weapon,event))&&EffectCurrent(&lease);
+        }
+        return map.host.vp70.effect&&(bit&map.host.vp70.effects)&&map.host.vp70.effect(map.host.context,
+            map.vp70Resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
     }
     static bool RevolverEffectBoundary(void* opaque,CBasePlayer& player,CBasePlayerWeapon& weapon,
         const RevolverEvent& event) noexcept
@@ -287,6 +326,23 @@ struct GlockRuntime::State
         prepared.hostSlot=guest::cof::P345HudSlot;prepared.hostPosition=guest::cof::P345HudPosition;
         output=prepared;return true;
     }
+    static bool PrepareVP70(void* opaque,VP70Weapon&,VP70Prepared& output) noexcept
+    {
+        auto& map=*static_cast<Map*>(opaque);Call call(map);
+        if(!Current(&map)||!map.vp70Prepared||!map.host.vp70.prepare)return false;
+        VP70Prepared prepared{};
+        if(!map.host.vp70.prepare(map.host.context,map.vp70Resources,prepared)||!Current(&map))return false;
+        const auto& resources=map.vp70Resources;
+        prepared.sequences=resources.sequences;prepared.aimOffset=resources.aimOffset;prepared.aimZoom=resources.aimZoom;
+        prepared.viewModelString=resources.viewModelString;prepared.playerModelString=resources.playerModelString;
+        prepared.worldModelString=resources.worldModelString;prepared.inventoryItemString=resources.inventoryItemString;
+        prepared.shellModel=resources.models[static_cast<unsigned>(VP70Model::Shell)];
+        prepared.ballistics.bubbleModel=resources.models[static_cast<unsigned>(VP70Model::Bubble)];
+        prepared.modelsReady=prepared.soundsReady=prepared.aimMetadataReady=prepared.pickupSoundReady=prepared.inventoryReady=true;
+        prepared.melee.soundsReady=true;prepared.melee.samples=VP70MeleeSamples;
+        prepared.hostSlot=VP70HudSlot;prepared.hostPosition=VP70HudPosition;
+        output=prepared;return true;
+    }
     static bool P345BackendsFor(void* opaque,CBasePlayer& player,P345Backends& output) noexcept
     {
         auto& map=*static_cast<Map*>(opaque);Call call(map);
@@ -297,6 +353,16 @@ struct GlockRuntime::State
             owner->p345View.animation,owner->p345View.animationGeneration};
         return true;
     }
+    static bool VP70BackendsFor(void* opaque,CBasePlayer& player,VP70Backends& output) noexcept
+    {
+        auto& map=*static_cast<Map*>(opaque);Call call(map);
+        const auto index=Slot(player);if(!index||!Current(&map)||!map.vp70Prepared)return false;
+        auto* owner=map.players[index].backend;
+        if(!owner||owner->player!=&player||!VP70Current(owner))return false;
+        output={owner,VP70Current,VP70Frame,VP70Effect,map.host.vp70.effects|VP70NativeSoundEffects,
+            owner->vp70View.animation,owner->vp70View.animationGeneration};
+        return true;
+    }
     static bool P345InventoryPickup(void* opaque,CBasePlayer& player,P345Weapon& weapon,int itemString) noexcept
     {
         auto& map=*static_cast<Map*>(opaque);Call call(map);P345Backends backend{};
@@ -304,6 +370,14 @@ struct GlockRuntime::State
         // ran in WorldTouch; actual AddPlayerItem performs the insertion next.
         return itemString>0&&itemString==map.p345Resources.inventoryItemString&&weapon.ResourcesReady()&&
             P345BackendsFor(&map,player,backend)&&Current(&map);
+    }
+    static bool VP70InventoryPickup(void* opaque,CBasePlayer& player,VP70Weapon& weapon,int itemString) noexcept
+    {
+        auto& map=*static_cast<Map*>(opaque);Call call(map);VP70Backends backend{};
+        // Same explicit NativeCSInventory policy as Glock: real CanHave already
+        // ran in WorldTouch; actual AddPlayerItem performs the insertion next.
+        return itemString>0&&itemString==map.vp70Resources.inventoryItemString&&weapon.ResourcesReady()&&
+            VP70BackendsFor(&map,player,backend)&&Current(&map);
     }
     static bool InventoryPickup(void* opaque, CBasePlayer& player, GlockWeapon& weapon,
         int itemString) noexcept
@@ -368,6 +442,7 @@ struct GlockRuntime::State
         {
             if(owner->p345)owner->p345->Invalidate();
             if(owner->revolver)owner->revolver->Invalidate();
+            if(owner->vp70)owner->vp70->Invalidate();
         }
         map->players[index].ready = false;
         map->players[index].backend = nullptr;
@@ -411,6 +486,14 @@ struct GlockRuntime::State
                     request.compare,owner->p345View,error,request.extent)||!Current(map))
                 {p.ready=false;map->owners.Invalidate(index,&player);return false;}
             }
+            if(request.vp70)
+            {
+                if(!map->vp70Prepared){p.ready=false;map->owners.Invalidate(index,&player);error="VP70 map resources were not opted in";return false;}
+                owner->vp70=std::make_unique<VP70OwnerView>();
+                if(!owner->vp70->Prepare(player,view,request.vp70->rules,request.vp70->firstDrawn,request.rig,request.validatedModel,
+                    request.compare,owner->vp70View,error,request.extent)||!Current(map))
+                {p.ready=false;map->owners.Invalidate(index,&player);return false;}
+            }
             if(request.revolver)
             {
                 if(!map->revolverPrepared){p.ready=false;map->owners.Invalidate(index,&player);error="Revolver map resources were not opted in";return false;}
@@ -440,6 +523,7 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
     auto& state = *state_;
     const bool p345Requested=host.p345.prepare||host.p345.effect||host.p345.effects;
     const bool revolverRequested=host.revolver.prepare||host.revolver.effect||host.revolver.effects;
+    const bool vp70Requested=host.vp70.prepare||host.vp70.effect||host.vp70.effects;
     if (!host.current || !host.ownerCurrent || !host.prepare || !host.effect ||
         (host.effects & ~GlockRequiredEffects) ||
         !state.limits.ownerBindingsPerMap || state.maps.size() >= state.limits.retainedMaps ||
@@ -449,7 +533,10 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             ((host.p345.effects|P345NativeSoundEffects)&P345RequiredEffects)!=P345RequiredEffects))||
         (revolverRequested&&(!host.revolver.prepare||!host.revolver.effect||
             (host.revolver.effects&~RevolverRequiredEffects)||
-            ((host.revolver.effects|RevolverNativeSoundEffects)&RevolverRequiredEffects)!=RevolverRequiredEffects)))
+            ((host.revolver.effects|RevolverNativeSoundEffects)&RevolverRequiredEffects)!=RevolverRequiredEffects))||
+        (vp70Requested&&(!host.vp70.prepare||!host.vp70.effect||
+            (host.vp70.effects&~VP70RequiredEffects)||
+            ((host.vp70.effects|VP70NativeSoundEffects)&VP70RequiredEffects)!=VP70RequiredEffects)))
         return {ResourceStatus::InvalidAuthority};
     try
     {
@@ -475,6 +562,15 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             if(!InstallP345Factory({&current,State::Current,State::PrepareP345,State::P345BackendsFor,State::P345InventoryPickup}))
             {EndMap();return {ResourceStatus::InvalidAuthority};}
         }
+        if(vp70Requested)
+        {
+            const auto vp70=PrepareVP70Resources({&current,State::Current,current.epoch},current.vp70Resources);
+            if(!vp70||!State::Current(&current))
+            {EndMap();return vp70?ResourceResult{ResourceStatus::Cancelled}:vp70;}
+            current.vp70Prepared=true;
+            if(!InstallVP70Factory({&current,State::Current,State::PrepareVP70,State::VP70BackendsFor,State::VP70InventoryPickup}))
+            {EndMap();return {ResourceStatus::InvalidAuthority};}
+        }
         if(revolverRequested)
         {
             const auto revolver=PrepareRevolverResources({&current,State::Current,current.epoch},current.revolverResources);
@@ -493,14 +589,16 @@ void GlockRuntime::EndMap() noexcept
     auto& state = *state_;
     if (!state.active) return;
     auto* map = state.active;
-    state.active = nullptr; map->active = map->prepared = map->p345Prepared = map->revolverPrepared = false;
+    state.active = nullptr; map->active = map->prepared = map->p345Prepared = map->revolverPrepared = map->vp70Prepared = false;
     ResetGlockFactory();
     ResetP345Factory();
     ResetRevolverFactory();
+    ResetVP70Factory();
     for(auto& owner:map->bindings)
     {
         if(owner->p345)owner->p345->Invalidate();
         if(owner->revolver)owner->revolver->Invalidate();
+        if(owner->vp70)owner->vp70->Invalidate();
     }
     map->owners.EndMap();
     for (auto& player : map->players) { player.ready = false; player.backend = nullptr; }
@@ -523,6 +621,8 @@ const GlockResources* GlockRuntime::Resources() const noexcept
 { return state_->active && state_->active->prepared ? &state_->active->resources : nullptr; }
 const P345Resources* GlockRuntime::PreparedP345Resources() const noexcept
 {return state_->active&&state_->active->p345Prepared?&state_->active->p345Resources:nullptr;}
+const VP70Resources* GlockRuntime::PreparedVP70Resources() const noexcept
+{return state_->active&&state_->active->vp70Prepared?&state_->active->vp70Resources:nullptr;}
 const RevolverResources* GlockRuntime::PreparedRevolverResources() const noexcept
 {return state_->active&&state_->active->revolverPrepared?&state_->active->revolverResources:nullptr;}
 bool GlockRuntime::PlayerSpawned(CBasePlayer& player, const GlockPlayerPreparation& request, std::string& error)
@@ -536,6 +636,8 @@ bool GlockRuntime::Backend(CBasePlayer& player, GlockBackends& output) noexcept
 { return state_->active && State::Backends(state_->active, player, output); }
 bool GlockRuntime::Backend(CBasePlayer& player,P345Backends& output) noexcept
 {return state_->active&&State::P345BackendsFor(state_->active,player,output);}
+bool GlockRuntime::Backend(CBasePlayer& player,VP70Backends& output) noexcept
+{return state_->active&&State::VP70BackendsFor(state_->active,player,output);}
 bool GlockRuntime::Backend(CBasePlayer& player,RevolverBackends& output) noexcept
 {return state_->active&&State::RevolverBackendsFor(state_->active,player,output);}
 bool GlockRuntime::FirstDraw(const OwnerBinding& binding, bool value) noexcept
@@ -557,6 +659,17 @@ bool GlockRuntime::PersistentState(CBasePlayer& player,RevolverOwnerState& outpu
     auto* owner=map.players[slot].backend;
     return owner&&owner->player==&player&&State::OwnerCurrent(owner)&&owner->revolver&&
         owner->revolver->PersistentState(owner->revolverView.binding,output)&&State::OwnerCurrent(owner);
+}
+bool GlockRuntime::PersistentVP70FirstDraw(CBasePlayer& player,bool& output) noexcept
+{
+    if(!state_->active)return false;
+    auto& map=*state_->active;State::Call call(map);const auto slot=State::Slot(player);
+    if(!slot||!State::Current(&map))return false;
+    auto* owner=map.players[slot].backend;
+    bool value{};
+    if(!owner||owner->player!=&player||!State::VP70Current(owner)||
+        !owner->vp70->PersistentFirstDraw(owner->vp70View.binding,value)||!State::VP70Current(owner))return false;
+    output=value;return true;
 }
 bool GlockRuntime::PreserveRevolverReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept
 {

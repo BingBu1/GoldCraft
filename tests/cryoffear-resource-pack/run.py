@@ -60,10 +60,14 @@ def main():
     revolver_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root, output=output/'revolver'/'candidate',
         plan=output/'revolver'/'plan.json', server_model_sounds='disabled', component='revolver-and-shot-decals'))
+    vp70_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root, output=output/'vp70'/'candidate',
+        plan=output/'vp70'/'plan.json', server_model_sounds='disabled', component='vp70-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
-              *(Path(p['source']) for p in revolver_baseline['assets'])}
+              *(Path(p['source']) for p in revolver_baseline['assets']),
+              *(Path(p['source']) for p in vp70_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -232,12 +236,34 @@ def main():
     revolver_source=next(p for p in revolver_plan['assets'] if p['original']=='models/weapons/revolver/v_revolver.mdl')
     check((output/'revolver'/'candidate'/revolver_source['destination']).read_bytes()==Path(revolver_source['source']).read_bytes(),
           'all original Revolver model events and geometry preserved')
+    vp70_dry = invoke('vp70', ['--component', 'vp70-and-shot-decals'], expected=0)
+    vp70_plan_path = output/'vp70'/'plan.json'
+    vp70_plan = json.loads(vp70_plan_path.read_bytes())
+    check(vp70_plan['weapon']=='VP70' and vp70_plan['primaryAssets']==44 and
+          vp70_plan['dependencyAssets']==1 and len(vp70_plan['assets'])==45,
+          '39 VP70 resources, five decals and one real texture companion')
+    check([(e['sequence'],e['frame']) for e in vp70_plan['studio5004']]==
+          [(6,10),(6,51),(7,10),(7,51),(7,76)] and all(
+          e['localLogicalKey'].startswith('weapons_new/vp70/') for e in vp70_plan['studio5004']),
+          'five actual VP70 Studio sound events retain original order')
+    vp70_written = invoke('vp70-write', ['--component','vp70-and-shot-decals','--write',
+        '--expected-plan-sha256',json.loads(vp70_dry.stdout)['planSha256']], expected=0,
+        candidate=output/'vp70'/'candidate',plan_path=vp70_plan_path)
+    check(json.loads(vp70_written.stdout)['files']==45,'VP70 actual candidate count')
+    for row in vp70_plan['assets']:
+        copied=output/'vp70'/'candidate'/row['destination']
+        check(sha(copied)==row['sha256'] and copied.stat().st_size==row['bytes'],
+              'actual VP70 candidate identity '+row['destination'])
+    vp70_source=next(p for p in vp70_plan['assets'] if p['original']=='models/weapons/vp70/v_vp70.mdl')
+    check((output/'vp70'/'candidate'/vp70_source['destination']).read_bytes()==Path(vp70_source['source']).read_bytes(),
+          'all original VP70 model events and geometry preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=144,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=189,
+        vp70PrimaryAssets=44, vp70DependencyAssets=1,
         revolverPrimaryAssets=44, revolverDependencyAssets=1,
         glockPrimaryAssets=49, glockDependencyAssets=1,
         boundary='Real resource candidate copy and refusals only; no live cvar verification, deployment, original P grip, audio/particle admission, weapon backend, gameplay or performance acceptance.')

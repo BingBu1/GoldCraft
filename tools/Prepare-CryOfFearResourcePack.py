@@ -908,6 +908,282 @@ REVOLVER_PINS = [
     }
 ]
 
+VP70_PINS = [
+    {
+        "group": "VP70Models",
+        "original": "models/weapons/vp70/v_vp70.mdl",
+        "host": "models/guest/cof/vp70/v_vp70.mdl",
+        "bytes": 2001764,
+        "sha256": "30af770987dc0430ff48bd6631d955e5e3b63c9dc486e02ef707b27fb4370a77"
+    },
+    {
+        "group": "VP70Models",
+        "original": "models/weapons/vp70/w_vp70.mdl",
+        "host": "models/guest/cof/vp70/w_vp70.mdl",
+        "bytes": 106820,
+        "sha256": "23a98bcbdfc126e52c135995193f154c06319d3eae5948e5e07691843b671492"
+    },
+    {
+        "group": "VP70Models",
+        "original": "police/models/weapons/vp70/p_vp70.mdl",
+        "host": "models/guest/cof/vp70/p_vp70.mdl",
+        "bytes": 108216,
+        "sha256": "a4412beb27cbd51478651b87290bb1bff66133478229c56c5879136c5cab93e8"
+    },
+    {
+        "group": "VP70Models",
+        "original": "models/null.mdl",
+        "host": "models/guest/cof/common/null.mdl",
+        "bytes": 1868,
+        "sha256": "97fc6326a1d63b97242c766381c7be774d0dc89b0e28fa10189a5937f17a1890"
+    },
+    {
+        "group": "VP70Models",
+        "original": "models/shell.mdl",
+        "host": "models/guest/cof/common/shell.mdl",
+        "bytes": 70344,
+        "sha256": "5ccd27014190edee6aa8eb62d5408d1de75863d81a3c51e915e49f32ff8c5060"
+    },
+    {
+        "group": "VP70Models",
+        "original": "models/w_9mmclip.mdl",
+        "host": "models/guest/cof/common/w_9mmclip.mdl",
+        "bytes": 1772,
+        "sha256": "2afde7ef1e3d987d203f517715dedc482768cc666c964a617990326734ee00e1"
+    },
+    {
+        "group": "VP70Models",
+        "original": "sprites/bubble.spr",
+        "host": "sprites/guest/cof/bubble.spr",
+        "bytes": 1086,
+        "sha256": "377276c6b6960a1415248bc96e1d370e5eeb504ffd6d95c0f81e480ab82a46eb"
+    },
+    {
+        "group": "VP70Models",
+        "original": "sprites/fog2.spr",
+        "host": "sprites/guest/cof/fog2.spr",
+        "bytes": 4926,
+        "sha256": "6e154e43fa4de8dcba86c74f9ff42fa9e3eb43d00b7ab29592e06c03c6e29b7f"
+    },
+    {
+        "group": "VP70Models",
+        "original": "models/flash1.mdl",
+        "host": "models/guest/cof/common/flash1.mdl",
+        "bytes": 133896,
+        "sha256": "3b681b535fa69397e30d49c1afd8d54a842b80f7576be5b0e9b7d1983305552c"
+    },
+    {
+        "group": "VP70Models",
+        "original": "sprites/gunsmoke.spr",
+        "host": "sprites/guest/cof/gunsmoke.spr",
+        "bytes": 214062,
+        "sha256": "f1db5d09c80c6d628642fb9df3a308e13331280a1c2560b2928353c20985b783"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/vp70/vp70_cock.wav",
+        "host": "guest/cof/weapons/vp70/vp70_cock.wav",
+        "bytes": 27562,
+        "sha256": "a6fcc8d0dff72a10add67ce457d77fb80559c1a712f659410139723c7d810bc5"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/vp70/vp70_magin.wav",
+        "host": "guest/cof/weapons/vp70/vp70_magin.wav",
+        "bytes": 33118,
+        "sha256": "f032f755db3df539d5f66dea7d8453a31e6cd529e7bdacc44e04b53b9be5b031"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/vp70/vp70_magout.wav",
+        "host": "guest/cof/weapons/vp70/vp70_magout.wav",
+        "bytes": 19744,
+        "sha256": "212d76fd2f62d15778747b8e99723e7691c47aeb037ded97ddf3ec1f7bf76b7b"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/vp70/vp70_draw_first_seq.wav",
+        "host": "guest/cof/weapons/vp70/vp70_draw_first_seq.wav",
+        "bytes": 168900,
+        "sha256": "7bb4310c9f3bd21ac70f5d7dea9ec8c140b20ed3f08aa845cc52dc4cbe00a9ed"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/vp70/vp70_fire.wav",
+        "host": "guest/cof/weapons/vp70/vp70_fire.wav",
+        "bytes": 55168,
+        "sha256": "ef5dac6c5e6725d64f2791a584749650030118c8200712846c5f9e03e5f88ae1"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/item_get.wav",
+        "host": "guest/cof/weapons/item_get.wav",
+        "bytes": 22110,
+        "sha256": "e50b2bf740d0e9f673024995fe8885a1b3301cac8bd48f77b8f69a4ae06af663"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/weapon_get.wav",
+        "host": "guest/cof/weapons/weapon_get.wav",
+        "bytes": 21560,
+        "sha256": "35c31cf77cd0ff236061696c22a69bde596bacb29ae2bde946f98ed50b6158a8"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/sleeve_generic1.wav",
+        "host": "guest/cof/weapons/sleeve_generic1.wav",
+        "bytes": 24268,
+        "sha256": "4ac664f754635a82bd4dac6677e8f67bd79e449eff33fbb4de7d65a3bbcc5655"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/sleeve_generic2.wav",
+        "host": "guest/cof/weapons/sleeve_generic2.wav",
+        "bytes": 33128,
+        "sha256": "0337c5b98fe21726962cf9dc4ae1d9605a6b7ac7190a17eed4ed0e7a254758c1"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/sleeve_generic3.wav",
+        "host": "guest/cof/weapons/sleeve_generic3.wav",
+        "bytes": 17450,
+        "sha256": "76f82ffb2a7dcf1e2bcb6bb1430a7d3d4f429126d37dce9c05e8da4a51988551"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing1.wav",
+        "host": "guest/cof/player/police/Swing/Swing1.wav",
+        "bytes": 46076,
+        "sha256": "72ad87048f17225cc696be76ba4623bab4c169606300b134243bb207c9344248"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing2.wav",
+        "host": "guest/cof/player/police/Swing/Swing2.wav",
+        "bytes": 35178,
+        "sha256": "23f01531592a61ef8cdd1f11f7c80f614666bbe795418f1eccc88e697be9eb5b"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing3.wav",
+        "host": "guest/cof/player/police/Swing/Swing3.wav",
+        "bytes": 44216,
+        "sha256": "26ca79e9575ad9d90687eea53e75f4ee22a2eaae4e0e1422cda1769321e6f3d1"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing4.wav",
+        "host": "guest/cof/player/police/Swing/Swing4.wav",
+        "bytes": 37976,
+        "sha256": "bd6317e251285827a705298591231a31729882305dff54321b64b0b70833aeb7"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing5.wav",
+        "host": "guest/cof/player/police/Swing/Swing5.wav",
+        "bytes": 23372,
+        "sha256": "ae0085cd5a580303460770e2bb97eda506ccd87dde2019a129c90c896f03dd94"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "player/police/Swing/Swing6.wav",
+        "host": "guest/cof/player/police/Swing/Swing6.wav",
+        "bytes": 28018,
+        "sha256": "df8e230506ce0985f3038f18b009266bf5458624a84219f6185561353c7a118c"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/mobile/punch_swing.wav",
+        "host": "guest/cof/weapons/mobile/punch_swing.wav",
+        "bytes": 17450,
+        "sha256": "76f82ffb2a7dcf1e2bcb6bb1430a7d3d4f429126d37dce9c05e8da4a51988551"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/mobile/punch_smack.wav",
+        "host": "guest/cof/weapons/mobile/punch_smack.wav",
+        "bytes": 7092,
+        "sha256": "70164307237d414829ca9a7edbda804c5050e845f977688cb7cd25d6b1d83657"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/weapon_fire_empty.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty.wav",
+        "bytes": 22340,
+        "sha256": "b4d1f0ef30b30276bc2a1b0c7dfc222e00251abce594df6e791d8b0937fcf629"
+    },
+    {
+        "group": "VP70Sounds",
+        "original": "weapons/weapon_fire_empty_noclick.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty_noclick.wav",
+        "bytes": 18228,
+        "sha256": "de0ae838bdbfa7f75bc1b10b35814b4aa19a574d589adf36f071061b63d9ed8f"
+    },
+    {
+        "group": "VP70LocalWaves",
+        "original": "weapons_new/vp70/vp70_cock.wav",
+        "host": "sound/guest/cof/weapons_new/vp70/vp70_cock.wav",
+        "bytes": 27574,
+        "sha256": "7944b710b1f4927bcc910d16bd9c90744beb8592050b34f7c5fedd610f310e64"
+    },
+    {
+        "group": "VP70LocalWaves",
+        "original": "weapons_new/vp70/vp70_magin.wav",
+        "host": "sound/guest/cof/weapons_new/vp70/vp70_magin.wav",
+        "bytes": 33118,
+        "sha256": "f032f755db3df539d5f66dea7d8453a31e6cd529e7bdacc44e04b53b9be5b031"
+    },
+    {
+        "group": "VP70LocalWaves",
+        "original": "weapons_new/vp70/vp70_magout.wav",
+        "host": "sound/guest/cof/weapons_new/vp70/vp70_magout.wav",
+        "bytes": 19756,
+        "sha256": "003c24dfe3427745568036dbbc65bcb6d4077021b68cc152e038b9a2f57c3195"
+    },
+    {
+        "group": "VP70LocalWaves",
+        "original": "weapons_new/vp70/vp70_draw_first_seq.wav",
+        "host": "sound/guest/cof/weapons_new/vp70/vp70_draw_first_seq.wav",
+        "bytes": 168900,
+        "sha256": "7bb4310c9f3bd21ac70f5d7dea9ec8c140b20ed3f08aa845cc52dc4cbe00a9ed"
+    },
+    {
+        "group": "VP70LocalWaves",
+        "original": "weapons_new/vp70/vp70_fire.wav",
+        "host": "sound/guest/cof/weapons_new/vp70/vp70_fire.wav",
+        "bytes": 55180,
+        "sha256": "1ca6725f02105abeb10c8de26707241eea09475b9d3e8419fb33facfe0c6173a"
+    },
+    {
+        "group": "VP70Events",
+        "original": "events/muzzleflash.sc",
+        "host": "events/guest/cof/muzzleflash.sc",
+        "bytes": 1778,
+        "sha256": "2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"
+    },
+    {
+        "group": "VP70Events",
+        "original": "events/viewpunch.sc",
+        "host": "events/guest/cof/viewpunch.sc",
+        "bytes": 1778,
+        "sha256": "2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"
+    },
+    {
+        "group": "VP70Inventory",
+        "original": "inventoryitems/weapons/weapon_vp70.txt",
+        "host": "inventoryitems/guest/cof/weapons/weapon_vp70.txt",
+        "bytes": 459,
+        "sha256": "96b54688cd5733995a31fff1d2d49569f21611272a56ed8cfb1933f743165846"
+    },
+    {
+        "group": "VP70Particle",
+        "original": "aurora/gunsmoke.aur",
+        "host": "aurora/guest/cof/gunsmoke.aur",
+        "bytes": 685,
+        "sha256": "e37c7e21896e7d206ca020d60b263bac1dac193c600bbb18d7ca4d205f299fb7"
+    }
+]
+
 SHOT_DECAL_PINS = [dict(group='ShotDecals', original=f'gfx/decals/shot{i}.tga',
     host=f'gfx/guest/cof/decals/shot{i}.tga', bytes=12306, sha256=sha)
     for i, sha in enumerate((
@@ -964,7 +1240,7 @@ def safe_relative(name):
 
 
 def current_manifest(weapon='P345'):
-    if weapon not in ('P345', 'Glock', 'Revolver'):
+    if weapon not in ('P345', 'Glock', 'Revolver', 'VP70'):
         raise ValueError('Unreviewed weapon resource manifest')
     text = HEADER.read_text('utf-8')
     actual = []
@@ -991,7 +1267,7 @@ def current_manifest(weapon='P345'):
         if not match:
             raise ValueError('Authoritative resource path missing: ' + group)
         actual.append((group, *match.groups()))
-    pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS}[weapon]
+    pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS, 'VP70': VP70_PINS}[weapon]
     wanted = [(p['group'], p['original'], p['host']) for p in pins]
     if actual != wanted:
         raise ValueError('Resource header differs from the reviewed '+weapon+' manifest; review new identities first')
@@ -1002,7 +1278,7 @@ def current_manifest(weapon='P345'):
     dependency = re.search(r'\bP345ClipTexture\s*\{\s*"([^"]+)",\s*"([^"]+)"\s*\};', text)
     if not dependency or dependency.groups() != (CLIP_TEXTURE['original'], CLIP_TEXTURE['host']):
         raise ValueError('Clip texture dependency path differs from the reviewed companion')
-    if weapon in ('Glock', 'Revolver') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
+    if weapon in ('Glock', 'Revolver', 'VP70') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
         raise ValueError('Unreviewed '+weapon+' clip texture alias')
     return digest(HEADER.read_bytes())
 
@@ -1075,11 +1351,11 @@ def plan(args):
     if output.exists() or plan_path == output or plan_path.is_relative_to(output):
         raise ValueError('Candidate must be fresh and must not contain its dry-run plan')
     weapon = {'p345-and-shot-decals': 'P345', 'glock-and-shot-decals': 'Glock',
-              'revolver-and-shot-decals': 'Revolver', 'shot-decals': 'shot-decals'}[args.component]
+              'revolver-and-shot-decals': 'Revolver', 'vp70-and-shot-decals': 'VP70', 'shot-decals': 'shot-decals'}[args.component]
     family = 'P345' if weapon == 'shot-decals' else weapon
     table_hash = current_manifest(family)
     assets, studio = [], []
-    weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS}[family]
+    weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS, 'VP70': VP70_PINS}[family]
     pins = SHOT_DECAL_PINS if weapon == 'shot-decals' else weapon_pins + SHOT_DECAL_PINS
     for pin in pins:
         source_name = safe_relative(pin['original'])
@@ -1140,6 +1416,8 @@ def plan(args):
                 if family == 'P345' else
                 [(4, 0, 'cylinder_open'), *[(i, 13, 'insert') for i in range(5, 10)],
                  (10, 9, 'cylinder_close')] if family == 'Revolver' else
+                [(6, 10, 'magout'), (6, 51, 'magin'), (7, 10, 'magout'), (7, 51, 'magin'),
+                 (7, 76, 'cock')] if family == 'VP70' else
                 [(4, 7, 'magout'), (4, 40, 'magplace'), (4, 52, 'magin'),
                  (5, 7, 'magout'), (5, 40, 'magplace'), (5, 52, 'magin'),
                  (5, 77, 'rackback'), (5, 82, 'slide'), (17, 9, 'switch'),
@@ -1248,7 +1526,7 @@ def write_candidate(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--original-game-root', type=Path, required=True)
-    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'shot-decals'),
+    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'shot-decals'),
                         default='p345-and-shot-decals')
     parser.add_argument('--inherited-game-root', type=Path)
     parser.add_argument('--output', type=Path, required=True)

@@ -13,6 +13,13 @@
 
 namespace guest::cof::server
 {
+goldcraft::scenario::GuestProfile VP70Weapon::ScenarioGuestProfile() const noexcept
+{
+    using namespace goldcraft::scenario;
+    return {FindPistol(Pistol::VP70)->hostId, GuestMetadata::NoCsoItem,
+        GuestImpulse::WeaponOwnsHitBehavior, GuestKill::StandardPlayerProcessing};
+}
+
 namespace
 {
 bool Finite(const Vector& v) noexcept
@@ -476,7 +483,7 @@ BOOL VP70Weapon::Deploy()
     Lease sleeveLease = lease_; sleeveLease.active = true;
     const int pitch = g_engfuncs.pfnRandomLong(-5, 5) + 100;
     if (!Current(&sleeveLease)) return FALSE;
-    if (pev->armorvalue == 0)
+    if (pev->armorvalue != 1.0F)
     {
         const int sleeve = g_engfuncs.pfnRandomLong(0, 2);
         if (!Current(&sleeveLease)) return FALSE;

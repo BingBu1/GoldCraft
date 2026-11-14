@@ -2447,7 +2447,10 @@
     "tests/csol-environment-lightstyles/run_dll.py",
     "tests/csol-environment-lightstyles/README.md",
     "docs/2026-11-14_接入-地图光照基线与原版雾消费者-report.md",
-    "docs/2026-11-14_修复-重认证清除左轮装填任务-report.md"
+    "docs/2026-11-14_修复-重认证清除左轮装填任务-report.md",
+    "docs/2026-11-14_接入-VP70冷资源原生声音与地图运行时-report.md",
+    "tests/cryoffear-vp70-native-effects/README.md",
+    "tests/cryoffear-vp70-factory/README.md"
   ],
   "trees": {
     "native": [

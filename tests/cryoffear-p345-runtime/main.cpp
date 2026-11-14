@@ -6,6 +6,8 @@
 #include "native/csol/server/weapons/guest_cof_native_effects.hpp"
 #include "native/csol/server/weapons/guest_cof_revolver_factory.hpp"
 #include "native/csol/server/weapons/guest_cof_revolver_native_effects.hpp"
+#include "native/csol/server/weapons/guest_cof_vp70_factory.hpp"
+#include "native/csol/server/weapons/guest_cof_vp70_native_effects.hpp"
 #include "shared-factory-sdk.inc"
 #include <filesystem>
 #include <map>
@@ -21,6 +23,7 @@ struct Context
     bool active{true},retireOnRecoil{},releaseWhileBorrowed{};
     unsigned loads{},frees{},sounds{},p345Effects{},glockEffects{};
     unsigned revolverEffects{};
+    unsigned vp70Effects{},vp70NativeShots{},vp70FireEvents{};
     std::vector<RevolverEffect> revolverOrder;
     bool retireRevolver{};
     std::vector<P345Effect> order;
@@ -64,6 +67,7 @@ void Resources(const fs::path& candidate,const fs::path& deployed)
     family(GlockModels,GlockSounds,GlockLocalWaves,GlockEvents,GlockInventory,GlockParticle,GlockClipTexture);
     family(P345Models,P345Sounds,P345LocalWaves,P345Events,P345Inventory,P345Particle,P345ClipTexture);
     family(RevolverModels,RevolverSounds,RevolverLocalWaves,RevolverEvents,RevolverInventory,RevolverParticle,RevolverClipTexture);
+    family(VP70Models,VP70Sounds,VP70LocalWaves,VP70Events,VP70Inventory,VP70Particle,VP70ClipTexture);
     for(const auto& p:ShotDecals)put(p.host);
 }
 int String(const char* text)
@@ -100,6 +104,11 @@ bool PrepareRevolver(void*,const RevolverResources&,RevolverPrepared& value) noe
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;
     value.cylinderReady=value.ejectEventReady=value.reloadStagesReady=value.ammoXReady=true;return true;
+}
+bool PrepareVP70(void*,const VP70Resources&,VP70Prepared& value) noexcept
+{
+    value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
+    value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
 }
 bool GlockEffectBoundary(void*,const GlockResources&,const OwnerBinding& binding,CBasePlayer& actor,
     CBasePlayerWeapon& item,const GlockEvent&) noexcept
@@ -140,26 +149,40 @@ bool RevolverEffectBoundary(void*,const RevolverResources&,const OwnerBinding& b
     }
     return true;
 }
-GlockRuntimeHost Callbacks(bool p345,bool revolver=false)
+bool VP70EffectBoundary(void*,const VP70Resources&,const OwnerBinding& binding,CBasePlayer& actor,
+    CBasePlayerWeapon& item,const VP70Event& event) noexcept
+{
+    Check(binding.runtime&&binding.runtime->Current(binding)&&&actor==&player&&item.m_pPlayer==&player&&item.m_iId==899);
+    ++context.vp70Effects;
+    Check(!(VP70NativeSoundEffects&(1u<<unsigned(event.kind))));
+    if(event.kind==VP70Effect::FirstDraw)
+    {bool first=false;Check(context.runtime->PersistentVP70FirstDraw(actor,first)&&first);}
+    if(event.kind==VP70Effect::FireEvent)
+    {Check(event.value==19&&event.other==1);++context.vp70FireEvents;}
+    return true;
+}
+GlockRuntimeHost Callbacks(bool p345,bool revolver=false,bool vp70=false)
 {
     GlockRuntimeHost host{nullptr,CurrentMap,CurrentOwner,PrepareGlock,GlockEffectBoundary,
         GlockRequiredEffects&~GlockNativeSoundEffects,false};
     if(p345)host.p345={PrepareP345,P345EffectBoundary,P345RequiredEffects&~P345NativeSoundEffects};
     if(revolver)host.revolver={PrepareRevolver,RevolverEffectBoundary,RevolverRequiredEffects&~RevolverNativeSoundEffects};
+    if(vp70)host.vp70={PrepareVP70,VP70EffectBoundary,VP70RequiredEffects&~VP70NativeSoundEffects};
     return host;
 }
-GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false)
+GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false,bool vp70=false)
 {
     GlockPlayerPreparation request{{OwnerMovement::NativeCounterStrike,true,true,true,true,true},
         {true,37,11,45},{true,false},PistolAnimationRig::Stock,model,_stricmp};
     if(p345)request.p345Rules=NativeOwnerRules{true,61,11,24};
     if(revolver)request.revolver=GlockPlayerPreparation::RevolverPreparation{{true,89,13,15},{false,144,12.5F}};
+    if(vp70)request.vp70=GlockPlayerPreparation::VP70Preparation{{true,45,11,54},false};
     return request;
 }
 void Engine()
 {
     g_engfuncs.pfnPvAllocEntPrivateData=[](edict_t* entity,int32 amount)->void* {
-        Check(amount>=int(sizeof(P345Weapon)));
+        Check(amount==int(sizeof(P345Weapon))||amount==int(sizeof(RevolverWeapon))||amount==int(sizeof(VP70Weapon)));
         auto* memory=std::calloc(1,std::size_t(amount));Check(memory!=nullptr);
         privateAllocations.push_back(memory);entity->pvPrivateData=memory;++allocated;return memory;
     };
@@ -184,11 +207,18 @@ void Engine()
     g_engfuncs.pfnSetModel=[](edict_t* e,const char* path){e->v.modelindex=Cache(path,context.models);e->v.model=String(path);};
     g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
     g_engfuncs.pfnEmitSound=[](edict_t* e,int channel,const char* sample,float volume,float attenuation,int flags,int pitch){
+        if(channel==CHAN_WEAPON)
+        {
+            Check(e==player.edict()&&volume==1&&attenuation==.8F&&flags==0&&pitch==PITCH_NORM&&
+                !std::strcmp(sample,VP70Sounds[unsigned(VP70Sound::Fire)].host));
+            ++context.vp70NativeShots;return;
+        }
         Check(e==player.edict()&&channel==CHAN_AUTO&&volume==1&&attenuation==.8F&&flags==0&&pitch==102);
         Check(!std::strcmp(sample,P345Sounds[unsigned(P345Sound::Sleeve3)].host));++context.sounds;
     };
     CBasePlayerItem::m_AmmoInfoArray[2].pszName="cof_p345";
     CBasePlayerItem::m_AmmoInfoArray[3].pszName="cof_revolver";
+    CBasePlayerItem::m_AmmoInfoArray[4].pszName="cof_vp70";
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
 }
 void DestroyP345()
@@ -197,6 +227,7 @@ void DestroyP345()
     {
         auto* p=static_cast<CBasePlayerWeapon*>(memory);delete p->m_pEntity;
         if(auto* revolver=dynamic_cast<RevolverWeapon*>(p))revolver->~RevolverWeapon();
+        else if(auto* vp70=dynamic_cast<VP70Weapon*>(p))vp70->~VP70Weapon();
         else static_cast<P345Weapon*>(p)->~P345Weapon();
         std::free(memory);
     }
@@ -386,5 +417,34 @@ int main(int argc,char** argv)
     Check(!runtime.Resources()&&!context.releaseWhileBorrowed&&probe.retirements==1);
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
     Check(runtime.EngineEntitiesReleased(5));
-    std::cout<<"P345/Revolver actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
+    context.epoch=6;Check(bool(runtime.BeginMap(Callbacks(true,true,true)))&&runtime.PreparedVP70Resources());
+    auto vp70Request=PlayerPreparation(true,true,true);Check(runtime.PlayerSpawned(player,vp70Request,error));
+    VP70Backends vp70Backend{};Check(runtime.Backend(player,vp70Backend));
+    VP70OwnerFrame vp70Frame{};Check(vp70Backend.ownerFrame(vp70Backend.context,vp70Frame)&&
+        vp70Frame.reserveLimit==54&&vp70Frame.bulletDamage==45&&!vp70Frame.firstDrawn);
+    edict_t vp70Entity{};InitEdict(vp70Entity);auto* vp70=CreateVP70(vp70Entity.v);Check(vp70);
+    vp70->Spawn();Check(vp70->ResourcesReady()&&vp70->m_iId==899&&vp70->m_iDefaultAmmo==18);
+    Check(vp70->AddToPlayer(&player)&&vp70->m_iClip==18&&vp70->m_iPrimaryAmmoType==4);
+    vp70->AttachToPlayer(&player);player.m_rgpPlayerItems[PISTOL_SLOT]=vp70;player.m_pActiveItem=vp70;
+    globals.time=200;player.pev->button=0;Check(vp70->Deploy());
+    bool firstDraw=false;Check(runtime.PersistentVP70FirstDraw(player,firstDraw)&&firstDraw);
+    const auto loadsBeforeBurst=context.loads;
+    globals.time=210;player.pev->button=IN_ATTACK;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+    vp70->PrimaryAttack();Check(vp70->m_iClip==17&&context.vp70NativeShots==1&&context.vp70FireEvents==1);
+    Check(runtime.EndPostThink(player));
+    for(int i=0;i<2;++i){globals.time=vp70->pev->nextthink;vp70->DispatchThink();}
+    Check(vp70->m_iClip==15&&context.vp70NativeShots==3&&context.vp70FireEvents==1&&context.loads==loadsBeforeBurst);
+    globals.time=vp70->m_flNextPrimaryAttack+1;vp70->PrimaryAttack();Check(vp70->m_iClip==14);
+    const auto shotsBeforeDeath=context.vp70NativeShots;player.pev->health=0;runtime.PlayerDied(player);
+    Check(!vp70Backend.current(vp70Backend.context)&&vp70->m_pfnThink==nullptr);
+    vp70->DispatchThink();Check(context.vp70NativeShots==shotsBeforeDeath);
+    player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
+    DestroyP345();vp70Entity.pvPrivateData=nullptr;runtime.EndMap();Check(runtime.EngineEntitiesReleased(6));
+    player.pev->health=100;
+    context.epoch=7;auto incomplete=Callbacks(true,true,true);incomplete.vp70.effect=nullptr;
+    Check(!runtime.BeginMap(incomplete));
+    context.files.erase(VP70Inventory.host);Check(!runtime.BeginMap(Callbacks(true,true,true))&&!runtime.PreparedVP70Resources());
+    Check(runtime.EngineEntitiesReleased(runtime.LastIssuedMapEpoch()));
+    std::cout<<"P345/Revolver/VP70 actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
 }

@@ -90,6 +90,63 @@ inline constexpr ResourcePath P345Particle{
 inline constexpr ResourcePath P345ClipTexture{
     "models/w_9mmclipT.mdl", "models/guest/cof/common/w_9mmclipT.mdl"};
 
+enum class VP70Model : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(VP70Model::Count)> VP70Models{{
+    {"models/weapons/vp70/v_vp70.mdl", "models/guest/cof/vp70/v_vp70.mdl"},
+    {"models/weapons/vp70/w_vp70.mdl", "models/guest/cof/vp70/w_vp70.mdl"},
+    {"police/models/weapons/vp70/p_vp70.mdl", "models/guest/cof/vp70/p_vp70.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shell.mdl", "models/guest/cof/common/shell.mdl"},
+    {"models/w_9mmclip.mdl", "models/guest/cof/common/w_9mmclip.mdl"},
+    {"sprites/bubble.spr", "sprites/guest/cof/bubble.spr"},
+    {"sprites/fog2.spr", "sprites/guest/cof/fog2.spr"},
+    {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
+    {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
+}};
+enum class VP70Sound : unsigned
+{
+    Cock, MagIn, MagOut, DrawFirst, Fire, ItemGet, WeaponGet, Sleeve1, Sleeve2, Sleeve3,
+    Swing1, Swing2, Swing3, Swing4, Swing5, Swing6, PunchSwing, PunchSmack, EmptyClick, EmptyNoClick, Count
+};
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(VP70Sound::Count)> VP70Sounds{{
+    {"weapons/vp70/vp70_cock.wav", "guest/cof/weapons/vp70/vp70_cock.wav"},
+    {"weapons/vp70/vp70_magin.wav", "guest/cof/weapons/vp70/vp70_magin.wav"},
+    {"weapons/vp70/vp70_magout.wav", "guest/cof/weapons/vp70/vp70_magout.wav"},
+    {"weapons/vp70/vp70_draw_first_seq.wav", "guest/cof/weapons/vp70/vp70_draw_first_seq.wav"},
+    {"weapons/vp70/vp70_fire.wav", "guest/cof/weapons/vp70/vp70_fire.wav"},
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/weapon_get.wav", "guest/cof/weapons/weapon_get.wav"},
+    {"weapons/sleeve_generic1.wav", "guest/cof/weapons/sleeve_generic1.wav"},
+    {"weapons/sleeve_generic2.wav", "guest/cof/weapons/sleeve_generic2.wav"},
+    {"weapons/sleeve_generic3.wav", "guest/cof/weapons/sleeve_generic3.wav"},
+    {"player/police/Swing/Swing1.wav", "guest/cof/player/police/Swing/Swing1.wav"},
+    {"player/police/Swing/Swing2.wav", "guest/cof/player/police/Swing/Swing2.wav"},
+    {"player/police/Swing/Swing3.wav", "guest/cof/player/police/Swing/Swing3.wav"},
+    {"player/police/Swing/Swing4.wav", "guest/cof/player/police/Swing/Swing4.wav"},
+    {"player/police/Swing/Swing5.wav", "guest/cof/player/police/Swing/Swing5.wav"},
+    {"player/police/Swing/Swing6.wav", "guest/cof/player/police/Swing/Swing6.wav"},
+    {"weapons/mobile/punch_swing.wav", "guest/cof/weapons/mobile/punch_swing.wav"},
+    {"weapons/mobile/punch_smack.wav", "guest/cof/weapons/mobile/punch_smack.wav"},
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
+}};
+inline constexpr std::array<ResourcePath, 5> VP70LocalWaves{{
+    {"weapons_new/vp70/vp70_cock.wav", "sound/guest/cof/weapons_new/vp70/vp70_cock.wav"},
+    {"weapons_new/vp70/vp70_magin.wav", "sound/guest/cof/weapons_new/vp70/vp70_magin.wav"},
+    {"weapons_new/vp70/vp70_magout.wav", "sound/guest/cof/weapons_new/vp70/vp70_magout.wav"},
+    {"weapons_new/vp70/vp70_draw_first_seq.wav", "sound/guest/cof/weapons_new/vp70/vp70_draw_first_seq.wav"},
+    {"weapons_new/vp70/vp70_fire.wav", "sound/guest/cof/weapons_new/vp70/vp70_fire.wav"}
+}};
+inline constexpr std::array<ResourcePath, 2> VP70Events{{
+    {"events/muzzleflash.sc", "events/guest/cof/muzzleflash.sc"},
+    {"events/viewpunch.sc", "events/guest/cof/viewpunch.sc"}
+}};
+inline constexpr ResourcePath VP70Inventory{
+    "inventoryitems/weapons/weapon_vp70.txt", "inventoryitems/guest/cof/weapons/weapon_vp70.txt"};
+inline constexpr ResourcePath VP70Particle{
+    "aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
+inline constexpr auto VP70ClipTexture = P345ClipTexture;
+
 enum class GlockModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
 inline constexpr std::array<ResourcePath, static_cast<unsigned>(GlockModel::Count)> GlockModels{{
     {"models/weapons/glock/v_glock.mdl", "models/guest/cof/glock/v_glock.mdl"},

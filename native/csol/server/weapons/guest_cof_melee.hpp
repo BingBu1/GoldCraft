@@ -6,6 +6,16 @@
 
 namespace csol::server::cof
 {
+inline constexpr guest::cof::PistolMeleeSamples VP70MeleeSamples{
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing1)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing2)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing3)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing4)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing5)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::Swing6)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::PunchSwing)].host,
+    VP70Sounds[static_cast<unsigned>(VP70Sound::PunchSmack)].host
+};
 // Host resource placement only. Original logical selection, channels, timing,
 // volume and RNG remain in the evidence-verified melee consumer.
 inline constexpr guest::cof::PistolMeleeSamples P345MeleeSamples{

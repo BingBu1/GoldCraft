@@ -332,6 +332,12 @@ ResourceResult PrepareRevolverResources(const ResourceAuthority& authority, Revo
         RevolverInventory, RevolverParticle, RevolverClipTexture, 22, "weapon_revolver");
 }
 
+ResourceResult PrepareVP70Resources(const ResourceAuthority& authority, VP70Resources& output) noexcept
+{
+    return PrepareResources(authority, output, VP70Models, VP70Sounds, VP70LocalWaves, VP70Events,
+        VP70Inventory, VP70Particle, VP70ClipTexture, 23, "weapon_vp70");
+}
+
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {
     return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,
