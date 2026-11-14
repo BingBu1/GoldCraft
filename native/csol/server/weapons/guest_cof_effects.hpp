@@ -14,6 +14,9 @@ namespace csol::server::cof
 struct GlockEffectPolicy
 {
     bool nativeMultiplayer{}, noCustomClothing{};
+    // Supplied only with the actual native SetAnimation reload hook and typed
+    // runtime stage consumer installed. Other weapon families do not require it.
+    bool nativeRevolverReload{};
 };
 
 // One instance per retained map, on the authoritative thread. It must outlive

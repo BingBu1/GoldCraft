@@ -18,6 +18,55 @@ void ReadModel(const char* path)
     const std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
     model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
 }
+void ReloadWindows(RevolverOwnerView& revolver,RevolverOwnerBackendView& backend)
+{
+    const float previousTime=globals.time;
+    const int previousSequence=player.pev->sequence,previousGait=player.pev->gaitsequence;
+    const auto previousActivity=player.m_Activity,previousIdeal=player.m_IdealActivity;
+    auto* previousItem=player.m_pActiveItem;
+    const auto track=backend.animation->Select(backend.animationGeneration,Pistol::Revolver,PlayerAction::Reload,false);
+    Check(track.has_value());
+    RevolverWeapon held;edict_t heldEdict{};heldEdict.serialnumber=61;heldEdict.pvPrivateData=&held;
+    heldEdict.v.pContainingEntity=&heldEdict;held.pev=&heldEdict.v;held.m_pPlayer=&player;held.m_iId=898;
+    player.m_pActiveItem=&held;player.pev->sequence=track->sequence;player.pev->gaitsequence=777;
+    player.m_Activity=player.m_IdealActivity=ACT_RELOAD;
+    player.m_fSequenceFinished=TRUE;
+    Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));
+    globals.time=20;RevolverEvent stage{RevolverEffect::ReloadStage};stage.value=0;stage.a=22;
+    Check(revolver.ReloadStage(backend.binding,stage));
+    RevolverOwnerState saved{};Check(revolver.PersistentState(backend.binding,saved)&&saved.reloadUntil==22);
+    Check(revolver.ReloadSequence(backend.binding,PLAYER_WALK)==track->sequence);
+    Check(revolver.ReloadSequence(backend.binding,PLAYER_IDLE)==track->sequence);
+    for(int action:{PLAYER_ATTACK1,PLAYER_ATTACK2,PLAYER_JUMP,PLAYER_SUPERJUMP,PLAYER_DIE,PLAYER_FLINCH,PLAYER_LARGE_FLINCH})
+        Check(!revolver.ReloadSequence(backend.binding,action));
+    const auto flags=player.pev->flags;
+    player.pev->flags|=FL_FROZEN;Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));player.pev->flags=flags;
+    for(auto activity:{ACT_SWIM,ACT_DIESIMPLE,ACT_HOVER,ACT_HOP,ACT_LEAP,ACT_FLINCH,ACT_LARGE_FLINCH})
+    {player.m_Activity=activity;Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));}
+    player.m_Activity=ACT_RELOAD;player.m_flFlinchTime=21;
+    Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));player.m_flFlinchTime=0;
+    player.m_pActiveItem=&weapon;Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));player.m_pActiveItem=&held;
+    ++player.pev->sequence;Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));player.pev->sequence=track->sequence;
+    const auto readsBefore=modelReads;
+    for(int i=0;i<1000;++i)Check(revolver.ReloadSequence(backend.binding,PLAYER_WALK)==track->sequence);
+    Check(modelReads==readsBefore&&player.pev->gaitsequence==777);
+    globals.time=21.999F;Check(revolver.ReloadSequence(backend.binding,PLAYER_WALK)==track->sequence);
+    globals.time=22;Check(!revolver.ReloadSequence(backend.binding,PLAYER_WALK));
+    globals.time=24;stage.value=1;stage.a=25;
+    Check(revolver.ReloadStage(backend.binding,stage)&&revolver.PersistentState(backend.binding,saved)&&saved.reloadUntil==25);
+    stage.a=26;Check(!revolver.ReloadStage(backend.binding,stage));
+    Check(revolver.PersistentState(backend.binding,saved)&&saved.reloadUntil==25);
+    stage.value=3;Check(!revolver.ReloadStage(backend.binding,stage));
+    stage.value=0;stage.a=std::numeric_limits<float>::quiet_NaN();Check(!revolver.ReloadStage(backend.binding,stage));
+    globals.time=30;stage.value=2;stage.a=0;
+    Check(revolver.ReloadStage(backend.binding,stage)&&revolver.PersistentState(backend.binding,saved));
+    const float until=static_cast<float>(30.0+double(track->sdkDuration));
+    Check(saved.reloadUntil==until&&revolver.ReloadSequence(backend.binding,PLAYER_IDLE)==track->sequence);
+    globals.time=until;Check(!revolver.ReloadSequence(backend.binding,PLAYER_IDLE));
+    Check(player.pev->gaitsequence==777&&modelReads==readsBefore);
+    globals.time=previousTime;player.pev->sequence=previousSequence;player.pev->gaitsequence=previousGait;
+    player.m_Activity=previousActivity;player.m_IdealActivity=previousIdeal;player.m_pActiveItem=previousItem;
+}
 }
 int main(int argc,char** argv)
 {
@@ -38,6 +87,7 @@ int main(int argc,char** argv)
     Check(!read.quietAudio&&!read.infiniteAmmo&&!read.pendingGate&&read.activityBlock==0&&read.pendingGateTime==0);
 
     Check(read.firstDrawn&&read.cylinderAngle==216&&read.cylinderGate==12.5F);
+    ReloadWindows(revolver,backend);
     Check(runtime.FirstDraw(runtimeView.binding,false)&&revolver.Read(backend.binding,read)&&read.firstDrawn);
     RevolverEvent cylinder{RevolverEffect::Cylinder};cylinder.a=72;cylinder.b=99;cylinder.enabled=false;
     Check(revolver.Cylinder(backend.binding,cylinder)&&revolver.Read(backend.binding,read)&&
@@ -101,6 +151,7 @@ int main(int argc,char** argv)
         Check(runtime.Prepare(player,request,runtimeView,error));
         Check(revolver.Prepare(player,runtimeView,{true,61,17,15},{false,0,0},PistolAnimationRig::CSO,model,_stricmp,backend,error));
         Check(backend.animation->Select(backend.animationGeneration,Pistol::Revolver,PlayerAction::Fire,false).has_value());
+        ReloadWindows(revolver,backend);
         runtime.EndMap();Check(!revolver.Current(backend.binding));
     }
     std::cout<<"Revolver canonical owner/frame adapter: "<<checks<<" SDK checks, zero failures\n";

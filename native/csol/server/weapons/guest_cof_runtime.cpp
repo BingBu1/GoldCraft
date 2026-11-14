@@ -193,6 +193,7 @@ struct GlockRuntime::State
         }
         if(event.kind==RevolverEffect::FirstDraw&&!owner.revolver->FirstDraw(owner.revolverView.binding,true))return false;
         if(event.kind==RevolverEffect::Cylinder&&!owner.revolver->Cylinder(owner.revolverView.binding,event))return false;
+        if(event.kind==RevolverEffect::ReloadStage&&!owner.revolver->ReloadStage(owner.revolverView.binding,event))return false;
         return map.host.revolver.effect&&(bit&map.host.revolver.effects)&&map.host.revolver.effect(map.host.context,
             map.revolverResources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
     }
@@ -545,6 +546,19 @@ bool GlockRuntime::PersistentState(CBasePlayer& player,RevolverOwnerState& outpu
     auto* owner=map.players[slot].backend;
     return owner&&owner->player==&player&&State::OwnerCurrent(owner)&&owner->revolver&&
         owner->revolver->PersistentState(owner->revolverView.binding,output)&&State::OwnerCurrent(owner);
+}
+bool GlockRuntime::PreserveRevolverReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept
+{
+    if(!state_->active)return false;
+    auto& map=*state_->active;State::Call call(map);const auto slot=State::Slot(player);
+    if(!slot||!State::Current(&map))return false;
+    auto* owner=map.players[slot].backend;
+    if(!owner||owner->player!=&player||!State::RevolverCurrent(owner))return false;
+    const auto sequence=owner->revolver->ReloadSequence(owner->revolverView.binding,playerAnimation);
+    if(!sequence||!State::RevolverCurrent(owner))return false;
+    desiredSequence=*sequence;
+    player.m_Activity=player.m_IdealActivity=ACT_RELOAD;
+    return true;
 }
 #define COF_STAGE(Name) \
 bool GlockRuntime::Name(CBasePlayer& player) noexcept \

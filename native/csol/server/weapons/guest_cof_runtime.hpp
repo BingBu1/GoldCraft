@@ -104,6 +104,7 @@ public:
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;
     bool PersistentState(CBasePlayer&, RevolverOwnerState&) noexcept;
+    bool PreserveRevolverReload(CBasePlayer&,int playerAnimation,int& desiredSequence) noexcept;
     bool BeginPreThink(CBasePlayer&) noexcept;
     bool BeginInput(CBasePlayer&) noexcept;
     bool AcceptedJump(CBasePlayer&) noexcept;

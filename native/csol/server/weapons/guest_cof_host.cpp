@@ -459,6 +459,13 @@ bool CSOL_GuestCofCanUse(CBasePlayer& player, int id) noexcept
     if(id==P345Id){P345Backends backend{};return host.runtime.Backend(player,backend);}
     GlockBackends backend{};return host.runtime.Backend(player,backend);
 }
+bool CSOL_GuestCofPreserveReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept
+{
+    auto* map=host.active;
+    if(!map||!Current(map)||!map->ready)return false;
+    MapCall call(*map);
+    return host.runtime.PreserveRevolverReload(player,playerAnimation,desiredSequence);
+}
 bool CSOL_IsGuestCof(const CBasePlayerWeapon& weapon) noexcept
 {
     if(!weapon.pev)return false;

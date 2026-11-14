@@ -2752,7 +2752,15 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	int animDesired;
  	float speed;
  	int hopSeq;
-@@ -3185,6 +3202,14 @@
+@@ -3161,6 +3178,7 @@ void CBasePlayer::__API_HOOK(SetAnimation)(PLAYER_ANIM playerAnim)
+ 			}
+ 		}
+ 	}
++	CSOL_GuestCofPreserveReload(*this, playerAnim, animDesired);
+ 	if (pev->sequence != animDesired)
+ 	{
+ 		pev->sequence = animDesired;
+@@ -3185,6 +3203,14 @@
  		return;
  #endif
  
@@ -2767,7 +2775,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// waterlevel 0 - not in water
  	// waterlevel 1 - feet in water
  	// waterlevel 2 - waist in water
-@@ -3541,11 +3566,32 @@
+@@ -3541,11 +3567,32 @@
  	return nullptr;
  }
  
@@ -2801,7 +2809,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	bool bSendMoney = true;
  	switch (type)
  	{
-@@ -3558,12 +3604,18 @@
+@@ -3558,12 +3605,18 @@
  		break;
  	}
  
@@ -2824,7 +2832,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		// Send money update to HUD
  		MESSAGE_BEGIN(MSG_ONE, gmsgMoney, nullptr, pev);
  			WRITE_LONG(m_iAccount);
-@@ -3574,14 +3626,25 @@
+@@ -3574,14 +3627,25 @@
  #else
  void EXT_FUNC CBasePlayer::__API_HOOK(AddAccount)(int amount, RewardType type, bool bTrackChange)
  {
@@ -2854,7 +2862,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// Send money update to HUD
  	MESSAGE_BEGIN(MSG_ONE, gmsgMoney, nullptr, pev);
  		WRITE_LONG(m_iAccount);
-@@ -3897,6 +3960,7 @@
+@@ -3897,6 +3961,7 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Disappear)()
  {
@@ -2862,7 +2870,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	DetachTank();
  
  #ifndef REGAMEDLL_FIXES
-@@ -3924,7 +3988,7 @@
+@@ -3924,7 +3989,7 @@
  
  	m_iClientHealth = 0;
  	MESSAGE_BEGIN(MSG_ONE, gmsgHealth, nullptr, pev);
@@ -2871,7 +2879,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	MESSAGE_END();
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgCurWeapon, nullptr, pev);
-@@ -4014,6 +4078,7 @@
+@@ -4014,6 +4079,7 @@
  		// Used for a timer.
  		m_fDeadTime = gpGlobals->time;
  		pev->deadflag = DEAD_DEAD;
@@ -2879,7 +2887,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	}
  
  	StopAnimation();
-@@ -4151,6 +4216,7 @@
+@@ -4151,6 +4217,7 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(StartObserver)(Vector &vecPosition, Vector &vecViewAngle)
  {
@@ -2887,7 +2895,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// clear any clientside entities attached to this player
  	MESSAGE_BEGIN(MSG_PAS, SVC_TEMPENTITY, pev->origin);
  		WRITE_BYTE(TE_KILLPLAYERATTACHMENTS);
-@@ -4516,6 +4582,8 @@
+@@ -4516,6 +4583,8 @@
  	if (!(pev->flags & FL_ONGROUND) || !pev->groundentity)
  		return;
  
@@ -2896,7 +2904,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// many features in this function use v_forward, so makevectors now.
  	UTIL_MakeVectors(pev->angles);
  	SetAnimation(PLAYER_JUMP);
-@@ -4656,14 +4724,24 @@
+@@ -4656,14 +4725,24 @@
  		return false;
  	}
  
@@ -2923,7 +2931,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  #endif
  	{
  		int buyTime = int(buytime.value * 60.0f);
-@@ -4721,6 +4799,12 @@
+@@ -4721,6 +4800,12 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(PreThink)()
  {
@@ -2936,7 +2944,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// These buttons have changed this frame
  	int buttonsChanged = (m_afButtonLast ^ pev->button);
  
-@@ -4762,7 +4846,10 @@
+@@ -4762,7 +4847,10 @@
  	// is this still used?
  	UTIL_MakeVectors(pev->v_angle);
  
@@ -2947,7 +2955,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	WaterMove();
  
  	if (pev->flags & FL_ONGROUND)
-@@ -4834,8 +4921,13 @@
+@@ -4834,8 +4922,13 @@
  		pev->flags &= ~FL_ONTRAIN;
  
  #ifdef REGAMEDLL_ADD
@@ -2963,7 +2971,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	// Observer Button Handling
  	if (GetObserverMode() != OBS_NONE && (m_afPhysicsFlags & PFLAG_OBSERVER))
-@@ -5230,12 +5322,14 @@
+@@ -5230,12 +5323,14 @@
  
  void CBasePlayer::SetNewPlayerModel(const char *modelName)
  {
@@ -2978,7 +2986,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  }
  
  // UpdatePlayerSound - updates the position of the player's
-@@ -5348,6 +5442,21 @@
+@@ -5348,6 +5443,21 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(PostThink)()
  {
@@ -3000,7 +3008,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	// intermission or finale
  	if (g_pGameRules->IsGameOver())
  		goto pt_end;
-@@ -5373,7 +5482,20 @@
+@@ -5373,7 +5483,20 @@
  	}
  
  	// do weapon stuff
@@ -3021,7 +3029,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	// check to see if player landed hard enough to make a sound
  	// falling farther than half of the maximum safe distance, but not as far a max safe distance will
-@@ -5387,7 +5509,7 @@
+@@ -5387,7 +5510,7 @@
  			// after this point, we start doing damage
  			if (m_flFallVelocity > MAX_PLAYER_SAFE_FALL_SPEED)
  			{
@@ -3030,7 +3038,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  				// splat
  				if (flFallDamage > pev->health)
-@@ -5453,6 +5575,7 @@
+@@ -5453,6 +5576,7 @@
  	}
  
  	StudioFrameAdvance();
@@ -3038,7 +3046,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	CheckPowerups();
  
  #ifdef REGAMEDLL_ADD
-@@ -5489,6 +5612,7 @@
+@@ -5489,6 +5613,7 @@
  					{
  						gun->m_flTimeWeaponIdle = Q_max(gun->m_flTimeWeaponIdle - gpGlobals->frametime, -0.001f);
  					}
@@ -3046,7 +3054,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  				}
  
  				pPlayerItem = pPlayerItem->m_pNext;
-@@ -5507,6 +5631,10 @@
+@@ -5507,6 +5632,10 @@
  	m_iGaitsequence = pev->gaitsequence;
  
  	StudioProcessGait();
@@ -3057,7 +3065,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  }
  
  // checks if the spot is clear of players
-@@ -5622,6 +5750,8 @@
+@@ -5622,6 +5751,8 @@
  
  edict_t *EXT_FUNC CBasePlayer::__API_HOOK(EntSelectSpawnPoint)()
  {
@@ -3066,7 +3074,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	CBaseEntity *pSpot;
  
  	// choose a info_player_deathmatch point
-@@ -5770,6 +5900,8 @@
+@@ -5770,6 +5901,8 @@
  
  void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  {
@@ -3075,7 +3083,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	int i;
  
  #ifdef REGAMEDLL_FIXES
-@@ -5778,6 +5910,11 @@
+@@ -5778,6 +5911,11 @@
  		return;
  	}
  #endif
@@ -3087,7 +3095,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	m_iGaitsequence = 0;
  
-@@ -6132,6 +6269,9 @@
+@@ -6132,6 +6270,9 @@
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
@@ -3097,7 +3105,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -6273,7 +6413,7 @@
+@@ -6273,7 +6414,7 @@
  #endif
  
  	CheckStartMoney();
@@ -3106,7 +3114,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	MESSAGE_BEGIN(MSG_ALL, gmsgScoreInfo);
  		WRITE_BYTE(ENTINDEX(edict()));
-@@ -6365,19 +6505,24 @@
+@@ -6365,19 +6506,24 @@
  	auto pItem = GetItemByName(pstr);
  	if (!pItem || pItem == m_pActiveItem)
  		return;
@@ -3131,7 +3139,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	m_pLastItem = m_pActiveItem;
  	m_pActiveItem = pItem;
-@@ -6389,7 +6534,9 @@
+@@ -6389,7 +6535,9 @@
  	UpdateShieldCrosshair(true);
  
  	m_pActiveItem->Deploy();
@@ -3141,7 +3149,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	ResetMaxSpeed();
  }
-@@ -6414,18 +6561,23 @@
+@@ -6414,18 +6562,23 @@
  
  	if (!m_pLastItem || m_pLastItem == m_pActiveItem)
  		return;
@@ -3165,7 +3173,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	if (HasShield())
  	{
-@@ -6439,7 +6591,9 @@
+@@ -6439,7 +6592,9 @@
  	SWAP(m_pActiveItem, m_pLastItem);
  
  	m_pActiveItem->Deploy();
@@ -3175,7 +3183,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	UpdateShieldCrosshair(true);
  
-@@ -6506,6 +6660,7 @@
+@@ -6506,6 +6661,7 @@
  	UTIL_TraceLine(pev->origin, pev->origin + gpGlobals->v_forward * 128, ignore_monsters, pev->owner, &tr);
  
  	// No customization present.
@@ -3183,7 +3191,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	if (nFrames == -1)
  	{
  		UTIL_DecalTrace(&tr, DECAL_LAMBDA6);
-@@ -6887,8 +7042,8 @@
+@@ -6887,8 +7043,8 @@
  	{
  		case 101:
  #ifdef REGAMEDLL_ADD
@@ -3194,7 +3202,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  #else
  			AddAccount(16000);
  			ALERT(at_console, "Crediting %s with $16000\n", STRING(pev->netname));
-@@ -7152,34 +7307,38 @@
+@@ -7152,34 +7308,38 @@
  {
  	if (CSGameRules()->IsMultiplayer())
  	{
@@ -3254,7 +3262,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  			}
  		}
  
-@@ -7288,7 +7447,7 @@
+@@ -7288,7 +7448,7 @@
  			pev->gamestate = HITGROUP_SHIELD_ENABLED;
  
  		// should we switch to this item?
@@ -3263,7 +3271,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		{
  			if (!m_bShieldDrawn)
  			{
-@@ -7341,6 +7500,7 @@
+@@ -7341,6 +7501,7 @@
  	if (pPrev == pItem)
  	{
  		m_rgpPlayerItems[pItem->iItemSlot()] = pItem->m_pNext;
@@ -3271,7 +3279,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		return TRUE;
  	}
  
-@@ -7350,6 +7510,7 @@
+@@ -7350,6 +7511,7 @@
  	if (pPrev)
  	{
  		pPrev->m_pNext = pItem->m_pNext;
@@ -3279,7 +3287,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		return TRUE;
  	}
  
-@@ -7372,6 +7533,7 @@
+@@ -7372,6 +7534,7 @@
  
  	if (iMax == -1)
  		iMax = MaxAmmoCarry(szName);
@@ -3287,7 +3295,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	if (!g_pGameRules->CanHaveAmmo(this, szName, iMax))
  	{
-@@ -7383,6 +7545,18 @@
+@@ -7383,6 +7546,18 @@
  	if (i < 0 || i >= MAX_AMMO_SLOTS)
  		return -1;
  
@@ -3306,7 +3314,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	int iAdd = Q_min(iCount, iMax - m_rgAmmo[i]);
  	if (iAdd < 1)
  		return i;
-@@ -7390,7 +7564,7 @@
+@@ -7390,7 +7565,7 @@
  	m_rgAmmo[i] += iAdd;
  
  	// make sure the ammo messages have been linked first
@@ -3315,7 +3323,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	{
  		// Send the message that ammo has been picked up
  		MESSAGE_BEGIN(MSG_ONE, gmsgAmmoPickup, nullptr, pev);
-@@ -7586,6 +7760,7 @@
+@@ -7586,6 +7761,7 @@
  // reflecting all of the HUD state info.
  void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  {
@@ -3323,7 +3331,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	if (m_fInitHUD)
  	{
  		m_fInitHUD = FALSE;
-@@ -7696,6 +7871,10 @@
+@@ -7696,6 +7872,10 @@
  #endif
  	}
  
@@ -3334,7 +3342,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	if (m_iHideHUD != m_iClientHideHUD)
  	{
  		MESSAGE_BEGIN(MSG_ONE, gmsgHideWeapon, nullptr, pev);
-@@ -7746,28 +7925,25 @@
+@@ -7746,28 +7926,25 @@
  		gDisplayTitle = FALSE;
  	}
  
@@ -3375,7 +3383,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		MESSAGE_END();
  	}
  
-@@ -7855,6 +8031,8 @@
+@@ -7855,6 +8032,8 @@
  	}
  
  	SendAmmoUpdate();
@@ -3384,7 +3392,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	// Update all the items
  	for (int i = 0; i < MAX_ITEM_TYPES; i++)
-@@ -8124,6 +8302,10 @@
+@@ -8124,6 +8303,10 @@
  	}
  
  	pev->maxspeed = speed;
@@ -3395,7 +3403,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  }
  
  LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, HintMessageEx, (const char *pMessage, float duration, bool bDisplayIfPlayerDead, bool bOverride), pMessage, duration, bDisplayIfPlayerDead, bOverride)
-@@ -8146,6 +8328,8 @@
+@@ -8146,6 +8329,8 @@
  
  Vector CBasePlayer::GetAutoaimVector(float flDelta)
  {
@@ -3404,7 +3412,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	Vector vecSrc;
  	BOOL m_fOldTargeting;
  	Vector angles;
-@@ -8165,6 +8349,7 @@
+@@ -8165,6 +8350,7 @@
  	{
  		if (m_fOldTargeting != m_fOnTarget)
  			m_pActiveItem->UpdateItemInfo();
@@ -3412,7 +3420,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	}
  	else
  		m_fOnTarget = FALSE;
-@@ -8199,6 +8384,7 @@
+@@ -8199,6 +8385,7 @@
  		if (m_vecAutoAim.x != m_lastx || m_vecAutoAim.y != m_lasty)
  		{
  			SET_CROSSHAIRANGLE(ENT(pev), -m_vecAutoAim.x, m_vecAutoAim.y);
@@ -3420,7 +3428,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  			m_lastx = m_vecAutoAim.x;
  			m_lasty = m_vecAutoAim.y;
-@@ -8217,10 +8403,13 @@
+@@ -8217,10 +8404,13 @@
  
  void CBasePlayer::ResetAutoaim()
  {
@@ -3434,7 +3442,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	}
  	m_fOnTarget = FALSE;
  }
-@@ -8257,6 +8446,7 @@
+@@ -8257,6 +8447,7 @@
  {
  	m_flStatusBarDisappearDelay = 0.0f;
  	m_SbarString0[0] = '\0';
@@ -3442,7 +3450,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  }
  
  LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateStatusBar)
-@@ -8283,6 +8473,9 @@
+@@ -8283,6 +8474,9 @@
  	));
  
  	UTIL_TraceLine(vecSrc, vecEnd, dont_ignore_monsters, edict(), &tr);
@@ -3452,7 +3460,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	if (tr.flFraction != 1.0f)
  	{
-@@ -8474,17 +8667,26 @@
+@@ -8474,17 +8668,26 @@
  			return nullptr;
  		}
  
@@ -3482,7 +3490,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		UTIL_MakeVectors(pev->angles);
  
  #ifndef REGAMEDLL_FIXES
-@@ -8530,8 +8732,6 @@
+@@ -8530,8 +8733,6 @@
  			}
  		}
  
@@ -3491,7 +3499,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		Vector vecOrigin   = pev->origin + gpGlobals->v_forward * 10;
  		Vector vecAngles   = pev->angles;
  		Vector vecVelocity = gpGlobals->v_forward * 300 + gpGlobals->v_forward * 100;
-@@ -8543,6 +8743,7 @@
+@@ -8543,6 +8744,7 @@
  			bPackAmmo = true;
  #endif
  
@@ -3499,7 +3507,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  		CWeaponBox *pWeaponBox = CreateWeaponBox(pWeapon, this,
  			modelname,
  			vecOrigin,
-@@ -8795,28 +8996,36 @@
+@@ -8795,28 +8997,36 @@
  
  BOOL CBasePlayer::SwitchWeapon(CBasePlayerItem *pWeapon)
  {
@@ -3536,7 +3544,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  
  	if (HasShield())
  	{
-@@ -9671,6 +9880,9 @@
+@@ -9671,6 +9881,9 @@
  
  bool IsPrimaryWeaponId(int id)
  {
@@ -3546,7 +3554,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -9689,6 +9901,9 @@
+@@ -9689,6 +9902,9 @@
  
  bool IsSecondaryWeaponId(int id)
  {
@@ -3556,7 +3564,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -10123,6 +10338,7 @@
+@@ -10123,6 +10339,7 @@
  
  void CBasePlayer::BuildRebuyStruct()
  {
@@ -3564,7 +3572,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	if (m_bIsInRebuy)
  	{
  		// if we are in the middle of a rebuy, we don't want to update the buy struct.
-@@ -10196,6 +10412,7 @@
+@@ -10196,6 +10413,7 @@
  
  void CBasePlayer::Rebuy()
  {
@@ -3572,7 +3580,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  	char *fileData = m_rebuyString;
  	char *token;
  
-@@ -10569,11 +10786,11 @@
+@@ -10569,11 +10787,11 @@
  	}
  
  	if (RemovePlayerItem(pBomb)) {
@@ -3586,7 +3594,7 @@ index 8a219ead3b4745359576da5a7705ca8296bbd254..14c2a9df6d3a681802d7e64a1ae76060
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
-@@ -10752,7 +10969,7 @@
+@@ -10752,7 +10970,7 @@
  		m_iAccount = 0;
  #endif
  		CheckStartMoney();

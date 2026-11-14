@@ -2,6 +2,7 @@
 #pragma once
 #include "guest_cof_owner_runtime.hpp"
 #include "native/guest/cof/server/revolver_weapon.hpp"
+#include <optional>
 
 namespace csol::server::cof
 {
@@ -9,6 +10,9 @@ struct RevolverOwnerState
 {
     bool firstDrawn;
     float cylinderAngle,cylinderGate;
+    // Native player upper-body deadline, explicitly carried across a model
+    // rebind. No active deadline exists before a verified reload stage.
+    std::optional<float> reloadUntil{};
 };
 class RevolverOwnerView;
 struct RevolverOwnerBinding
@@ -44,6 +48,8 @@ public:
     bool PersistentState(RevolverOwnerBinding,RevolverOwnerState&) const noexcept;
     bool FirstDraw(RevolverOwnerBinding,bool) noexcept;
     bool Cylinder(RevolverOwnerBinding,const guest::cof::server::RevolverEvent&) noexcept;
+    bool ReloadStage(RevolverOwnerBinding,const guest::cof::server::RevolverEvent&) noexcept;
+    std::optional<int> ReloadSequence(RevolverOwnerBinding,int playerAnimation) const noexcept;
     static bool BackendCurrent(void*) noexcept;
     static bool BackendFrame(void*,guest::cof::server::RevolverOwnerFrame&) noexcept;
 private:

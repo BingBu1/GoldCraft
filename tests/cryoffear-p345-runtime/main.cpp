@@ -114,11 +114,12 @@ bool RevolverEffectBoundary(void*,const RevolverResources&,const OwnerBinding& b
 {
     Check(binding.runtime&&binding.runtime->Current(binding)&&&actor==&player&&item.m_pPlayer==&player&&item.m_iId==898);
     ++context.revolverEffects;context.revolverOrder.push_back(event.kind);
-    if(event.kind==RevolverEffect::FirstDraw||event.kind==RevolverEffect::Cylinder)
+    if(event.kind==RevolverEffect::FirstDraw||event.kind==RevolverEffect::Cylinder||event.kind==RevolverEffect::ReloadStage)
     {
         RevolverOwnerState value{};Check(context.runtime->PersistentState(actor,value));
         if(event.kind==RevolverEffect::FirstDraw)Check(value.firstDrawn);
-        else Check(value.cylinderAngle==event.a&&(!event.enabled||value.cylinderGate==event.b));
+        else if(event.kind==RevolverEffect::Cylinder)Check(value.cylinderAngle==event.a&&(!event.enabled||value.cylinderGate==event.b));
+        else Check(value.reloadUntil.has_value()&&(event.value==2||value.reloadUntil==event.a));
     }
     if(event.kind==RevolverEffect::Recoil&&context.retireRevolver)
     {
@@ -271,6 +272,18 @@ int main(int argc,char** argv)
     Check(context.loads==loadsBefore&&context.revolverEffects==effectsBefore+2&&
         context.revolverOrder[context.revolverOrder.size()-2]==RevolverEffect::Aim&&
         context.revolverOrder.back()==RevolverEffect::Body);
+    const auto reloadTrack=rebound.playerAnimation->Select(rebound.playerModelGeneration,Pistol::Revolver,PlayerAction::Reload,false);
+    Check(reloadTrack.has_value());
+    player.pev->sequence=reloadTrack->sequence;player.pev->gaitsequence=888;player.pev->frame=123;
+    player.m_Activity=player.m_IdealActivity=ACT_RELOAD;
+    globals.time=76;RevolverEvent reloadStage{RevolverEffect::ReloadStage};reloadStage.a=78;
+    Check(rebound.effect(rebound.context,player,*revolver,reloadStage));
+    int desired=999;player.m_Activity=ACT_RUN;
+    Check(runtime.PreserveRevolverReload(player,PLAYER_WALK,desired)&&desired==reloadTrack->sequence&&
+        player.pev->gaitsequence==888&&player.pev->frame==123&&player.m_Activity==ACT_RELOAD);
+    globals.time=78;desired=999;
+    Check(!runtime.PreserveRevolverReload(player,PLAYER_WALK,desired)&&desired==999);
+    Check(!runtime.PreserveRevolverReload(player,PLAYER_JUMP,desired)&&desired==999);
     globals.time=80;player.pev->button=0;
     Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player)&&runtime.EndPostThink(player));
     globals.time=85;player.pev->button=IN_ATTACK;context.retireRevolver=true;

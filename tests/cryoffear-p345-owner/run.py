@@ -57,6 +57,7 @@ def main():
         ROOT / 'native/guest/cof/magazine_actions.cpp',
         ROOT / 'native/guest/cof/magazine_reload.cpp', ROOT / 'native/guest/cof/spread.cpp',
         ROOT / 'native/guest/cof/server/player_animation.cpp', ROOT / 'native/guest/cof/player_actions.cpp']
+    if args.weapon=='revolver':sources.append(ROOT/'native/guest/cof/server/revolver_weapon.cpp')
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
     for name, path, sig, only in (

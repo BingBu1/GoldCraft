@@ -24,6 +24,7 @@ void CSOL_GuestCofAcceptedJump(CBasePlayer&) noexcept;
 void CSOL_GuestCofAfterMovement(CBasePlayer&) noexcept;
 void CSOL_GuestCofPostThink(CBasePlayer&) noexcept;
 void CSOL_GuestCofClientSnapshot(CBasePlayer&) noexcept;
+bool CSOL_GuestCofPreserveReload(CBasePlayer&,int playerAnimation,int& desiredSequence) noexcept;
 bool CSOL_GuestCofCanUse(CBasePlayer&, int id) noexcept;
 bool CSOL_DeliverGuestCof(CBasePlayer&,int id);
 bool CSOL_IsGuestCof(const CBasePlayerWeapon&) noexcept;

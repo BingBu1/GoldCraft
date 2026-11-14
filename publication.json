@@ -2395,7 +2395,8 @@
     "tests/csol-challenge-hud/ui_fixture.hpp",
     "tests/csol-challenge-hud/README.md",
     "tests/resource-refresh/probe_phase.cpp",
-    "docs/2026-11-13_接入-阶段图标与权威状态同步-report.md"
+    "docs/2026-11-13_接入-阶段图标与权威状态同步-report.md",
+    "docs/2026-11-14_接入-Revolver换弹人物时钟-report.md"
   ],
   "trees": {
     "native": [

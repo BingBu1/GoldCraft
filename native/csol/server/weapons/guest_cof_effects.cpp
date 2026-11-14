@@ -167,8 +167,7 @@ std::uint32_t GlockEffects::RevolverCapabilities(const RevolverResources& resour
     if(MessageId(ammoX_)&&g_engfuncs.pfnMessageBegin&&g_engfuncs.pfnMessageEnd&&g_engfuncs.pfnWriteByte)
         result|=1u<<static_cast<unsigned>(RevolverEffect::AmmoX);
     if(MessageId(presentation_))result|=1u<<static_cast<unsigned>(RevolverEffect::Cylinder);
-    // The native consumer for the original player sequence deadline is still
-    // required. Its absent bit prevents an incomplete whole-weapon admission.
+    if(policy_.nativeRevolverReload)result|=1u<<static_cast<unsigned>(RevolverEffect::ReloadStage);
     return result;
 }
 bool GlockEffects::FillPrepared(const RevolverResources& resources,RevolverPrepared& prepared) noexcept
@@ -182,7 +181,7 @@ bool GlockEffects::FillPrepared(const RevolverResources& resources,RevolverPrepa
     prepared.cylinderReady=(capabilities&(1u<<unsigned(RevolverEffect::Cylinder)))!=0;
     prepared.ejectEventReady=(capabilities&(1u<<unsigned(RevolverEffect::EjectEvent)))!=0;
     prepared.ammoXReady=(capabilities&(1u<<unsigned(RevolverEffect::AmmoX)))!=0;
-    prepared.reloadStagesReady=false;
+    prepared.reloadStagesReady=(capabilities&(1u<<unsigned(RevolverEffect::ReloadStage)))!=0;
     return Current();
 }
 void GlockEffects::MeleeRecoil(void* context, CBasePlayer& player, const Vector& impulse) noexcept
@@ -341,6 +340,14 @@ bool GlockEffects::Dispatch(const RevolverResources& resources,const OwnerBindin
         // The actual typed runtime updates this original21 flag before its
         // external callback. Never write the independent Glock flag here.
         return state.firstDrawn&&Active(&lease);
+    case RevolverEffect::ReloadStage:
+    {
+        if(!state.reloadUntil||!std::isfinite(*state.reloadUntil)||event.value<0||event.value>2||
+            !gpGlobals||!std::isfinite(gpGlobals->time))return false;
+        if(event.value<2)
+            return *state.reloadUntil==event.a&&event.a==gpGlobals->time+(event.value==0?2.0F:1.0F)&&Active(&lease);
+        return event.a==0&&*state.reloadUntil>=gpGlobals->time&&Active(&lease);
+    }
     case RevolverEffect::AmmoX:
     {
         if(event.value<0||event.value>=MAX_AMMO_SLOTS||event.value>255||event.value!=weapon.m_iPrimaryAmmoType||

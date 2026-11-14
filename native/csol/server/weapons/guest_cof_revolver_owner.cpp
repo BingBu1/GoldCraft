@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "guest_cof_revolver_owner.hpp"
+#include "native/guest/cof/catalog.hpp"
 #include <limits>
 #include <cmath>
 
@@ -40,7 +41,8 @@ bool RevolverOwnerView::Prepare(CBasePlayer& player,const OwnerBackendView& shar
     Invalidate();const RevolverOwnerBinding key{this,generation_};
     if(!generation_||!player.pev||!shared.binding.runtime||!compare||model.empty()||
        rules.bulletDamage<0||rules.meleeDamage<0||(rules.reserveLimit!=15&&rules.reserveLimit!=50)||
-       !std::isfinite(seed.cylinderAngle)||seed.cylinderAngle<0||seed.cylinderAngle>360||!std::isfinite(seed.cylinderGate))
+       !std::isfinite(seed.cylinderAngle)||seed.cylinderAngle<0||seed.cylinderAngle>360||!std::isfinite(seed.cylinderGate)||
+       (seed.reloadUntil&&!std::isfinite(*seed.reloadUntil)))
     {error="Revolver owner requires a canonical native life, explicit weapon rules and validated model";return false;}
     OwnerBackendView verified{};
     if(!shared.binding.runtime->Backend(shared.binding.slot,player,verified)||!Same(shared.binding,verified.binding)||
@@ -94,6 +96,46 @@ bool RevolverOwnerView::BackendCurrent(void* opaque) noexcept
     if(!opaque)return false;
     const auto key=*static_cast<const RevolverOwnerBinding*>(opaque);
     return key.view&&key.view->Current(key);
+}
+bool RevolverOwnerView::ReloadStage(RevolverOwnerBinding key,const guest::cof::server::RevolverEvent& event) noexcept
+{
+    using namespace guest::cof::server;
+    if(event.kind!=RevolverEffect::ReloadStage||event.value<0||event.value>2||!gpGlobals||
+        !std::isfinite(gpGlobals->time)||!Current(key))return false;
+    const auto track=animation_.Select({canonical_.map,canonical_.model},guest::cof::Pistol::Revolver,
+        PlayerAction::Reload,(player_->pev->flags&FL_DUCKING)!=0);
+    if(!track)return false;
+    const float now=gpGlobals->time;
+    float until{};
+    if(event.value<2)
+    {
+        until=now+(event.value==0?2.0F:1.0F);
+        if(event.a!=until)return false;
+    }
+    else
+    {
+        if(event.a!=0)return false;
+        until=static_cast<float>(double(now)+double(track->sdkDuration));
+    }
+    if(!std::isfinite(until)||!Current(key))return false;
+    state_.reloadUntil=until;
+    return true;
+}
+std::optional<int> RevolverOwnerView::ReloadSequence(RevolverOwnerBinding key,int playerAnimation) const noexcept
+{
+    if((playerAnimation!=PLAYER_IDLE&&playerAnimation!=PLAYER_WALK)||!gpGlobals||
+        !std::isfinite(gpGlobals->time)||!Current(key)||!state_.reloadUntil||
+        !(*state_.reloadUntil>gpGlobals->time)||(player_->pev->flags&FL_FROZEN)||
+        player_->m_flFlinchTime>gpGlobals->time||player_->m_Activity==ACT_SWIM||
+        player_->m_Activity==ACT_DIESIMPLE||player_->m_Activity==ACT_HOVER||
+        player_->m_Activity==ACT_HOP||player_->m_Activity==ACT_LEAP||
+        player_->m_Activity==ACT_FLINCH||player_->m_Activity==ACT_LARGE_FLINCH)return std::nullopt;
+    const auto* item=dynamic_cast<const guest::cof::server::RevolverWeapon*>(player_->m_pActiveItem);
+    if(!item||item->m_pPlayer!=player_||item->m_iId!=guest::cof::FindPistol(guest::cof::Pistol::Revolver)->hostId)return std::nullopt;
+    const auto track=animation_.Select({canonical_.map,canonical_.model},guest::cof::Pistol::Revolver,
+        guest::cof::server::PlayerAction::Reload,(player_->pev->flags&FL_DUCKING)!=0);
+    if(!track||player_->pev->sequence!=track->sequence||!Current(key))return std::nullopt;
+    return track->sequence;
 }
 bool RevolverOwnerView::BackendFrame(void* opaque,guest::cof::server::RevolverOwnerFrame& output) noexcept
 {
