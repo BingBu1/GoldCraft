@@ -5,8 +5,11 @@
 
 class CBasePlayer;
 class CCSOLScenarioRuntime;
+class CSOLScenarioEntityAccess;
 namespace csol::scenario { struct ConfigError; }
 enum class CSOLKickStaminaDebit { Applied, Duplicate, Declined, Retired };
+bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAccess>& access,
+    csol::scenario::ConfigError& error);
 
 // Actual PostThink admits/updates one owner. No weapon/sprint/Jump event is
 // synthesized here. now is the authoritative engine float clock.

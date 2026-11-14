@@ -71,7 +71,7 @@ std::optional<std::string> ResourcePath(std::string_view filename)
 
 std::optional<std::string> Command(const Packet& packet)
 {
-    if(!packet.revision)return {};
+    if(!packet.revision || (packet.action!=Action::PlayThenLoop&&!packet.nextPath.empty()))return {};
     if(packet.action==Action::Stop || packet.action==Action::Fade)
     {
         if(!packet.path.empty())return {};
@@ -79,9 +79,14 @@ std::optional<std::string> Command(const Packet& packet)
         // the same stream owner as mp3 play/loop, including MP3 state.
         return packet.action==Action::Fade?"cd fadeout\n":"mp3 stop\n";
     }
-    if(packet.action!=Action::Play && packet.action!=Action::Loop)return {};
+    if(packet.action!=Action::Play && packet.action!=Action::Loop && packet.action!=Action::PlayThenLoop)return {};
     const auto path=ResourcePath(packet.path);
     if(!path || *path!=packet.path)return {};
+    if(packet.action==Action::PlayThenLoop)
+    {
+        const auto next=ResourcePath(packet.nextPath);
+        if(!next||*next!=packet.nextPath||packet.path.size()+packet.nextPath.size()+8>191)return {};
+    }
     // Register the path as a track before queuing playback. On the matched
     // GoldSrc engine, playfile/loopfile share a request buffer which a queued
     // Stop can clear before Play consumes it when another stream is active.
@@ -92,18 +97,27 @@ std::optional<std::string> Command(const Packet& packet)
 std::vector<std::uint8_t> Encode(const Packet& packet)
 {
     if(!Command(packet))return {};
-    std::vector<std::uint8_t> bytes{1,static_cast<std::uint8_t>(packet.action)};
+    std::vector<std::uint8_t> bytes{static_cast<std::uint8_t>(packet.action==Action::PlayThenLoop?2:1),static_cast<std::uint8_t>(packet.action)};
     for(unsigned i=0;i<4;++i)bytes.push_back(static_cast<std::uint8_t>(packet.revision>>(8*i)));
     bytes.insert(bytes.end(),packet.path.begin(),packet.path.end());bytes.push_back(0);
+    if(packet.action==Action::PlayThenLoop)
+    {bytes.insert(bytes.end(),packet.nextPath.begin(),packet.nextPath.end());bytes.push_back(0);}
     return bytes;
 }
 
 std::optional<Packet> Decode(std::span<const std::byte> bytes)
 {
-    if(bytes.size()<7 || bytes.size()>MaxPath+7 || bytes[0]!=std::byte{1} || bytes.back()!=std::byte{})return {};
+    if(bytes.size()<7 || bytes.size()>191 || (bytes[0]!=std::byte{1}&&bytes[0]!=std::byte{2}) || bytes.back()!=std::byte{})return {};
     Packet packet{static_cast<Action>(std::to_integer<std::uint8_t>(bytes[1]))};
     for(unsigned i=0;i<4;++i)packet.revision|=std::uint32_t(std::to_integer<std::uint8_t>(bytes[2+i]))<<(8*i);
-    packet.path.assign(reinterpret_cast<const char*>(bytes.data()+6),bytes.size()-7);
+    const auto data=std::string_view(reinterpret_cast<const char*>(bytes.data()+6),bytes.size()-6);
+    if(bytes[0]==std::byte{2})
+    {
+        const auto end=data.find('\0');
+        if(packet.action!=Action::PlayThenLoop||end==data.npos||end+1>=data.size())return {};
+        packet.path.assign(data.substr(0,end));packet.nextPath.assign(data.substr(end+1,data.size()-end-2));
+    }
+    else packet.path.assign(data.substr(0,data.size()-1));
     if(!Command(packet))return {};
     return packet;
 }

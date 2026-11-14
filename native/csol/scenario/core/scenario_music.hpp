@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -12,7 +13,10 @@ namespace csol::music
 {
 inline constexpr char MessageName[] = "CSOScnBgm";
 inline constexpr std::size_t MaxPath = 160;
-enum class Action : std::uint8_t { Stop, Fade, Play, Loop };
+enum class Action : std::uint8_t { Stop, Fade, Play, Loop, PlayThenLoop };
+enum class NightChoice : std::uint8_t { Zsh, Rex };
+inline constexpr std::array<std::string_view,4> NightFiles{
+    "Zsh_nightbgm.mp3", "Play_BGM_Rex.mp3", "BGM_Rex_loop.mp3", "BGM_zombie_attack.mp3"};
 struct Track { Action action{}; std::string_view filename; };
 enum class Cue { None, Ready, Round };
 class Countdown
@@ -36,6 +40,7 @@ struct Packet
     Action action{};
     std::uint32_t revision{};
     std::string path;
+    std::string nextPath;
 };
 std::vector<std::uint8_t> Encode(const Packet& packet);
 std::optional<Packet> Decode(std::span<const std::byte> bytes);

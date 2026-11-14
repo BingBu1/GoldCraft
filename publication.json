@@ -2398,7 +2398,21 @@
     "docs/2026-11-13_接入-阶段图标与权威状态同步-report.md",
     "docs/2026-11-14_接入-Revolver换弹人物时钟-report.md",
     "tests/cryoffear-vp70-weapon/README.md",
-    "docs/2026-11-14_接入-VP70原生组件与高备弹兼容-report.md"
+    "docs/2026-11-14_接入-VP70原生组件与高备弹兼容-report.md",
+    "native/csol/client/scenario/core/scenario_music_program.hpp",
+    "native/csol/client/scenario/core/scenario_music_program.cpp",
+    "native/csol/client/scenario/core/stamina_audio.hpp",
+    "native/csol/client/scenario/core/stamina_audio.cpp",
+    "native/csol/scenario/custom/stamina_audio.hpp",
+    "tests/csol-scenario-music/client.cpp",
+    "tests/csol-scenario-music/server.cpp",
+    "tests/csol-scenario-music/trigger.cpp",
+    "tests/csol-scenario-music/night.cpp",
+    "tests/csol-scenario-music/program.cpp",
+    "tests/csol-scenario-music/stamina_audio.cpp",
+    "tests/csol-scenario-music/resource_reader.py",
+    "tests/csol-scenario-music/closure.py",
+    "docs/2026-11-14_接入-黄昏曲与永夜随机顺序-report.md"
   ],
   "trees": {
     "native": [

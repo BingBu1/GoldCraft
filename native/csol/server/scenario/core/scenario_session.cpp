@@ -114,7 +114,8 @@ bool CCSOLScenarioSession::Precache(std::string_view mapName, std::uint16_t diff
         return Fail({"", {0, "scenario MPToCL message registration failed"}});
     if (!m_map.EntityAccessAllowed()) return false;
     m_music = std::make_shared<CCSOLScenarioMusic>(m_map.EntityAccess());
-    if (!m_music->Precache(mapTables->rounds, resourceError)) return Fail(std::move(resourceError));
+    const bool nightMusic=customSettings&&customSettings->Enabled(csol::scenario::custom::Feature::TimeCycle);
+    if (!m_music->Precache(mapTables->rounds, resourceError, nightMusic)) return Fail(std::move(resourceError));
     if (!m_map.EntityAccessAllowed()) return false;
     // Selection uses the real map tables, current spawn group and character
     // upgrade data. AI models/NAV/pool belong to combat startup, and may only

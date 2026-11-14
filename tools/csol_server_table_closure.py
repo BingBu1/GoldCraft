@@ -72,7 +72,7 @@ class SourceTree:
         return self.files.get(normalized.lower(), self.root / normalized)
 
 
-def music_paths(source, common, map_name, reader, evidence):
+def music_paths(source, common, map_name, reader, evidence, gameplay_config=None):
     """Run the production round/path readers, including BSP trigger_bgm."""
     if reader is None:
         raise ValueError('Scenario closure requires --music-reader; BGM must not be omitted')
@@ -95,7 +95,9 @@ def music_paths(source, common, map_name, reader, evidence):
         result = subprocess.run([str(reader), mode], input=data, capture_output=True,
                                 check=True, timeout=30)
         paths = {relative(line) for line in result.stdout.decode('ascii').splitlines()}
-        if not paths or any(not name.startswith('bgm/') or not name.endswith('.mp3') for name in paths):
+        if (not paths and mode != 'config') or any(
+                not (name.startswith('sound/vox/') and name.endswith('.wav')) if mode == 'recovery'
+                else not (name.startswith('bgm/') and name.endswith('.mp3')) for name in paths):
             raise ValueError('Invalid production BGM reader output')
         return paths
 
@@ -105,11 +107,16 @@ def music_paths(source, common, map_name, reader, evidence):
         return path.read_bytes()
 
     paths = resolve('round', read('maps/zbs_' + map_name + '.cso'))
+    paths.update(resolve('recovery', b''))
     if 'bgm/Scenario_Ready.mp3' not in paths:
         raise ValueError('BGM reader omitted the mandatory preparation track')
     for entity in module.entities(read('maps/' + map_name + '.bsp')):
         if entity.get('classname') == 'trigger_bgm' and entity.get('filename'):
             paths.update(resolve('path', entity['filename'].encode('latin1')))
+    if gameplay_config and gameplay_config.is_file():
+        config = plain(gameplay_config)
+        evidence[str(config)] = identity(config)
+        paths.update(resolve('config', config.read_bytes()))
     return paths
 
 
@@ -232,7 +239,8 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
         add(names[0], 'server-tables', common_required=True)
     for suffix, owner in [('.bsp', 'scenario_session.cpp'), ('.nav', 'scenario_navigation.cpp')]:
         add('maps/' + map_name + suffix, 'map', 'native/csol/server/' + owner, '"' + suffix + '"', common_required=True)
-    for name in sorted(music_paths(source, common, map_name, music_reader, sources)):
+    for name in sorted(music_paths(source, common, map_name, music_reader, sources,
+                                  deployed / 'addons/goldcraft/config/gameplay.json')):
         add(name, 'map-bgm')
     if not resource_plans:
         raise ValueError('Scenario closure requires --resource-plan for dynamic HUD/model/voice dependencies')

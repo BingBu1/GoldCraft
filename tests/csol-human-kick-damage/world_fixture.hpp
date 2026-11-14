@@ -42,6 +42,10 @@ struct WorldFixture
         e.files[csol::scenario::human_kick::FootModel]="fixture";
         e.files[std::string("sound/")+csol::scenario::human_kick::SwingSound]="fixture";
         for(const auto* sound:csol::scenario::human_kick::HitSounds)e.files[std::string("sound/")+sound]="fixture";
+        e.files["sound/vox/man/sprint_end_default.wav"]="explicit recovery sound existence fixture";
+        e.files["sound/vox/woman/sprint_end_default.wav"]="explicit recovery sound existence fixture";
+        for(const char* music:{"Zsh_nightbgm.mp3","Play_BGM_Rex.mp3","BGM_Rex_loop.mp3","BGM_zombie_attack.mp3"})
+            e.files[std::string("bgm/")+music]="explicit challenge music existence fixture";
         // Same parsed cold-input shape as csol-oberon-chain/resources.hpp and
         // csol-consumables-host: valid empty mode/radio/action directories.
         e.files["resource/ModeEvent/modeevent.csv"]=";id,name,event\r\n";

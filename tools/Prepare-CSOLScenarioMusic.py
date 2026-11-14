@@ -54,6 +54,8 @@ def main():
     parser.add_argument('--reader', type=Path, required=True)
     parser.add_argument('--map', action='append', required=True, dest='maps')
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--gameplay-config', type=Path,
+                        help='The same gameplay.json used by the server; decode with the production reader')
     args = parser.parse_args()
     output = args.output.absolute()
     if output.exists() or not output.resolve().is_relative_to(ROOT / 'build'):
@@ -79,11 +81,15 @@ def main():
         for entity in entities(read(args.common / 'maps' / (map_name + '.bsp'))):
             if entity.get('classname') == 'trigger_bgm' and entity.get('filename'):
                 paths.update(resolve('path', entity['filename'].encode('latin1')))
+    if args.gameplay_config:
+        paths.update(resolve('config', read(args.gameplay_config)))
+    recovery = set(resolve('recovery', b''))
+    paths.update(recovery)
     files, bodies = [], {}
     for name in sorted(paths):
-        if not name.startswith('bgm/') or '..' in Path(name).parts or Path(name).is_absolute():
+        if (not name.startswith('bgm/') and name not in recovery) or '..' in Path(name).parts or Path(name).is_absolute():
             raise ValueError('Invalid resource reader output')
-        source = args.bgm / name[4:]
+        source = args.common / name if name in recovery else args.bgm / name[4:]
         body = read(source)
         if not body:
             raise ValueError('Empty music file: ' + name)

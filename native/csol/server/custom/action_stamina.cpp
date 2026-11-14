@@ -2,6 +2,8 @@
 #include "precompiled.h"
 #include "action_stamina.h"
 #include "gameplay_settings.h"
+#include "../characters.h"
+#include "../../scenario/custom/stamina_audio.hpp"
 #include "../scenario/core/game_rules_gate.h"
 #include "../scenario/core/scenario_runtime.h"
 #include "../scenario/core/scenario_session.h"
@@ -26,6 +28,7 @@ struct State
     CBasePlayer* address{};
     std::uint64_t runtimeGeneration{}, round{}, generation{}, life{}, spawn{}, serial{}, tick{}, token{};
     int nativeSpawns{};
+    std::uint32_t recoveryEvents{};
     bool retired{};
     custom::LifeKey key;
     custom::StaminaState stamina;
@@ -52,6 +55,8 @@ struct State
 std::array<State, 33> states;
 std::uint64_t serial{};
 bool operating{};
+int breathMessage{};
+std::shared_ptr<const CSOLScenarioEntityAccess> breathAccess;
 struct Guard { Guard(){operating=true;} ~Guard(){operating=false;} };
 struct PhaseOwner
 {
@@ -122,6 +127,28 @@ State* Find(const Runtime& runtime, CBasePlayer& player)
 }
 }
 
+bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAccess>& access,
+    csol::scenario::ConfigError& error)
+{
+    error={};
+    if(!access||!access->Allowed()||!g_engfuncs.pfnRegUserMsg||!g_engfuncs.pfnGetFileSize||
+        !g_engfuncs.pfnPrecacheSound)
+    {error.message="stamina recovery sound cold APIs are unavailable";return false;}
+    const int message=REG_USER_MSG(custom::BreathMessage,static_cast<int>(custom::BreathMessageSize));
+    if(!access->Allowed())return false;
+    if(message<64||message>255){error.message="stamina recovery message registration failed";return false;}
+    for(const auto* sound:custom::RecoverySounds)
+    {
+        const auto path=std::string("sound/")+sound;
+        const int bytes=g_engfuncs.pfnGetFileSize(path.c_str());
+        if(!access->Allowed())return false;
+        if(bytes<=0){error.message="stamina recovery sound is missing or empty: "+path;return false;}
+        const auto index=PRECACHE_SOUND(sound);if(!access->Allowed())return false;
+        if(index<=0){error.message="stamina recovery sound could not be registered";return false;}
+    }
+    breathAccess=access;breathMessage=message;return true;
+}
+
 bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float now, csol::scenario::ConfigError& error)
 {
     if (operating) return true;
@@ -166,7 +193,24 @@ bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float n
     input.ducked = (player.pev->flags & FL_DUCKING) != 0;
     // No sprint or acceptedJump events: their real movement consumers remain
     // unintegrated. Recovery does not borrow weapon reload/aim eligibility.
-    return state.stamina.Step(input).has_value() && state.Current(runtime, player);
+    const auto before=state.stamina.View(state.key);
+    const auto after=state.stamina.Step(input);
+    if(!after||!state.Current(runtime,player))return false;
+    if(before&&!before->exhausted&&after->exhausted&&!after->infinite)
+    {
+        bool male{};
+        if(!CSOL_CharacterMale(&player,male,access))return state.Current(runtime,player);
+        if(!state.Current(runtime,player))return false;
+        if(breathAccess!=access||breathMessage<64||state.recoveryEvents==UINT32_MAX||
+            !g_engfuncs.pfnMessageBegin||!g_engfuncs.pfnWriteByte||!g_engfuncs.pfnMessageEnd)
+        {error.message="stamina recovery sound has no prepared current transport";return false;}
+        const auto bytes=custom::EncodeRecoverySound({male,state.serial,++state.recoveryEvents});
+        if(!bytes)return false;
+        MESSAGE_BEGIN(MSG_ONE,breathMessage,nullptr,player.pev);
+        for(const auto byte:*bytes)WRITE_BYTE(std::to_integer<unsigned>(byte));
+        MESSAGE_END();
+    }
+    return state.Current(runtime,player);
 }
 std::optional<custom::StaminaView> CSOL_ActionStaminaView(const Runtime& runtime, CBasePlayer& player)
 {
@@ -193,7 +237,7 @@ void CSOL_RetireActionStamina(CBasePlayer& player)
     for (auto& state : states)
         if (state.address == &player) { state.retired = true; state.stamina.Retire(state.key); }
 }
-void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {}; }
+void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {};breathAccess.reset();breathMessage=0; }
 bool CSOL_SetChallengeStaminaPhase(const Runtime& runtime, custom::Phase phase, bool available)
 {
     if (operating || !runtime || runtime->Closing() || !runtime->session ||

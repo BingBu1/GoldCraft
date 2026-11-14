@@ -2,6 +2,7 @@
 #include "../../runtime.hpp"
 #include "../../user_message_chain.hpp"
 #include "scenario_music.hpp"
+#include "scenario_music_program.hpp"
 #include "../../../scenario/core/scenario_music.hpp"
 
 namespace csol::client
@@ -27,7 +28,13 @@ int ReceiveMusic(const char*,int size,void* data)
     if(!packet)return 1;
     const auto delta=packet->revision-revision;
     if(revision && (!delta || delta>=0x80000000u))return 1;
-    revision=packet->revision;
+    if(packet->action==music::Action::PlayThenLoop)
+    {
+        if(!StartScenarioMusicProgram(*packet))
+        {if(engine.Con_DPrintf)engine.Con_DPrintf("CSOLSupport: native night music sequence is unavailable\n");return 1;}
+        revision=packet->revision;owned=true;return 1;
+    }
+    CancelScenarioMusicProgram();revision=packet->revision;
     const bool play=packet->action==music::Action::Play||packet->action==music::Action::Loop;
     if(!play && !owned)return 1;
     const auto command=music::Command(*packet);
@@ -56,14 +63,16 @@ void InitializeScenarioMusic()
     Install(music::MessageName,ReceiveMusic,previousMusic);
     Install("InitHUD",ReceiveInit,previousInit);
 }
-void ScenarioMusicFrame(){SynchronizeMusic();}
+void ScenarioMusicFrame(){SynchronizeMusic();ScenarioMusicProgramFrame();}
 void ResetScenarioMusic()
 {
+    CancelScenarioMusicProgram();
     if(owned && engine.pfnClientCmd)engine.pfnClientCmd("mp3 stop\n");
     owned=false;revision=0;
 }
 void ShutdownScenarioMusic()
 {
+    ShutdownScenarioMusicProgram();
     // MetaHook ExitGame runs after the engine has destroyed its command buffer.
     // Normal map/session resets still stop owned music while the engine lives.
     owned=false;revision=0;level.clear();

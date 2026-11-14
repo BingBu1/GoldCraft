@@ -439,6 +439,7 @@ bool CSOL_PrecacheHumanKick(const std::shared_ptr<const CSOLScenarioEntityAccess
     if (!current()) return false;
     if (!candidate.model || !candidate.viewmodel || candidate.message < 64 || candidate.message > 255)
     { error.message = "human kick resource registration failed"; return false; }
+    if(!CSOL_PrecacheActionStamina(access,error)||!current())return false;
     resources = candidate;
     return true;
 }

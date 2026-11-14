@@ -27,7 +27,10 @@ void Send(csol::music::Action action,std::uint32_t revision,std::string path={})
     Check(!bytes.empty());Check(Dispatch(csol::music::MessageName,int(bytes.size()),bytes.data())==1);
 }
 }
-namespace csol::client { cl_enginefunc_t engine{};metahook_api_t* api{}; }
+namespace csol::client {
+cl_enginefunc_t engine{};metahook_api_t* api{};
+void* Resolve(const char*,mh_gamesymbol_kind_t){throw std::runtime_error("unavailable native sequence symbols in legacy music fixture");}
+}
 int main(int argc,char** argv)
 {
     using namespace csol;using namespace csol::client;using namespace fixture;

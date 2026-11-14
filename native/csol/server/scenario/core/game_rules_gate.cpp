@@ -710,6 +710,28 @@ public:
                 CSOL_RejectGameRules("Scenario custom challenge phase could not reach stamina authority.");
                 return false;
             }
+            const auto runtime=m_runtime;
+            const auto session=runtime->session;
+            const auto music=session->Music();
+            const bool night=value->time.phase==custom::Phase::Night;
+            if(night&&m_timeMusicChallenge!=value->challenge)
+            {
+                const auto choice=RANDOM_LONG(0,1);
+                if(!Ready()||m_runtime!=runtime||runtime->session!=session||session->Map().RoundGeneration()!=round)
+                    return false;
+                if(choice<0||choice>1)
+                {CSOL_RejectGameRules("Scenario night music random choice is invalid.");return false;}
+                m_timeMusicChallenge=value->challenge;m_timeMusicChoice=static_cast<csol::music::NightChoice>(choice);
+            }
+            const bool selected=music&&(value->time.phase==custom::Phase::Dusk?
+                music->SetDusk(value->challenge):music->SetNight(value->challenge,night,m_timeMusicChoice));
+            if (!Ready()||m_runtime!=runtime||runtime->session!=session||session->Map().RoundGeneration()!=round)
+                return false;
+            if (!selected)
+            {
+                CSOL_RejectGameRules("Scenario challenge night music could not reach its current owner.");
+                return false;
+            }
             m_timePublishedRound = round; m_timePublishedPhase = value->time.phase;
         }
         if (m_timeSentRound==round && m_timeSentPhase==value->time.phase && m_timeSentPreparing==value->preparing)
@@ -2198,6 +2220,8 @@ private:
     std::uint64_t m_timeSentRound{};
     csol::scenario::custom::Phase m_timeSentPhase{csol::scenario::custom::Phase::Ended};
     bool m_timeSentPreparing{},m_timeSending{};
+    std::uint64_t m_timeMusicChallenge{};
+    csol::music::NightChoice m_timeMusicChoice{};
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
     std::array<bool, 33> m_givingDefaultPrimary{};

@@ -29,6 +29,7 @@ def main():
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument('--countdown-only', action='store_true')
     selection.add_argument('--client-only', action='store_true')
+    selection.add_argument('--server-only', action='store_true')
     args = parser.parse_args()
     output = args.output.absolute()
     if not output.resolve().is_relative_to(ROOT / 'build'):
@@ -55,18 +56,27 @@ def main():
             'native/csol/client/runtime.hpp', 'native/csol/client/scenario/core/scenario_music.hpp',
             'native/csol/client/scenario/core/scenario_music.cpp',
             'external/MetaHookSv-20261007/MetaHook/src/metahook.cpp')]
-        inputs += [TESTS / 'client.cpp', TESTS / 'README.md']
+        inputs += [TESTS / name for name in ('client.cpp','program.cpp','stamina_audio.cpp','README.md')]
     else:
         inputs += sorted(path for path in TESTS.rglob('*') if path.is_file())
     inputs += [Path(__file__), ROOT / 'tools/Test-CSOLScenarioMusic.ps1']
+    inputs += [ROOT / name for name in ('native/csol/client/scenario/core/scenario_music_program.cpp',
+        'native/csol/client/scenario/core/stamina_audio.cpp','native/csol/scenario/custom/stamina.cpp')]
+    # Header consumers grew during the source-layout migration. Record their
+    # actual possible inputs before compilation and verify observed includes.
+    inputs += sorted((ROOT / 'native/csol').rglob('*.hpp'))
+    inputs += sorted((ROOT / 'native/csol').rglob('*.h'))
+    inputs = list(dict.fromkeys(inputs))
     before = [identity(path) for path in inputs]
+    recorded = {row['path']: row for row in before}
+    observed = set()
     extracted = []
     for filename, signature, target in (
         ('scenario_music.cpp', 'bool CCSOLScenarioMusic::PrecacheFile', 'actual_server.inc'),
         ('scenario_bgm_trigger.cpp', 'void CCSOLTriggerBGM::KeyValue', 'actual_trigger.inc')):
         if args.client_only:
             continue
-        source = ROOT / 'native/csol/server' / filename
+        source = ROOT / 'native/csol/server/scenario/core' / filename
         text = source.read_text(encoding='utf-8')
         if text.count(signature) != 1:
             raise RuntimeError('Expected unique production method boundary: ' + signature)
@@ -78,7 +88,7 @@ def main():
     flags = ['--target=i686-pc-windows-msvc', '/nologo', '/std:c++20', '/EHsc', '/MT',
              '/W4', '/utf-8', '/clang:-O3', '/clang:-flto=thin', '/arch:AVX2',
              '/fp:precise', '/Gy', '/Gw', '/DNDEBUG', '/DNOMINMAX',
-             '/D_CRT_SECURE_NO_WARNINGS', '/DNO_MALLOC_OVERRIDE',
+             '/D_CRT_SECURE_NO_WARNINGS', '/DNO_MALLOC_OVERRIDE', '/showIncludes',
              '/DGLEW_STATIC', '/DGLEW_NO_GLU']
     includes = [ROOT / 'native', ROOT / 'native/csol/client',
                 ROOT / 'native/csol/server', ROOT / 'native/csol', output]
@@ -101,6 +111,13 @@ def main():
                                 encoding='utf-8', errors='replace')
         log = result.stdout + result.stderr
         (output / (name + '.log')).write_text(log, encoding='utf-8')
+        for include_name in re.findall(r'Note: including file:\s*([^\r\n]+)', log):
+            path = Path(include_name.strip()).resolve(strict=True)
+            if path.is_relative_to(ROOT / 'native/csol'):
+                row = identity(path)
+                if recorded.get(row['path']) != row:
+                    raise RuntimeError('Unrecorded or changed actual music input: ' + str(path))
+                observed.add(row['path'])
         results.append(dict(name=name, exitCode=result.returncode))
         (output / 'exit-codes.json').write_text(json.dumps(results, indent=2) + '\n', encoding='utf-8')
         if result.returncode:
@@ -112,14 +129,21 @@ def main():
         ('protocol', ROOT / 'native/csol/scenario/core/scenario_music.cpp', []),
         ('countdown-test', TESTS / 'countdown.cpp', []),
         ('client', ROOT / 'native/csol/client/scenario/core/scenario_music.cpp', client_includes),
+        ('program', ROOT / 'native/csol/client/scenario/core/scenario_music_program.cpp', client_includes),
         ('client-test', TESTS / 'client.cpp', client_includes),
+        ('program-test', TESTS / 'program.cpp', client_includes),
+        ('stamina-state', ROOT / 'native/csol/scenario/custom/stamina.cpp', []),
+        ('stamina-audio-test', TESTS / 'stamina_audio.cpp', client_includes),
         ('round-settings', ROOT / 'native/csol/scenario/core/round_settings.cpp', []),
         ('server-test', TESTS / 'server.cpp', []),
+        ('night-test', TESTS / 'night.cpp', []),
         ('trigger-test', TESTS / 'trigger.cpp', [TESTS / 'stubs']))
     for name, source, extra in units:
         if args.countdown_only and name not in ('protocol', 'countdown-test'):
             continue
-        if args.client_only and name not in ('protocol', 'client', 'client-test'):
+        if args.client_only and name not in ('protocol', 'client', 'program', 'client-test', 'program-test','stamina-state','stamina-audio-test'):
+            continue
+        if args.server_only and name in ('client', 'program', 'client-test', 'program-test', 'countdown-test','stamina-state','stamina-audio-test'):
             continue
         obj = output / (name + '.obj')
         run(name + '-compile', [args.clang, *flags,
@@ -127,12 +151,17 @@ def main():
         objects[name] = obj
     for name, members in (
         ('countdown', ('protocol', 'countdown-test')),
-        ('client', ('protocol', 'client', 'client-test')),
+        ('client', ('protocol', 'client', 'program', 'client-test')),
+        ('program', ('protocol', 'program-test')),
+        ('stamina-audio', ('protocol','client','program','stamina-state','stamina-audio-test')),
         ('server', ('protocol', 'round-settings', 'server-test')),
+        ('night', ('protocol', 'round-settings', 'night-test')),
         ('trigger', ('protocol', 'trigger-test'))):
         if args.countdown_only and name != 'countdown':
             continue
-        if args.client_only and name != 'client':
+        if args.client_only and name not in ('client', 'program','stamina-audio'):
+            continue
+        if args.server_only and name in ('client', 'program', 'countdown','stamina-audio'):
             continue
         run(name + '-link', [args.clang, '--target=i686-pc-windows-msvc', '/MT',
             '/clang:-fuse-ld=lld', *[objects[member] for member in members],
@@ -144,16 +173,21 @@ def main():
         ('client', [output / 'client.exe']),
         ('client-no-previous', [output / 'client.exe', '--no-previous']),
         ('client-registered-null', [output / 'client.exe', '--registered-null']),
-        ('server', [output / 'server.exe']), ('trigger', [output / 'trigger.exe'])):
+        ('program', [output / 'program.exe']),
+        ('stamina-audio', [output / 'stamina-audio.exe']),
+        ('server', [output / 'server.exe']), ('night', [output / 'night.exe']),
+        ('trigger', [output / 'trigger.exe'])):
         if args.countdown_only and name != 'countdown':
             continue
-        if args.client_only and not name.startswith('client'):
+        if args.client_only and not (name.startswith('client') or name in ('program','stamina-audio')):
+            continue
+        if args.server_only and (name.startswith('client') or name in ('program', 'countdown','stamina-audio')):
             continue
         log = run(name + '-run', command)
-        match = re.search(r'PASS BGM actual .*? (\d+) checks', log)
-        if not match:
+        matches = re.findall(r'PASS BGM actual .*? (\d+) checks', log)
+        if not matches:
             raise RuntimeError('Missing fixture result for ' + name)
-        checks[name] = int(match[1])
+        checks[name] = int(matches[-1])
         print(log.strip())
     after = [identity(path) for path in inputs]
     if after != before:
@@ -162,6 +196,7 @@ def main():
         extractedMethods=extracted, checks=checks, inputHashesUnchanged=True,
         actualProductionSource=True, countdownOnly=args.countdown_only,
         clientOnly=args.client_only,
+        serverOnly=args.server_only, observedCsolInputs=sorted(observed),
         parallelCompiles=1, audioDevice=False,
         deployed=False, liveGameplay=False,
         boundaries=['Current() authority, message delivery and engine entity operations are fixtures.',

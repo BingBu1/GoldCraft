@@ -35,7 +35,8 @@ bool CCSOLScenarioMusic::PrecacheFile(std::string_view filename,csol::scenario::
     return true;
 }
 
-bool CCSOLScenarioMusic::Precache(const csol::scenario::RoundTable& rounds,csol::scenario::ResourceError& error)
+bool CCSOLScenarioMusic::Precache(const csol::scenario::RoundTable& rounds,csol::scenario::ResourceError& error,
+                                bool challengeNight)
 {
     error={};
     if(s_sending||!Current())return false;
@@ -54,7 +55,15 @@ bool CCSOLScenarioMusic::Precache(const csol::scenario::RoundTable& rounds,csol:
         if(!track){error={"",{index,"unsupported scenario music ID: "+std::to_string(settings.music)}};return false;}
         if(!track->filename.empty()&&!PrecacheFile(track->filename,error))return false;
     }
-    return Current();
+    if(challengeNight)
+    {
+        const auto night=csol::music::FindTrack(18);
+        if(!night||night->action!=csol::music::Action::Play||night->filename.empty())
+        {error={"",{0,"original challenge night track is unavailable"}};return false;}
+        for(const auto file:csol::music::NightFiles)
+            if(!PrecacheFile(file,error))return false;
+    }
+    return Current()&&m_generation==generation;
 }
 
 bool CCSOLScenarioMusic::Send(const csol::music::Packet& packet,CBasePlayer* recipient) const
@@ -80,12 +89,54 @@ bool CCSOLScenarioMusic::Publish(csol::music::Action action,std::string path)
 {
     if(s_sending||!Current())return false;
     const auto generation=m_generation;
+    auto revision=m_mapRevision+1;if(!revision)++revision;
+    csol::music::Packet desired{action,revision,std::move(path)};
+    if(!csol::music::Command(desired))return false;
+    if(!m_night&&!m_dusk&&!PublishOutput(desired.action,desired.path))return false;
+    if(!Current()||generation!=m_generation)return false;
+    m_mapState=std::move(desired);m_mapRevision=revision;
+    return true;
+}
+bool CCSOLScenarioMusic::PublishOutput(csol::music::Action action,std::string path,std::string nextPath)
+{
+    if(s_sending||!Current())return false;
+    const auto generation=m_generation;
     auto revision=m_state.revision+1;if(!revision)++revision;
-    csol::music::Packet packet{action,revision,std::move(path)};
+    csol::music::Packet packet{action,revision,std::move(path),std::move(nextPath)};
     if(!csol::music::Command(packet))return false;
     if(!Send(packet)||generation!=m_generation)return false;
     m_state=std::move(packet);
     return true;
+}
+bool CCSOLScenarioMusic::SetNight(std::uint64_t challenge,bool active,csol::music::NightChoice choice)
+{
+    if(s_sending||!Current()||!challenge||challenge<m_challenge||choice>csol::music::NightChoice::Rex)return false;
+    if(challenge==m_challenge&&active==m_night&&!m_dusk)return !active||choice==m_nightChoice;
+    const auto generation=m_generation;
+    if(active)
+    {
+        const auto path=csol::music::ResourcePath(csol::music::NightFiles[choice==csol::music::NightChoice::Zsh?0:1]);
+        const auto tail=choice==csol::music::NightChoice::Rex?
+            csol::music::ResourcePath(csol::music::NightFiles[2]):std::optional<std::string>{std::string{}};
+        if(!path||!tail||!m_paths.contains(*path)||(!tail->empty()&&!m_paths.contains(*tail))||
+            !PublishOutput(choice==csol::music::NightChoice::Rex?csol::music::Action::PlayThenLoop:
+                csol::music::Action::Loop,*path,*tail))return false;
+    }
+    else if((m_night||m_dusk)&&!PublishOutput(m_mapState.action,m_mapState.path))return false;
+    if(!Current()||m_generation!=generation)return false;
+    m_challenge=challenge;m_night=active;m_dusk=false;if(active)m_nightChoice=choice;
+    return true;
+}
+bool CCSOLScenarioMusic::SetDusk(std::uint64_t challenge)
+{
+    if(s_sending||!Current()||!challenge||challenge<m_challenge||
+        (challenge==m_challenge&&m_night))return false;
+    if(challenge==m_challenge&&m_dusk)return true;
+    const auto path=csol::music::ResourcePath(csol::music::NightFiles[3]);
+    const auto generation=m_generation;
+    if(!path||!m_paths.contains(*path)||!PublishOutput(csol::music::Action::Play,*path))return false;
+    if(!Current()||m_generation!=generation)return false;
+    m_challenge=challenge;m_dusk=true;m_night=false;return true;
 }
 bool CCSOLScenarioMusic::Select(std::uint8_t id)
 {
@@ -107,7 +158,8 @@ bool CCSOLScenarioMusic::Replay(CBasePlayer& player) const
 }
 void CCSOLScenarioMusic::Reset()
 {
-    if(!s_sending&&m_state.revision&&Current())Publish(csol::music::Action::Stop);
+    if(!s_sending&&m_state.revision&&Current())PublishOutput(csol::music::Action::Stop);
     ++m_generation;
-    m_state={};m_paths.clear();m_message=0;
+    m_state={};m_mapState={};m_paths.clear();m_message=0;
+    m_mapRevision=0;m_challenge=0;m_night=m_dusk=false;m_nightChoice={};
 }

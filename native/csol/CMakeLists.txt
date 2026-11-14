@@ -10,7 +10,7 @@ set(METAHOOK_ROOT "${WORKSPACE}/external/MetaHookSv-20261007")
 set(SDK "${METAHOOK_ROOT}/MetaHook/include")
 add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/sequence_guard.cpp client/scene.cpp client/assets.cpp client/hands.cpp hand_adapter.cpp client/weapons/weapons.cpp client/weapons/weapon_module.cpp client/camera.cpp
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
-    client/weapons/projectiles.cpp client/weapons/cannon.cpp client/emotion_voice.cpp client/weapons/k3.cpp client/shared_random.cpp client/scenario/monsters/monster_impact.cpp client/weapons/gun_smoke.cpp client/scenario/core/scenario_music.cpp scenario/core/scenario_music.cpp
+    client/weapons/projectiles.cpp client/weapons/cannon.cpp client/emotion_voice.cpp client/weapons/k3.cpp client/shared_random.cpp client/scenario/monsters/monster_impact.cpp client/weapons/gun_smoke.cpp client/scenario/core/scenario_music.cpp client/scenario/core/scenario_music_program.cpp scenario/core/scenario_music.cpp
     client/weapons/melee.cpp weapons/melee_attacks.cpp
     client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull3.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp client/weapons/balrog11_flame.cpp client/weapons/sniper_scope.cpp
     client/scenario/core/death_notices.cpp client/scenario/core/scenario_kill.cpp scenario/core/scenario_kill.cpp client/scenario/core/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
@@ -23,6 +23,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/scenario/core/scenario_abilities.cpp scenario/core/scenario_abilities.cpp
     client/scenario/core/human_kick.cpp client/scenario/core/human_kick_animation.cpp
     client/scenario/core/challenge_phase.cpp
+    client/scenario/core/stamina_audio.cpp
     client/scenario/bosses/boss_health.cpp scenario/bosses/boss_health.cpp client/scenario/bosses/oberon_hint.cpp
     client/scenario/core/scenario_round_hud_client.cpp scenario/core/scenario_round_hud.cpp scenario/core/scenario_localization.cpp
     client/scenario/core/scenario_respawn_ui.cpp
@@ -249,7 +250,8 @@ if(CSOL_BUILD_PROJECTILE_TESTS)
     target_compile_options(csol_projectile_tests PRIVATE /utf-8 /W3)
     add_test(NAME csol_projectile COMMAND csol_projectile_tests)
 endif()
-add_executable(csol_music_resources scenario/core/music_resources.cpp scenario/core/scenario_music.cpp scenario/core/config.cpp scenario/core/round_settings.cpp scenario/core/spawn_points.cpp)
+add_executable(csol_music_resources scenario/core/music_resources.cpp scenario/core/scenario_music.cpp scenario/core/config.cpp scenario/core/round_settings.cpp scenario/core/spawn_points.cpp scenario/custom/settings.cpp)
+target_include_directories(csol_music_resources PRIVATE "${METAHOOK_ROOT}/MetaHook/thirdparty/rapidjson/include")
 target_compile_features(csol_music_resources PRIVATE cxx_std_20)
 target_compile_options(csol_music_resources PRIVATE /utf-8 /W3)
 add_executable(csol_scenario_hud_resources scenario/core/scenario_hud_resources.cpp

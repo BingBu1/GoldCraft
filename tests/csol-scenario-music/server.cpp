@@ -13,11 +13,12 @@ namespace fixture {
 int checks{},registrations{},sizes{},precaches{},destination{},registeredMessage=64;
 int begins{},ends{},depth{},maxDepth{};
 bool current=true,loading=true,missing{};std::function<void()> onSize,onPrecache,onBegin,onByte,onEnd;
+std::string missingPath;
 std::string precacheArgumentAfterCallback;
 std::vector<std::string> paths;std::vector<csol::music::Packet> packets;std::vector<std::uint8_t> bytes;
 void Check(bool ok,const std::source_location where=std::source_location::current())
 {++checks;if(!ok)throw std::runtime_error("BGM server line "+std::to_string(where.line()));}
-int Size(const char*){++sizes;if(onSize)onSize();return missing?0:500;}
+int Size(const char* path){++sizes;if(onSize)onSize();return missing||missingPath==path?0:500;}
 int Precache(char* path){++precaches;paths.emplace_back(path);if(onPrecache)onPrecache();precacheArgumentAfterCallback=path;return precaches;}
 int Register(const char* name,int length){Check(name==std::string(csol::music::MessageName)&&length==-1);++registrations;return registeredMessage;}
 void Invoke(std::function<void()>& callback){if(callback){auto once=std::move(callback);callback={};once();}}
@@ -130,4 +131,5 @@ int main()
         Check(!cancelledPrecache.Select(1));
         std::cout<<"PASS BGM actual server "<<checks<<" checks; SDK authority and transport edges are fixtures\n";
     }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+    return 0;
 }

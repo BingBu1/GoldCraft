@@ -35,8 +35,8 @@ CBaseEntity* UTIL_FindEntityByClassname(CBaseEntity* previous,const char*)
 bool CCSOLScenarioMusic::PrecacheFile(std::string_view name,csol::scenario::ResourceError& error)
 {++fixture::precaches;if(!csol::music::ResourcePath(name)){error.detail.message="invalid";return false;}return true;}
 bool CCSOLScenarioMusic::Play(std::string_view name,bool loop)
-{++fixture::plays;fixture::last=name;fixture::looping=loop;++m_state.revision;return true;}
-bool CCSOLScenarioMusic::Fade(){++fixture::fades;++m_state.revision;return true;}
+{++fixture::plays;fixture::last=name;fixture::looping=loop;++m_mapRevision;return true;}
+bool CCSOLScenarioMusic::Fade(){++fixture::fades;++m_mapRevision;return true;}
 #include "actual_trigger.inc"
 void Configure(CCSOLTriggerBGM& trigger,const char* filename,const char* loop="1")
 {

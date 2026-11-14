@@ -5,6 +5,8 @@
 #include "config.hpp"
 #include "round_settings.hpp"
 #include "scenario_music.hpp"
+#include "../custom/settings.hpp"
+#include "../custom/stamina_audio.hpp"
 #include <fcntl.h>
 #include <io.h>
 #include <iostream>
@@ -23,7 +25,22 @@ int main(int argc, char** argv)
         if(!path)return false;
         paths.insert(*path);return true;
     };
-    if(std::string_view(argv[1])=="path")
+    if(std::string_view(argv[1])=="recovery")
+    {
+        for(const auto* sound:csol::scenario::custom::RecoverySounds)paths.insert(std::string("sound/")+sound);
+    }
+    else if(std::string_view(argv[1])=="config")
+    {
+        csol::scenario::custom::SnapshotPtr settings;
+        csol::scenario::custom::Error error;
+        if(!csol::scenario::custom::Parse(input,settings,error))
+        {std::cerr<<error.message<<'\n';return 1;}
+        if(settings->Enabled(csol::scenario::custom::Feature::TimeCycle))
+        {
+            for(const auto file:csol::music::NightFiles)if(!add(file))return 1;
+        }
+    }
+    else if(std::string_view(argv[1])=="path")
     {
         if(!add(input))return 1;
     }

@@ -1,5 +1,27 @@
 # 大灾变音乐窄测试
 
+永夜原曲的服务端验证在已初始化固定 x86 Arkari/MSVC 环境的 Git Bash 中执行：
+
+```bash
+python -B tools/Test-CSOLScenarioMusic.py --server-only \
+  --clang "$ARKARI_CLANG_CL" --output build/scenario-night-music-new
+```
+
+它执行真实音乐服务、阶段输出所有权和地图触发器；`night` 的检查数包含一次原服务基线，不能与 `server` 全量相加。黄昏单次播放 `BGM_zombie_attack.mp3`。永夜由服务器每挑战选一次：循环 `Zsh_nightbgm.mp3`，或先播放 `Play_BGM_Rex.mp3`、实际结束后循环 `BGM_Rex_loop.mp3`。阶段占用时保存地图曲意图，结束后恢复；中途入服沿用选择，从头播放，不宣称 seek 同步。普通 `Select(18)` 保持原单次播放。
+
+`--client-only` 额外运行实际原生串接控制器与恢复声音消费者。原生队列、导入函数和设备为受控 ABI 边界；它验证冷安装、暂停/错误不切尾曲、真实完成事件、取消/关闭流、队列满的有界重试及退出。男女恢复声音按 owner/episode 去重；实际体力的耗尽边沿与正午无限亦受检。这些检查不能代替真实音频设备和游戏内听感。
+
+统一 `gameplay.json` 的资源闭包用同一生产配置解析器验证：
+
+```bash
+python -B tests/csol-scenario-music/resource_reader.py \
+  --compiler "$ARKARI_CLANG_CL" \
+  --environment build/compiler-env.json \
+  --output build/scenario-night-resources-new
+```
+
+该测试完整编译生产资源读取器，再执行真实准备器；音乐文件字节为明确夹具，不能据此认定原音频、HTTP 或听感通过。实际准备原曲时给 `tools/Prepare-CSOLScenarioMusic.py` 传 `--gameplay-config` 指向服务器使用的同一文件；服务器包闭包会读取已部署的该文件并要求匹配新版资源读取器。`recovery` 模式从生产数组输出男女 `sprint_end_default.wav`，准备器和打包闭包同样包含它们。
+
 在项目根目录使用 PowerShell 7：
 
 ```powershell
