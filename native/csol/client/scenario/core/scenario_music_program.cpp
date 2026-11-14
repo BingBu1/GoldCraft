@@ -25,6 +25,7 @@ Start originalStart{};
 Status originalStatus{};
 Close originalClose{};
 void* playEntry{};
+void* stopEntry{};
 void* workerReturn{};
 void** queueOwner{};
 std::array<hook_t*,6> hooks{};
@@ -45,13 +46,22 @@ bool Main(){return mainThread&&mainThread==GetCurrentThreadId();}
 
 bool __fastcall EnqueueHook(void* self,void*,void* callback,int a,int b)
 {
-    if(callback!=playEntry)return originalEnqueue(self,callback,a,b);
+    if(callback!=playEntry)
+    {
+        const bool accepted=originalEnqueue(self,callback,a,b);
+        if(accepted&&callback==stopEntry)currentToken.store(0,std::memory_order_release);
+        return accepted;
+    }
     std::lock_guard lock(metadata);
     // Original pending/copy buffers contain at most one Play each because
     // they deduplicate by callback. Eight entries leave a bounded margin.
     if(queuedCount==queued.size())return false;
     const bool accepted=originalEnqueue(self,callback,a,b);
-    if(accepted)queued[queuedCount++]={a,b,submitToken};
+    if(accepted)
+    {
+        queued[queuedCount++]={a,b,submitToken};
+        if(!submitToken)currentToken.store(0,std::memory_order_release);
+    }
     return accepted;
 }
 void ExecutePlay(void* self,int track,int loop,bool fromQueue)
@@ -134,6 +144,7 @@ bool InitializeScenarioMusicProgram()
     {
         registerTrack=reinterpret_cast<Register>(Resolve("CSOL_Music_RegisterTrack",MH_GAMESYMBOL_KIND_FUNCTION));
         playEntry=Resolve("CSOL_Music_Play",MH_GAMESYMBOL_KIND_FUNCTION);
+        stopEntry=Resolve("CSOL_Music_Stop",MH_GAMESYMBOL_KIND_FUNCTION);
         auto* enqueue=Resolve("CSOL_Music_Enqueue",MH_GAMESYMBOL_KIND_FUNCTION);
         workerReturn=static_cast<std::byte*>(Resolve("CSOL_Music_Worker",MH_GAMESYMBOL_KIND_FUNCTION))+0x98;
         queueOwner=reinterpret_cast<void**>(Resolve("CSOL_Music_Queue",MH_GAMESYMBOL_KIND_GLOBAL));

@@ -57,6 +57,7 @@ void* Resolve(const char* name,mh_gamesymbol_kind_t)
 {
     if(std::string_view(name)=="CSOL_Music_RegisterTrack")return reinterpret_cast<void*>(fixture::Register);
     if(std::string_view(name)=="CSOL_Music_Play")return reinterpret_cast<void*>(fixture::Play);
+    if(std::string_view(name)=="CSOL_Music_Stop")return reinterpret_cast<void*>(9);
     if(std::string_view(name)=="CSOL_Music_Enqueue")return reinterpret_cast<void*>(fixture::Enqueue);
     if(std::string_view(name)=="CSOL_Music_Worker")return reinterpret_cast<void*>(3);
     if(std::string_view(name)=="CSOL_Music_Queue")return &fixture::queue;
@@ -133,6 +134,17 @@ int main()
         queueStorage[1]=1;
         Check(!InitializeScenarioMusicProgram(),"active preexisting native queue cannot be silently observed late");
         queueStorage[1]=0;
+        Check(InitializeScenarioMusicProgram(),"cold owner restarts after prior retirement");
+        Check(StartScenarioMusicProgram(request),"foreign stop cancellation starts owned intro");Execute();
+        State(2);
+        Check(EnqueueHook(queue,nullptr,stopEntry,0,0),"original stop callback is accepted by native queue");
+        ScenarioMusicProgramFrame();Check(pending.token==0&&tasks.size()==1,"accepted foreign stop cancels completed intro before tail submission");
+        tasks.clear();
+        Check(StartScenarioMusicProgram(request),"foreign play cancellation starts new intro");Execute();
+        State(2);
+        Check(EnqueueHook(queue,nullptr,playEntry,7,0),"foreign original play accepted");
+        ScenarioMusicProgramFrame();Check(pending.token==0&&tasks.size()==1,"foreign play cancels owned tail without restarting it");
+        Execute();ShutdownScenarioMusicProgram();
         std::cout<<"PASS BGM actual program "<<checks<<" checks; native queue/audio/imports are controlled ABI boundaries\n";
     }
     catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}
