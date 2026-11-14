@@ -21,8 +21,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--sample',type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70'),default='p345')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','automatic'),default='p345')
+    p.add_argument('--automatic-proof',type=Path)
     a=p.parse_args();output=a.output.absolute()
+    if a.weapon=='automatic' and a.automatic_proof is None:p.error('automatic requires its matched IDA byte proof')
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use fresh workspace build directory')
@@ -31,13 +33,21 @@ def main():
              ROOT/'native/guest/cof/magazine_actions.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
+    if a.weapon=='automatic':
+        sources[1]=ROOT/'native/csol/server/weapons/guest_cof_automatic_native_sound.cpp'
+        sources[2]=ROOT/'native/guest/cof/server/glock_weapon.cpp'
+        sources.append(ROOT/'native/guest/cof/automatic_sound.cpp')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
     sample=a.sample.resolve()
     oraclePath=ROOT/'tests/cryoffear-p345-native-effects/oracle.py';inputs.update((sample,oraclePath,ROOT/'tests/cryoffear-ballistics/oracle.py'))
+    if a.weapon=='automatic':
+        oraclePath=ROOT/'tests/cryoffear-automatic-sound/run.py'
+        inputs.update((oraclePath,a.automatic_proof.resolve(),ROOT/'tests/cryoffear-magazine-actions/run.py'))
     spec=importlib.util.spec_from_file_location('native_sound_original',oraclePath);oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
-    with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:original=oracle.generate(sample,cases,expected,a.weapon)
+    with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:
+        original=oracle.generate(sample,a.automatic_proof,cases,expected) if a.weapon=='automatic' else oracle.generate(sample,cases,expected,a.weapon)
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -110,7 +120,7 @@ def main():
         goodCases=(output/'cases.txt').read_text();goodExpected=(output/'expected.txt').read_text()
         bad=[('missing-cases','',goodExpected),('truncated-oracle',goodCases,goodExpected.rsplit('\n',2)[0]+'\n'),
              ('extra-oracle',goodCases,goodExpected+goodExpected.splitlines()[0]+'\n'),
-             ('malformed-case',goodCases.replace('00000004','xxxx0004',1),goodExpected),
+             ('malformed-case','xxxx'+goodCases[4:] if a.weapon=='automatic' else goodCases.replace('00000004','xxxx0004',1),goodExpected),
              ('wrong-oracle',goodCases,goodExpected.replace('00000000','00000001',1))]
         for name,caseText,expectedText in bad:
             caseFile=output/(name+'-cases.txt');expectedFile=output/(name+'-expected.txt')

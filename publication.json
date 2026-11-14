@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tests/cryoffear-automatic-sound/README.md",
+    "docs/2026-11-14_实现-自动武器原版枪声状态与SDK发送-report.md",
     "docs/2026-11-14_实现-TMP与MP5原版弹匣装填-report.md",
     "tests/cryoffear-host-cold/README.md",
     "tests/csol-scenario-teddy-messages/METEOR.md",
