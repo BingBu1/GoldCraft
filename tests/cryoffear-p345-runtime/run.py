@@ -22,6 +22,7 @@ def main():
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--resources',type=Path,required=True)
     p.add_argument('--deployed-root',type=Path,required=True)
+    p.add_argument('--compile-host',action='store_true',help='Also compile the real production host without fixture definitions')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -41,7 +42,9 @@ def main():
     (output/'shared-factory-sdk.inc').write_text(prefix,'utf-8')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
+    host=ROOT/'native/csol/server/weapons/guest_cof_host.cpp' if a.compile_host else None
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
+    if host:inputs.add(host)
     for root in (a.resources.resolve(),a.deployed_root.resolve()):
         if not root.is_relative_to(ROOT/'build') and not root.is_relative_to(ROOT/'sandbox'):raise ValueError('Runtime fixture assets must be in isolated workspace roots')
     inputs.add(factory_fixture)
@@ -107,8 +110,10 @@ def main():
            '/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include')]
     env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));temp=output/'temp';temp.mkdir();env.update(TEMP=str(temp),TMP=str(temp))
     deps=set(inputs);commands=[]
-    for i,source in enumerate(sources):
-        dep=output/f'{i}.d';command=[str(a.compiler),*flags,'/clang:-M','/clang:-MF','/clang:'+str(dep),str(source)]
+    host_flags=[flag for flag in flags if flag!='/DCOF_RUNTIME_P345_FIXTURE=1']
+    for i,source in enumerate(sources+([host] if host else [])):
+        compile_flags=host_flags if source==host else flags
+        dep=output/f'{i}.d';command=[str(a.compiler),*compile_flags,'/clang:-M','/clang:-MF','/clang:'+str(dep),str(source)]
         commands.append(command);run=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=60)
         (output/f'{i}-headers.log').write_text(run.stdout+run.stderr,'utf-8')
         if run.returncode:raise RuntimeError('SDK dependency discovery failed')
@@ -122,12 +127,19 @@ def main():
     if not compiled.returncode:
         tested=subprocess.run([str(exe),str(model),str(a.resources.resolve()),str(a.deployed_root.resolve())],cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
+    host_compile=None;host_command=None
+    if host:
+        host_command=[str(a.compiler),*host_flags,'/c',str(host),'/Fo:'+str(output/'actual-host.obj')]
+        host_compile=subprocess.run(host_command,cwd=output,env=env,capture_output=True,text=True,timeout=180)
+        (output/'actual-host.log').write_text(host_compile.stdout+host_compile.stderr,'utf-8')
     negative=[]
     after={str(v):sha(v) for v in sorted(deps)}
-    success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
+    success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative) and (host_compile is None or host_compile.returncode==0)
     receipt=dict(success=success,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
-                 negative=negative,sourceCopies=0,pistol='p345',boundary='Actual retained map runtime, P345 factory/class, native sounds, canonical player state and cold resources; controlled external visual/message/damage consumers; no actual host hook installation, shop/client transport, deployment or live gameplay acceptance')
+                 negative=negative,sourceCopies=0,pistol='p345',hostCommand=host_command,
+                 hostCompile=None if host_compile is None else host_compile.returncode,
+                 boundary='Actual retained map runtime, P345 factory/class, native sounds, canonical player state and cold resources; controlled external visual/message/damage consumers; optional real host compilation is not execution; no actual host hook installation, shop/client transport, deployment or live gameplay acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')
     print((tested.stdout+tested.stderr) if tested else compiled.stdout+compiled.stderr)
     raise SystemExit(0 if success else 1)

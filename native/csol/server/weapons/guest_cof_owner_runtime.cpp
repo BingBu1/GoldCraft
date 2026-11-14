@@ -74,7 +74,7 @@ bool GlockOwnerRuntime::Current(const OwnerBinding& binding) const noexcept
     return Matches(binding) && slots_[binding.slot].owner.Current() && Matches(binding);
 }
 
-void GlockOwnerRuntime::Clear(Slot& slot) noexcept
+void GlockOwnerRuntime::Clear(Slot& slot, bool retireInventory) noexcept
 {
     slot.ready = false;
     ++slot.generation;
@@ -82,7 +82,7 @@ void GlockOwnerRuntime::Clear(Slot& slot) noexcept
     slot.animations.Reset();
     // Invalidate only an actually matching owner. A disconnected/reused edict
     // must never cause traversal of the new occupant's native inventory.
-    if (EntityMatches(slot.player, slot.entity, slot.serial))
+    if (retireInventory && EntityMatches(slot.player, slot.entity, slot.serial))
     {
         int remaining = InventoryLimit();
         for (int bucket = 0; bucket < MAX_ITEM_TYPES && remaining > 0; ++bucket)
@@ -109,6 +109,33 @@ void GlockOwnerRuntime::Invalidate(unsigned index, const CBasePlayer* expected) 
     auto& slot = slots_[index];
     if (expected && slot.player != expected) return;
     Clear(slot);
+}
+
+void GlockOwnerRuntime::ModelChanging(unsigned index, CBasePlayer& player) noexcept
+{
+    auto* slot = Ready(index, player);
+    if (!slot) { Invalidate(index, &player); return; }
+    const auto binding = Binding(*slot);
+    int remaining = InventoryLimit();
+    for (int bucket = 0; bucket < MAX_ITEM_TYPES; ++bucket)
+        for (auto* item = player.m_rgpPlayerItems[bucket]; item;)
+        {
+            if (remaining-- <= 0 || !Current(binding))
+            { if (Matches(binding)) Clear(*slot); return; }
+            auto* entity = item->edict();
+            if (!entity || !EntityMatches(item, entity, entity->serialnumber))
+            { Clear(*slot); return; }
+            const EHANDLE next(item->m_pNext);
+            const bool hadNext = item->m_pNext != nullptr;
+            if (auto* weapon = dynamic_cast<guest::cof::server::OwnerFrameWeapon*>(item);
+                weapon && item->m_pPlayer == &player) weapon->OwnerModelChanging();
+            if (!Current(binding)) { if (Matches(binding)) Clear(*slot); return; }
+            item = next.Get<CBasePlayerItem>();
+            if (hadNext && !item) { Clear(*slot); return; }
+        }
+    // The items already retired through their explicit model boundary. A second
+    // generic invalidation here would discard the just-authenticated capture.
+    Clear(*slot, false);
 }
 
 bool GlockOwnerRuntime::BeginMap(std::uint64_t epoch) noexcept

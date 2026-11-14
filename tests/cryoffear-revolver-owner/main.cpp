@@ -141,7 +141,7 @@ int main(int argc,char** argv)
     player.m_rgpPlayerItems[PISTOL_SLOT]=&probe;
     Check(runtime.BeginPreThink(19,player)&&probe.advances==1);
     Check(!runtime.BeginPreThink(19,player)&&probe.advances==1);
-    runtime.Invalidate(19,&player);Check(probe.retirements==1);
+    runtime.ModelChanging(19,player);Check(probe.retirements==1&&!runtime.Current(runtimeView.binding));
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;
     for(int i=2;i<=3;++i)
     {

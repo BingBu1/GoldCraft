@@ -274,7 +274,7 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
     }
     catch (...) { if (current()) host.runtime.PlayerDisconnected(player); }
 }
-void Retire(CBasePlayer& player, bool disconnect) noexcept
+void Retire(CBasePlayer& player, bool disconnect, bool modelChanging = false) noexcept
 {
     auto* map = host.active;
     const auto slot = Slot(player);
@@ -295,7 +295,9 @@ void Retire(CBasePlayer& player, bool disconnect) noexcept
     if (!current(&state)) return;
     map->sounds.ResetPlayer(player, {&state, current});
     if (!current(&state)) return;
-    if (disconnect) host.runtime.PlayerDisconnected(player); else host.runtime.PlayerDied(player);
+    if (disconnect) host.runtime.PlayerDisconnected(player);
+    else if (modelChanging) host.runtime.PlayerModelChanging(player);
+    else host.runtime.PlayerDied(player);
     if (disconnect) { row = {}; row.revision = revision; }
 }
 }
@@ -403,7 +405,7 @@ void CSOL_GuestCofModelChanging(CBasePlayer& player) noexcept
     const bool captured = host.runtime.PersistentState(player, persistent);
     if (!Current(map) || entity.Get<CBasePlayer>() != &player) return;
     if (captured) { row.persistent = persistent; row.persistentCaptured = true; }
-    Retire(player, false);
+    Retire(player, false, true);
 }
 void CSOL_GuestCofModelChanged(CBasePlayer& player) noexcept { PreparePlayer(player, false); }
 void CSOL_GuestCofUserInfoChanged(CBasePlayer& player) noexcept { PreparePlayer(player, false); }

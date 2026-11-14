@@ -342,7 +342,7 @@ struct GlockRuntime::State
         auto* owner=map.players[index].backend;
         if(!owner||owner->player!=&player||!RevolverCurrent(owner))return false;
         output={owner,RevolverCurrent,RevolverFrame,RevolverEffectBoundary,map.host.revolver.effects|RevolverNativeSoundEffects,
-            owner->revolverView.animation,owner->revolverView.animationGeneration};
+            owner->revolverView.animation,owner->revolverView.animationGeneration,owner->view.binding.life};
         return true;
     }
     static bool RevolverInventoryPickup(void* opaque,CBasePlayer& player,RevolverWeapon& weapon,int itemString) noexcept
@@ -351,19 +351,27 @@ struct GlockRuntime::State
         return itemString>0&&itemString==map.revolverResources.inventoryItemString&&weapon.ResourcesReady()&&
             RevolverBackendsFor(&map,player,backend)&&Current(&map);
     }
-    void Invalidate(CBasePlayer& player) noexcept
+    void Invalidate(CBasePlayer& player, bool modelChanging = false) noexcept
     {
-        if (!active) return;
+        auto* map=active;
+        if (!map) return;
+        Call call(*map);
         const auto index = Slot(player);
-        if (!index || active->players[index].object != &player) return;
-        if(auto* owner=active->players[index].backend;owner)
+        if (!index || map->players[index].object != &player) return;
+        auto* owner=map->players[index].backend;
+        if (modelChanging)
+        {
+            map->owners.ModelChanging(index, player);
+            if(!Current(map)||map->players[index].object!=&player||map->players[index].backend!=owner)return;
+        }
+        if(owner)
         {
             if(owner->p345)owner->p345->Invalidate();
             if(owner->revolver)owner->revolver->Invalidate();
         }
-        active->players[index].ready = false;
-        active->players[index].backend = nullptr;
-        active->owners.Invalidate(index, &player);
+        map->players[index].ready = false;
+        map->players[index].backend = nullptr;
+        if (!modelChanging) map->owners.Invalidate(index, &player);
     }
     bool PreparePlayer(CBasePlayer& player, const GlockPlayerPreparation& request,
         bool spawn, std::string& error)
@@ -519,6 +527,7 @@ bool GlockRuntime::PlayerSpawned(CBasePlayer& player, const GlockPlayerPreparati
 { return state_->PreparePlayer(player, request, true, error); }
 bool GlockRuntime::PlayerModelChanged(CBasePlayer& player, const GlockPlayerPreparation& request, std::string& error)
 { return state_->PreparePlayer(player, request, false, error); }
+void GlockRuntime::PlayerModelChanging(CBasePlayer& player) noexcept { state_->Invalidate(player, true); }
 void GlockRuntime::PlayerDied(CBasePlayer& player) noexcept { state_->Invalidate(player); }
 void GlockRuntime::PlayerDisconnected(CBasePlayer& player) noexcept { state_->Invalidate(player); }
 bool GlockRuntime::Backend(CBasePlayer& player, GlockBackends& output) noexcept

@@ -75,20 +75,39 @@ bool RevolverWeapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& outpu
 bool RevolverWeapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
 {
     if(!pev||m_pPlayer!=&player)return false;
+    const auto pending=modelRebind_;
+    modelRebind_.reset();
     const auto previous=lease_;
     if(bound_&&Current(const_cast<Lease*>(&previous))&&pev->owner==player.edict())return true;
     const auto world=worldLease_;const auto cold=cold_;const auto prepared=prepared_;
     if(!WorldCurrent(world)||!cold.ownerBackends)return false;
+    const auto sameInventory=[&]() noexcept
+    {
+        return !pending||(pending->owner==player.edict()&&
+            pending->ownerSerial==player.edict()->serialnumber&&pending->weaponSerial==edict()->serialnumber&&
+            pending->spawn==player.m_iNumSpawns&&pending->map==worldLease_.context&&
+            pending->selected==(player.m_pActiveItem==this));
+    };
+    if(!sameInventory()) { Invalidate(); return false; }
     const EHANDLE owner(&player);RevolverBackends backend{};
     const bool found=cold.ownerBackends(cold.context,player,backend);
-    if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found)return false;
+    if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found||!sameInventory()||
+        (pending&&(!backend.ownerLife||pending->life!=backend.ownerLife)))return false;
     if(Bind(player,prepared,backend)!=RevolverStatus::Ready)return false;
     const auto lease=lease_;
     AttachToPlayer(&player);
     if(!Current(const_cast<Lease*>(&lease)))return false;
     selected_=player.m_pActiveItem==this;
     if(pev->owner!=player.edict())return false;
-    return !selected_||PublishOwnerState();
+    if(selected_&&!PublishOwnerState())
+    { if(pending) { const auto result=status_;Invalidate();status_=result; } return false; }
+    if(pending)
+    {
+        cylinderThink_=pending->cylinderThink;cylinderDeadline_=pending->cylinderDeadline;
+        meleePending_=pending->meleePending;meleeDeadline_=pending->meleeDeadline;
+        ScheduleThink();
+    }
+    return true;
 }
 bool RevolverWeapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapshot& input) noexcept
 {
@@ -202,6 +221,7 @@ RevolverStatus RevolverWeapon::Bind(CBasePlayer& owner, const RevolverPrepared& 
                           const RevolverBackends& backends) noexcept
 {
     bound_ = selected_ = meleePending_ = false;
+    modelRebind_.reset();
     status_ = RevolverStatus::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
         backends.preparedEffects != RevolverRequiredEffects || !backends.playerAnimation)
@@ -940,10 +960,26 @@ void RevolverWeapon::WeaponIdle()
 }
 void RevolverWeapon::Invalidate() noexcept
 {
+    modelRebind_.reset();
     bound_ = selected_ = meleePending_ = false;
     cylinderThink_ = CylinderThink::None;
     SetThink(nullptr); if (pev) pev->nextthink = 0;
     status_ = RevolverStatus::Cancelled;
+}
+void RevolverWeapon::OwnerModelChanging() noexcept
+{
+    RevolverOwnerFrame frame{};
+    const auto dispatch=static_cast<decltype(m_pfnThink)>(&RevolverWeapon::DispatchThink);
+    if(!Check(frame,false)||!ResourcesReady()||!backends_.ownerLife||
+        selected_!=(m_pPlayer->m_pActiveItem==this)||
+        ((cylinderThink_!=CylinderThink::None||meleePending_)&&m_pfnThink!=dispatch)||
+        !std::isfinite(cylinderDeadline_)||!std::isfinite(meleeDeadline_))
+    { Invalidate(); return; }
+    const ModelRebind pending{lease_.owner,worldLease_.context,backends_.ownerLife,
+        lease_.ownerSerial,lease_.weaponSerial,m_pPlayer->m_iNumSpawns,cylinderThink_,
+        cylinderDeadline_,meleeDeadline_,selected_,meleePending_};
+    Invalidate();
+    modelRebind_=pending;
 }
 bool RevolverWeapon::Body(int value) noexcept
 {

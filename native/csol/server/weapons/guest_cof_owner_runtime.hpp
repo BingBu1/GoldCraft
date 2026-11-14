@@ -83,6 +83,7 @@ public:
     // Death, disconnect, role/model/content change. Also clears actual carried
     // Glock delayed callbacks, without invoking native drop or resetting CS guns.
     void Invalidate(unsigned slot, const CBasePlayer* expected = nullptr) noexcept;
+    void ModelChanging(unsigned slot, CBasePlayer&) noexcept;
 
     // Convenience only when opaque points to an immutable OwnerBinding value.
     static bool BackendCurrent(void* opaque) noexcept;
@@ -109,7 +110,7 @@ private:
     static bool OwnerCurrent(void*, CBasePlayer&, std::uint64_t, std::uint64_t) noexcept;
     OwnerBinding Binding(const Slot&) const noexcept;
     Slot* Ready(unsigned, CBasePlayer&) noexcept;
-    void Clear(Slot&) noexcept;
+    void Clear(Slot&, bool retireInventory = true) noexcept;
     bool AdvanceInventory(Slot&) noexcept;
     std::array<Slot, SlotCount> slots_{};
     std::uint64_t map_{};

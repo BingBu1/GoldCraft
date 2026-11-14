@@ -95,6 +95,7 @@ public:
     // Model change preserves explicit owner state but revokes old weapon leases.
     bool PlayerSpawned(CBasePlayer&, const GlockPlayerPreparation&, std::string&);
     bool PlayerModelChanged(CBasePlayer&, const GlockPlayerPreparation&, std::string&);
+    void PlayerModelChanging(CBasePlayer&) noexcept;
     void PlayerDied(CBasePlayer&) noexcept;
     void PlayerDisconnected(CBasePlayer&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::GlockBackends&) noexcept;

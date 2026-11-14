@@ -29,6 +29,18 @@ struct Context
     std::map<std::string,int> stringIds,models,soundIds,generics,events;
 } context;
 
+struct ModelRetireProbe final:CBasePlayerWeapon,OwnerFrameWeapon
+{
+    unsigned retirements{};
+    void AdvanceOwnerFrame() noexcept override {}
+    void Invalidate() noexcept override { ++retirements; }
+    void OwnerModelChanging() noexcept override
+    {
+        context.runtime->EndMap();
+        context.releaseWhileBorrowed=context.runtime->EngineEntitiesReleased(context.epoch);
+    }
+};
+
 std::vector<byte> Read(const fs::path& path)
 {
     std::ifstream input(path,std::ios::binary);Check(input.good());
@@ -263,6 +275,9 @@ int main(int argc,char** argv)
     const auto loadsBefore=context.loads,effectsBefore=context.revolverEffects;
     player.m_pActiveItem=&weapon;Check(runtime.PersistentState(player,saved));player.m_pActiveItem=revolver;
     request.revolver->state=saved;
+    Check(revolverBackend.ownerLife!=0);
+    runtime.PlayerModelChanging(player);
+    Check(!revolverBackend.current(revolverBackend.context));
     Check(runtime.PlayerModelChanged(player,request,error)&&!revolverBackend.current(revolverBackend.context));
     Check(context.loads==loadsBefore&&context.revolverEffects==effectsBefore);
     RevolverBackends rebound{};Check(runtime.Backend(player,rebound)&&rebound.context!=revolverBackend.context);
@@ -286,14 +301,47 @@ int main(int argc,char** argv)
     Check(!runtime.PreserveRevolverReload(player,PLAYER_JUMP,desired)&&desired==999);
     globals.time=80;player.pev->button=0;
     Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player)&&runtime.EndPostThink(player));
-    globals.time=85;player.pev->button=IN_ATTACK;context.retireRevolver=true;
+    player.m_rgAmmo[revolver->m_iPrimaryAmmoType]=50;
+    revolver->Reload();Check(revolver->Status()==RevolverStatus::Applied&&revolver->CylinderState().loading);
+    const auto originalThink=revolver->pev->nextthink,originalAttack=revolver->m_flNextPrimaryAttack;
+    Check(originalThink>globals.time&&runtime.PersistentState(player,saved));request.revolver->state=saved;
+    const auto previousLife=rebound.ownerLife;
+    runtime.PlayerModelChanging(player);Check(!rebound.current(rebound.context)&&revolver->m_pfnThink==nullptr);
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,rebound)&&rebound.ownerLife==previousLife);
+    Check(revolver->RestoreInventoryBinding(player)&&revolver->pev->nextthink==originalThink&&
+        revolver->m_flNextPrimaryAttack==originalAttack&&revolver->CylinderState().loading);
+    for(int i=0;i<12&&revolver->m_pfnThink;++i)
+    {
+        globals.time=revolver->pev->nextthink;revolver->DispatchThink();
+        if(revolver->CylinderState().pending)
+        {
+            globals.time=std::nextafter(revolver->CylinderState().commitDeadline,INFINITY);
+            revolver->ItemPostFrame();
+        }
+    }
+    Check(revolver->m_iClip==5&&!revolver->CylinderState().loading&&revolver->m_pfnThink==nullptr&&
+        player.m_rgAmmo[revolver->m_iPrimaryAmmoType]==45);
+    globals.time=revolver->m_flNextPrimaryAttack+1;player.pev->button=IN_ATTACK;context.retireRevolver=true;
     Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
     revolver->PrimaryAttack();Check(revolver->Status()==RevolverStatus::Cancelled&&!context.releaseWhileBorrowed);
     Check(!runtime.PreparedRevolverResources()&&!rebound.current(rebound.context));
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
     DestroyP345();revolverEntity.pvPrivateData=nullptr;Check(runtime.EngineEntitiesReleased(3));
+    const auto revolverInventory=context.files.at(RevolverInventory.host);
     context.epoch=4;context.files.erase(RevolverInventory.host);
     Check(!runtime.BeginMap(Callbacks(true,true))&&!runtime.PreparedRevolverResources());
     Check(runtime.EngineEntitiesReleased(4));
+    // A model-boundary callback may retire the map while its inventory is
+    // being traversed. The retained map must survive until that call returns.
+    context.files[RevolverInventory.host]=revolverInventory;context.epoch=5;
+    Check(bool(runtime.BeginMap(Callbacks(true,true))));
+    Check(runtime.PlayerSpawned(player,PlayerPreparation(true,true),error));
+    ModelRetireProbe probe;edict_t probeEntity{};InitEdict(probeEntity);
+    probe.pev=&probeEntity.v;probeEntity.pvPrivateData=&probe;probe.m_pPlayer=&player;probe.m_pNext=nullptr;
+    player.m_rgpPlayerItems[PISTOL_SLOT]=&probe;player.m_pActiveItem=&probe;
+    runtime.PlayerModelChanging(player);
+    Check(!runtime.Resources()&&!context.releaseWhileBorrowed&&probe.retirements==1);
+    player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
+    Check(runtime.EngineEntitiesReleased(5));
     std::cout<<"P345/Revolver actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
 }

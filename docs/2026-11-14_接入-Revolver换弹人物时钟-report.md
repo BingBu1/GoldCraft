@@ -72,3 +72,17 @@ VP70 当前源重新验证：build/cof-vp70-current-20261114-01 的320开火/180
 第三轮 `build/cof-revolver-reload-expanded-server-20261114-03` 完整MP编译/链接0错误，产物SHA `9bb0cedf25c2c21aece3108fc84dcdabfdb8f91fb381927553ee352316e4a5a9`，但广域冻结拒绝新增的 scenario_music_program.cpp/.hpp。随后尝试既有逐依赖审核，`build/cof-revolver-reload-expanded-scope-20261114-04.log` 又准确拒绝实际服务器源 `native/csol/scenario/core/music_resources.cpp` 的后续变化。因此未封为可部署构建、未更新任何运行DLL。范围工具临时允许“仅新增”的入口条件已恢复原源码；没有把可用性判断改成强制成功。下一次完整构建需覆盖稳定后的真实输入，不能拿旧链接产物替代新音乐/武器源。
 
 本轮阶段提交已发布 main d714dc4（换弹时钟）、2f8b102（高弹药）、177db69（六帧冷导出/有界构建调度）。VP70组件/高备弹另由 ce0dcba 发布，原320/180/279/90与SDK4549通过；见[VP70报告](2026-11-14_接入-VP70原生组件与高备弹兼容-report.md)。P345真人确认保持；左轮与VP70实际购买/HUD/认证Host、完整配套部署、实机与多人/性能继续，Goal保持active。按要求无子代理、无非打包跨聊通信。
+
+## 模型更换中的未决动作（11月14日接续）
+
+实现前证据 `model-rebind/implementation-before-v2.json` 核原MP完整SHA、原Reload10065270→Reset10065660→Insert10065430→Set10065760绝对时钟和Secondary100656A0独立玩家think，映射实际宿主 ModelChanging→Retire→canonical Clear→Invalidate。旧实际退休会清掉 cylinderThink/meleePending/nextthink，原本合法的换人物会丢动作；模型替换本身是明确宿主生命周期适配，不能伪称原CoF有相同接口。
+
+`OwnerFrameWeapon`增加显式OwnerModelChanging能力，默认仍调用既有Invalidate。canonical runtime在旧认证绑定有效时有界遍历原库存，调用该能力后再撤销绑定，避免二次清掉已捕获状态。实际Host仅模型入口传递这条路径，死亡/断线/出生/普通失效保持Invalidate。地图runtime借用Call保护包住模型回调；回调中结束地图不能释放正在遍历的对象。
+
+左轮只在旧绑定和实际调度都有效时用固定可选存储保存两种延迟回调、绝对截止、选择状态与原owner/weaponserial/spawn/map/不可变canonical life。新binding携带独立ownerLife；恢复只接受同地图、同生命、同原生库存和选择，不执行Deploy/SetAim，不回滚当前弹药、技能、机瞄、攻击/换弹时钟、spread。新绑定准备成功、当前Aim/Body已发布后才恢复think，一次消费；其他失效清空。未新增资源查询、动态队列或热分配。
+
+验证分列：build/cof-revolver-model-rebind-20261114-02：原792+180场景零差、5221SDK通过；新增真实旧通用退休丢think负例、四个换弹/推搡阶段恢复、严格deadline/不重复调用、技能75/500保持、错误life/spawn/owner/weapon/selection/death/map及失败效果拒绝。model-owner01：13192检查稳定通过，默认武器仍按旧Invalidate一次退休。model-runtime03：371检查稳定通过，完整地图/Owner/工厂资源组合中恢复五发装填和50→45备弹、life不变，回调结束地图时不能提前release；真实生产guest_cof_host.cpp单独非fixture编译0错误。
+
+首轮class01为夹具错误字段名model，按实际PlayerModelGeneration.modelGeneration修正；runtime02新增stack探针未初始化原生m_pNext触发AV，由匹配x86 CDB读出item+A8→next+4→entvars+208=FFFFFFFF，保留crash-stack.log/dmp/root-cause；只初始化探针next=nullptr，runtime03通过，没有修改生产保护来迎合测试。组件/Host编译不等于完整DLL、部署或实机动作通过。左轮实际Host和购买仍未开放，动态HUD/生命种子等继续。
+
+共享精确待同步：PROJECT_STATE/PROGRESS记录模型动作保留源码、5221/13192/371组件和真实Host编译通过，失败完整保留；TODO继续左轮HUD/原生命种子/实际Host购买/整服部署游戏及后续VP70。当前全部CoFGoal不缩小、不关闭，领域记录已落盘，无非打包跨聊。

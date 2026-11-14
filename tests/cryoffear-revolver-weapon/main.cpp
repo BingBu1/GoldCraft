@@ -284,6 +284,68 @@ void DeploySuppressionCases()
     }
 }
 
+void ModelRebindCases()
+{
+    const auto prepareOwned=[]
+    {
+        Initialize();weapon.m_pEntity=&itemWrapper;itemWrapper.m_pContainingEntity=&weapon;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});weapon.Precache();
+        backends.ownerLife=17;Check(weapon.Bind(player,prepared,backends)==RevolverStatus::Ready);
+        weapon.AttachToPlayer(&player);Check(weapon.Deploy());globals.time=10;
+    };
+    const auto replaceModel=[]
+    {
+        ++player.pev->modelindex;++backends.playerModelGeneration.modelGeneration;
+        const auto plan=RecommendedPistolAnimationPlan(Pistol::Revolver,PistolAnimationRig::Stock);std::string error;
+        Check(plan&&animations.Prepare(player,model,backends.playerModelGeneration,Pistol::Revolver,*plan,_stricmp,error));
+    };
+    // Existing generic retirement demonstrably loses the original deferred slot.
+    prepareOwned();weapon.m_iClip=3;weapon.Reload();Check(weapon.pev->nextthink>globals.time);
+    weapon.Invalidate();replaceModel();Check(weapon.RestoreInventoryBinding(player)&&weapon.pev->nextthink==0);
+    for(int stage=0;stage<4;++stage)
+    {
+        prepareOwned();
+        if(stage==3)weapon.SecondaryAttack();
+        else
+        {
+            weapon.m_iClip=3;weapon.Reload();
+            for(int i=0;i<stage;++i){globals.time=weapon.pev->nextthink;weapon.DispatchThink();}
+        }
+        const auto next=weapon.pev->nextthink;Check(next>globals.time);
+        const auto primary=weapon.m_flNextPrimaryAttack,secondary=weapon.m_flNextSecondaryAttack;
+        const auto idle=weapon.m_flTimeWeaponIdle,ownerAttack=player.m_flNextAttack;
+        const int reserve=player.m_rgAmmo[1],clip=weapon.m_iClip,beforeMelee=meleeCalls;
+        const auto cylinder=weapon.CylinderState();
+        weapon.OwnerModelChanging();Check(weapon.m_pfnThink==nullptr&&weapon.pev->nextthink==0);
+        replaceModel();Check(weapon.RestoreInventoryBinding(player)&&weapon.pev->nextthink==next&&weapon.m_pfnThink!=nullptr);
+        Check(Bits(weapon.m_flNextPrimaryAttack)==Bits(primary)&&Bits(weapon.m_flNextSecondaryAttack)==Bits(secondary)&&
+            Bits(weapon.m_flTimeWeaponIdle)==Bits(idle)&&Bits(player.m_flNextAttack)==Bits(ownerAttack));
+        Check(weapon.m_iClip==clip&&player.m_rgAmmo[1]==reserve&&weapon.CylinderState().pending==cylinder.pending&&
+            Bits(weapon.CylinderState().commitDeadline)==Bits(cylinder.commitDeadline));
+        Check(weapon.RestoreInventoryBinding(player)&&weapon.pev->nextthink==next);
+        globals.time=std::nextafter(next,-INFINITY);weapon.DispatchThink();Check(meleeCalls==beforeMelee);
+        globals.time=next;weapon.DispatchThink();
+        if(stage==3){Check(meleeCalls==beforeMelee+1&&weapon.m_pfnThink==nullptr);weapon.DispatchThink();Check(meleeCalls==beforeMelee+1);}
+        else Check(weapon.CylinderState().loading&&weapon.pev->nextthink>next);
+    }
+    // Authority changes inside the model boundary are retained, never rolled back.
+    prepareOwned();weapon.SecondaryAttack();const float next=weapon.pev->nextthink;
+    weapon.OwnerModelChanging();weapon.m_iClip=75;player.m_rgAmmo[1]=500;replaceModel();
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.m_iClip==75&&player.m_rgAmmo[1]==500&&weapon.pev->nextthink==next);
+    for(int mutation=0;mutation<7;++mutation)
+    {
+        prepareOwned();weapon.SecondaryAttack();weapon.OwnerModelChanging();replaceModel();
+        switch(mutation){case 0:++backends.ownerLife;break;case 1:++player.m_iNumSpawns;break;
+        case 2:++ownerEdict.serialnumber;break;case 3:++weaponEdict.serialnumber;break;
+        case 4:player.m_pActiveItem=nullptr;break;case 5:player.pev->deadflag=DEAD_DEAD;break;case 6:current=false;break;}
+        const int before=meleeCalls;Check(!weapon.RestoreInventoryBinding(player));
+        globals.time=30;weapon.DispatchThink();Check(meleeCalls==before&&weapon.m_pfnThink==nullptr);
+    }
+    prepareOwned();weapon.SecondaryAttack();weapon.OwnerModelChanging();replaceModel();failEffect=true;
+    Check(!weapon.RestoreInventoryBinding(player)&&weapon.m_pfnThink==nullptr);
+    prepareOwned();weapon.SecondaryAttack();weapon.OwnerModelChanging();weapon.Invalidate();replaceModel();
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.pev->nextthink==0&&weapon.m_pfnThink==nullptr);
+}
 void ExpandedAmmoCases()
 {
     for(int clip:{6,25,75,511,65535,std::numeric_limits<int>::max()})
@@ -545,6 +607,6 @@ int main(int argc,char** argv)
     Initialize();globals.time=10;frame.pressed=1;weapon.m_iClip=0;weapon.pev->body=0;weapon.m_fFireOnEmpty=0;failEffect=true;
     events.clear();weapon.PrimaryAttack();Check(weapon.Status()==RevolverStatus::MissingBackend&&weapon.ActionState().primary<10&&events.size()==3&&events[0]==unsigned(RevolverEffect::ViewAnimation));
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==898&&info.iMaxClip==5&&info.iMaxAmmo1==50&&info.iMaxAmmo2==-1&&weapon.iItemSlot()==PISTOL_SLOT);
-    InventoryRestoreCases();DeploySuppressionCases();ExpandedAmmoCases();
+    InventoryRestoreCases();DeploySuppressionCases();ExpandedAmmoCases();ModelRebindCases();
     std::cout<<rows<<" Revolver original scenarios, "<<worldRows<<" original world scenarios, "<<checks<<" SDK checks, zero failures\n";
 }

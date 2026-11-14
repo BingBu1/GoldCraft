@@ -11,6 +11,7 @@
 #include "player_animation.hpp"
 #include "weapon_melee.hpp"
 #include "native/csol/server/weapons/weapons.h"
+#include <optional>
 
 namespace guest::cof::server
 {
@@ -93,6 +94,7 @@ struct RevolverBackends
     std::uint32_t preparedEffects{};
     const PlayerAnimationAdapter* playerAnimation{};
     PlayerModelGeneration playerModelGeneration{};
+    std::uint64_t ownerLife{};
 };
 struct RevolverCylinder
 {
@@ -152,6 +154,7 @@ public:
     void ReloadInsert();
     void SetCylinder();
     void Invalidate() noexcept override;
+    void OwnerModelChanging() noexcept override;
     RevolverStatus Status() const noexcept { return status_; }
     const MagazineActionState& ActionState() const noexcept { return action_; }
     const RevolverCylinder& CylinderState() const noexcept { return cylinder_; }
@@ -196,6 +199,17 @@ private:
     // Cylinder and player melee were separate original think slots. A bounded
     // host dispatcher owns two independent clocks; no dynamic queue/allocation.
     enum class CylinderThink : unsigned char { None, Reset, Insert, Set };
+    struct ModelRebind
+    {
+        edict_t* owner{};
+        void* map{};
+        std::uint64_t life{};
+        int ownerSerial{}, weaponSerial{}, spawn{};
+        CylinderThink cylinderThink{};
+        float cylinderDeadline{}, meleeDeadline{};
+        bool selected{}, meleePending{};
+    };
+    std::optional<ModelRebind> modelRebind_;
     void ScheduleCylinder(CylinderThink, float) noexcept;
     void RunCylinder();
     RevolverPrepared prepared_{};
