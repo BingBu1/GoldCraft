@@ -245,6 +245,14 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
         row.modelIndex == player.pev->modelindex && row.modelString == static_cast<int>(player.pev->model) &&
         row.capable == capable&&row.weapons==admission.weapons) return;
     if (row.revision == UINT64_MAX) return;
+    // Capability changes retire the old authority just like a model change.
+    // Capture while its old mask is still authoritative, including withdrawal.
+    if (!spawn && row.prepared && Entity(player, row) && row.userid == userid &&
+        player.pev->deadflag == DEAD_NO && player.pev->health > 0 && player.m_iTeam == CT)
+    {
+        host.runtime.PlayerModelChanging(player);
+        if (!Current(map) || owner.Get<CBasePlayer>() != &player || row.revision != previousRevision) return;
+    }
     const auto revision = ++row.revision;
     row.object = &player; row.serial = player.edict()->serialnumber; row.userid = userid;
     row.modelIndex = player.pev->modelindex; row.modelString = static_cast<int>(player.pev->model);

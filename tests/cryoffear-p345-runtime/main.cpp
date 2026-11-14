@@ -321,6 +321,49 @@ int main(int argc,char** argv)
     }
     Check(revolver->m_iClip==5&&!revolver->CylinderState().loading&&revolver->m_pfnThink==nullptr&&
         player.m_rgAmmo[revolver->m_iPrimaryAmmoType]==45);
+    // Userinfo can renew the same live owner without a prior model callback.
+    // Rebind after one committed round, with attack cancelling the reload.
+    for(bool withdrawal:{false,true})
+    {
+        const auto beforeRenewalShot=revolver->m_iClip;Check(beforeRenewalShot>0);
+        globals.time=std::max(90.0F,globals.time+3.0F);player.pev->button=IN_ATTACK;
+        Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+        revolver->PrimaryAttack();Check(revolver->m_iClip==beforeRenewalShot-1&&runtime.EndPostThink(player));
+        globals.time+=1;player.pev->button=0;
+        Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player)&&runtime.EndPostThink(player));
+        player.m_rgAmmo[revolver->m_iPrimaryAmmoType]=66;
+        revolver->Reload();Check(revolver->CylinderState().loading);
+        globals.time=revolver->pev->nextthink;revolver->DispatchThink();
+        globals.time=revolver->pev->nextthink;revolver->DispatchThink();
+        globals.time=std::nextafter(revolver->CylinderState().commitDeadline,INFINITY);
+        revolver->ItemPostFrame();
+        player.pev->button=IN_ATTACK;
+        Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+        revolver->ItemPostFrame();Check(runtime.EndPostThink(player));
+        Check(revolver->m_iClip==1&&player.m_rgAmmo[revolver->m_iPrimaryAmmoType]==65&&
+            revolver->CylinderState().loading&&revolver->CylinderState().cancel);
+        const auto renewalThink=revolver->pev->nextthink,renewalAttack=revolver->m_flNextPrimaryAttack;
+        Check(renewalThink>globals.time&&runtime.PersistentState(player,saved));request.revolver->state=saved;
+        const auto renewalLife=rebound.ownerLife;
+        if(withdrawal)
+        {
+            // The host captures before publishing a withdrawn capability mask.
+            runtime.PlayerModelChanging(player);runtime.PlayerDisconnected(player);
+            Check(!runtime.Backend(player,rebound)&&revolver->m_pfnThink==nullptr);
+        }
+        Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,rebound)&&rebound.ownerLife==renewalLife);
+        Check(revolver->RestoreInventoryBinding(player));
+        if(!revolver->m_pfnThink)std::cerr<<"Renewal lost reload: clip="<<revolver->m_iClip
+            <<" reserve="<<player.m_rgAmmo[revolver->m_iPrimaryAmmoType]
+            <<" action="<<revolver->ActionState().action<<" loading="<<revolver->CylinderState().loading
+            <<" cancel="<<revolver->CylinderState().cancel<<" status="<<int(revolver->Status())<<'\n';
+        Check(revolver->m_pfnThink&&revolver->pev->nextthink==renewalThink&&
+            revolver->m_flNextPrimaryAttack==renewalAttack&&revolver->CylinderState().loading);
+        player.pev->button=0;globals.time=renewalThink;revolver->DispatchThink();
+        Check(revolver->m_iClip==1&&!revolver->CylinderState().loading&&!revolver->CylinderState().cancel&&
+            revolver->ActionState().action==0&&player.m_rgAmmo[revolver->m_iPrimaryAmmoType]==65);
+        if(revolver->m_pfnThink){globals.time=revolver->pev->nextthink;revolver->DispatchThink();}
+    }
     globals.time=revolver->m_flNextPrimaryAttack+1;player.pev->button=IN_ATTACK;context.retireRevolver=true;
     Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
     revolver->PrimaryAttack();Check(revolver->Status()==RevolverStatus::Cancelled&&!context.releaseWhileBorrowed);

@@ -383,7 +383,9 @@ struct GlockRuntime::State
         auto& p = map->players[index];
         const bool same = p.object == &player && player.edict()->serialnumber == p.serial;
         const auto oldLife = p.life;
-        Invalidate(player);
+        // Same-life renewal can arrive through userinfo without a model prehook.
+        // Retain authenticated inventory tasks before replacing their authority.
+        Invalidate(player, !spawn && same);
         if (!Current(map) || map->bindings.size() >= limits.ownerBindingsPerMap ||
             p.model == std::numeric_limits<std::uint64_t>::max() ||
             ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))

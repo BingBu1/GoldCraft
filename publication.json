@@ -2446,7 +2446,8 @@
     "tests/csol-environment-lightstyles/dll.cpp",
     "tests/csol-environment-lightstyles/run_dll.py",
     "tests/csol-environment-lightstyles/README.md",
-    "docs/2026-11-14_接入-地图光照基线与原版雾消费者-report.md"
+    "docs/2026-11-14_接入-地图光照基线与原版雾消费者-report.md",
+    "docs/2026-11-14_修复-重认证清除左轮装填任务-report.md"
   ],
   "trees": {
     "native": [
