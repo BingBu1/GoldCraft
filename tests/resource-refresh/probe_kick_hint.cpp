@@ -45,7 +45,7 @@ int main(int argc,char** argv)
     for(auto [w,h]:{std::pair{640,480},{800,600},{1280,720},{1920,1080},{1920,1200},{2560,1080},{3840,2160}})
     {
         fake.width=w;fake.height=h;DrawHumanKick(0,0);Paint();const auto layout=csol::scenario::custom::StaminaLayout(w,h);
-        Check(fake.key[0]>=w/2+165+layout.padding&&fake.key[1]==layout.kickY,"actual F hint clears centered skill and purchase rows");
+        Check(fake.key[0]==(w-26-10-hintWidth)/2&&fake.key[1]==h-layout.padding-26,"actual F hint follows bottom-center arrow");
         Check(fake.key[0]+26+10+hintWidth<=w-layout.padding&&fake.key[3]<=h-layout.padding,"complete key/text stay inside viewport");
     }
     allocation_probe::calls=0;allocation_probe::active=true;

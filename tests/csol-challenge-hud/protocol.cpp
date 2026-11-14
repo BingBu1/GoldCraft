@@ -109,22 +109,28 @@ void Stamina()
     for(auto [w,h]:{std::pair{640,480},{1280,720},{1920,1080},{2560,1080},{3840,2160},{7680,4320}})
     {
         const auto p=StaminaLayout(w,h);Check(p.x>=0&&p.y>=0&&p.x+p.width<=w&&p.y+p.height<=h,"stamina safe geometry across resolutions");
-        Check(p.kickY>=p.y+p.height+p.padding&&p.kickY+26<h,"F kick hint has its own vertical slot");
+        Check(p.kickY+26==h-p.padding,"F hint follows user's bottom-edge arrow with safe padding");
         csol::abilities::State skill;Check(skill.Restore({1,30,15,0}),"actual skill geometry is available");
         for(bool elevated:{false,true})
         {
             const auto frame=skill.Layout(w,h,elevated);
             for(unsigned i=0;i<frame.count;++i)
-            {const auto& q=frame.quads[i];Check(p.x>=q.x+q.width+p.padding,"authored HUD clears actual normal and raised skill rectangles");}
+            {const auto& q=frame.quads[i];Check(p.x>=q.x+q.width+p.padding||p.y>=q.y+q.height+p.padding||p.y+p.height+p.padding<=q.y,"stamina clears actual normal and raised skill rectangles");
+             Check(p.kickY>=q.y+q.height+p.padding,"bottom F hint stays below actual skill rectangles");}
         }
-        Check(p.x>=w/2+165+p.padding,"authored HUD clears original330px purchase hint");
+        Check(p.x>=w/2+165+p.padding||p.y+p.height+p.padding<=h-188||p.y>=h-122,"stamina clears actual330px purchase hint");
         for(float scale:{.5f,1.f,1.5f,2.f})
         {
             const auto original=csol::hud_style::MakeLayout(w,h,scale);
             const auto custom=StaminaLayout(w,h,scale);
-            Check(custom.kickY+26+custom.padding<=original.card.y,"F and stamina rows clear actual weapon card across HUD scales");
+            const auto overlap=[&](int x,int y,int width,int height)
+            {return x<original.card.x+original.card.width&&x+width>original.card.x&&y<original.card.y+original.card.height&&y+height>original.card.y;};
+            Check(!overlap(custom.x,custom.y,custom.width,custom.height),"stamina clears actual weapon card across HUD scales");
+            Check(!overlap(w/2-54,custom.kickY,108,26),"bottom F hint clears actual weapon card across HUD scales");
         }
     }
+    const auto arrow=StaminaLayout(1280,720);
+    Check(arrow.x==813&&arrow.y+arrow.height==712&&arrow.kickY==686,"1280x720 preserves screenshot's right anchor and moves both controls to bottom");
 }
 }
 int main(){Protocol();Layouts();Icons();Stamina();std::printf("challenge phase HUD: %u checks passed\n",checks);}

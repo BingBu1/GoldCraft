@@ -56,7 +56,7 @@ int main(int argc,char** argv)
     for(const auto [w,h]:{std::pair{640,480},{1024,768},{1280,720},{1920,1080},{1920,1200},{2560,1080},{3840,2160}})
     {
         fake.width=w;fake.height=h;StaminaHudFrame();DrawStaminaHud(0);Paint();
-        Check(layout.x>w/2+165&&layout.y>=0&&layout.x+layout.width<=w&&layout.kickY>=layout.y+layout.height+layout.padding,"actual resolution change keeps bar and F hint clear of center skill/buy rows");
+        Check(layout.y>=0&&layout.x+layout.width<=w&&layout.y+layout.height<=h-layout.padding&&layout.kickY==h-layout.padding-26,"actual resolution change keeps bottom controls within safe margins");
     }
     const auto prior=fake.fills;
     for(auto* menu:{&test_stamina::buy,&test_stamina::characters,&test_stamina::vote}){*menu=true;DrawStaminaHud(0);Paint();*menu=false;}

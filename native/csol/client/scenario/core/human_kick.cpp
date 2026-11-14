@@ -93,8 +93,8 @@ void Paint()
     // User-authorized F hint, not an invented original CSO HUD layout.
     constexpr int keySize = 26, gap = 10;
     const auto layout=scenario::custom::StaminaLayout(width,height,HudStyleScale());
-    if(!layout.width||keySize+gap+hintWidth>layout.width)return;
-    const int x = layout.x+(layout.width-keySize-gap-hintWidth)/2;
+    if(!layout.width||keySize+gap+hintWidth>width-2*layout.padding)return;
+    const int x = (width-keySize-gap-hintWidth)/2;
     const int y = layout.kickY;
     surface->PushMakeCurrent(root, false);
     surface->DrawSetColor(12, 16, 20, 196);

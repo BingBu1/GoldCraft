@@ -88,11 +88,11 @@ inline PhaseHudLayout PhaseLayout(int width,int height) noexcept
     if (width<320 || height<240 || width>16384 || height>16384) return {};
     const float scale=std::clamp(float(height)/768.0f,.8f,2.0f);
     const int padding=std::max(6,int(10*scale));
-    const int panelWidth=std::min(width-2*padding,int(188*scale));
-    const int panelHeight=int(52*scale);
+    const int panelWidth=std::min(width-2*padding,int(216*scale));
+    const int panelHeight=int(64*scale);
     // Below the existing original Boss panel, clear of bottom skills/ammo.
     const int y=std::max(padding,int(11+float(height)*.1380208283662796f)+padding);
     return {width-padding-panelWidth,std::min(y,height-padding-panelHeight),panelWidth,panelHeight,
-        int(34*scale),padding,std::clamp(int(16*scale+1)/2*2,12,32)};
+        int(48*scale),padding,std::clamp(int(16*scale+1)/2*2,12,32)};
 }
 }

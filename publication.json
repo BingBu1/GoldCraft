@@ -2425,7 +2425,8 @@
     "docs/2026-11-14_接入-CoF三枪角色手模控制器隔离-report.md",
     "tests/cryoffear-hand-controller-scope/README.md",
     "tools/Deploy-ChallengeUi.py",
-    "amxx/tests/csol/goldcraft_phase_audio_live.sma"
+    "amxx/tests/csol/goldcraft_phase_audio_live.sma",
+    "docs/2026-11-14_调整-底部箭头布局与血月清晰度-report.md"
   ],
   "trees": {
     "native": [

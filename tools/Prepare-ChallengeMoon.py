@@ -33,23 +33,30 @@ def prepare(source, output):
     moon.thumbnail((size - 12, size - 10), Image.Resampling.LANCZOS)
     base = Image.new('RGBA', (size, size))
     base.alpha_composite(moon, ((size - moon.width) // 2, 1))
+    pixels=base.load()
+    for y in range(size):
+        for x in range(size):
+            red,green,blue,a=pixels[x,y]
+            if a and red>70 and red>green*1.3 and red>blue*1.2:
+                pixels[x,y]=(min(255,max(195,int(red*1.2))),min(green,35),min(blue,40),a)
     frames = []
     for frame in range(count):
-        # Original moon pixels remain stationary. Small independent droplets
-        # progress downward and disappear at the lower edge, without pulsing.
+        # Keep the moon stationary while thick, high-contrast droplets fall.
+        # Source sizes remain legible after the HUD scales to ~45px at720p.
         work = base.resize((size * 4, size * 4), Image.Resampling.LANCZOS)
         draw = ImageDraw.Draw(work)
-        for x, y, phase in ((22, 44, 0.0), (30, 49, .31), (41, 44, .63)):
+        for x, y, phase in ((22, 41, 0.0), (32, 44, .31), (42, 41, .63)):
             t = (frame / count + phase) % 1.0
             if t < .20:
-                length = t / .20 * 4
-                draw.rounded_rectangle((x * 4 - 3, y * 4, x * 4 + 3, (y + length) * 4), radius=3, fill=(155, 8, 13, 235))
+                length = t / .20 * 6
+                draw.rounded_rectangle((x * 4 - 7, y * 4, x * 4 + 7, (y + length) * 4), radius=6, fill=(232, 16, 25, 255))
             else:
                 falling = (t - .20) / .80
-                dy = y + 4 + 16 * falling * falling
-                radius = 1.3 - .25 * falling
-                opacity = int(255 * min(1, (1 - falling) * 4))
-                draw.ellipse(((x-radius)*4,(dy-radius*1.5)*4,(x+radius)*4,(dy+radius*1.5)*4), fill=(178, 9, 17, opacity))
+                dy = y + 5 + 20 * falling * falling
+                radius = 2.8 - .2 * falling
+                opacity = int(255 * min(1, (1 - falling) * 8))
+                draw.ellipse(((x-radius)*4,(dy-radius*1.5)*4,(x+radius)*4,(dy+radius*1.5)*4), fill=(238, 17, 29, opacity))
+                draw.ellipse(((x-.8)*4,(dy-1.6)*4,(x+.2)*4,(dy+.2)*4),fill=(255,146,129,opacity))
         frames.append(work.resize((size, size), Image.Resampling.LANCZOS))
     atlas = Image.new('RGBA', (columns * size, rows * size))
     for i, frame in enumerate(frames):
