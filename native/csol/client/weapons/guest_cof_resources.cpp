@@ -4,6 +4,7 @@
 #include "guest_cof_resources.hpp"
 #include "guest_cof_effects.hpp"
 #include "../../../guest/cof/resource_catalog.hpp"
+#include "../../../guest/cof/client/resource_groups.hpp"
 #include "../../../guest/cof/admission.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include "../../../include/goldcraft/sound_precache_api.h"
@@ -18,9 +19,7 @@ namespace
 using namespace guest::cof::resources;
 using guest::cof::client::AudioResult;
 using guest::cof::client::AuroraResult;
-constexpr std::array<std::span<const LocalSoundResource>, 2> groups{
-    P345AudioResources, GlockAudioResources};
-constexpr auto maxSamples = P345AudioResources.size() + GlockAudioResources.size();
+constexpr auto maxSamples=guest::cof::client::PistolLocalSampleCount;
 constexpr auto fog = P345Models[static_cast<unsigned>(P345Model::Fog)].host;
 const GoldCraftConnectionAPI* connection{};
 const GoldCraftSoundPrecacheAPI* sounds{};
@@ -106,8 +105,9 @@ void Ready(void*, std::uint64_t generation) noexcept
     // Registration discovery is a no-I/O query. Ordinary servers must never
     // open a CoF file, create an audio device, or load the guest sprite.
     std::array<const LocalSoundResource*, maxSamples> selected{};
-    for (const auto group : groups)
+    for (const auto& definition : guest::cof::client::PistolResourceGroups)
     {
+        const auto group=definition.localSounds;
         unsigned registered{};
         for (const auto& asset : group)
         {
@@ -124,8 +124,13 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
-        candidate.weapons|=guest::cof::PistolCapability(group.data()==GlockAudioResources.data()?
-            guest::cof::Pistol::Glock:guest::cof::Pistol::P345);
+        if(definition.identity==guest::cof::Pistol::Revolver&&!GuestCofRevolverEventsReady())
+        {
+            candidate.status=GuestCofResourceStatus::NativeSoundUnavailable;
+            candidate.resource=RevolverSounds[static_cast<unsigned>(RevolverSound::Shell)].host;
+            Failed(lease,candidate);return;
+        }
+        candidate.weapons|=guest::cof::PistolCapability(definition.identity);
         for (const auto& asset : group) selected[candidate.samples++] = &asset;
     }
     if (!candidate.samples)

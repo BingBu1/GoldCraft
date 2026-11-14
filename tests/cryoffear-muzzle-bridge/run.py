@@ -21,6 +21,7 @@ def main():
     for name in ('environment', 'commands', 'model', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--p345-model',type=Path)
+    parser.add_argument('--revolver-model',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build') or any(
@@ -30,6 +31,8 @@ def main():
         raise ValueError('Actual original Glock P model differs')
     if args.p345_model and sha(args.p345_model)!='c090798e8754084506c6859c268c4db08961c3b0d609afba6a14e50457626bb0':
         raise ValueError('Actual original P345 P model differs')
+    if args.revolver_model and (not args.p345_model or sha(args.revolver_model)!='2a54b7b911ed2e5145947eed39779db5ec83b6707701eeaf9826cb73f8f69312'):
+        raise ValueError('Use the actual Revolver P model together with the P345 model')
     output.mkdir(parents=True)
     helper=ROOT/"tests/common/cpp_function.py"
     spec=importlib.util.spec_from_file_location("cpp_function",helper)
@@ -53,6 +56,7 @@ def main():
     inputs = set(sources)|{plugin,helper,Path(__file__).resolve(), args.commands.resolve(),args.environment.resolve(),
                           args.model.resolve(),compiler,compiler.with_name('lld-link.exe')}
     if args.p345_model:inputs.add(args.p345_model.resolve())
+    if args.revolver_model:inputs.add(args.revolver_model.resolve())
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
     commands = []
@@ -75,6 +79,7 @@ def main():
     if not built.returncode:
         arguments=[str(executable),str(args.model.resolve())]
         if args.p345_model:arguments.append(str(args.p345_model.resolve()))
+        if args.revolver_model:arguments.append(str(args.revolver_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

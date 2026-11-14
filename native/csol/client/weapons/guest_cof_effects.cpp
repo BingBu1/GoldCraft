@@ -3,6 +3,7 @@
 #include "guest_cof_audio.hpp"
 #include "../runtime.hpp"
 #include "../../../guest/cof/resource_catalog.hpp"
+#include "../../../guest/cof/client/resource_groups.hpp"
 #include "../../../guest/cof/client/forward_displacement.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include <event_api.h>
@@ -25,10 +26,11 @@ const ref_params_s* currentRef{};
 ViewPunchState punch;
 ForwardDisplacementState forwardDisplacement;
 Weapon weapon{Weapon::None};
+std::size_t weaponViewIndex{guest::cof::Pistols.size()};
 bool attachedCamera{}, punchUsed{}, prepared{}, eventRegistered{};
 int cameraMode{}, shellIndex{}, flashIndex{}, cheapSmokeIndex{};
 model_t* flashModel{};
-std::array<model_t*,2> viewModels{};
+std::array<model_t*,guest::cof::Pistols.size()> viewModels{};
 cl_enginefunc_t effectsEngine;
 event_api_t effectsEvents;
 EffectResult lastStudio{EffectResult::Unhandled};
@@ -51,7 +53,7 @@ bool Synchronize() noexcept
     const auto next=connection->generation();
     if (next!=generation)
     {
-        AdvanceScope(); ClearResources(); weapon=Weapon::None; generation=next; punch={}; punchUsed=false; currentRef=nullptr;
+        AdvanceScope(); ClearResources(); weapon=Weapon::None; weaponViewIndex=viewModels.size(); generation=next; punch={}; punchUsed=false; currentRef=nullptr;
         attachedCamera=false; cameraMode=0;
         ResetForwardDisplacement(forwardDisplacement);
     }
@@ -109,10 +111,14 @@ __declspec(naked) void AfterNativePunch()
         jmp dword ptr [nativePunchStage]
     }
 }
-model_t* Model(const char* path,modtype_t type=mod_studio,int* output=nullptr) noexcept
+model_t* Model(const char* path,std::uint64_t expectedGeneration,std::uint64_t expectedResources,
+    modtype_t type=mod_studio,int* output=nullptr) noexcept
 {
+    if(!Synchronize()||generation!=expectedGeneration||resourceSerial!=expectedResources)return nullptr;
     const int index=engine.pEventAPI->EV_FindModelIndex(path);
+    if(!Synchronize()||generation!=expectedGeneration||resourceSerial!=expectedResources)return nullptr;
     auto* model=index>0 ? studio.GetModelByIndex(index) : nullptr;
+    if(!Synchronize()||generation!=expectedGeneration||resourceSerial!=expectedResources)return nullptr;
     if (!model || model->type!=type || std::strncmp(model->name,path,sizeof(model->name))) return nullptr;
     if (output) *output=index;
     return model;
@@ -135,7 +141,7 @@ bool InitializeGuestCofEffects(const GoldCraftConnectionAPI* provider)
     AdvanceScope();
     if (!scopeSerial) return false;
     ownerThread=GetCurrentThreadId(); connection=provider; generation=provider->generation();
-    punch={}; punchUsed=false; currentRef=nullptr; attachedCamera=false; cameraMode=0; weapon=Weapon::None;
+    punch={}; punchUsed=false; currentRef=nullptr; attachedCamera=false; cameraMode=0; weapon=Weapon::None; weaponViewIndex=viewModels.size();
     ResetForwardDisplacement(forwardDisplacement);
     ClearResources();
     eventRegistered=false;
@@ -162,15 +168,22 @@ bool PrepareGuestCofEffects() noexcept
     if (!GuestCofAudioReady() || !engine.GetViewModel || !engine.pEventAPI ||
         !engine.pEventAPI->EV_FindModelIndex || !studio.GetModelByIndex ||
         !engine.pEfxAPI || !engine.pEfxAPI->R_TempModel || !engine.pfnServerCmd) return false;
-    auto* glock=Model(GlockModels[unsigned(GlockModel::View)].host);
-    auto* p345=Model(P345Models[unsigned(P345Model::View)].host);
+    decltype(viewModels) cached{};
+    bool anyWeapon{};
+    for(const auto& group:PistolResourceGroups)
+    {
+        const auto* definition=guest::cof::FindPistol(group.identity);
+        auto*& model=cached[static_cast<unsigned>(group.identity)];
+        model=Model(definition->viewModel.data(),current,resources);
+        if(!Synchronize()||generation!=current||resourceSerial!=resources)return false;
+        anyWeapon|=model!=nullptr;
+    }
     int flash{},smoke{};
-    auto* muzzle=Model(GlockModels[unsigned(GlockModel::Flash)].host,mod_studio,&flash);
-    auto* cheap=Model(GlockModels[unsigned(GlockModel::CheapSmoke)].host,mod_sprite,&smoke);
-    const int shell=engine.pEventAPI->EV_FindModelIndex(GlockModels[unsigned(GlockModel::Shell)].host);
-    auto* shellModel=shell>0 ? studio.GetModelByIndex(shell) : nullptr;
-    if ((!glock && !p345) || !muzzle || !cheap || !shellModel || shellModel->type!=mod_studio ||
-        std::strncmp(shellModel->name,GlockModels[unsigned(GlockModel::Shell)].host,sizeof(shellModel->name)) ||
+    auto* muzzle=Model(GlockModels[unsigned(GlockModel::Flash)].host,current,resources,mod_studio,&flash);
+    auto* cheap=Model(GlockModels[unsigned(GlockModel::CheapSmoke)].host,current,resources,mod_sprite,&smoke);
+    int shell{};
+    auto* shellModel=Model(GlockModels[unsigned(GlockModel::Shell)].host,current,resources,mod_studio,&shell);
+    if (!anyWeapon || !muzzle || !cheap || !shellModel ||
         !Synchronize() || generation!=current || resourceSerial!=resources) return false;
     effectsEngine=engine; effectsEvents=*engine.pEventAPI;
     effectsEvents.EV_FindModelIndex=ShellModel; effectsEngine.pEventAPI=&effectsEvents;
@@ -179,7 +192,7 @@ bool PrepareGuestCofEffects() noexcept
     // Do not fall through to an unrelated native sample if one is encountered.
     effectsEngine.pfnPlaySoundByNameAtLocation=nullptr;
     shellIndex=shell; flashIndex=flash; cheapSmokeIndex=smoke; flashModel=muzzle;
-    viewModels={glock,p345}; preparedGeneration=current; prepared=true;
+    viewModels=cached; preparedGeneration=current; prepared=true;
     return true;
 }
 bool GuestCofEffectsReady() noexcept
@@ -187,7 +200,8 @@ bool GuestCofEffectsReady() noexcept
     return punchHook && eventRegistered && Synchronize() && prepared &&
         resourceSerial&&generation==preparedGeneration && GuestCofAudioReady();
 }
-bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept {return GuestCofEffectsReady()&&weapon==value;}
+bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept
+{return GuestCofEffectsReady()&&weapon==value&&weaponViewIndex<viewModels.size()&&viewModels[weaponViewIndex];}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept {return GuestCofEffectsReady()?resourceSerial:0;}
 bool ResetGuestCofForwardDisplacement() noexcept
 {
@@ -202,13 +216,14 @@ void GuestCofForwardDisplacementViewStage(const ref_params_s& ref) noexcept
        !engine.GetViewModel||!engine.pfnAngleVectors)return;
     const auto serial=scopeSerial,active=generation,resources=resourceSerial;
     const auto selected=weapon;
+    const auto viewIndex=weaponViewIndex;
     auto* model=engine.GetViewModel();
     if(!Synchronize()||scopeSerial!=serial||generation!=active||resourceSerial!=resources||!prepared||!model||
-       (model->model!=viewModels[0]&&model->model!=viewModels[1]))return;
+       viewIndex>=viewModels.size()||model->model!=viewModels[viewIndex])return;
     std::array<float,3> forward;float right[3],up[3];
     engine.pfnAngleVectors(ref.cl_viewangles,forward.data(),right,up);
     if(!Synchronize()||scopeSerial!=serial||generation!=active||resourceSerial!=resources||!prepared||
-       weapon!=selected||(model->model!=viewModels[0]&&model->model!=viewModels[1]))return;
+       weapon!=selected||weaponViewIndex!=viewIndex||model->model!=viewModels[viewIndex])return;
     LimitForwardDisplacement(forwardDisplacement);
     ApplyForwardDisplacement(forwardDisplacement,std::span<float,3>{model->origin,3},forward);
 }
@@ -216,7 +231,13 @@ cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept
 {
     return GuestCofEffectsReady() ? &effectsEngine : nullptr;
 }
-void SetGuestCofEffectsWeapon(Weapon value) noexcept { if (Synchronize()) weapon=value; }
+void SetGuestCofEffectsWeapon(Weapon value) noexcept
+{
+    if(!Synchronize())return;
+    weapon=value;
+    const auto* definition=guest::cof::FindOriginalPistol(static_cast<int>(value));
+    weaponViewIndex=definition?static_cast<unsigned>(definition->identity):viewModels.size();
+}
 void SetGuestCofEffectsCamera(bool attached,int mode) noexcept
 {
     if (Synchronize()) { attachedCamera=attached; cameraMode=mode; }
@@ -226,19 +247,20 @@ bool GuestCofStudioEvent(const mstudioevent_s* event,const cl_entity_s* entity) 
     if (!event || !entity || !entity->model ||
         (event->event!=5004 && event->event!=5006 && event->event!=5080) ||
         !Synchronize() || !engine.GetViewModel || entity!=engine.GetViewModel()) return false;
-    unsigned selected=2;
-    if (prepared && entity->model==viewModels[0]) selected=0;
-    else if (prepared && entity->model==viewModels[1]) selected=1;
-    else
+    auto selected=viewModels.size();
+    for(const auto& group:PistolResourceGroups)
     {
-        if (!std::strncmp(entity->model->name,GlockModels[0].host,sizeof(entity->model->name))) selected=0;
-        else if (!std::strncmp(entity->model->name,P345Models[0].host,sizeof(entity->model->name))) selected=1;
+        const auto index=static_cast<unsigned>(group.identity);
+        const auto* definition=guest::cof::FindPistol(group.identity);
+        if((prepared&&entity->model==viewModels[index])||
+            !std::strncmp(entity->model->name,definition->viewModel.data(),sizeof(entity->model->name)))
+        {selected=index;break;}
     }
     if (selected>=viewModels.size()) return false; // Ordinary CS paths stay native.
     if (!prepared || preparedGeneration!=generation)
         lastStudio=EffectResult::MissingBackend;
     else if (entity->model!=viewModels[selected] ||
-        weapon!=(selected==0 ? Weapon::Glock : Weapon::P345))
+        weaponViewIndex!=selected)
         lastStudio=EffectResult::InvalidEntity;
     else lastStudio=WeaponEffects({&effectsEngine,nullptr,Local}).StudioEvent(*event,*entity,weapon);
     return true; // An owned failure cannot play an unrelated native sample.
@@ -261,7 +283,7 @@ void ShutdownGuestCofEffects() noexcept
     AdvanceScope(); currentRef=nullptr; ClearResources();
     if (punchHook) RemoveHook(punchHook);
     punchHook=nullptr; eventRegistered=false; nativePunchStage=nullptr; connection=nullptr; generation=0;
-    punch={}; punchUsed=false; attachedCamera=false; cameraMode=0; ownerThread=0;
+    punch={}; punchUsed=false; attachedCamera=false; cameraMode=0; ownerThread=0;weaponViewIndex=viewModels.size();
     ResetForwardDisplacement(forwardDisplacement);
 }
 }

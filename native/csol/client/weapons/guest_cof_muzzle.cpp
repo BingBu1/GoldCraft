@@ -5,6 +5,7 @@
 #include "guest_cof_scene.hpp"
 #include "../../../guest/cof/client/muzzle_flash.hpp"
 #include "../../../guest/cof/resource_catalog.hpp"
+#include "../../../guest/cof/client/resource_groups.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include <event_args.h>
 #include <event_api.h>
@@ -29,8 +30,9 @@ struct PreparedWeapon
     studiohdr_t* header{};
     int playerIndex{};
     std::array<Attachment,2> attachments{};
+    unsigned attachmentCount{};
 };
-std::array<PreparedWeapon,2> weapons{};
+std::array<PreparedWeapon,guest::cof::Pistols.size()> weapons{};
 cvar_t* cheapSmoke{};
 bool eventInstalled{},prepared{};
 void Clear() noexcept {
@@ -62,9 +64,11 @@ bool Ready() noexcept {
         effectResources&&effectResources==GuestCofEffectsResourceSerial()&&GuestCofPointLightsReady();
 }
 void Event(event_args_s* event) {
-    if(!event||!Ready()||(event->iparam1!=3&&event->iparam1!=7)||event->entindex<=0||event->entindex>32||
+    if(!event||!Ready()||event->entindex<=0||event->entindex>32||
        event->iparam2<=0||event->iparam2>32767||!engine.GetEntityByIndex)return;
-    const auto& weapon=weapons[event->iparam1==7?1:0];
+    const auto* definition=guest::cof::FindOriginalPistol(event->iparam1);
+    if(!definition)return;
+    const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     if(!weapon.view||!weapon.player||!weapon.header)return;
     const auto revision=serial;
     const auto* owner=engine.GetEntityByIndex(event->entindex);
@@ -90,26 +94,28 @@ bool Finite(const std::array<float,3>& value) noexcept {
     return std::isfinite(value[0])&&std::isfinite(value[1])&&std::isfinite(value[2]);
 }
 bool PrepareWeapon(PreparedWeapon& output,const char* viewPath,const char* playerPath,
-    std::uint64_t revision,bool optional) noexcept
+    std::uint64_t revision,unsigned attachments) noexcept
 {
     auto* view=Model(viewPath,revision);
     if(!Current()||serial!=revision)return false;
-    // P345 is optional on an older Glock-only server. A missing view model
-    // cannot authorize another weapon; its capability remains absent.
-    if(!view&&optional)return true;
+    // Only an actually advertised family receives handles. Missing families
+    // stay absent and cannot borrow another pistol's capability.
+    if(!view)return true;
     int index{};auto* player=Model(playerPath,revision,&index);
     if(!Current()||serial!=revision)return false;
     auto* header=player?static_cast<studiohdr_t*>(studio.Mod_Extradata(player)):nullptr;
     if(!Current()||serial!=revision||!view||!header||header->id!=0x54534449||header->version!=10||
-       header->numattachments<2||header->attachmentindex<int(sizeof(*header))||header->numbones<=0||
+       header->numattachments<int(attachments)||header->numattachments>4||header->attachmentindex<int(sizeof(*header))||header->numbones<=0||
        header->numbones>MAXSTUDIOBONES||header->attachmentindex>header->length||
-       sizeof(mstudioattachment_t)*2>std::size_t(header->length-header->attachmentindex))return false;
+       sizeof(mstudioattachment_t)*unsigned(header->numattachments)>std::size_t(header->length-header->attachmentindex))return false;
     const auto* source=reinterpret_cast<const mstudioattachment_t*>(reinterpret_cast<const char*>(header)+header->attachmentindex);
-    PreparedWeapon next{view,player,header,index,{}};
-    for(unsigned i=0;i<next.attachments.size();++i)
+    PreparedWeapon next{view,player,header,index,{},attachments};
+    for(unsigned i=0;i<unsigned(header->numattachments);++i)
     {
-        next.attachments[i].bone=source[i].bone;std::copy_n(source[i].org,3,next.attachments[i].origin.begin());
-        if(next.attachments[i].bone<0||next.attachments[i].bone>=header->numbones||!Finite(next.attachments[i].origin))return false;
+        Attachment candidate;candidate.bone=source[i].bone;
+        std::copy_n(source[i].org,3,candidate.origin.begin());
+        if(candidate.bone<0||candidate.bone>=header->numbones||!Finite(candidate.origin))return false;
+        if(i<attachments)next.attachments[i]=candidate;
     }
     output=next;return true;
 }
@@ -130,12 +136,18 @@ bool PrepareGuestCofMuzzle() noexcept {
     Clear();const auto active=generation,revision=serial,resources=GuestCofEffectsResourceSerial();
     if(!eventInstalled||!resources||!cheapSmoke||!studio.Mod_Extradata||
        !studio.GetModelByIndex||!engine.pEventAPI||!engine.pEventAPI->EV_FindModelIndex)return false;
-    std::array<PreparedWeapon,2> cached{};
-    if(!PrepareWeapon(cached[0],GlockModels[unsigned(GlockModel::View)].host,
-        GlockModels[unsigned(GlockModel::Player)].host,revision,false)||
-       !PrepareWeapon(cached[1],P345Models[unsigned(P345Model::View)].host,
-        P345Models[unsigned(P345Model::Player)].host,revision,true)||
-       !Current()||generation!=active||serial!=revision||resources!=GuestCofEffectsResourceSerial())return false;
+    decltype(weapons) cached{};
+    bool anyWeapon{};
+    for(const auto& group:PistolResourceGroups)
+    {
+        const auto* definition=guest::cof::FindPistol(group.identity);
+        auto& slot=cached[static_cast<unsigned>(group.identity)];
+        if(!PrepareWeapon(slot,definition->viewModel.data(),definition->playerModel.data(),revision,
+            group.identity==guest::cof::Pistol::Glock?2u:1u)||
+            !Current()||generation!=active||serial!=revision||resources!=GuestCofEffectsResourceSerial())return false;
+        anyWeapon|=slot.view!=nullptr;
+    }
+    if(!anyWeapon)return false;
     weapons=cached;
     preparedGeneration=active;effectResources=resources;prepared=true;return true;
 }
@@ -146,42 +158,51 @@ void ShutdownGuestCofMuzzle() noexcept {
 bool GuestCofMuzzleReady() noexcept {return Ready();}
 bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept
 {
-    if((originalWeapon!=3&&originalWeapon!=7)||!Ready())return false;
-    const auto& weapon=weapons[originalWeapon==7?1:0];
+    const auto* definition=guest::cof::FindOriginalPistol(int(originalWeapon));
+    if(!definition||!Ready())return false;
+    const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     return weapon.view&&weapon.player&&weapon.header;
 }
 bool GuestCofMuzzleWorldPending() noexcept {return latch.pending&&Ready();}
 bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* entity) noexcept {
     if(!event||event->event!=5001||!entity||!entity->model)return false;
-    unsigned index{};
-    if(std::strncmp(entity->model->name,GlockModels[0].host,sizeof(entity->model->name)))
+    const guest::cof::PistolDefinition* definition{};
+    for(const auto& group:PistolResourceGroups)
     {
-        if(std::strncmp(entity->model->name,P345Models[0].host,sizeof(entity->model->name)))return false;
-        index=1;
+        const auto* candidate=guest::cof::FindPistol(group.identity);
+        if(!std::strncmp(entity->model->name,candidate->viewModel.data(),sizeof(entity->model->name)))
+        {definition=candidate;break;}
     }
+    if(!definition)return false;
+    const auto index=static_cast<unsigned>(definition->identity);
     if(!engine.GetViewModel||entity!=engine.GetViewModel())return false;
-    if(!GuestCofMuzzleReady(index?7:3)||!GuestCofEffectsOwnsWeapon(index?Weapon::P345:Weapon::Glock)||
+    if(!GuestCofMuzzleReady(unsigned(definition->originalId))||!GuestCofEffectsOwnsWeapon(static_cast<Weapon>(definition->originalId))||
        !GuestCofMainStudioView()||entity->model!=weapons[index].view)return true;
     Lifetime lifetime{serial,generation,effectResources};const auto host=Host(lifetime);
-    P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    if(definition->identity==guest::cof::Pistol::Revolver)
+        RevolverMuzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     return true;
 }
 void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,const void* header,
                               const float (*bones)[3][4]) noexcept {
     // Native CS retains the player render model while merging the active P
     // header/bones (1004D177..1004D19C). Both current identities are required.
-    if(!Ready()||!latch.pending||(latch.type!=3&&latch.type!=7))return;
-    const int type=latch.type;const auto& weapon=weapons[type==7?1:0];
+    if(!Ready()||!latch.pending)return;
+    const auto* definition=guest::cof::FindOriginalPistol(latch.type);
+    if(!definition)return;
+    const int type=latch.type;const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     if(!weapon.header||!GuestCofMainStudioView()||!entity||!entity->player||!model||
        (model!=weapon.player&&model!=entity->model)||header!=weapon.header||!bones||
        entity->curstate.weaponmodel!=weapon.playerIndex||!P345Muzzle::Take(latch,entity->index))return;
-    std::array<std::array<float,3>,2> world;
-    for(unsigned i=0;i<world.size();++i)for(unsigned axis=0;axis<3;++axis) {
+    std::array<std::array<float,3>,2> world{};
+    for(unsigned i=0;i<weapon.attachmentCount;++i)for(unsigned axis=0;axis<3;++axis) {
         const auto& a=weapon.attachments[i];const auto& m=bones[a.bone][axis];
         world[i][axis]=((a.origin[0]*m[0]+a.origin[1]*m[1])+a.origin[2]*m[2])+m[3];
     }
     Lifetime lifetime{serial,generation,effectResources};
-    if(type==7)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
-    else GlockMuzzle(Host(lifetime)).World(world[0],world[1],latch.eventVector,1.0F);
+    if(type==3)GlockMuzzle(Host(lifetime)).World(world[0],world[1],latch.eventVector,1.0F);
+    else if(type==21)RevolverMuzzle(Host(lifetime)).World(world[0],1.0F);
+    else P345Muzzle(Host(lifetime)).World(world[0],1.0F);
 }
 }

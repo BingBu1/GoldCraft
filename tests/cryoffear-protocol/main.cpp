@@ -193,6 +193,7 @@ void Catalog()
     {
         Check(FindPistol(definition.hostId) == &definition && FindPistol(definition.identity) == &definition,
             "constant-time independent identity lookup");
+        Check(FindOriginalPistol(definition.originalId)==&definition,"explicit original-to-host identity mapping");
         Check(definition.hostId >= 32 && definition.hostId < 1022 && OriginalPistolId(definition.originalId),
             "guest IDs do not alias legacy or reserved knives");
         Check(definition.displayName.starts_with("客串武器·") &&
@@ -203,6 +204,8 @@ void Catalog()
                         std::numeric_limits<int>::max()})
         Check(!FindPistol(invalid), "invalid host IDs cannot index the catalog");
     Check(!FindPistol(Pistol::Count), "invalid typed identity rejects");
+    for(int invalid:{-1,0,1,4,18,20,22,896,897,898,899,std::numeric_limits<int>::max()})
+        Check(!FindOriginalPistol(invalid),"host and unrelated identities cannot alias original pistol IDs");
 }
 
 void Particles()

@@ -19,11 +19,12 @@ using namespace guest::cof::resources;
 unsigned checks{},failures{},hooks{},removes{},modelLookups{},shells{},commands{},audioRandom{},audioVolume{},nativeSounds{};
 std::uint64_t generation{1};
 bool symbolAvailable{true},missingShell{},missingGlock{},missingFlash{},missingCheapSmoke{},changeAtModel{},hookFailure{},registrationFailure{};
+bool revolverAvailable{};
 unsigned char* patch{};
 void* replacement{};
 void (*viewPunch)(event_args_s*){};
 cl_entity_t vm{},other{};
-model_t glock{},p345{},shell{},flash{},cheapSmoke{},ordinary{};
+model_t glock{},p345{},revolver{},shell{},flash{},cheapSmoke{},ordinary{};
 event_args_t impulse{};
 ref_params_t* sampleRef{};
 alignas(16) unsigned char beforeFx[512]{},afterFx[512]{};
@@ -61,11 +62,12 @@ int Find(const char* path)
     if(changeAtModel){changeAtModel=false;++generation;}
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::View)].host))return missingGlock?0:7;
     if(!std::strcmp(path,P345Models[unsigned(P345Model::View)].host))return 8;
+    if(!std::strcmp(path,RevolverModels[unsigned(RevolverModel::View)].host))return revolverAvailable?12:0;
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::Flash)].host))return missingFlash?0:10;
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::CheapSmoke)].host))return missingCheapSmoke?0:11;
     CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Shell)].host));return missingShell?0:9;
 }
-model_t* Model(int index){return index==7?&glock:index==8?&p345:index==9?&shell:index==10?&flash:index==11?&cheapSmoke:nullptr;}
+model_t* Model(int index){return index==7?&glock:index==8?&p345:index==9?&shell:index==10?&flash:index==11?&cheapSmoke:index==12?&revolver:nullptr;}
 TEMPENTITY* Shell(float* origin,float* velocity,float* angles,float life,int index,int sound)
 {
     ++shells;CHECK(index==9 && sound==1 && life==2.5f);
@@ -184,10 +186,14 @@ int main()
     mstudioevent_t unavailable{};unavailable.event=5004;std::strcpy(unavailable.options,"weapons/glock/glock_magin.wav");
     CHECK(GuestCofStudioEvent(&unavailable,&vm));CHECK(GuestCofLastStudioEffect()==EffectResult::MissingBackend);
     auto wave=Wave();
-    std::array<GuestCofSoundAsset,2> sounds{{
+    std::array<GuestCofSoundAsset,6> sounds{{
         {GlockAudioResources[1].localKey,GlockAudioResources[1].remoteKey,GlockAudioResources[1].remoteAsset,wave,32},
-        {P345AudioResources[1].localKey,P345AudioResources[1].remoteKey,P345AudioResources[1].remoteAsset,wave,32}}};
-    GuestCofAudioPlan plan{{2,64,1024*1024},sounds,nullptr,Precached};
+        {P345AudioResources[1].localKey,P345AudioResources[1].remoteKey,P345AudioResources[1].remoteAsset,wave,32},
+        {RevolverAudioResources[0].localKey,RevolverAudioResources[0].remoteKey,RevolverAudioResources[0].remoteAsset,wave,32},
+        {RevolverAudioResources[1].localKey,RevolverAudioResources[1].remoteKey,RevolverAudioResources[1].remoteAsset,wave,32},
+        {RevolverAudioResources[2].localKey,RevolverAudioResources[2].remoteKey,RevolverAudioResources[2].remoteAsset,wave,32},
+        {RevolverAudioResources[3].localKey,RevolverAudioResources[3].remoteKey,RevolverAudioResources[3].remoteAsset,wave,32}}};
+    GuestCofAudioPlan plan{{6,192,1024*1024},sounds,nullptr,Precached};
     InitializeGuestCofAudio(&provider);CHECK(PrepareGuestCofAudio(plan)==AudioResult::Applied);
     // Counterexample with every cold audio/model backend available: failed
     // hook/registration must still block preparation on its own.
@@ -273,6 +279,27 @@ int main()
     }
     oracle={};Stage(ref,false); // Old scope must not resurrect its previous view.
     CHECK(PrepareGuestCofAudio(plan)==AudioResult::Applied);CHECK(PrepareGuestCofEffects());
+    revolverAvailable=true;revolver.type=mod_studio;std::strcpy(revolver.name,RevolverModels[0].host);
+    CHECK(PrepareGuestCofEffects());SetGuestCofEffectsWeapon(Weapon::Revolver);vm.model=&revolver;
+    CHECK(GuestCofEffectsOwnsWeapon(Weapon::Revolver)&&!GuestCofEffectsOwnsWeapon(Weapon::Glock));
+    auto* preparedEngine=GuestCofMuzzleEngine();CHECK(preparedEngine);
+    const auto revolverLookups=modelLookups,beforeRevolverShells=shells;
+    const auto beforeRevolverSound=audioRandom;
+    for(const auto& sound:RevolverAudioResources)
+    {
+        event.event=5004;std::strcpy(event.options,"weapons/");
+        std::strcat(event.options,sound.localKey.data()+std::strlen("weapons_new/"));
+        CHECK(GuestCofStudioEvent(&event,&vm)&&GuestCofLastStudioEffect()==EffectResult::Dispatched);
+    }
+    CHECK(audioRandom==beforeRevolverSound+4&&modelLookups==revolverLookups&&nativeSounds==0);
+    event.event=5006;CHECK(GuestCofStudioEvent(&event,&vm)&&GuestCofLastStudioEffect()==EffectResult::Dispatched);
+    CHECK(shells==beforeRevolverShells+1&&modelLookups==revolverLookups);
+    SetGuestCofEffectsWeapon(Weapon::Glock);
+    CHECK(GuestCofStudioEvent(&event,&vm)&&GuestCofLastStudioEffect()==EffectResult::InvalidEntity&&shells==beforeRevolverShells+1);
+    SetGuestCofEffectsWeapon(Weapon::Vp70);CHECK(!GuestCofEffectsOwnsWeapon(Weapon::Vp70));
+    SetGuestCofEffectsWeapon(Weapon::Revolver);
+    ++generation;CHECK(!GuestCofEffectsOwnsWeapon(Weapon::Revolver));
+    InitializeGuestCofAudio(&provider);CHECK(PrepareGuestCofAudio(plan)==AudioResult::Applied);CHECK(PrepareGuestCofEffects());
     SetGuestCofEffectsWeapon(Weapon::Glock);vm.model=&glock;event.event=5004;
     std::strcpy(event.options,"weapons/glock/glock_magin.wav");
     ShutdownGuestCofAudio();CHECK(!GuestCofEffectsReady());

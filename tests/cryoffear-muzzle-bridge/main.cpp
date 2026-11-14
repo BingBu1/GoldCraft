@@ -4,6 +4,7 @@
 #include "../../native/csol/client/weapons/guest_cof_muzzle.hpp"
 #include "../../native/csol/client/weapons/guest_cof_effects.hpp"
 #include "../../native/csol/client/weapons/guest_cof_scene.hpp"
+#include "../../native/csol/client/studio_attachments.hpp"
 #include "../../native/guest/cof/client/muzzle_flash.hpp"
 #include "../../native/guest/cof/resource_catalog.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
@@ -19,14 +20,18 @@ using namespace csol::client;
 using namespace guest::cof::client;
 using namespace guest::cof::resources;
 unsigned checks{},failures{},modelQueries{},visible{},shells{},engineLights{},customLights{},randoms{},lightReads{},boneReads{},nativeDraws{};
+unsigned attachmentObservations{};
 std::uint64_t generation{1};
 std::uint64_t effectResources{1};
 bool effectsReady{true},pointReady{true},mainView{true},retireVisible{},retireEffects{},retireModel{},localOwned{true};
 cl_entity_t local{},viewEntity{},remote{},lastVisible{};
 model_t viewModel{},playerModel{},flashModel{},otherModel{},bodyModel{};
 model_t p345ViewModel{},p345PlayerModel{};
+model_t revolverViewModel{},revolverPlayerModel{};
 std::vector<std::byte> p345PlayerBytes;
+std::vector<std::byte> revolverPlayerBytes;
 bool p345Available{},p345Owned{};
+bool revolverAvailable{},revolverOwned{};
 cl_enginefunc_t muzzleEngine{};
 event_api_t cachedEvents{};
 std::vector<std::byte> playerBytes;
@@ -55,10 +60,12 @@ int Find(const char* path){
  if(!std::strcmp(path,GlockModels[0].host))return 11;
  if(!std::strcmp(path,P345Models[0].host))return p345Available?21:0;
  if(!std::strcmp(path,P345Models[unsigned(P345Model::Player)].host))return p345Available?22:0;
+ if(!std::strcmp(path,RevolverModels[0].host))return revolverAvailable?31:0;
+ if(!std::strcmp(path,RevolverModels[unsigned(RevolverModel::Player)].host))return revolverAvailable?32:0;
  CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Player)].host));return 12;
 }
-model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:nullptr;}
-void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel);return model==&p345PlayerModel?p345PlayerBytes.data():playerBytes.data();}
+model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:nullptr;}
+void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel||model==&revolverPlayerModel);return model==&p345PlayerModel?p345PlayerBytes.data():model==&revolverPlayerModel?revolverPlayerBytes.data():playerBytes.data();}
 model_t* Flash(const char* path,int* id){CHECK(!std::strcmp(path,"models/flash1.mdl"));*id=13;return &flashModel;}
 int MuzzleIndex(const char* path){CHECK(!std::strcmp(path,"models/shell.mdl"));return 14;}
 int Visible(int type,cl_entity_t* entity){CHECK(type==0);++visible;lastVisible=*entity;if(retireVisible)InvalidateGuestCofMuzzle();if(retireEffects)effectsReady=false;return 1;}
@@ -76,7 +83,7 @@ namespace csol::client
 {
 bool GuestCofEffectsReady() noexcept{return effectsReady;}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept{return effectsReady?effectResources:0;}
-bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(p345Owned?value==Weapon::P345:value==Weapon::Glock);}
+bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(revolverOwned?value==Weapon::Revolver:p345Owned?value==Weapon::P345:value==Weapon::Glock);}
 cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept{return effectsReady?&muzzleEngine:nullptr;}
 bool GuestCofPointLightsReady() noexcept{return pointReady;}
 bool GuestCofMainStudioView() noexcept{return mainView;}
@@ -85,13 +92,15 @@ void* currentStudioHeader{};model_t* currentStudioModel{};
 static void ObservePlayerPose(){}
 static void ObserveHeldPose(){}
 bool DrawWorldWeaponPoints(){return false;}
+void ObserveStudioAttachments(const cl_entity_s*,const model_s*,const void*,const float (*observed)[3][4]) noexcept
+{CHECK(observed==wrongBones);++attachmentObservations;}
 static void NativePoints(){++nativeDraws;}
 static void (*originalDrawPoints)()=NativePoints;
 #include "native-studio-points.inc"
 }
 int main(int argc,char** argv)
 {
- if(argc!=2&&argc!=3)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
+ if(argc<2||argc>4)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
  std::fseek(file,0,SEEK_END);const long size=std::ftell(file);std::rewind(file);if(size<=0)return 4;
  playerBytes.resize(std::size_t(size));if(std::fread(playerBytes.data(),playerBytes.size(),1,file)!=1)return 5;std::fclose(file);
  auto* header=reinterpret_cast<studiohdr_t*>(playerBytes.data());CHECK(header->length==size&&header->numattachments>=2);
@@ -171,11 +180,11 @@ int main(int argc,char** argv)
  for(auto& bone:wrongBones)for(unsigned i=0;i<3;++i){bone[i][i]=1;bone[i][3]=9000.0F+float(i);}
  currentStudioModel=&bodyModel;currentStudioHeader=header;const auto boundaryShells=shells,boundaryVisible=visible;
  eventCallback(&event);StudioDrawPoints();
- CHECK(shells==boundaryShells+1&&visible==boundaryVisible+1&&lightReads==1&&boneReads==0&&nativeDraws==1);
+ CHECK(shells==boundaryShells+1&&visible==boundaryVisible+1&&lightReads==1&&boneReads==attachmentObservations&&attachmentObservations==1&&nativeDraws==1);
  CHECK(shellOrigin==Transform(attachment[1]));
  StudioDrawPoints();CHECK(lightReads==1&&nativeDraws==2&&shells==boundaryShells+1);
  ShutdownGuestCofMuzzle();
- if(argc==3)
+ if(argc>=3)
  {
   FILE* pfile=std::fopen(argv[2],"rb");CHECK(pfile!=nullptr);if(!pfile)return 3;
   std::fseek(pfile,0,SEEK_END);const long psize=std::ftell(pfile);std::rewind(pfile);CHECK(psize>0);
@@ -203,6 +212,35 @@ int main(int argc,char** argv)
   remote.curstate.weaponmodel=22;GuestCofMuzzleWorldPoints(&remote,&bodyModel,ph,bones);
   CHECK(visible==oldVisible+3&&shells==oldShells&&!GuestCofMuzzleWorldPending());
   ShutdownGuestCofMuzzle();p345Owned=false;
+ }
+ if(argc==4)
+ {
+  FILE* rfile=std::fopen(argv[3],"rb");CHECK(rfile!=nullptr);if(!rfile)return 3;
+  std::fseek(rfile,0,SEEK_END);const long rsize=std::ftell(rfile);std::rewind(rfile);CHECK(rsize>0);
+  revolverPlayerBytes.resize(std::size_t(rsize));CHECK(std::fread(revolverPlayerBytes.data(),revolverPlayerBytes.size(),1,rfile)==1);std::fclose(rfile);
+  auto* rh=reinterpret_cast<studiohdr_t*>(revolverPlayerBytes.data());CHECK(rh->length==rsize&&rh->numattachments>=1);
+  auto* ra=reinterpret_cast<mstudioattachment_t*>(revolverPlayerBytes.data()+rh->attachmentindex);
+  revolverViewModel.type=revolverPlayerModel.type=mod_studio;
+  std::strcpy(revolverViewModel.name,RevolverModels[0].host);std::strcpy(revolverPlayerModel.name,RevolverModels[2].host);
+  revolverAvailable=true;InitializeGuestCofMuzzle(&provider);CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(21)&&!GuestCofMuzzleReady(19));
+  const auto beforeRevolver=visible,beforeShells=shells,queriesBeforeRevolver=modelQueries;
+  remote.curstate.weaponmodel=32;event.iparam1=21;eventCallback(&event);CHECK(GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,header,bones);CHECK(visible==beforeRevolver&&GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,rh,bones);
+  CHECK(visible==beforeRevolver+1&&shells==beforeShells&&!GuestCofMuzzleWorldPending()&&modelQueries==queriesBeforeRevolver);
+  const auto position=Transform(ra[0]);CHECK(std::equal(position.begin(),position.end(),lastVisible.origin));
+  revolverOwned=true;viewEntity.model=&revolverViewModel;
+  CHECK(GuestCofMuzzleStudioEvent(&studioEvent,&viewEntity)&&visible==beforeRevolver+2&&shells==beforeShells&&modelQueries==queriesBeforeRevolver);
+  CHECK(lastVisible.curstate.scale==6.0F);
+  const int count=rh->numattachments;
+  if(count>1)
+  {
+   const int bone=ra[1].bone;ra[1].bone=rh->numbones;
+   CHECK(!PrepareGuestCofMuzzle()); // Cold validation still covers unused declared attachments.
+   rh->numattachments=1;CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(21));
+   ra[1].bone=bone;rh->numattachments=count;
+  }
+  ShutdownGuestCofMuzzle();revolverOwned=false;
  }
  std::printf("checks=%u failures=%u actualGlockPlayerModel=yes sceneServices=controlled live=no performance=no\n",checks,failures);
  return failures?1:0;

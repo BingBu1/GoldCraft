@@ -69,4 +69,16 @@ constexpr bool OriginalPistolId(int id) noexcept
 {
     return id == 3 || id == 7 || id == 19 || id == 21;
 }
+
+constexpr const PistolDefinition* FindOriginalPistol(int id) noexcept
+{
+    switch(id)
+    {
+    case 3: return &Pistols[static_cast<unsigned>(Pistol::Glock)];
+    case 7: return &Pistols[static_cast<unsigned>(Pistol::P345)];
+    case 21: return &Pistols[static_cast<unsigned>(Pistol::Revolver)];
+    case 19: return &Pistols[static_cast<unsigned>(Pistol::VP70)];
+    default: return nullptr;
+    }
+}
 }

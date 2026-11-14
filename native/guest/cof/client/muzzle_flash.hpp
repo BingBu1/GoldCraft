@@ -72,10 +72,24 @@ public:
     static bool Take(MuzzleLatch&, int currentEntityIndex) noexcept;
 private:
     friend class GlockMuzzle;
+    friend class RevolverMuzzle;
+    MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize) const noexcept;
     bool Ready(bool cheapSmoke) const noexcept;
     bool Current() const noexcept;
     MuzzleResult Lights(const float* origin) const noexcept;
     MuzzleHost host_;
+};
+// Original21 selects base6.0 in the local generic emitter. Its world default
+// stays base3.0 and has no type3 shell tail.
+class RevolverMuzzle
+{
+public:
+    explicit RevolverMuzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s& view,unsigned attachment,float scale,float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment,float scale) const noexcept
+    {return base_.World(attachment,scale);}
+private:
+    P345Muzzle base_;
 };
 // Glock type3 has the same proved local default as P345, but a distinct world
 // shell consumer. Its event vector is divided by20, never normalized.

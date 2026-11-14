@@ -45,7 +45,7 @@ def main():
                 sdk / "SourceSDK/tier0", sdk / "SourceSDK/tier1"]
     flags = ["/nologo", "/c", "/TP", "/W4", "/WX", "/utf-8", "/EHsc", "/MT", "/std:c++20",
              "--target=i686-pc-windows-msvc", "/arch:AVX2", "/O2", "/clang:-O3", "/clang:-flto=thin",
-             "/fp:precise", "/DNDEBUG", "/DNOMINMAX", "/DNO_MALLOC_OVERRIDE", "/D_CRT_SECURE_NO_WARNINGS"]
+             "/fp:precise", "/clang:-ffp-contract=off", "-Wno-overriding-option", "/DNDEBUG", "/DNOMINMAX", "/DNO_MALLOC_OVERRIDE", "/D_CRT_SECURE_NO_WARNINGS"]
     commands = [[str(compiler), *flags, *["/imsvc" + str(p) for p in includes],
                  "/Fo" + str(out) + os.sep, str(ROOT / p)] for p in INPUTS if p.endswith(".cpp")]
     commands.append([str(linker), "/nologo", "/machine:X86", "/subsystem:console", "/incremental:no",

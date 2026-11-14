@@ -96,6 +96,12 @@ MuzzleResult P345Muzzle::Lights(const float* origin) const noexcept
 }
 MuzzleResult P345Muzzle::Local(const cl_entity_s& view, unsigned attachment,
                              float scale, float cheapSmoke) const noexcept
+{return LocalWithSize(view,attachment,scale,cheapSmoke,4.0F);}
+MuzzleResult RevolverMuzzle::Local(const cl_entity_s& view,unsigned attachment,
+    float scale,float cheapSmoke) const noexcept
+{return base_.LocalWithSize(view,attachment,scale,cheapSmoke,6.0F);}
+MuzzleResult P345Muzzle::LocalWithSize(const cl_entity_s& view,unsigned attachment,
+    float scale,float cheapSmoke,float baseSize) const noexcept
 {
     if(!Current())return MuzzleResult::Cancelled;
     if (attachment >= 4 || !view.model || !Finite(view.attachment[attachment]) ||
@@ -116,7 +122,7 @@ MuzzleResult P345Muzzle::Local(const cl_entity_s& view, unsigned attachment,
     auto* model = e.CL_LoadModel("models/flash1.mdl", &modelIndex);
     if(!Current())return MuzzleResult::Cancelled;
     if (!model) return MuzzleResult::BackendFailed;
-    const float size = static_cast<float>(static_cast<double>(e.pfnRandomFloat(-1.0F, 1.0F)) + 4.0);
+    const float size = static_cast<float>(static_cast<double>(e.pfnRandomFloat(-1.0F, 1.0F)) + double(baseSize));
     if(!Current())return MuzzleResult::Cancelled;
     auto& entity = *host_.localVisibleEntity;
     std::memcpy(&entity, &source, sizeof(entity));
