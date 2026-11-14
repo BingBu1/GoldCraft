@@ -67,7 +67,7 @@ std::string Read(const std::string& path)
 }
 namespace csol::client
 {
-namespace {bool visible{},buyVisible{},voteVisible{};float menuAngles[3]{};unsigned nativeMoves{};}
+namespace {bool visible{},buyVisible{},voteVisible{};float menuAngles[3]{};unsigned nativeMoves{},mountMoves{};}
 void WeaponInventoryCreateMove(float,usercmd_t* cmd,int)
 {
     ++nativeMoves;
@@ -75,6 +75,9 @@ void WeaponInventoryCreateMove(float,usercmd_t* cmd,int)
 }
 bool CharacterMenuVisible(){return visible;}
 void BossImpactCreateMove(int){}
+// This suite has no mounted seat. The unrelated transform is an observed
+// orchestration boundary, with the exact current mount_weapon.hpp signature.
+void MountWeaponCreateMove(usercmd_s*,int){++mountMoves;}
 void BuyMenuCreateMove(usercmd_t* cmd,int){if(cmd&&buyVisible)cmd->buttons=0;}
 void ScenarioMapVoteCreateMove(usercmd_t* cmd,int){if(cmd&&voteVisible)cmd->buttons=0;}
 void ChainAngles(float*){}
@@ -94,7 +97,7 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id) noexcept{CHECK(id==896||id==897);return hud&&(id!=897||p345Hud);}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK((id==896||id==897)&&frames==1);return hud&&(id!=897||p345Hud);}
 bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
@@ -189,6 +192,7 @@ int main(int argc,char** argv)
     for(const char* invalid:{"-1","+3"," 3","3 ","3x","16","4294967296"})CHECK(ParsePistolAdmission("1",invalid).weapons==0);
     generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
+    CHECK(mountMoves>0);
     std::printf("host presentation/input/admission checks=%u failures=%u; controlled services; live=no performance=no\n",checks,failures);
     return failures?1:0;
 }

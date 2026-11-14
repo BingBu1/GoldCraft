@@ -54,6 +54,7 @@ struct SelectionCard
     std::wstring title;
     int titleId{},titleSlot=-1;
     Texture image,selectedImage,ammo,secondary;
+    std::array<Texture,hud::AmmoFrameCount> ammoFrames{};
     bool equippedReady{},selectedKnown{},selectedAbsent{};
     ULONGLONG imageRetryAfter{},selectedRetryAfter{};
 };
@@ -92,6 +93,12 @@ void Delete(Texture& texture)
     if (surface && texture.id) surface->DeleteTextureByID(texture.id);
     texture = {};
 }
+void ReleaseAmmoFrames(SelectionCard& card)
+{
+    // Frame zero aliases the already-owned base ammo texture.
+    for(unsigned i=1;i<card.ammoFrames.size();++i)Delete(card.ammoFrames[i]);
+    card.ammoFrames={};
+}
 Texture Upload(const Image& image)
 {
     if (!image.Width || !image.Height || image.Width > 2048 || image.Height > 2048)
@@ -108,7 +115,7 @@ void ReleaseBase()
     for (unsigned i=0;i<unsigned(hud::Art::MoneyBackground);++i) Delete(art[i]);
     for (auto& texture : digits) Delete(texture);
     Delete(portrait);weaponImage=ammoImage=secondaryImage={};
-    for(auto& [id,card]:selectionCards){Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);}
+    for(auto& [id,card]:selectionCards){ReleaseAmmoFrames(card);Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);}
     preparedCards={};cardsRevision=~std::uint64_t{};cardsRetryAfter=0;
     selectionCards.clear();selectionRows.clear();selectionReady=false;preparedSelection=0;listRetryAfter=0;
     SetWeaponSelectionHudVisible(false);
@@ -244,7 +251,7 @@ void PrepareWeaponCard(int id)
     auto& card=selectionCards[id];
     if(card.name!=definition->name)
     {
-        Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);
+        ReleaseAmmoFrames(card);Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);
         card={};card.name=definition->name;
     }
     preparedCards[id]=&card;
@@ -259,17 +266,36 @@ void PrepareWeaponCard(int id)
         if(!card.equippedReady && now>=card.imageRetryAfter)
         {
             card.imageRetryAfter=now+5000;
+            ReleaseAmmoFrames(card);
             // Stage the entire equipped row; no partial ammo ownership.
             Texture normal,primary,secondary;
+            std::array<Texture,hud::AmmoFrameCount> frames{};
             try
             {
                 if(!card.image.id)normal=Load(image->second.weapon.c_str());
                 if(!image->second.ammo.empty() && !card.ammo.id)primary=Load(image->second.ammo.c_str());
                 if(!image->second.ammo2.empty() && !card.secondary.id)secondary=Load(image->second.ammo2.c_str());
+                if(!image->second.ammoFrames.front().empty())
+                {
+                    frames[0]=primary.id?primary:card.ammo;
+                    if(frames[0].width!=32||frames[0].height!=32)
+                        throw std::runtime_error("HUD ammunition frames require authored 32px art");
+                    for(unsigned i=1;i<frames.size();++i)
+                    {
+                        frames[i]=Load(image->second.ammoFrames[i].c_str());
+                        if(frames[i].width!=32||frames[i].height!=32)
+                            throw std::runtime_error("HUD ammunition frame dimensions differ");
+                    }
+                }
                 if(normal.id)card.image=normal;if(primary.id)card.ammo=primary;if(secondary.id)card.secondary=secondary;
+                card.ammoFrames=frames;
                 card.equippedReady=true;
             }
-            catch(...){Delete(normal);Delete(primary);Delete(secondary);throw;}
+            catch(...)
+            {
+                for(unsigned i=1;i<frames.size();++i)Delete(frames[i]);
+                Delete(normal);Delete(primary);Delete(secondary);throw;
+            }
         }
         card.selectedKnown=image->second.selectedKnown;
         card.selectedAbsent=card.selectedKnown && image->second.selected.empty();
@@ -284,13 +310,14 @@ void PrepareWeaponCard(int id)
         reported=true;
     }
 }
-void UsePreparedWeapon(int id)
+void UsePreparedWeapon(int id, int ammoFrame = -1)
 {
     const auto* definition=FindWeaponDefinition(id);
     const auto* card=ValidWeaponId(id)?preparedCards[id]:nullptr;
     if(!definition || !card || card->name!=definition->name || !card->equippedReady)
     {weaponImage=ammoImage=secondaryImage={};weaponName={};weaponTitle={};weaponTitleId=0;weaponTitleSlot=-1;return;}
     weaponImage=card->image;ammoImage=card->ammo;secondaryImage=card->secondary;
+    if(ammoFrame>=0)ammoImage=unsigned(ammoFrame)<card->ammoFrames.size()?card->ammoFrames[ammoFrame]:Texture{};
     weaponName=card->name;weaponTitle=card->title;weaponTitleId=card->titleId;weaponTitleSlot=card->titleSlot;
 }
 void PrepareWeaponList()
@@ -683,12 +710,15 @@ void HudStyleFrame()
     if (!loaded) return;
     PrepareSelection();
 }
-bool HudStyleWeaponResourcesReady(int id) noexcept
+bool HudStyleWeaponResourcesReady(int id, unsigned ammoFrames) noexcept
 {
     if (!loaded || !titleFont || !ValidWeaponId(id)) return false;
     const auto* card = preparedCards[id];
-    return card && card->equippedReady && card->image.id && card->ammo.id &&
-        card->selectedKnown && (card->selectedAbsent || card->selectedImage.id) && !card->title.empty();
+    if(!card||!card->equippedReady||!card->image.id||!card->ammo.id||!card->selectedKnown||
+        (!card->selectedAbsent&&!card->selectedImage.id)||card->title.empty())return false;
+    if(ammoFrames==1)return true;
+    return ammoFrames==hud::AmmoFrameCount&&std::all_of(card->ammoFrames.begin(),card->ammoFrames.end(),
+        [](const Texture& frame){return frame.id!=0;});
 }
 void BeginHudStyle(int hidden,int intermission)
 {
@@ -705,7 +735,7 @@ void BeginHudStyle(int hidden,int intermission)
     weapon=CurrentWeaponHudState();
     // Only select immutable resources prepared by HUD_Frame. All supported
     // definitions were warmed there, including a CurWeapon arriving later.
-    UsePreparedWeapon(weapon.id);
+    UsePreparedWeapon(weapon.id,weapon.ammoFrame);
     const auto* definition=FindWeaponDefinition(weapon.id);
     weaponVisible=!(hidden&1) && weapon.id>0 && definition && definition->name==weaponName &&
         weaponImage.id && titleFont && !weaponTitle.empty() &&

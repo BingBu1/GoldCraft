@@ -203,7 +203,7 @@ void InvalidateSelectedRow()
     if(auto found=selectionCards.find(state.id);found!=selectionCards.end())
     {
         auto& card=found->second;
-        Delete(card.image);Delete(card.ammo);Delete(card.secondary);
+        ReleaseAmmoFrames(card);Delete(card.image);Delete(card.ammo);Delete(card.secondary);
         card.equippedReady=false;card.imageRetryAfter=0;card.titleId=0;
     }
 }

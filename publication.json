@@ -2412,7 +2412,8 @@
     "tests/csol-scenario-music/stamina_audio.cpp",
     "tests/csol-scenario-music/resource_reader.py",
     "tests/csol-scenario-music/closure.py",
-    "docs/2026-11-14_接入-黄昏曲与永夜随机顺序-report.md"
+    "docs/2026-11-14_接入-黄昏曲与永夜随机顺序-report.md",
+    "docs/2026-11-14_接入-Revolver动态弹巢HUD-report.md"
   ],
   "trees": {
     "native": [

@@ -23,13 +23,20 @@ std::string Text(const rapidjson::Value& object, const char* name, unsigned limi
     Require(text.find('\0') == text.npos);
     return text;
 }
-std::string Image(const rapidjson::Value& object, const char* name, bool optional = false)
+std::string ImageValue(const rapidjson::Value& value, bool optional = false)
 {
-    auto path = Text(object, name, 63);
+    Require(value.IsString()&&value.GetStringLength()<=63);
+    std::string path(value.GetString(),value.GetStringLength());
+    Require(path.find('\0')==path.npos);
     if (path.empty() && optional) return path;
     Require(path.starts_with("resource/csol/hud/v1/") && path.ends_with(".tga") &&
         path.find("..") == path.npos && path.find_first_of(":\\\"\r\n\t ") == path.npos);
     return path;
+}
+std::string Image(const rapidjson::Value& object, const char* name, bool optional = false)
+{
+    Require(object.IsObject()&&object.HasMember(name));
+    return ImageValue(object[name],optional);
 }
 bool Scalar(std::span<const std::byte> bytes, unsigned legacySize, int& result)
 {
@@ -61,6 +68,16 @@ Catalog ParseCatalog(std::string_view json)
         // An omitted selected field leaves that branch unproven. An explicit
         // empty field records the original loader's no-weapon_s branch.
         if(row.HasMember("selected")){art.selected=Image(row,"selected",true);art.selectedKnown=true;}
+        if(row.HasMember("ammoFrames"))
+        {
+            const auto& frames=row["ammoFrames"];
+            Require(frames.IsArray()&&frames.Size()==AmmoFrameCount&&!art.ammo.empty());
+            for(unsigned i=0;i<AmmoFrameCount;++i)
+            {
+                art.ammoFrames[i]=ImageValue(frames[i]);
+            }
+            Require(art.ammoFrames.front()==art.ammo);
+        }
         Require(!art.title.empty() && art.title.find_first_of("\r\n\t") == art.title.npos);
         Require(result.weapons.emplace(std::move(name), std::move(art)).second);
     }
@@ -84,6 +101,7 @@ std::vector<std::string> ResourcePaths(const Catalog& catalog)
         if(!weapon.selected.empty())paths.emplace(weapon.selected);
         if(!weapon.ammo.empty())paths.emplace(weapon.ammo);
         if(!weapon.ammo2.empty())paths.emplace(weapon.ammo2);
+        for(const auto& frame:weapon.ammoFrames)if(!frame.empty())paths.emplace(frame);
     }
     for(const auto& [id,path]:catalog.portraits)paths.emplace(path);
     return {paths.begin(),paths.end()};

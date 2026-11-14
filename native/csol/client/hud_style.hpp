@@ -8,7 +8,7 @@ namespace csol::client
 void InitializeHudStyle();
 void HudStyleFrame();
 // Read-only readiness of the card warmed by HUD_Frame; never loads resources.
-bool HudStyleWeaponResourcesReady(int id) noexcept;
+bool HudStyleWeaponResourcesReady(int id, unsigned ammoFrames = 1) noexcept;
 void HudStyleVideoInit();
 void ResetHudStyle();
 void ShutdownHudStyle();

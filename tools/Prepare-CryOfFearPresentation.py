@@ -32,6 +32,36 @@ P345_PINS={
     'gfx/vgui/weapons/p345/640_p345_slot.tga':'9410f7c93e0ff02ca9cf1e0bb7f504471041f4e8809d549fac2ab2b220ffc5fc',
     'sprites/cof_p345_mag_icon.spr':'57549f1601a0ec4fc0d80f9485bdc39f32ca262ad376ae3fb68afe27c517cfc3',
 }
+REVOLVER_AMMO_SHA = '1abc649e0684796805236ebd0442db4e518cfa3c400a710db27a6e09906693a0'
+
+
+def revolver_ammunition(data):
+    """Author all original cylinder states into the established 32px CSO slot."""
+    if sha(data) != REVOLVER_AMMO_SHA:
+        raise ValueError('Original Revolver cylinder identity changed')
+    frames = hud.decode_sprite_frames(data)
+    if len(frames) != 6 or any(frame[:2] != (64, 64) for frame in frames):
+        raise ValueError('Original Revolver requires six independent 64px frames')
+    palette_end = 42 + struct.unpack_from('<H', data, 40)[0] * 3
+    native = bytearray(data[:palette_end])
+    struct.pack_into('<f', native, 16, struct.unpack_from('<f', data, 16)[0] * .5)
+    struct.pack_into('<ii', native, 20, 32, 32)
+    images = []
+    at = palette_end
+    for width, height, rgba, _ in frames:
+        kind, x, y, fw, fh = struct.unpack_from('<iiiii', data, at)
+        if (kind, x, y, fw, fh) != (0, -32, 32, width, height):
+            raise ValueError('Original cylinder frame origin changed')
+        indices = data[at + 20:at + 20 + width * height]
+        # Same centered nearest sampling as fit; palette/mode remain original.
+        native += struct.pack('<iiiii', 0, x // 2, y // 2, 32, 32)
+        native += bytes(indices[(2 * row + 1) * 64 + 2 * column + 1]
+                        for row in range(32) for column in range(32))
+        images.append(hud.tga(32, 32, fit(width, height, rgba, 32, 32)))
+        at += 20 + width * height
+    if at != len(data):
+        raise ValueError('Unexpected cylinder trailing bytes')
+    return tuple(images), bytes(native)
 
 
 def sha(data):

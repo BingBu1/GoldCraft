@@ -36,7 +36,11 @@ def main():
     hud.no_reparse(output)
     if output.exists() or not output.resolve().is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build output')
-    inputs = {path, Path(__file__).resolve()}
+    author_path = ROOT / 'tools/Prepare-CryOfFearPresentation.py'
+    author_spec = importlib.util.spec_from_file_location('guest_author', author_path)
+    author = importlib.util.module_from_spec(author_spec)
+    author_spec.loader.exec_module(author)
+    inputs = {path, author_path, Path(__file__).resolve()}
     for relative, expected in PINS.items():
         source = args.original / relative
         hud.no_reparse(source)
@@ -77,6 +81,24 @@ def main():
         at = end
     assert at == len(data) and len({r['rgbaSha256'] for r in frames}) == 6
     checks += 1
+    authored, native = author.revolver_ammunition(data)
+    native_frames = hud.decode_sprite_frames(native)
+    assert len(authored) == len(native_frames) == 6
+    checks += 1
+    for index, (image, frame) in enumerate(zip(authored, native_frames)):
+        width, height, pixels = author.tga32(image)
+        expected = author.fit(64, 64, result[index][2], 32, 32)
+        assert (width, height) == frame[:2] == (32, 32)
+        assert pixels == frame[2] == expected
+        checks += 2
+        (output / ('cylinder32-' + str(index) + '.tga')).write_bytes(image)
+    (output / 'revolver_ammo.spr').write_bytes(native)
+    try:
+        author.revolver_ammunition(data[:-1])
+    except ValueError:
+        checks += 1
+    else:
+        raise AssertionError('Unmatched original cylinder accepted')
     for relative in list(PINS)[1:]:
         ordinary = (args.original / relative).read_bytes()
         expected = old['decode_sprite'](ordinary)
@@ -108,7 +130,8 @@ def main():
     assert before == after
     receipt = dict(success=True, checks=checks, before=before, inputsUnchanged=True,
                    previousDecoderRevision=old_revision, frames=frames, singleFrameOutputUnchanged=True,
-                   sourceCopies=0, boundary='Cold original resource conversion only; no runtime HUD, deployment, gameplay or live performance')
+                   native32Sha256=hashlib.sha256(native).hexdigest(),
+                   sourceCopies=0, boundary='Cold original resource conversion and authored 32px CSO/native frames only; no runtime HUD, deployment, gameplay or live performance')
     (output / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', 'utf-8')
     print(json.dumps(dict(success=True, checks=checks, originalFrames=len(frames))))
 

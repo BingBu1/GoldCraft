@@ -38,6 +38,20 @@ int main()
     const auto absentSelected=ParseCatalog(Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"selected\":\"\""));
     Check(absentSelected.weapons.at("weapon_cannon").selectedKnown&&absentSelected.weapons.at("weapon_cannon").selected.empty(),"explicit absent original weapon_s is distinct from legacy catalog");
     Reject(Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"selected\":\"../cannon_s.tga\""));
+    std::string frameList="[\"resource/csol/hud/v1/ammo.tga\"";
+    for(unsigned i=1;i<AmmoFrameCount;++i)frameList+=",\"resource/csol/hud/v1/ammo"+std::to_string(i)+".tga\"";
+    frameList+="]";
+    const auto framedText=Replace(valid,"\"ammo2\":\"\"","\"ammo2\":\"\",\"ammoFrames\":"+frameList);
+    const auto framed=ParseCatalog(framedText);
+    Check(framed.weapons.at("weapon_cannon").ammoFrames[5]=="resource/csol/hud/v1/ammo5.tga","six explicit frames retain order");
+    const auto framedPaths=ResourcePaths(framed);
+    Check(framedPaths.size()==ResourcePaths(parsed).size()+5,"all independent frames join deduplicated downloads");
+    for(const auto& bad:{std::string("[]"),std::string("[\"../ammo.tga\"]"),std::string("{}"),std::string("6")})
+        Reject(Replace(framedText,frameList,bad));
+    Reject(Replace(framedText,"resource/csol/hud/v1/ammo5.tga","../ammo5.tga"));
+    Reject(Replace(framedText,"resource/csol/hud/v1/ammo5.tga",""));
+    Reject(Replace(framedText,"resource/csol/hud/v1/ammo5.tga","resource/csol/hud/v1/a\\u0000.tga"));
+    Reject(Replace(framedText,frameList,Replace(frameList,"resource/csol/hud/v1/ammo.tga","resource/csol/hud/v1/other.tga")));
     for(const auto& text:std::vector<std::string>{"","[]","{}",Replace(valid,"\"version\":1","\"version\":2"),
         Replace(valid,"\"version\":1","\"version\":1.0"),Replace(valid,"weapon_cannon","cannon"),
         Replace(valid,"weapon_cannon","weapon_"),Replace(valid,"weapon_cannon","weapon_Cannon"),

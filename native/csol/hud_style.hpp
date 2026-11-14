@@ -38,7 +38,14 @@ inline constexpr std::array<Resource, unsigned(Art::Count)> Resources{{
     {"resource/csol/hud/v1/money_plus.tga",13,18},
     {"resource/csol/hud/v1/money_minus.tga",13,18},
 }};
-struct WeaponArt { std::string title, weapon, ammo, ammo2, selected; bool selectedKnown{}; };
+inline constexpr unsigned AmmoFrameCount = 6;
+struct WeaponArt
+{
+    std::string title, weapon, ammo, ammo2, selected;
+    bool selectedKnown{};
+    // Explicit cold-authored independent frames; absent retains static art.
+    std::array<std::string,AmmoFrameCount> ammoFrames;
+};
 struct Catalog
 {
     std::unordered_map<std::string, WeaponArt> weapons;
@@ -54,6 +61,7 @@ struct WeaponState
     int id{}, slot{}, clip{-1}, reserve{}, secondary{}, total{};
     AmmoKind kind{AmmoKind::None};
     bool infinite{}, specialAmmo{};
+    int ammoFrame{-1};
 };
 struct Vitals
 {

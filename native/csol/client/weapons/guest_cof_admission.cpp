@@ -16,6 +16,7 @@
 #include "guest_cof_crosshair.hpp"
 #include "../../../guest/cof/catalog.hpp"
 #include "../../../guest/cof/admission.hpp"
+#include "../../../guest/cof/presentation_resources.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include <ostream>
 
@@ -91,7 +92,8 @@ void GuestCofAdmissionFrame() noexcept
     {
         const auto& weapon=guest::cof::Pistols[i];
         const auto bit=guest::cof::PistolCapability(weapon.identity);
-        if(!(state.weapons&bit)||!GuestCofMuzzleReady(unsigned(weapon.originalId))||!HudStyleWeaponResourcesReady(weapon.hostId))continue;
+        if(!(state.weapons&bit)||!GuestCofMuzzleReady(unsigned(weapon.originalId))||
+            !HudStyleWeaponResourcesReady(weapon.hostId,guest::cof::PistolHudAmmoFrames(weapon.identity)))continue;
         if(!menuAttempted[i])
         {menuAttempted[i]=true;menuPrepared[i]=PrepareBuyMenuItem(weapon.hostId);}
         if(connection->generation()!=current||GuestCofEffectsResourceSerial()!=effect)
