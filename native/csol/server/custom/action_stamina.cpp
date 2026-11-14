@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "pm_defs.h"
 #include "action_stamina.h"
 #include "gameplay_settings.h"
 #include "../characters.h"
@@ -9,6 +10,7 @@
 #include "../scenario/core/scenario_runtime.h"
 #include "../scenario/core/scenario_session.h"
 #include "../scenario/core/scenario_player_runtime.h"
+#include "../scenario/core/scenario_entity_lookup.h"
 #include <array>
 #include <cmath>
 #include <limits>
@@ -30,6 +32,7 @@ struct State
     std::uint64_t runtimeGeneration{}, round{}, generation{}, life{}, spawn{}, serial{}, tick{}, token{};
     int nativeSpawns{};
     std::uint32_t recoveryEvents{};
+    std::uint64_t jumpRequest{},jumpConsumed{};
     custom::StaminaSnapshot published;
     std::uint32_t hudRevision{};
     bool hudPublished{};
@@ -114,6 +117,7 @@ bool Configuration(const custom::Snapshot& settings, custom::StaminaConfig& conf
     };
     if (!apply(custom::Setting::SprintMaximum, config.maximum) ||
         !apply(custom::Setting::SprintRecoveryPerSecond, config.recovery) ||
+        !apply(custom::Setting::JumpCost, config.jumpCost) ||
         !apply(custom::Setting::KickCost, config.kickCost) ||
         !apply(custom::Setting::DuskMaximumMultiplier, config.duskMaximum) ||
         !apply(custom::Setting::DuskRecoveryMultiplier, config.duskRecovery)) return false;
@@ -130,10 +134,49 @@ State* Find(const Runtime& runtime, CBasePlayer& player)
         if (state.address == &player && state.Current(runtime, player)) return &state;
     return nullptr;
 }
+bool Enabled()
+{return CSOL_CustomFeatureEnabled(custom::Feature::Kick)||CSOL_CustomFeatureEnabled(custom::Feature::CofSprint);}
+State* Prepare(const Runtime& runtime,CBasePlayer& player,float now,csol::scenario::ConfigError& error)
+{
+    if(!runtime||runtime->Closing()||!runtime->session||!runtime->players||!runtime->players->Active()||
+        runtime->session->State()!=CSOLScenarioSessionState::Active||!std::isfinite(now))return nullptr;
+    const auto access=runtime->session->Map().EntityAccess();
+    if(!access||!access->Allowed())return nullptr;
+    const int slot=player.entindex();
+    if(slot<1||slot>32||!access->Allowed()||runtime->Closing())return nullptr;
+    auto& state=states[slot];
+    const auto settings=MapSettings(runtime,access);
+    if(!settings){error.message="kick stamina settings are unavailable";return nullptr;}
+    auto profile=runtime->players->Find(EHANDLE(&player));
+    if(!profile||!access->Allowed()||runtime->Closing()||!player.pev||player.pev->deadflag!=DEAD_NO||
+        player.pev->health<=0||player.has_disconnected)return nullptr;
+    const bool current=state.Current(runtime,player);
+    // A retired native life stays retired until an actual new life is prepared.
+    if(!current&&state.retired&&state.address==&player&&state.profile==profile&&
+        state.life==profile->skillLifeSerial&&state.spawn==profile->nativeSpawnSerial&&
+        state.nativeSpawns==player.m_iNumSpawns&&state.access==access&&state.round==runtime->session->Map().RoundGeneration())return nullptr;
+    custom::StaminaConfig config=current&&state.settings==settings?state.config:custom::StaminaConfig{};
+    if((!current||state.settings!=settings)&&!Configuration(*settings,config))
+    {error.message="kick stamina profile is invalid";return nullptr;}
+    const auto phase=Phase(runtime,settings);
+    if(!current)
+    {
+        if(serial==UINT64_MAX){error.message="kick stamina owner identity exhausted";return nullptr;}
+        state={};state.runtime=runtime;state.session=runtime->session;state.players=runtime->players;
+        state.access=access;state.profile=profile;state.player=&player;state.address=&player;
+        state.runtimeGeneration=runtime->Generation();state.round=runtime->session->Map().RoundGeneration();
+        state.generation=profile->generation;state.life=profile->skillLifeSerial;state.spawn=profile->nativeSpawnSerial;
+        state.nativeSpawns=player.m_iNumSpawns;state.serial=++serial;
+        state.key={{state.runtimeGeneration,state.round},state.serial};
+        if(!state.stamina.Begin(state.key,phase,now,config))return nullptr;
+    }
+    if(!state.Current(runtime,player)||!state.stamina.Configure(state.key,config,phase))return nullptr;
+    state.settings=settings;state.config=config;return &state;
+}
 bool PublishHud(State& state,const Runtime& runtime,CBasePlayer& player,const custom::StaminaView& view,
     csol::scenario::ConfigError& error,bool force)
 {
-    const bool visible=CSOL_CustomFeatureEnabled(custom::Feature::Kick);
+    const bool visible=Enabled();
     custom::StaminaSnapshot next{state.serial,0,visible?view.amount:0,visible?view.maximum:0,
         visible,visible&&view.infinite,visible&&view.exhausted};
     const auto& old=state.published;
@@ -183,46 +226,13 @@ bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float n
 {
     if (operating) return true;
     Guard guard;
-    if (!runtime || runtime->Closing() || !runtime->session || !runtime->players || !runtime->players->Active() ||
-        runtime->session->State() != CSOLScenarioSessionState::Active || !std::isfinite(now)) return false;
-    const auto access = runtime->session->Map().EntityAccess();
-    if (!access || !access->Allowed()) return false;
-    const int slot = player.entindex();
-    if (slot < 1 || slot > 32 || !access->Allowed() || runtime->Closing()) return false;
-    auto& state = states[slot];
-    const auto settings = MapSettings(runtime, access);
-    if (!settings) { error.message = "kick stamina settings are unavailable"; return false; }
-    auto profile = runtime->players->Find(EHANDLE(&player));
-    if (!profile || !access->Allowed() || runtime->Closing() || player.pev->deadflag != DEAD_NO ||
-        player.pev->health <= 0 || player.has_disconnected) return false;
-    const bool current = state.Current(runtime, player);
-    // Retirement is a same-native-life tombstone, not a refill opportunity.
-    if (!current && state.retired && state.address == &player && state.profile == profile &&
-        state.life == profile->skillLifeSerial && state.spawn == profile->nativeSpawnSerial && state.nativeSpawns == player.m_iNumSpawns &&
-        state.access == access && state.round == runtime->session->Map().RoundGeneration()) return false;
-    custom::StaminaConfig config = current && state.settings == settings ? state.config : custom::StaminaConfig{};
-    if ((!current || state.settings != settings) && !Configuration(*settings, config))
-    { error.message = "kick stamina profile is invalid"; return false; }
-    const auto phase = Phase(runtime, settings);
-    if (!current)
-    {
-        if (serial == UINT64_MAX) { error.message = "kick stamina owner identity exhausted"; return false; }
-        state = {}; state.runtime = runtime; state.session = runtime->session; state.players = runtime->players;
-        state.access = access; state.profile = profile; state.player = &player; state.address = &player;
-        state.runtimeGeneration = runtime->Generation(); state.round = runtime->session->Map().RoundGeneration();
-        state.generation = profile->generation; state.life = profile->skillLifeSerial; state.spawn = profile->nativeSpawnSerial;
-        state.nativeSpawns = player.m_iNumSpawns; state.serial = ++serial;
-        state.key = {{state.runtimeGeneration, state.round}, state.serial};
-        if (!state.stamina.Begin(state.key, phase, now, config)) return false;
-    }
-    if (!state.Current(runtime, player)) return false;
-    if (!state.stamina.Configure(state.key, config, phase)) return false;
-    state.settings = settings; state.config = config;
+    auto* prepared=Prepare(runtime,player,now,error);if(!prepared)return false;
+    auto& state=*prepared;const auto phase=Phase(runtime,state.settings);const auto access=state.access;
     if (state.tick == UINT64_MAX) { error.message = "kick stamina tick identity exhausted"; return false; }
     custom::StaminaInput input; input.key = state.key; input.command = ++state.tick; input.now = now; input.phase = phase;
     input.ducked = (player.pev->flags & FL_DUCKING) != 0;
-    // No sprint or acceptedJump events: their real movement consumers remain
-    // unintegrated. Recovery does not borrow weapon reload/aim eligibility.
+    // Accepted native jumps already debit before this original PostThink
+    // recovery/clamp. Sprint's real movement consumer is still separate.
     const auto before=state.stamina.View(state.key);
     const auto after=state.stamina.Step(input);
     if(!after||!state.Current(runtime,player))return false;
@@ -249,11 +259,33 @@ std::optional<custom::StaminaView> CSOL_ActionStaminaView(const Runtime& runtime
 {
     if (operating) return {};
     const auto* state = Find(runtime, player);
-    return state && state->settings && CSOL_CustomFeatureEnabled(custom::Feature::Kick) ?
+    return state && state->settings && Enabled() ?
         state->stamina.View(state->key) : std::nullopt;
 }
 bool CSOL_ActionStaminaCanKick(const Runtime& runtime, CBasePlayer& player)
 { const auto view = CSOL_ActionStaminaView(runtime, player); return view && view->kickAvailable; }
+CSOLActionStaminaJump CSOL_PrepareActionStaminaJump(const playermove_s& movement)
+{
+    if(operating||!movement.server||movement.player_index<0||movement.player_index>=32||!Enabled()||!gpGlobals)return {};
+    Guard guard;CSOLScenarioSdkScope scope;
+    if(!scope.Scenario()||!scope.Current())return {};
+    const auto access=scope.EntityAccess();const auto runtime=CSOL_ScenarioRuntimeForAccess(access.get());
+    auto* player=dynamic_cast<CBasePlayer*>(CSOL_ScenarioPlayerEntity(movement.player_index+1,access));
+    if(!player||!scope.Current())return {};
+    csol::scenario::ConfigError error;auto* state=Prepare(runtime,*player,gpGlobals->time,error);
+    if(!state||!scope.Current()||state->jumpRequest==UINT64_MAX)return {};
+    return {state->serial,++state->jumpRequest,unsigned(movement.player_index+1)};
+}
+bool CSOL_CommitActionStaminaJump(CSOLActionStaminaJump jump)
+{
+    if(operating||!jump.owner||!jump.request||jump.slot<1||jump.slot>=states.size())return false;
+    Guard guard;auto& state=states[jump.slot];
+    if(state.serial!=jump.owner||state.retired||jump.request>state.jumpRequest||jump.request<=state.jumpConsumed)return false;
+    const auto runtime=state.runtime.lock();auto* player=state.address;
+    if(!player||!state.Current(runtime,*player)||state.serial!=jump.owner)return false;
+    state.jumpConsumed=jump.request;
+    return Enabled()&&state.stamina.DebitJump(state.key);
+}
 CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const Runtime& runtime, CBasePlayer& player, std::uint64_t token)
 {
     if (operating) return CSOLKickStaminaDebit::Declined;

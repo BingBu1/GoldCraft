@@ -328,6 +328,7 @@ void HudCancel()
     Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,101,error)&&c.packets.size()==count,"closed owner cannot publish another HUD update");
 }
 }
+#ifndef CSOL_PHASE_SDK_LIBRARY
 int main(int argc,char** argv)
 {
     try
@@ -348,3 +349,4 @@ int main(int argc,char** argv)
     std::cout<<"behaviorChecks="<<kick_test::behaviorChecks<<" checks="<<sdk_test::checks<<" failures="<<sdk_test::failures<<'\n';
     return sdk_test::failures?1:0;
 }
+#endif

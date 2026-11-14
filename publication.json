@@ -2426,7 +2426,14 @@
     "tests/cryoffear-hand-controller-scope/README.md",
     "tools/Deploy-ChallengeUi.py",
     "amxx/tests/csol/goldcraft_phase_audio_live.sma",
-    "docs/2026-11-14_调整-底部箭头布局与血月清晰度-report.md"
+    "docs/2026-11-14_调整-底部箭头布局与血月清晰度-report.md",
+    "tests/native/fluid_movement_tests.cpp",
+    "tests/native/status_motion_tests.cpp",
+    "tests/csol-stamina-jump/extract.py",
+    "tests/csol-stamina-jump/run_native.py",
+    "tests/csol-stamina-jump/sdk.cpp",
+    "tests/csol-stamina-jump/README.md",
+    "docs/2026-11-14_接入-真实起跳体力扣费-report.md"
   ],
   "trees": {
     "native": [

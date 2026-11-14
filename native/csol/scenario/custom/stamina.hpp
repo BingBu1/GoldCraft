@@ -51,6 +51,9 @@ public:
     bool CanKick(LifeKey key) const noexcept;
     // Accepted host action only, independent of PostThink recovery cadence.
     bool DebitKick(LifeKey key) noexcept;
+    // Original accepted Jump debit precedes PostThink's recovery and clamp.
+    // A low balance never rejects the native jump or clamps it prematurely.
+    bool DebitJump(LifeKey key) noexcept;
     bool Configure(LifeKey key, StaminaConfig config, Phase phase) noexcept;
     bool Retire(LifeKey key) noexcept;
     void Reset() noexcept;

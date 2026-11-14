@@ -15,6 +15,11 @@ using int32=std::int32_t;
 #include "pm_defs.h"
 #include "pm_movevars.h"
 #include "in_buttons.h"
+#include "../../native/csol/server/custom/action_stamina.h"
+// This fluid fixture has no scenario owner. Actual stamina/PM ownership is
+// exercised by csol-stamina-jump's real GameDLL integration separately.
+CSOLActionStaminaJump CSOL_PrepareActionStaminaJump(const playermove_s&){return {};}
+bool CSOL_CommitActionStaminaJump(CSOLActionStaminaJump){return false;}
 #define PLAY_GAMEDLL
 #include "bspfile.h"
 

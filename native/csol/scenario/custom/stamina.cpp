@@ -58,6 +58,12 @@ bool StaminaState::DebitKick(LifeKey key) noexcept
     if (phase_ != Phase::Noon) amount_ -= config_.kickCost;
     return true;
 }
+bool StaminaState::DebitJump(LifeKey key) noexcept
+{
+    if(!key_.Valid()||key!=key_)return false;
+    if(phase_!=Phase::Noon)amount_-=config_.jumpCost;
+    return true;
+}
 bool StaminaState::Configure(LifeKey key, StaminaConfig config, Phase phase) noexcept
 {
     if (!key_.Valid() || key != key_ || !Playing(phase) || !Valid(config)) return false;

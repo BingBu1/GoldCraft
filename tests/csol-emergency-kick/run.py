@@ -23,6 +23,7 @@ def main():
                         help="Reuse all actual accepted server objects; compile only the new SDK fixture")
     parser.add_argument("--fixture", type=Path, help="Alternate in-place SDK fixture under tests")
     parser.add_argument("--groups", nargs="+", help="Explicit groups for the alternate fixture")
+    parser.add_argument("--fixture-include",type=Path,help="Generated test adapter directory under workspace build")
     args = parser.parse_args()
     if bool(args.fixture) != bool(args.groups):
         raise ValueError("An alternate fixture and explicit groups must be supplied together")
@@ -87,6 +88,10 @@ def main():
     controls = [sdk.identity(path) for path in (
         args.seal, Path(__file__),
         args.adapter_dir / "engine_edge_names.inc", args.adapter_dir / "engine_edge_defaults.inc")]
+    if args.fixture_include:
+        generated=args.fixture_include.resolve(strict=True)
+        if not generated.is_relative_to(ROOT/'build'):raise ValueError('Generated fixture adapters must stay under build')
+        controls.extend(sdk.identity(path)for path in generated.iterdir()if path.is_file())
     if args.glock_receipt:
         controls.append(sdk.identity(args.glock_receipt))
     consumed = {row["path"].casefold(): row for row in controls}
@@ -156,6 +161,7 @@ def main():
                  and not x.lower().startswith(("/fo", "/fp", "/yu", "/yc", "/fd"))]
         flags += ["/fp:precise", "/Y-", "/showIncludes", "/clang:-ffp-contract=off",
                   "/I" + str(ROOT), "/I" + str(args.adapter_dir.resolve())]
+        if args.fixture_include:flags.append('/I'+str(args.fixture_include.resolve()))
         for name, source in units.items():
             consumed[str(source).casefold()] = sdk.identity(source)
             run("compile-" + name, flags + ["/Fo" + str(out / (name + ".obj")), str(source)], "compile")

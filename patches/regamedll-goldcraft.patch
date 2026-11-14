@@ -5325,21 +5325,22 @@ index 2a12a7c..8d5ca0f 100644
 -SECTIONS
 -	.data READ WRITE
 diff --git a/regamedll/pm_shared/pm_shared.cpp b/regamedll/pm_shared/pm_shared.cpp
-index b524513..8f4342b 100644
+index b524513..355aea4 100644
 --- a/regamedll/pm_shared/pm_shared.cpp
 +++ b/regamedll/pm_shared/pm_shared.cpp
-@@ -1,4 +1,10 @@
+@@ -1,4 +1,11 @@
  #include "precompiled.h"
 +#ifndef CLIENT_DLL
 +#include "../../../../native/server/bridge.h"
 +#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
 +#include "../../../../native/csol/server/scenario/core/scenario_entity_lookup.h"
++#include "../../../../native/csol/server/custom/action_stamina.h"
 +#include "../../../../native/csol/player_collision.hpp"
 +#endif
  
  BOOL pm_shared_initialized = FALSE;
  
-@@ -1617,7 +1623,7 @@ qboolean PM_CheckWater()
+@@ -1617,7 +1624,7 @@ qboolean PM_CheckWater()
  	return (pmove->waterlevel > 1) ? TRUE : FALSE;
  }
  
@@ -5348,7 +5349,7 @@ index b524513..8f4342b 100644
  {
  	vec3_t point;
  	pmtrace_t tr;
-@@ -1690,6 +1696,16 @@ void PM_CategorizePosition()
+@@ -1690,6 +1697,16 @@ void PM_CategorizePosition()
  	}
  }
  
@@ -5365,7 +5366,28 @@ index b524513..8f4342b 100644
  // When a player is stuck, it's costly to try and unstick them
  // Grab a test offset for the player based on a passed in index
  int PM_GetRandomStuckOffsets(int nIndex, int server, vec_t *offset)
-@@ -3268,7 +3284,11 @@ void PM_PlayerMove(qboolean server)
+@@ -2634,6 +2651,10 @@ LINK_HOOK_VOID_CHAIN2(PM_Jump)
+ 
+ void EXT_FUNC __API_HOOK(PM_Jump)()
+ {
++#ifndef CLIENT_DLL
++	auto* const staminaMovement = pmove;
++	const auto staminaJump = CSOL_PrepareActionStaminaJump(*staminaMovement);
++#endif
+ 	if (pmove->dead)
+ 	{
+ 		// don't jump again until released
+@@ -2825,6 +2846,9 @@ void EXT_FUNC __API_HOOK(PM_Jump)()
+ 	// Flag that we jumped.
+ 	// don't jump again until released
+ 	pmove->oldbuttons |= IN_JUMP;
++#ifndef CLIENT_DLL
++	if (pmove == staminaMovement) CSOL_CommitActionStaminaJump(staminaJump);
++#endif
+ }
+ 
+ LINK_HOOK_VOID_CHAIN2(PM_CheckWaterJump)
+@@ -3268,7 +3292,11 @@ void PM_PlayerMove(qboolean server)
  		{
  			if (!pLadder)
  			{
@@ -5378,7 +5400,7 @@ index b524513..8f4342b 100644
  			}
  		}
  		else
-@@ -3317,7 +3337,11 @@ void PM_PlayerMove(qboolean server)
+@@ -3317,7 +3345,11 @@ void PM_PlayerMove(qboolean server)
  			// Was jump button pressed?
  			if (pmove->cmd.buttons & IN_JUMP)
  			{
@@ -5391,7 +5413,7 @@ index b524513..8f4342b 100644
  			}
  			else
  			{
-@@ -3325,7 +3349,11 @@ void PM_PlayerMove(qboolean server)
+@@ -3325,7 +3357,11 @@ void PM_PlayerMove(qboolean server)
  			}
  
  			// Perform regular water movement
@@ -5404,7 +5426,7 @@ index b524513..8f4342b 100644
  
  			VectorSubtract(pmove->velocity, pmove->basevelocity, pmove->velocity);
  
-@@ -3340,7 +3368,11 @@ void PM_PlayerMove(qboolean server)
+@@ -3340,7 +3376,11 @@ void PM_PlayerMove(qboolean server)
  			{
  				if (!pLadder)
  				{
@@ -5417,7 +5439,7 @@ index b524513..8f4342b 100644
  				}
  			}
  			else
-@@ -3534,7 +3566,16 @@ void PM_CreateStuckTable()
+@@ -3534,7 +3574,16 @@ void PM_CreateStuckTable()
  	}
  }
  
@@ -5434,7 +5456,7 @@ index b524513..8f4342b 100644
  
  // This module implements the shared player physics code between any particular game and
  // the engine. The same PM_Move routine is built into the game .dll and the client .dll and is
-@@ -3542,15 +3583,51 @@ LINK_HOOK_VOID_CHAIN(PM_Move, (struct playermove_s *ppmove, int server), ppmove,
+@@ -3542,15 +3591,51 @@ LINK_HOOK_VOID_CHAIN(PM_Move, (struct playermove_s *ppmove, int server), ppmove,
  // and client. This will ensure that prediction behaves appropriately.
  void EXT_FUNC __API_HOOK(PM_Move)(struct playermove_s *ppmove, int server)
  {
