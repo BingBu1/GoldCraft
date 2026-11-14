@@ -6,6 +6,7 @@
 #include "native/guest/cof/particle_protocol.hpp"
 #include "native/guest/cof/crosshair_protocol.hpp"
 #include "native/guest/cof/sound_protocol.hpp"
+#include "native/guest/cof/control_protocol.hpp"
 #include "shared-owner-runtime-sdk.inc"
 #include <map>
 
@@ -14,6 +15,7 @@ namespace dispatch_fixture
 using namespace csol::server::cof;
 bool valid=true,retireBegin{};
 unsigned inventoryCalls{},tabulates{},viewAnimations{},playbacks{};
+unsigned revolverShellEvents{},revolverFireEvents{};
 std::map<std::string,int> messages;
 struct Packet{int destination{},id{};edict_t* target{};std::vector<std::byte> bytes;};
 std::vector<Packet> packets;
@@ -38,8 +40,15 @@ void Engine()
     g_engfuncs.pfnPEntityOfEntIndex=[](int index)->edict_t*{return index==1?player.edict():nullptr;};
     g_engfuncs.pfnPlaybackEvent=[](int flags,const edict_t* owner,unsigned short index,float delay,
         float* origin,float* angles,float a,float b,int i,int j,int c,int d){
-        Check(owner==player.edict()&&delay==0&&a==0&&b==0&&c==0&&d==0);
+        Check(owner==player.edict()&&a==0&&b==0&&c==0&&d==0);
+        if(index==37)
+        {
+            Check(flags==0&&delay==1.25F&&i==5&&j==0&&origin[0]==11&&origin[1]==12&&origin[2]==13&&
+                angles[0]==0&&angles[1]==0&&angles[2]==0);++revolverShellEvents;return;
+        }
+        Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
+        else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
         else Check(flags==1&&index==35&&i==7&&j==19);
         ++playbacks;
     };
@@ -112,10 +121,76 @@ int main(int argc,char** argv)
     const auto third=State();Check(third.originalWeapon==3&&third.revision>second.revision&&third.key.generation>second.key.generation);
     player.m_pActiveItem=nullptr;Check(effects.SynchronizeSelection(player));const auto release=State();
     Check(release.originalWeapon==0&&release.revision>third.revision&&release.key==third.key);
+
+    RevolverResources revolverResources{};revolverResources.generation=glock.generation;
+    revolverResources.events={35,36,37};revolverResources.viewModelString=100;
+    revolverResources.models[unsigned(RevolverModel::Shell)]=31;
+    const auto revolverCapabilities=effects.RevolverCapabilities(revolverResources);
+    Check((revolverCapabilities&(1u<<unsigned(RevolverEffect::EjectEvent)))&&
+        (revolverCapabilities&(1u<<unsigned(RevolverEffect::Cylinder)))&&
+        !(revolverCapabilities&(1u<<unsigned(RevolverEffect::ReloadStage))));
+    RevolverPrepared unsupported{};unsupported.reloadStagesReady=true;
+    Check(effects.FillPrepared(revolverResources,unsupported)&&!unsupported.reloadStagesReady&&
+        unsupported.cylinderReady&&unsupported.ejectEventReady&&unsupported.ammoXReady);
+    RevolverWeapon revolver;edict_t revolverEntity{};revolverEntity.serialnumber=81;
+    revolverEntity.pvPrivateData=&revolver;revolverEntity.v.pContainingEntity=&revolverEntity;
+    revolver.pev=&revolverEntity.v;revolver.m_iId=898;revolver.m_iPrimaryAmmoType=1;revolver.m_pPlayer=&player;
+    player.m_pActiveItem=&revolver;
+    RevolverOwnerState revolverState{true,72,12.5F};
+    RevolverEvent revAim{RevolverEffect::Aim};revAim.enabled=true;revAim.value=55;revAim.a=350;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revAim,revolverState));
+    const auto revolverPresentation=State();
+    Check(revolverPresentation.originalWeapon==21&&revolverPresentation.revolverAngle==72&&
+        revolverPresentation.aimEnabled&&revolverPresentation.key.generation>third.key.generation);
+    RevolverEvent cylinder{RevolverEffect::Cylinder};cylinder.a=72;cylinder.b=15;cylinder.enabled=true;
+    revolverState.cylinderGate=15;
+    const auto beforeSameCylinder=packets.size();
+    for(int i=0;i<1000;++i)
+    {
+        cylinder.b=16+float(i);revolverState.cylinderGate=cylinder.b;
+        Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,cylinder,revolverState));
+    }
+    Check(packets.size()==beforeSameCylinder); // Gate state advances without redundant visual payloads.
+    cylinder.a=60;revolverState.cylinderAngle=60;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,cylinder,revolverState)&&packets.size()==beforeSameCylinder+1);
+    const auto movedCylinder=State();
+    Check(movedCylinder.revolverAngle==60&&movedCylinder.aimEnabled&&movedCylinder.fovMode==55&&
+        movedCylinder.zoomSpeedEighths==2800&&movedCylinder.revision==revolverPresentation.revision+1);
+    cylinder.a=48;const auto beforeBad=packets.size();
+    Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,cylinder,revolverState)&&packets.size()==beforeBad);
+    Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,pistol,revAim,revolverState));
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,{RevolverEffect::FirstDraw},revolverState));
+    auto undrawn=revolverState;undrawn.firstDrawn=false;
+    Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,{RevolverEffect::FirstDraw},undrawn));
+    Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,{RevolverEffect::ReloadStage},revolverState));
+    RevolverEvent ammo{RevolverEffect::AmmoX};ammo.value=1;ammo.other=254;player.m_rgAmmo[1]=500;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,ammo,revolverState));
+    const std::vector<std::byte> expectedAmmo{std::byte{1},std::byte{254}};
+    Check(packets.back().id==messages.at("AmmoX")&&packets.back().bytes==expectedAmmo&&player.m_rgAmmo[1]==500);
+    ammo.other=255;Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,ammo,revolverState));
+    RevolverEvent shotState{RevolverEffect::ShotState};shotState.a=4;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,shotState,revolverState));
+    ControlData shot{};Check(DecodeControl(packets.back().bytes,shot)&&shot.operation==ControlOperation::ShotState&&shot.body==4);
+    shotState.a=3;Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,shotState,revolverState));
+    RevolverEvent shellSound{RevolverEffect::EjectEvent};shellSound.first={11,12,13};shellSound.a=1.25F;shellSound.value=5;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,shellSound,revolverState)&&revolverShellEvents==1);
+    RevolverEvent revolverFire{RevolverEffect::FireEvent};revolverFire.value=21;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revolverFire,revolverState)&&revolverFireEvents==1);
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,{RevolverEffect::FireSound},revolverState));
+    Check(DecodeSound(packets.back().bytes,sound)&&sound.sample=="weapons_new/revolver/revolver_fire.wav");
+    RevolverEvent revView{RevolverEffect::ViewAnimation};revView.value=20;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revView,revolverState));
+    revView.value=21;Check(!effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revView,revolverState));
+    const auto oldSerial=revolverEntity.serialnumber;++revolverEntity.serialnumber;
+    Check(effects.Dispatch(revolverResources,runtimeView.binding,player,revolver,revAim,revolverState));
+    const auto newInstance=State();Check(newInstance.key.generation>movedCylinder.key.generation);
+    revolverEntity.serialnumber=oldSerial;
+    player.m_pActiveItem=nullptr;Check(effects.SynchronizeSelection(player));
+    Check(State().originalWeapon==0&&!State().revolverAngle);
     player.m_pActiveItem=&pistol;retireBegin=true;
     Check(!effects.Dispatch(resources,runtimeView.binding,player,pistol,aim));
     Check(packets.back().bytes.size()==StateBytes);retireBegin=false;valid=true;
     effects.EndMap();Check(!effects.Dispatch(resources,runtimeView.binding,player,pistol,aim));
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;runtime.EndMap();
-    std::cout<<"P345 actual shared presentation/effect dispatch: "<<checks<<" SDK checks, zero failures; engine packets are captured, no network/gameplay acceptance\n";
+    std::cout<<"P345/Revolver actual shared presentation/effect dispatch: "<<checks<<" SDK checks, zero failures; engine packets are captured, no network/gameplay acceptance\n";
 }

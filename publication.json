@@ -2382,7 +2382,8 @@
     "tools/Verify-CSOLServerBuildScope.py",
     "tests/csol-build-scope/pinned_archive.py",
     "tests/csol-build-scope/dependency_replay.py",
-    "docs/2026-11-14_修复-服务端依赖重放命令与路径热点-report.md"
+    "docs/2026-11-14_修复-服务端依赖重放命令与路径热点-report.md",
+    "docs/2026-11-14_接入-Revolver权威效果分发-report.md"
   ],
   "trees": {
     "native": [

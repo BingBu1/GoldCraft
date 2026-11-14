@@ -26,12 +26,16 @@ public:
     bool Current() const noexcept;
     std::uint32_t Capabilities() const noexcept;
     std::uint32_t P345Capabilities() const noexcept;
+    std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
+    bool FillPrepared(const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept;
     bool Dispatch(const GlockResources&, const OwnerBinding&, CBasePlayer&,
         CBasePlayerWeapon&, const guest::cof::server::GlockEvent&) noexcept;
     bool Dispatch(const P345Resources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::P345Event&) noexcept;
+    bool Dispatch(const RevolverResources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&,RevolverOwnerState) noexcept;
     // Call after real native item processing, and on life/ownership retirement.
     // Ordinary CS weapons receive an explicit release of CoF FOV/view ownership.
     bool SynchronizeSelection(CBasePlayer&) noexcept;
@@ -49,6 +53,10 @@ private:
         EHANDLE weapon;
         int ownerSerial{};
         bool active{}, clothingInitialized{};
+        bool aimEnabled{};
+        std::uint16_t fovMode{};
+        std::int16_t zoomSpeedEighths{};
+        std::optional<float> revolverAngle{};
     };
     struct Lease;
     struct WeaponResources
@@ -59,15 +67,16 @@ private:
         int shellModel{};
     };
     bool DispatchWeapon(const WeaponResources&,const OwnerBinding&,CBasePlayer&,CBasePlayerWeapon&,
-        const guest::cof::server::GlockEvent&,unsigned originalWeapon,const char* fireSound,std::uint32_t capabilities) noexcept;
+        const guest::cof::server::GlockEvent&,unsigned originalWeapon,const char* fireSound,std::uint32_t capabilities,
+        std::optional<float> revolverAngle={}) noexcept;
     static bool Active(void*) noexcept;
     static void MeleeRecoil(void*, CBasePlayer&, const Vector&) noexcept;
-    bool Presentation(Lease&, bool enabled, int fov, float speed) noexcept;
+    bool Presentation(Lease&, bool enabled, int fov, float speed,bool skipIdentical=false) noexcept;
     bool Release(CBasePlayer&, const guest::cof::PlaySfxCall&) noexcept;
     ResourceAuthority authority_{};
     GlockEffectPolicy policy_{};
     GlockResources resources_{};
-    int presentation_{}, sound_{}, control_{}, particle_{}, decal_{}, shake_{}, crosshair_{};
+    int presentation_{}, sound_{}, control_{}, particle_{}, decal_{}, shake_{}, crosshair_{},ammoX_{};
     std::array<Client, GlockOwnerRuntime::SlotCount> clients_{};
 };
 }
