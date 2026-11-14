@@ -21,6 +21,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     for name in ('commands','environment','output'):
         parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--resources',type=Path,help='Optional generated presentation candidate to consume')
     args=parser.parse_args();out=args.output.absolute()
     for path in (out,*out.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output')
@@ -50,6 +51,9 @@ def main():
            'native/csol/client/weapons/weapons.cpp','native/csol/client/weapons/guest_cof_admission.cpp']
     inputs={Path(__file__).resolve(),args.commands.resolve(),args.environment.resolve(),Path(command[0]).resolve(),
             ROOT/'tests/csol-rebuy/run_sdk.py'};jobs=[]
+    if args.resources:
+        if not args.resources.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use isolated generated resources')
+        inputs.update(p.resolve() for p in args.resources.rglob('*') if p.is_file())
     for i,unit in enumerate(units):
         dep=out/(str(i)+'.d');job=[command[0],*flags,'/clang:-M','/clang:-MF'+str(dep),'/clang:-MTcheck',str(ROOT/unit)]
         result=subprocess.run(job,cwd=ROOT,env=env,capture_output=True,timeout=120)
@@ -74,7 +78,8 @@ def main():
             (out/(name+'-link.log')).write_bytes(result.stdout+result.stderr)
             jobs.append(dict(stage=name+'-link',command=job,exit=result.returncode))
             if result.returncode:break
-            result=subprocess.run([str(exe)],cwd=ROOT,env=env,capture_output=True,timeout=60)
+            arguments=[str(exe)]+([str(args.resources.resolve())] if name=='hud' and args.resources else [])
+            result=subprocess.run(arguments,cwd=ROOT,env=env,capture_output=True,timeout=60)
             (out/(name+'-test.log')).write_bytes(result.stdout+result.stderr)
             tested.append(dict(name=name,exit=result.returncode))
             print(result.stdout.decode('utf8','replace'),flush=True)

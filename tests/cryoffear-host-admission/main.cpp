@@ -114,6 +114,14 @@ int main(int argc,char** argv)
     CHECK(buy.images.at(896).width==170&&buy.images.at(896).height==80);
     CHECK(catalog.weapons.contains("weapon_cof_p345")&&catalog.weapons.at("weapon_cof_p345").title=="客串武器·P345");
     CHECK(buy.images.contains(897)&&buy.weaponInfo.items.contains(897)&&buy.images.at(897).width==170&&buy.images.at(897).height==80);
+    if(catalog.weapons.contains("weapon_cof_revolver"))
+    {
+        const auto& revolver=catalog.weapons.at("weapon_cof_revolver");
+        CHECK(revolver.title=="客串武器·Taurus .357"&&revolver.ammoFrames.size()==6&&revolver.ammoFrames[0]==revolver.ammo);
+        CHECK(buy.images.contains(898)&&buy.weaponInfo.items.contains(898)&&buy.images.at(898).width==170&&buy.images.at(898).height==80);
+        const auto download=csol::hud_style::ResourcePaths(catalog);
+        for(const auto& frame:revolver.ammoFrames)CHECK(!frame.empty()&&std::find(download.begin(),download.end(),frame)!=download.end());
+    }
     CHECK(buy.weaponInfo.items.at(896).table==false&&buy.weaponInfo.items.at(896).grade==std::array<int,3>{-1,-1,-1});
     const auto paths=csol::buy::Resources(buy);CHECK(std::find(paths.begin(),paths.end(),"gfx/csol/buy/cof_glock.tga")!=paths.end());
     metahook_api_t table{};api=&table;table.FindCmd=Find;

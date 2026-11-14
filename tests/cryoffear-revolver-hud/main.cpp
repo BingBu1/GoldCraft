@@ -16,7 +16,7 @@ void ShutdownGuestCofCrosshair() noexcept { std::abort(); }
 void DrawGuestCofCrosshair(int,int,bool) noexcept { std::abort(); }
 }
 
-int main()
+int main(int argc,char** argv)
 {
     using namespace csol::client;using namespace fixture;
     char executable[]="revolver-hud";char* arguments[]{executable,nullptr};
@@ -76,6 +76,31 @@ int main()
         Check(HudStyleWeaponResourcesReady(898,6)&&HudStyleWeaponVisible(),"verified frame recovery prepares full row");
     }
     HudStyleVideoInit();Check(capture.live.empty(),"video replacement deletes all frame textures exactly once");
+    if(argc==2)
+    {
+        SetupResources();const std::filesystem::path root=argv[1];
+        for(const auto& entry:std::filesystem::recursive_directory_iterator(root))if(entry.is_regular_file())
+        {
+            std::ifstream input(entry.path(),std::ios::binary);
+            const std::vector<char> data{std::istreambuf_iterator<char>(input),{}};
+            Put(entry.path().lexically_relative(root).generic_string(),std::string(data.begin(),data.end()));
+        }
+        retryAfter=0;Prepare();PrepareSelection();
+        Check(loaded&&HudStyleWeaponResourcesReady(898,6),"actual thirteen-file author output prepares real catalog and full row");
+        const auto& actualFrames=selectionCards.at(898).ammoFrames;
+        const auto sourceRow=catalog.weapons.at(definition.name);
+        for(int i=0;i<6;++i)
+        {
+            const auto expected=csol::DecodeTGA(files.at(sourceRow.ammoFrames[i]));
+            const auto& uploaded=capture.uploads.at(actualFrames[i].id);
+            Check(expected.RGBA==uploaded.RGBA&&expected.Width==32&&expected.Height==32,
+                "real original-converted frame pixels reach owned runtime texture unchanged");
+            state.clip=i;module->hudState(state);Draw();
+            Check(ammoImage.id==actualFrames[i].id&&WeaponDigits()==std::to_string(i)+"500",
+                "real exported resource frame and numeric ammunition agree");
+        }
+        HudStyleVideoInit();Check(capture.live.empty(),"real converted frame ownership retires on video replacement");
+    }
     extension=nullptr;privateFont=nullptr;surface=nullptr;schemes=nullptr;
     std::cout<<"Revolver actual HUD checks="<<checks<<" failures="<<failures<<'\n';
     return failures?1:0;
