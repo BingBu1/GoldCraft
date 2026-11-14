@@ -31,7 +31,7 @@ def main():
     parser.add_argument('--process-budget', choices=('shared', 'per-build'), default='shared',
                         help='Use per-build only with an independently coordinated CPU budget')
     parser.add_argument('--no-node-reuse', action='store_true',
-                        help='Do not adopt or retain MSBuild worker nodes from other builds')
+                        help='Do not retain MSBuild worker nodes after this build')
     args = parser.parse_args()
     build, out = args.build.resolve(strict=True), args.output.resolve()
     if not build.is_relative_to(ROOT / 'build') or not out.is_relative_to(ROOT / 'build') or out.exists():
