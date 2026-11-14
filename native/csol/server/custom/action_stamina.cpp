@@ -4,6 +4,7 @@
 #include "gameplay_settings.h"
 #include "../characters.h"
 #include "../../scenario/custom/stamina_audio.hpp"
+#include "../../scenario/custom/stamina_snapshot.hpp"
 #include "../scenario/core/game_rules_gate.h"
 #include "../scenario/core/scenario_runtime.h"
 #include "../scenario/core/scenario_session.h"
@@ -29,11 +30,14 @@ struct State
     std::uint64_t runtimeGeneration{}, round{}, generation{}, life{}, spawn{}, serial{}, tick{}, token{};
     int nativeSpawns{};
     std::uint32_t recoveryEvents{};
+    custom::StaminaSnapshot published;
+    std::uint32_t hudRevision{};
+    bool hudPublished{};
     bool retired{};
     custom::LifeKey key;
     custom::StaminaState stamina;
     custom::StaminaConfig config;
-    bool Current(const Runtime& owner, CBasePlayer& actor) const
+    bool Current(const Runtime& owner, CBasePlayer& actor, bool alive=true) const
     {
         if (retired || address != &actor || !access || !access->Allowed() || !owner ||
             owner->Closing() || owner != runtime.lock() || owner->Generation() != runtimeGeneration ||
@@ -48,7 +52,7 @@ struct State
         const auto expectedSerial = serial;
         if (player.Get<CBasePlayer>() != &actor || serial != expectedSerial || retired || !access || !access->Allowed() || owner->Closing()) return false;
         return actor.pev && !actor.has_disconnected && actor.m_iNumSpawns == nativeSpawns &&
-            actor.pev->deadflag == DEAD_NO && actor.pev->health > 0 &&
+            (!alive || (actor.pev->deadflag == DEAD_NO && actor.pev->health > 0)) &&
             !(actor.pev->flags & (FL_KILLME | FL_DORMANT));
     }
 };
@@ -56,6 +60,7 @@ std::array<State, 33> states;
 std::uint64_t serial{};
 bool operating{};
 int breathMessage{};
+int staminaMessage{};
 std::shared_ptr<const CSOLScenarioEntityAccess> breathAccess;
 struct Guard { Guard(){operating=true;} ~Guard(){operating=false;} };
 struct PhaseOwner
@@ -125,6 +130,28 @@ State* Find(const Runtime& runtime, CBasePlayer& player)
         if (state.address == &player && state.Current(runtime, player)) return &state;
     return nullptr;
 }
+bool PublishHud(State& state,const Runtime& runtime,CBasePlayer& player,const custom::StaminaView& view,
+    csol::scenario::ConfigError& error,bool force)
+{
+    const bool visible=CSOL_CustomFeatureEnabled(custom::Feature::Kick);
+    custom::StaminaSnapshot next{state.serial,0,visible?view.amount:0,visible?view.maximum:0,
+        visible,visible&&view.infinite,visible&&view.exhausted};
+    const auto& old=state.published;
+    if(!force&&state.hudPublished&&next.amount==old.amount&&next.maximum==old.maximum&&next.visible==old.visible&&
+        next.infinite==old.infinite&&next.exhausted==old.exhausted)return state.Current(runtime,player);
+    if(state.hudRevision==UINT32_MAX||staminaMessage<64||breathAccess!=state.access||
+        !g_engfuncs.pfnMessageBegin||!g_engfuncs.pfnWriteByte||!g_engfuncs.pfnMessageEnd)
+    {error.message="stamina HUD has no prepared current transport";return false;}
+    next.revision=++state.hudRevision;
+    const auto bytes=custom::EncodeStamina(next);
+    if(!bytes){error.message="stamina HUD snapshot is invalid";return false;}
+    if(!state.Current(runtime,player))return false;
+    state.published=next;state.hudPublished=true;
+    MESSAGE_BEGIN(MSG_ONE,staminaMessage,nullptr,player.pev);
+    for(const auto byte:*bytes)WRITE_BYTE(std::to_integer<unsigned>(byte));
+    MESSAGE_END();
+    return state.Current(runtime,player);
+}
 }
 
 bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAccess>& access,
@@ -137,6 +164,9 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
     const int message=REG_USER_MSG(custom::BreathMessage,static_cast<int>(custom::BreathMessageSize));
     if(!access->Allowed())return false;
     if(message<64||message>255){error.message="stamina recovery message registration failed";return false;}
+    const int hud=REG_USER_MSG(custom::StaminaMessage,static_cast<int>(custom::StaminaMessageSize));
+    if(!access->Allowed())return false;
+    if(hud<64||hud>255){error.message="stamina HUD message registration failed";return false;}
     for(const auto* sound:custom::RecoverySounds)
     {
         const auto path=std::string("sound/")+sound;
@@ -146,10 +176,10 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
         const auto index=PRECACHE_SOUND(sound);if(!access->Allowed())return false;
         if(index<=0){error.message="stamina recovery sound could not be registered";return false;}
     }
-    breathAccess=access;breathMessage=message;return true;
+    breathAccess=access;breathMessage=message;staminaMessage=hud;return true;
 }
 
-bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float now, csol::scenario::ConfigError& error)
+bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float now, csol::scenario::ConfigError& error,bool forceHud)
 {
     if (operating) return true;
     Guard guard;
@@ -199,8 +229,10 @@ bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float n
     if(before&&!before->exhausted&&after->exhausted&&!after->infinite)
     {
         bool male{};
-        if(!CSOL_CharacterMale(&player,male,access))return state.Current(runtime,player);
+        const bool resolved=CSOL_CharacterMale(&player,male,access);
         if(!state.Current(runtime,player))return false;
+        if(resolved)
+        {
         if(breathAccess!=access||breathMessage<64||state.recoveryEvents==UINT32_MAX||
             !g_engfuncs.pfnMessageBegin||!g_engfuncs.pfnWriteByte||!g_engfuncs.pfnMessageEnd)
         {error.message="stamina recovery sound has no prepared current transport";return false;}
@@ -209,8 +241,9 @@ bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float n
         MESSAGE_BEGIN(MSG_ONE,breathMessage,nullptr,player.pev);
         for(const auto byte:*bytes)WRITE_BYTE(std::to_integer<unsigned>(byte));
         MESSAGE_END();
+        }
     }
-    return state.Current(runtime,player);
+    return state.Current(runtime,player)&&PublishHud(state,runtime,player,*after,error,forceHud);
 }
 std::optional<custom::StaminaView> CSOL_ActionStaminaView(const Runtime& runtime, CBasePlayer& player)
 {
@@ -235,9 +268,31 @@ CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const Runtime& runtime, CBasePlaye
 void CSOL_RetireActionStamina(CBasePlayer& player)
 {
     for (auto& state : states)
-        if (state.address == &player) { state.retired = true; state.stamina.Retire(state.key); }
+        if (state.address == &player)
+        {
+            if(state.retired)continue;
+            const auto retiring=state;
+            state.retired=true;state.stamina.Retire(state.key);
+            const auto runtime=retiring.runtime.lock();
+            const auto access=retiring.access;
+            std::optional<std::array<std::byte,custom::StaminaMessageSize>> bytes;
+            if(retiring.hudPublished&&retiring.published.visible&&retiring.hudRevision<UINT32_MAX&&
+                breathAccess==access&&staminaMessage>=64&&retiring.Current(runtime,player,false)&&
+                state.serial==retiring.serial&&state.retired)
+            {
+                state.published={state.serial,++state.hudRevision,0,0,false,false,false};
+                bytes=custom::EncodeStamina(state.published);
+            }
+            if(bytes&&runtime&&!runtime->Closing()&&access&&access->Allowed()&&
+                g_engfuncs.pfnMessageBegin&&g_engfuncs.pfnWriteByte&&g_engfuncs.pfnMessageEnd)
+            {
+                MESSAGE_BEGIN(MSG_ONE,staminaMessage,nullptr,player.pev);
+                for(const auto byte:*bytes)WRITE_BYTE(std::to_integer<unsigned>(byte));
+                MESSAGE_END();
+            }
+        }
 }
-void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {};breathAccess.reset();breathMessage=0; }
+void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {};breathAccess.reset();breathMessage=staminaMessage=0; }
 bool CSOL_SetChallengeStaminaPhase(const Runtime& runtime, custom::Phase phase, bool available)
 {
     if (operating || !runtime || runtime->Closing() || !runtime->session ||

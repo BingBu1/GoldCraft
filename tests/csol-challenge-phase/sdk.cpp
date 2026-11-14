@@ -8,6 +8,8 @@
 #include "../../native/csol/server/custom/action_stamina.h"
 #include "../../native/csol/server/characters.h"
 #include "../../native/csol/scenario/custom/stamina_audio.hpp"
+#include "../../native/csol/scenario/custom/stamina_snapshot.hpp"
+#include "../../native/csol/scenario/custom/phase_art.hpp"
 #include "../../native/csol/scenario/core/scenario_music.hpp"
 #include "goldcraft/csol_scenario_admin_api.hpp"
 #include <filesystem>
@@ -23,6 +25,8 @@ void MusicResources(std::map<std::string,std::string>& files)
     kick_test::Resources(files);
     for(const auto file:csol::music::NightFiles)
         files["bgm/"+std::string(file)]="explicit challenge-track existence fixture; audio decoding is not claimed";
+    for(const auto* path:{custom::NightAnimationAtlas})
+        files[path]="explicit authored-art existence fixture; decoding is independently verified";
 }
 void Playback(int flags,const edict_t* invoker,unsigned short event,float delay,float*,float*,float,float,int,int,int,int)
 {
@@ -268,7 +272,18 @@ void Breath(bool male,bool cancel=false)
     Require(CSOL_CharacterMale(&c.player,selectedMale,c.f.session->Map().EntityAccess())&&selectedMale==male,
         "real character service returns the selected trusted gender");
     csol::scenario::ConfigError error;
-    Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"real stamina life is active");
+    Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error,true),"real force/InitHUD republishes existing stamina authority");
+    const auto hudId=c.f.engine.messages.at(custom::StaminaMessage);
+    const auto hudCount=[&](){return std::count_if(c.packets.begin(),c.packets.end(),[&](const auto& p){return p.id==hudId;});};
+    const auto latestHud=[&]()
+    {
+        const auto packet=std::find_if(c.packets.rbegin(),c.packets.rend(),[&](const auto& p){return p.id==hudId;});
+        Require(packet!=c.packets.rend(),"actual stamina HUD transport exists");
+        const auto hud=custom::DecodeStamina(packet->bytes);
+        Require(hud&&packet->destination==MSG_ONE&&packet->receiver==c.player.entindex(),"stamina goes only to actual player owner");
+        return *hud;
+    };
+    Expect(hudCount()==1&&latestHud().visible&&latestHud().amount==100&&latestHud().maximum==100,"initial real stamina is published exactly once");
     for(std::uint64_t token=1;token<=10;++token)
         Require(CSOL_TryDebitKickStamina(c.f.runtime,c.player,token)==CSOLKickStaminaDebit::Applied,
             "accepted real kick debit consumes the ordinary finite budget");
@@ -276,6 +291,7 @@ void Breath(bool male,bool cancel=false)
     const auto count=[&](){return std::count_if(c.packets.begin(),c.packets.end(),[&](const auto& p){return p.id==id;});};
     Expect(count()==0,"consuming the last amount does not invent a recovery event before its accepted tick");
     Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"same-frame amount0 remains valid");
+    Expect(hudCount()==2&&latestHud().amount==0,"accepted kick debit reaches HUD without inventing recovery");
     Expect(count()==0,"same time before the recovery edge sends no sound");
     if(cancel)c.callback=[&](std::string_view edge){if(edge=="message"&&c.packets.back().id==id)c.f.runtime->RequestClose();};
     const bool stepped=CSOL_TickActionStamina(c.f.runtime,c.player,100.01f,error);
@@ -291,12 +307,25 @@ void Breath(bool male,bool cancel=false)
             "retired map cannot publish later breathing");
         return;
     }
+    Expect(hudCount()==3&&latestHud().exhausted&&latestHud().amount==.1f,"exhaustion HUD carries exact authoritative wait state");
     for(int i=0;i<100;++i)Require(CSOL_TickActionStamina(c.f.runtime,c.player,100.02f+i*.001f,error),"accepted recovery wait tick");
+    Expect(hudCount()==3,"100 identical recovery-wait frames do not flood the reliable channel");
     Expect(count()==1,"100 frames in the same exhausted episode never repeat the sound");
     Require(CSOL_TickActionStamina(c.f.runtime,c.player,105.02f,error),"actual original recovery delay finishes");
     Expect(!CSOL_ActionStaminaView(c.f.runtime,c.player)->exhausted&&count()==1,"recovery completion does not replay the start cue");
+    Expect(hudCount()==4&&!latestHud().exhausted&&latestHud().amount>1,"actual recovery amount reaches HUD");
     CSOL_RetireActionStamina(c.player);
+    Expect(hudCount()==5&&!latestHud().visible,"retirement clears only this owner's stamina HUD");
     Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,106,error)&&count()==1,"native life retirement cannot resurrect old sound");
+}
+void HudCancel()
+{
+    Settings(false);Case c(MusicResources);csol::scenario::ConfigError error;
+    const auto message=c.f.engine.messages.at(custom::StaminaMessage);
+    c.callback=[&](std::string_view edge){if(edge=="message"&&c.packets.back().id==message)c.f.runtime->RequestClose();};
+    Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,100,error,true),"HUD transport reentry retires actual runtime");
+    const auto count=c.packets.size();
+    Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,101,error)&&c.packets.size()==count,"closed owner cannot publish another HUD update");
 }
 }
 int main(int argc,char** argv)
@@ -312,6 +341,7 @@ int main(int argc,char** argv)
         else if(group=="night-failed"||group=="night-replay")phase_sdk::FailureAndReplay(group=="night-replay",true);
         else if(group=="breath-male"||group=="breath-female"||group=="breath-cancel")
             phase_sdk::Breath(group!="breath-female",group=="breath-cancel");
+        else if(group=="hud-cancel")phase_sdk::HudCancel();
         else sdk_test::Require(false,"known phase SDK group");
     }
     catch(const std::exception& error){++sdk_test::failures;std::cerr<<"ERROR "<<error.what()<<'\n';}

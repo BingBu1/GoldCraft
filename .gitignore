@@ -86,3 +86,4 @@
 *.nam
 *.til
 *.dmp
+/assets/generated/

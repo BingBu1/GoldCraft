@@ -96,6 +96,14 @@ def main():
     # Reuse existing validated source-contract collectors, without decrypting tables in Python.
     required.update(contracts.skill_contract(ROOT))
     required.update(contracts.elite_contract(ROOT))
+    # Authored time HUD assets are cold server precaches, not original PAK
+    # resources. Keep them in the plan so a ready DLL cannot omit its artwork.
+    phase_art = read(ROOT / 'native/csol/scenario/custom/phase_art.hpp').decode('utf-8-sig')
+    for symbol in ('NightAnimationAtlas',):
+        values = re.findall(r'char ' + symbol + r'\[\]\s*=\s*"([^"]+)"', phase_art)
+        if len(values) != 1:
+            raise ValueError('Ambiguous authored challenge animation contract')
+        required.add(values[0])
     wall, _ = contracts.wall_upgrade_contract(ROOT); required.update(wall)
     # These shared lists are already in the active server; bind their existing bytes.
     for filename, symbol in [('native/csol/scenario/monsters/frozen_death.hpp', 'IceModel'),

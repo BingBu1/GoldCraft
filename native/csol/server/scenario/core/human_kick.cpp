@@ -453,7 +453,7 @@ bool CSOL_UpdateHumanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     Busy guard(state->busy);
     if (player.pev->deadflag == DEAD_NO && player.pev->health > 0)
     {
-        if (!CSOL_TickActionStamina(runtime, player, gpGlobals->time, error)) return false;
+        if (!CSOL_TickActionStamina(runtime, player, gpGlobals->time, error,force)) return false;
     }
     else CSOL_RetireActionStamina(player);
     if (state->clock.ActiveNow())

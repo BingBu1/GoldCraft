@@ -8,6 +8,18 @@
 namespace csol::scenario::custom
 {
 inline constexpr unsigned PhaseIconSize=64;
+// Source animation is exported for preview/editing. Only its decoded TGA
+// atlas is consumed by the game and belongs in the runtime download closure.
+inline constexpr char NightAnimationGif[]="resource/goldcraft/challenge/night_blood_v1.gif";
+inline constexpr char NightAnimationAtlas[]="resource/goldcraft/challenge/night_blood_v1.tga";
+inline constexpr unsigned NightAnimationFrames=32;
+inline constexpr unsigned NightAnimationColumns=8;
+inline constexpr unsigned NightAnimationRows=4;
+inline constexpr unsigned NightAnimationFrameMs=50;
+inline constexpr unsigned NightAnimationWidth=NightAnimationColumns*PhaseIconSize;
+inline constexpr unsigned NightAnimationHeight=NightAnimationRows*PhaseIconSize;
+inline constexpr unsigned NightFrame(std::uint64_t elapsedMs) noexcept
+{return unsigned((elapsedMs/NightAnimationFrameMs)%NightAnimationFrames);}
 using PhaseIcon=std::array<std::uint8_t,PhaseIconSize*PhaseIconSize*4>;
 // GoldCraft's user-requested phase symbols, not copied original CSOL artwork.
 inline PhaseIcon MakePhaseIcon(Phase phase) noexcept

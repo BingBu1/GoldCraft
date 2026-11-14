@@ -117,6 +117,21 @@ def verify(directory, source=ROOT):
         raise ValueError('Missing or oversized current HUD catalog: ' + str(catalog))
     data = catalog.read_bytes()
     paths = dependencies(data.decode('utf-8-sig'), constants, images)
+    config = directory / 'addons/goldcraft/config/gameplay.json'
+    if config.is_file():
+        config, _ = file_info('addons/goldcraft/config/gameplay.json')
+        enabled = json.loads(config.read_text('utf-8-sig')).get('features', {}).get('time_cycle', {}).get('enabled')
+        if enabled is True:
+            header = (Path(source) / 'native/csol/scenario/custom/phase_art.hpp').read_text('utf-8-sig')
+            for symbol in ('NightAnimationAtlas',):
+                matches = re.findall(r'\b' + symbol + r'\[\]="([^"]+)";', header)
+                if len(matches) != 1:
+                    raise ValueError('Ambiguous challenge animation resource contract')
+                paths.append(matches[0])
+            get = lambda symbol: int(re.search(r'\b' + symbol + r'=(\d+);', header)[1])
+            images[paths[-1]] = (get('PhaseIconSize') * get('NightAnimationColumns'),
+                                get('PhaseIconSize') * get('NightAnimationRows'))
+            paths = sorted(set(paths))
     missing, invalid = [], []
     for name in paths:
         try:

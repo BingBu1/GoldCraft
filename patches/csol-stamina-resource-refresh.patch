@@ -1,0 +1,18 @@
+--- a/native/csol/client/resource_refresh.cpp
++++ b/native/csol/client/resource_refresh.cpp
+@@ -12,6 +12,7 @@
+ #include "scenario/core/scenario_smoke.hpp"
+ #include "scenario/monsters/elite_visuals.hpp"
+ #include "scenario/core/human_kick.hpp"
++#include "scenario/core/stamina_hud.hpp"
+ #include "scenario/core/ze_counter_hud.hpp"
+ #include <VGUI/IResourceRefresh.h>
+ #include <algorithm>
+@@ -63,6 +64,7 @@
+     InvalidateBossResources();InvalidateWallResources();InvalidateZeCounterResources();InvalidateKillResources();InvalidateMusicResources();
+     InvalidateHumanKickResources();
+     InvalidateChallengePhaseResources();
++    InvalidateStaminaHudResources();
+ }
+ struct ContentReadScope {
+     ContentReadScope(){resource_refresh_detail::readingNewGeneration=true;}

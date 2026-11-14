@@ -6,6 +6,7 @@
 #include "../../custom/action_stamina.h"
 #include "../../../scenario/custom/challenge_cycle.hpp"
 #include "../../../scenario/custom/phase_snapshot.hpp"
+#include "../../../scenario/custom/phase_art.hpp"
 #include "../../game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -378,6 +379,15 @@ public:
             {
                 CSOL_RejectGameRules("Scenario custom time message registration failed.");
                 return;
+            }
+            for(const auto* path:{csol::scenario::custom::NightAnimationAtlas})
+            {
+                const int bytes=g_engfuncs.pfnGetFileSize?GET_FILE_SIZE(path):-1;
+                if(!OwnsRules())return;
+                if(bytes<=0)
+                {CSOL_RejectGameRules("Scenario blood-moon animation resource is missing or empty.");return;}
+                PRECACHE_GENERIC(path);
+                if(!OwnsRules())return;
             }
         }
         CSOL_ResetScenarioMapVote();

@@ -24,7 +24,8 @@ def split(command):
         release=ctypes.windll.kernel32.LocalFree;release.argtypes=[ctypes.c_void_p];release(args)
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    for name in('client-build','environment','font','vgui-library','output'):parser.add_argument('--'+name,type=Path,required=True)
+    for name in('client-build','environment','font','atlas','vgui-library','output'):parser.add_argument('--'+name,type=Path,required=True)
+    parser.add_argument('--fixture',choices=('phase','stamina','kick_hint'),default='phase')
     args=parser.parse_args();out=args.output.resolve();build=args.client_build.resolve(strict=True)
     if out.exists()or not out.is_relative_to(ROOT/'build'):raise ValueError('Use a fresh workspace output directory')
     env=os.environ|json.loads(args.environment.read_text('utf-8-sig'))
@@ -38,8 +39,11 @@ def main():
         if value in('/c','-c','-MD','--')or value.lower().endswith('.cpp')or value.lower().startswith(('/fo','/fd')):continue
         flags.append(value)
     flags+=['/I'+str(ROOT),'/DCSOL_RESOURCE_REFRESH=1','/showIncludes']
-    sources=[ROOT/'tests/resource-refresh/probe_phase.cpp',ROOT/'native/csol/client/resource_font_memory.cpp']
+    sources=[ROOT/f'tests/resource-refresh/probe_{args.fixture}.cpp',ROOT/'native/csol/client/resource_font_memory.cpp',ROOT/'native/csol/image_codec.cpp']
     paths=[*sources,ROOT/'native/csol/client/scenario/core/challenge_phase.cpp',ROOT/'native/csol/client/scenario/core/challenge_phase.hpp',ROOT/'native/csol/scenario/custom/phase_snapshot.hpp',ROOT/'native/csol/scenario/custom/phase_art.hpp',ROOT/'tests/csol-challenge-hud/ui_fixture.hpp',ROOT/'tests/csol-hud-style/allocation_probe.hpp',Path(__file__),args.environment,args.font,args.vgui_library,Path(original[0]),build/'build.ninja',build/'CMakeCache.txt']
+    paths.append(args.atlas)
+    paths.extend((ROOT/'native/csol/client/scenario/core/stamina_hud.cpp',ROOT/'native/csol/client/scenario/core/stamina_hud.hpp',ROOT/'native/csol/scenario/custom/stamina_snapshot.hpp'))
+    paths.extend((ROOT/'native/csol/client/scenario/core/human_kick.cpp',ROOT/'native/csol/client/scenario/core/human_kick.hpp',ROOT/'native/csol/scenario/custom/action_hud_layout.hpp'))
     before=[identity(p)for p in paths];out.mkdir(parents=True);steps=[];dependencies={};success=False
     def run(name,command):
         p=subprocess.run(list(map(str,command)),cwd=build,env=env,capture_output=True,timeout=180)
@@ -55,7 +59,7 @@ def main():
             obj=out/f'{i}.obj';objects.append(obj);run('compile-'+str(i),[original[0],*flags,'/c','/Fo'+str(obj),source])
         exe=out/'owner.exe'
         run('link',[original[0],'/nologo','--target=i686-pc-windows-msvc','-fuse-ld=lld','/MT',*objects,args.vgui_library.resolve(),'/Fe'+str(exe),'/link','/machine:x86','/threads:1','/OPT:REF','gdi32.lib','user32.lib','imm32.lib','winmm.lib','advapi32.lib'])
-        text=run('test',[exe,args.font.resolve(),args.font.resolve()]);match=re.search(r'PASS (\d+) actual-owner checks',text)
+        text=run('test',[exe,args.font.resolve(),args.font.resolve(),args.atlas.resolve()]);match=re.search(r'PASS (\d+) actual-owner checks',text)
         if not match:raise RuntimeError('missing actual UI summary')
         success=True
     finally:

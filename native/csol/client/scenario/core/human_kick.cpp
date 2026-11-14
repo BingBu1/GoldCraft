@@ -6,9 +6,11 @@
 #include "../../overlay_layers.hpp"
 #include "../../buy_menu.hpp"
 #include "../../characters.hpp"
+#include "../../hud_style.hpp"
 #include "scenario_map_vote.hpp"
 #include "human_kick.hpp"
 #include "../../../scenario/core/scenario_upgrades.hpp"
+#include "../../../scenario/custom/action_hud_layout.hpp"
 #include <ostream>
 #include <VGUI/ISurface.h>
 #include <IVGUI2Extension.h>
@@ -90,8 +92,10 @@ void Paint()
     if (!root || width <= 0 || height <= 0) return;
     // User-authorized F hint, not an invented original CSO HUD layout.
     constexpr int keySize = 26, gap = 10;
-    const int x = (width - keySize - gap - hintWidth) / 2;
-    const int y = height - 148;
+    const auto layout=scenario::custom::StaminaLayout(width,height,HudStyleScale());
+    if(!layout.width||keySize+gap+hintWidth>layout.width)return;
+    const int x = layout.x+(layout.width-keySize-gap-hintWidth)/2;
+    const int y = layout.kickY;
     surface->PushMakeCurrent(root, false);
     surface->DrawSetColor(12, 16, 20, 196);
     surface->DrawFilledRect(x, y, x + keySize, y + keySize);

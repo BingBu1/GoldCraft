@@ -58,10 +58,12 @@ def main():
         flags.append(value)
     constants, images = hud.contract()
     paths = [ROOT / 'native/csol/hud_style.cpp', ROOT / 'native/csol/hud_style.hpp',
+             ROOT / 'native/csol/scenario/custom/phase_art.hpp',
              ROOT / 'tests/csol-hud-style/resource_paths.cpp', ROOT / 'tools/csol_hud_resources.py',
              ROOT / 'tests/csol-weapon-modules/run_dll.py', Path(__file__), args.environment,
              Path(original[0]), build / 'CMakeCache.txt', build / 'build.ninja',
              *(root / constants['CatalogPath'] for root in args.resources)]
+    paths.extend(path for root in args.resources if (path := root / 'addons/goldcraft/config/gameplay.json').is_file())
     before = [helper.identity(path) for path in paths]
     out.mkdir(parents=True)
     steps, checks, dependencies, success = [], 0, {}, False
@@ -80,7 +82,7 @@ def main():
 
     try:
         objects = []
-        for i, source in enumerate((paths[0], paths[2])):
+        for i, source in enumerate((paths[0], ROOT / 'tests/csol-hud-style/resource_paths.cpp')):
             obj = out / f'{i}.obj'
             run(f'compile-{i}', [original[0], *flags, '/showIncludes', '/c', '/Fo' + str(obj), source])
             objects.append(obj)
@@ -128,6 +130,16 @@ def main():
             checks += 1
         else:
             raise AssertionError('Ambiguous duplicate HUD members must fail preflight')
+        (fixture / bad).write_bytes(b'\0' * 12 + struct.pack('<HH', *images[bad]) + b'\x20\x08')
+        config = fixture / 'addons/goldcraft/config/gameplay.json'
+        config.parent.mkdir(parents=True)
+        config.write_text('{"features":{"time_cycle":{"enabled":true}}}', 'utf8')
+        animated = hud.verify(fixture)
+        assert set(animated['missing']) == {'resource/goldcraft/challenge/night_blood_v1.tga'}
+        checks += 1
+        config.write_text('{"features":{"time_cycle":{"enabled":false}}}', 'utf8')
+        assert hud.verify(fixture)['success']
+        checks += 1
         success = True
     finally:
         stable = before == [helper.identity(path) for path in paths] and all(helper.identity(path) == row for path, row in dependencies.items())

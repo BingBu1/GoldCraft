@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/scenario/custom/phase_snapshot.hpp"
 #include "../../native/csol/scenario/custom/phase_art.hpp"
+#include "../../native/csol/scenario/custom/stamina_snapshot.hpp"
+#include "../../native/csol/scenario/custom/action_hud_layout.hpp"
+#include "../../native/csol/scenario/core/scenario_abilities.hpp"
+#include "../../native/csol/hud_style.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -80,6 +84,47 @@ void Icons()
     Check(images[0]!=images[1]&&images[1]!=images[2]&&images[0]!=images[2],"three stages have distinct artwork");
     const auto ended=MakePhaseIcon(Phase::Ended);
     Check(std::all_of(ended.begin(),ended.end(),[](auto value){return value==0;}),"ended phase creates no icon");
+    for(unsigned i=0;i<NightAnimationFrames*3;++i)
+        Check(NightFrame(std::uint64_t(i)*NightAnimationFrameMs)==i%NightAnimationFrames,"animation loops by real frame duration and bounded atlas index");
+}
+void Stamina()
+{
+    StaminaSnapshot value{1,1,37.5f,100,true,false,false};
+    auto bytes=EncodeStamina(value);Check(bytes&&bytes->size()==22,"fixed22-byte authoritative stamina snapshot");
+    auto read=DecodeStamina(*bytes);Check(read&&read->amount==37.5f&&read->maximum==100&&read->visible,"exact float amount round trip");
+    StaminaPresentation state;Check(state.Receive(*bytes)&&state.Sample()->amount==37.5f,"first owner accepted");
+    Check(!state.Receive(*bytes),"duplicate never resets stamina");
+    value.revision=2;value.amount=0;value.exhausted=true;bytes=EncodeStamina(value);
+    Check(state.Receive(*bytes)&&state.Sample()->exhausted,"real exhausted state retained");
+    value={1,3,0,0,false,false,false};bytes=EncodeStamina(value);Check(state.Receive(*bytes)&&!state.Sample()->visible,"retirement hides old stamina");
+    value={2,1,100,100,true,true,false};bytes=EncodeStamina(value);Check(state.Receive(*bytes)&&state.Sample()->infinite,"new life noon uses infinite flag");
+    value.life=1;value.revision=100;bytes=EncodeStamina(value);Check(!state.Receive(*bytes),"old life rejected even with higher revision");
+    value.life=3;value.amount=101;Check(!EncodeStamina(value),"amount above capacity rejected");
+    value.amount=std::numeric_limits<float>::quiet_NaN();Check(!EncodeStamina(value),"nonfinite amount rejected");
+    value.amount=100;value.exhausted=true;Check(!EncodeStamina(value),"infinite and exhausted conflict rejected");
+    value.exhausted=false;const auto good=*EncodeStamina(value);
+    for(unsigned size=0;size<good.size();++size)Check(!DecodeStamina(std::span(good).first(size)),"truncated stamina rejected");
+    auto bad=good;bad[1]=std::byte{8};Check(!DecodeStamina(bad),"unknown flags rejected");
+    state.Reset();Check(!state.Sample(),"reset removes previous server owner");
+    for(auto [w,h]:{std::pair{640,480},{1280,720},{1920,1080},{2560,1080},{3840,2160},{7680,4320}})
+    {
+        const auto p=StaminaLayout(w,h);Check(p.x>=0&&p.y>=0&&p.x+p.width<=w&&p.y+p.height<=h,"stamina safe geometry across resolutions");
+        Check(p.kickY>=p.y+p.height+p.padding&&p.kickY+26<h,"F kick hint has its own vertical slot");
+        csol::abilities::State skill;Check(skill.Restore({1,30,15,0}),"actual skill geometry is available");
+        for(bool elevated:{false,true})
+        {
+            const auto frame=skill.Layout(w,h,elevated);
+            for(unsigned i=0;i<frame.count;++i)
+            {const auto& q=frame.quads[i];Check(p.x>=q.x+q.width+p.padding,"authored HUD clears actual normal and raised skill rectangles");}
+        }
+        Check(p.x>=w/2+165+p.padding,"authored HUD clears original330px purchase hint");
+        for(float scale:{.5f,1.f,1.5f,2.f})
+        {
+            const auto original=csol::hud_style::MakeLayout(w,h,scale);
+            const auto custom=StaminaLayout(w,h,scale);
+            Check(custom.kickY+26+custom.padding<=original.card.y,"F and stamina rows clear actual weapon card across HUD scales");
+        }
+    }
 }
 }
-int main(){Protocol();Layouts();Icons();std::printf("challenge phase HUD: %u checks passed\n",checks);}
+int main(){Protocol();Layouts();Icons();Stamina();std::printf("challenge phase HUD: %u checks passed\n",checks);}

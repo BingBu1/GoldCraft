@@ -19,9 +19,11 @@ def main():
     if out.exists()or not out.is_relative_to(ROOT/'build'):raise ValueError('Use a fresh workspace receipt directory')
     out.mkdir(parents=True)
     source=ROOT/'tests/csol-challenge-hud/protocol.cpp'
-    paths=[source,ROOT/'native/csol/scenario/custom/phase_snapshot.hpp',ROOT/'native/csol/scenario/custom/phase_art.hpp',ROOT/'native/csol/scenario/custom/phase.hpp',Path(__file__),args.compiler,args.environment]
+    paths=[source,ROOT/'native/csol/scenario/core/scenario_abilities.cpp',ROOT/'native/csol/scenario/core/scenario_abilities.hpp',ROOT/'native/csol/scenario/custom/action_hud_layout.hpp',ROOT/'native/csol/scenario/custom/phase_snapshot.hpp',ROOT/'native/csol/scenario/custom/phase_art.hpp',ROOT/'native/csol/scenario/custom/stamina_snapshot.hpp',ROOT/'native/csol/scenario/custom/phase.hpp',Path(__file__),args.compiler,args.environment]
+    paths.extend((ROOT/'native/csol/hud_style.cpp',ROOT/'native/csol/hud_style.hpp'))
     before=[identity(p)for p in paths];env=os.environ|json.loads(args.environment.read_text('utf-8-sig'))
-    command=[str(args.compiler.resolve()),'/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','/clang:-O3','/clang:-flto=thin','/clang:-fuse-ld=lld',str(source),'/Fe:'+str(out/'phase.exe'),'/link','/machine:x86','/threads:1','/opt:lldltojobs=1']
+    command=[str(args.compiler.resolve()),'/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','/clang:-O3','/clang:-flto=thin','/clang:-fuse-ld=lld',str(source),str(ROOT/'native/csol/scenario/core/scenario_abilities.cpp'),'/Fe:'+str(out/'phase.exe'),'/link','/machine:x86','/threads:1','/opt:lldltojobs=1']
+    command[1:1]=['/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include'),str(ROOT/'native/csol/hud_style.cpp')]
     compiled=subprocess.run(command,cwd=out,env=env,capture_output=True,timeout=180)
     (out/'compile.log').write_bytes(compiled.stdout+compiled.stderr)
     run=subprocess.run([out/'phase.exe'],cwd=out,capture_output=True,timeout=30)if compiled.returncode==0 else None

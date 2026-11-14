@@ -14,7 +14,7 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
 // Actual PostThink admits/updates one owner. No weapon/sprint/Jump event is
 // synthesized here. now is the authoritative engine float clock.
 bool CSOL_TickActionStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
-    CBasePlayer& player, float now, csol::scenario::ConfigError& error);
+    CBasePlayer& player, float now, csol::scenario::ConfigError& error, bool forceHud=false);
 bool CSOL_ActionStaminaCanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player);
 std::optional<csol::scenario::custom::StaminaView> CSOL_ActionStaminaView(

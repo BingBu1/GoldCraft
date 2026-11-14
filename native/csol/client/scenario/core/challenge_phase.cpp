@@ -10,6 +10,7 @@
 #include "challenge_phase.hpp"
 #include "../../../scenario/custom/phase_snapshot.hpp"
 #include "../../../scenario/custom/phase_art.hpp"
+#include "../../../image_codec.hpp"
 #include "../../../scenario/core/scenario_upgrades.hpp"
 #include <VGUI/ISurface.h>
 #include <IVGUI2Extension.h>
@@ -32,7 +33,10 @@ vgui::HFont font{};
 HANDLE privateFont{};
 pfnUserMsgHook previous{},previousInit{},previousHide{};
 cvar_t* hudDraw{};
-std::array<int,3> textures{};
+std::array<int,2> textures{};
+int nightTexture{};
+unsigned nightFrame{};
+ULONGLONG animationStart{};
 std::array<int,3> labelWidth{},labelHeight{};
 std::array<wchar_t,32> timeText{};
 int timeWidth{},timeHeight{},seconds=-1,screenWidth{},screenHeight{};
@@ -48,6 +52,8 @@ double Now(){return double(GetTickCount64())*.001;}
 void Release()
 {
     if(surface)for(const int texture:textures)if(texture)surface->DeleteTextureByID(texture);
+    if(surface&&nightTexture)surface->DeleteTextureByID(nightTexture);
+    nightTexture=0;nightFrame=0;animationStart=0;
     textures={};prepared=false;font=0;screenWidth=screenHeight=0;seconds=-1;lastPhase=custom::Phase::Ended;
     retryAfter=0;requested=false;
 }
@@ -69,6 +75,16 @@ void Prepare(int width,int height)
             if(!texture)throw std::runtime_error("cannot create challenge phase icon");
             surface->DrawSetTextureRGBA(texture,pixels.data(),custom::PhaseIconSize,custom::PhaseIconSize,1,true);
             textures[i]=texture;
+        }
+        if(!nightTexture)
+        {
+            const auto image=DecodeTGA(ReadResource(custom::NightAnimationAtlas));
+            if(image.Width!=custom::NightAnimationWidth||image.Height!=custom::NightAnimationHeight)
+                throw std::runtime_error("challenge night animation atlas dimensions changed");
+            const int texture=surface->CreateNewTextureID(true);
+            if(!texture)throw std::runtime_error("cannot create challenge night animation");
+            surface->DrawSetTextureRGBA(texture,image.RGBA.data(),image.Width,image.Height,1,true);
+            nightTexture=texture;
         }
         if(!privateFont)
         {
@@ -97,9 +113,20 @@ void Paint()
     const auto& p=layout;const unsigned phase=unsigned(display.phase);
     surface->PushMakeCurrent(root,false);
     surface->DrawSetColor(13,19,28,205);surface->DrawFilledRect(p.x,p.y,p.x+p.width,p.y+p.height);
-    surface->DrawSetColor(255,255,255,255);surface->DrawSetTexture(textures[phase]);
+    surface->DrawSetColor(255,255,255,255);surface->DrawSetTexture(phase==unsigned(custom::Phase::Night)?nightTexture:textures[phase]);
     const int iconX=p.x+p.padding/2,iconY=p.y+(p.height-p.icon)/2;
-    surface->DrawTexturedRect(iconX,iconY,iconX+p.icon,iconY+p.icon);
+    if(phase==unsigned(custom::Phase::Night))
+    {
+        const unsigned col=nightFrame%custom::NightAnimationColumns,row=nightFrame/custom::NightAnimationColumns;
+        const float u0=(col*custom::PhaseIconSize+.5f)/custom::NightAnimationWidth;
+        const float v0=(row*custom::PhaseIconSize+.5f)/custom::NightAnimationHeight;
+        const float u1=((col+1)*custom::PhaseIconSize-.5f)/custom::NightAnimationWidth;
+        const float v1=((row+1)*custom::PhaseIconSize-.5f)/custom::NightAnimationHeight;
+        vgui::VGuiVertex vertices[]{{iconX,iconY,u0,v0},{iconX+p.icon,iconY,u1,v0},
+            {iconX+p.icon,iconY+p.icon,u1,v1},{iconX,iconY+p.icon,u0,v1}};
+        surface->DrawTexturedPolygon(vertices,4);
+    }
+    else surface->DrawTexturedRect(iconX,iconY,iconX+p.icon,iconY+p.icon);
     surface->DrawSetTextFont(font);surface->DrawSetTextColor(239,244,251,255);
     const int textX=iconX+p.icon+p.padding/2;
     Text(Names[phase],2,textX,p.y+p.height/2-labelHeight[phase]);
@@ -165,6 +192,13 @@ void ChallengePhaseFrame()
     if(display.phase>=custom::Phase::Ended){requested=false;return;}
     int width{},height{};if(surface)surface->GetScreenSize(width,height);Prepare(width,height);
     if(!prepared)return;
+    const auto now=GetTickCount64();
+    if(display.phase==custom::Phase::Night)
+    {
+        if(!animationStart)animationStart=now;
+        nightFrame=custom::NightFrame(now-animationStart);
+    }
+    else animationStart=0;
     const int nextSeconds=int(std::ceil(display.remaining));
     if(nextSeconds==seconds&&lastPhase==display.phase&&lastPreparing==display.preparing)return;
     seconds=nextSeconds;lastPhase=display.phase;lastPreparing=display.preparing;
@@ -173,7 +207,7 @@ void ChallengePhaseFrame()
     else std::swprintf(timeText.data(),timeText.size(),L"%02d:%02d",seconds/60,seconds%60);
     surface->GetTextSize(font,timeText.data(),timeWidth,timeHeight);
 }
-void ResetChallengePhase(){if(!Owner())return;state.Reset();known=requested=false;hidden=0;seconds=-1;lastPhase=custom::Phase::Ended;}
+void ResetChallengePhase(){if(!Owner())return;state.Reset();known=requested=false;hidden=0;seconds=-1;lastPhase=custom::Phase::Ended;animationStart=0;nightFrame=0;}
 void ChallengePhaseVideoInit(){if(Owner())Release();}
 void InvalidateChallengePhaseResources(){ChallengePhaseVideoInit();}
 void DrawChallengePhase(int intermission){requested=Owner()&&!intermission&&prepared&&known&&display.phase<custom::Phase::Ended;}
