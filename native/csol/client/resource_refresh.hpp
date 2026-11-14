@@ -29,6 +29,7 @@ void* RegisterResourceFont(void*& owner,const char* resource,const char* family,
 // Resource owners retire only their presentation data. Hook registrations,
 // interfaces and authoritative gameplay state survive this operation.
 void InvalidateHudStyleResources();
+void InvalidateChallengePhaseResources();
 void InvalidateRoundHudResources();
 void InvalidateRespawnResources();
 void InvalidateCharacterResources();

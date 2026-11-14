@@ -58,6 +58,7 @@
 #include "scenario/core/scenario_upgrades.hpp"
 #include "scenario/core/scenario_abilities.hpp"
 #include "scenario/core/human_kick.hpp"
+#include "scenario/core/challenge_phase.hpp"
 #include "scenario/bosses/boss_health.hpp"
 #include "scenario/core/particle_effects.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
@@ -319,6 +320,7 @@ static void ScenarioHudInfo()
     ScenarioUpgradesDiagnostics(report);
     ScenarioAbilitiesDiagnostics(report);
     HumanKickDiagnostics(report);
+    ChallengePhaseDiagnostics(report);
     ScenarioMapVoteDiagnostics(report);
     BossHealthDiagnostics(report);
     ScenarioRoundHudDiagnostics(report);
@@ -381,6 +383,7 @@ static void Init()
     InitializeScenarioUpgrades();
     InitializeScenarioAbilities();
     InitializeHumanKick();
+    InitializeChallengePhase();
     InitializeBossHealth();
     InitializeScenarioRoundHud();
     InitializeScenarioRespawnUi();
@@ -410,6 +413,7 @@ static int VidInit()
     ScenarioUpgradesVideoInit();
     ScenarioAbilitiesVideoInit();
     HumanKickVideoInit();
+    ChallengePhaseVideoInit();
     CharacterSkillDisplayVideoInit();
     CharacterSkillEffectsVideoInit();
     BossHealthVideoInit();
@@ -437,6 +441,7 @@ static void HudShutdown()
     ResetFrozenSmoke();
     ShutdownPlayerClips();
     ShutdownHumanKick();
+    ShutdownChallengePhase();
     ResetParticleEffects();
     ShutdownSpray();
     ShutdownBossHealth();
@@ -461,6 +466,7 @@ static void Frame(double time)
     ScenarioUpgradesFrame();
     ScenarioAbilitiesFrame();
     HumanKickFrame();
+    ChallengePhaseFrame();
     CharacterSkillDisplayFrame();
     CharacterSkillEffectsFrame();
     BossHealthFrame();
@@ -499,6 +505,7 @@ static int Redraw(float time, int intermission)
     DrawScenarioUpgrades(time, intermission);
     DrawScenarioAbilities(time, intermission);
     DrawHumanKick(time, intermission);
+    DrawChallengePhase(intermission);
     DrawCharacterSkillDisplay(time, intermission);
     DrawBossHealth(intermission);
     DrawScenarioRoundHud(time, intermission);
@@ -599,6 +606,6 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_CameraOffset=CameraOffsets;
 }
 void IPluginsV4::Shutdown(){csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownHumanKick();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownHumanKick();csol::client::ShutdownChallengePhase();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

@@ -2383,7 +2383,19 @@
     "tests/csol-build-scope/pinned_archive.py",
     "tests/csol-build-scope/dependency_replay.py",
     "docs/2026-11-14_修复-服务端依赖重放命令与路径热点-report.md",
-    "docs/2026-11-14_接入-Revolver权威效果分发-report.md"
+    "docs/2026-11-14_接入-Revolver权威效果分发-report.md",
+    "native/csol/scenario/custom/phase_snapshot.hpp",
+    "native/csol/scenario/custom/phase_art.hpp",
+    "native/csol/client/scenario/core/challenge_phase.hpp",
+    "native/csol/client/scenario/core/challenge_phase.cpp",
+    "native/csol/client/resource_refresh.hpp",
+    "tests/csol-challenge-hud/protocol.cpp",
+    "tests/csol-challenge-hud/run.py",
+    "tests/csol-challenge-hud/run_owner.py",
+    "tests/csol-challenge-hud/ui_fixture.hpp",
+    "tests/csol-challenge-hud/README.md",
+    "tests/resource-refresh/probe_phase.cpp",
+    "docs/2026-11-13_接入-阶段图标与权威状态同步-report.md"
   ],
   "trees": {
     "native": [

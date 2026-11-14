@@ -22,6 +22,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/hud_style.cpp hud_style.cpp
     client/scenario/core/scenario_abilities.cpp scenario/core/scenario_abilities.cpp
     client/scenario/core/human_kick.cpp client/scenario/core/human_kick_animation.cpp
+    client/scenario/core/challenge_phase.cpp
     client/scenario/bosses/boss_health.cpp scenario/bosses/boss_health.cpp client/scenario/bosses/oberon_hint.cpp
     client/scenario/core/scenario_round_hud_client.cpp scenario/core/scenario_round_hud.cpp scenario/core/scenario_localization.cpp
     client/scenario/core/scenario_respawn_ui.cpp
@@ -61,7 +62,7 @@ target_sources(CSOLSupport PRIVATE client/hd_spray.cpp client/hd_spray_import.cp
 target_link_libraries(CSOLSupport PRIVATE windowscodecs ole32 comdlg32 winhttp)
 set_source_files_properties(client/weapons/beamgun_scope.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI")
 set_source_files_properties(client/characters.cpp client/scenario/core/wall_status.cpp client/overlay_layers.cpp client/buy_menu.cpp client/scenario/core/scenario_kill.cpp client/scenario/core/scenario_upgrades.cpp client/scenario/core/scenario_abilities.cpp client/scenario/core/human_kick.cpp client/character_skill_display.cpp client/scenario/bosses/boss_health.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
-set_source_files_properties(client/scenario/core/scenario_round_hud_client.cpp client/scenario/core/scenario_respawn_ui.cpp client/hud_style.cpp client/scenario/core/wall_upgrade_hud.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
+set_source_files_properties(client/scenario/core/challenge_phase.cpp client/scenario/core/scenario_round_hud_client.cpp client/scenario/core/scenario_respawn_ui.cpp client/hud_style.cpp client/scenario/core/wall_upgrade_hud.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 set_source_files_properties(client/scenario/core/scenario_map_vote.cpp PROPERTIES INCLUDE_DIRECTORIES "${SDK}/VGUI;${SDK}/Interface/VGUI;${METAHOOK_ROOT}/Plugins/VGUI2Extension/include/Interface")
 target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
     "${SDK}/HLSDK/cl_dll" "${SDK}/HLSDK/common" "${SDK}/HLSDK/engine"

@@ -3,6 +3,7 @@
 #include "../csol-human-kick-server/sdk.cpp"
 #undef main
 #include "../../native/csol/scenario/custom/challenge_cycle.hpp"
+#include "../../native/csol/scenario/custom/phase_snapshot.hpp"
 #include "../../native/csol/scenario/custom/settings.hpp"
 #include "../../native/csol/server/custom/action_stamina.h"
 #include "goldcraft/csol_scenario_admin_api.hpp"
@@ -80,7 +81,7 @@ void NativeActor(Case& c)
     // die before its two-second transition can be observed.
     c.player.pev->origin=Vector(1000,1000,128);
 }
-void Flow(bool enabled)
+void Flow(bool enabled,bool join=false)
 {
     Settings(enabled);Case c;NativeActor(c);
     custom::ChallengePhaseView absent{{custom::Phase::Night,77},false,88};
@@ -89,6 +90,7 @@ void Flow(bool enabled)
     Restart(c);
     if(!enabled)
     {
+        Expect(!c.f.engine.messages.contains(custom::PhaseMessage),"disabled policy does not register the extra message");
         Expect(!CSOL_ReadChallengePhase(c.f.runtime,absent),"disabled policy leaves native stage without custom clock");
         Require(c.Update(),"ordinary disabled-time kick owner still updates");
         const auto stamina=CSOL_ActionStaminaView(c.f.runtime,c.player);
@@ -96,6 +98,20 @@ void Flow(bool enabled)
         return;
     }
     auto view=Read(c);
+    const auto message=c.f.engine.messages.find(custom::PhaseMessage);
+    Require(message!=c.f.engine.messages.end(),"enabled policy registers the fixed phase message during map precache");
+    const auto countMessages=[&](){return std::count_if(c.packets.begin(),c.packets.end(),[&](const auto& p){return p.id==message->second;});};
+    const auto latestMessage=[&]()
+    {
+        for(auto p=c.packets.rbegin();p!=c.packets.rend();++p)if(p->id==message->second)
+        {
+            const auto snapshot=custom::DecodePhase(p->bytes);
+            Require(snapshot&&p->destination==MSG_ALL&&p->receiver==0,"actual broadcast uses exact valid19-byte phase payload");
+            return *snapshot;
+        }
+        throw std::runtime_error("no authoritative phase message");
+    };
+    Expect(countMessages()==1&&latestMessage().preparing,"committed preparation broadcasts exactly once");
     Expect(view.preparing && view.time.phase==custom::Phase::Noon && view.time.remaining==2,
         "committed stage preparation keeps the configured noon duration");
     Require(c.Update(),"real kick owner consumes current authoritative phase");
@@ -105,14 +121,20 @@ void Flow(bool enabled)
     view=Read(c);
     Expect(!view.preparing && view.time.phase==custom::Phase::Noon && view.time.remaining==2,
         "actual GameRules thaw starts challenge time");
+    Expect(countMessages()==2&&!latestMessage().preparing,"actual thaw publishes one countdown origin");
+    Tick(c,121);
+    Expect(countMessages()==2,"ordinary unchanged Think sends no reliable countdown traffic");
     Tick(c,122);view=Read(c);
     Expect(view.time.phase==custom::Phase::Dusk && view.time.remaining==3,
         "actual Think advances exact noon boundary to dusk");
+    Expect(countMessages()==3&&latestMessage().phase==custom::Phase::Dusk,"dusk publishes once through actual message writer");
     Require(c.Update(),"dusk reaches real action-stamina owner");
     const auto stamina=CSOL_ActionStaminaView(c.f.runtime,c.player);
     Expect(stamina && !stamina->infinite && stamina->maximum==150,"actual kick stamina switches to enhanced finite dusk");
     Tick(c,125);view=Read(c);
     Expect(view.time.phase==custom::Phase::Night && view.time.remaining==0,"night has no fabricated countdown");
+    Expect(countMessages()==4&&latestMessage().phase==custom::Phase::Night&&latestMessage().remaining==0,
+        "night publishes no fabricated expiry");
     Require(c.Update(),"night reaches action-stamina owner");
     const auto nightStamina=CSOL_ActionStaminaView(c.f.runtime,c.player);
     Expect(nightStamina && nightStamina->maximum==100,"night restores normal finite capacity");
@@ -120,6 +142,22 @@ void Flow(bool enabled)
     Restart(c);view=Read(c);
     Expect(!view.preparing && view.time.phase==custom::Phase::Night && view.challenge==challenge,
         "ordinary real stage restart does not reset eternal night");
+    if(join)
+    {
+        const auto before=countMessages();
+        // Native InitHUD sends the server MOTD before the scenario snapshot.
+        // Supply that engine-owned file; keep the fixture's strict free check.
+        c.f.engine.files["phase-motd.txt"]="Phase HUD join fixture\n";
+        CVAR_SET_STRING("motdfile","phase-motd.txt");
+        g_pGameRules->InitHUD(&c.player);
+        Require(!CSOL_RulesRejected(),"actual joining-player InitHUD retains the current map");
+        Expect(countMessages()==before+1,"late InitHUD replays exactly one phase message");
+        const auto p=std::find_if(c.packets.rbegin(),c.packets.rend(),[&](const auto& value){return value.id==message->second;});
+        const auto snapshot=p!=c.packets.rend()?custom::DecodePhase(p->bytes):std::nullopt;
+        Expect(snapshot&&snapshot->phase==custom::Phase::Night&&snapshot->challenge==challenge&&
+            p->destination==MSG_ONE&&p->receiver==c.player.entindex(),
+            "joining client receives only its own current authoritative night snapshot");
+    }
     const auto foreign=std::make_shared<CCSOLScenarioRuntime>();
     Expect(!CSOL_ReadChallengePhase(foreign,absent),"foreign runtime cannot read another rules clock");
     c.f.runtime->RequestClose();
@@ -166,6 +204,7 @@ int main(int argc,char** argv)
         sdk_test::Require(argc==2,"one phase SDK group");
         const std::string_view group=argv[1];
         if(group=="enabled"||group=="disabled")phase_sdk::Flow(group=="enabled");
+        else if(group=="join")phase_sdk::Flow(true,true);
         else if(group=="failed"||group=="replay")phase_sdk::FailureAndReplay(group=="replay");
         else sdk_test::Require(false,"known phase SDK group");
     }

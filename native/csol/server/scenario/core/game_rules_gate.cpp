@@ -5,6 +5,7 @@
 #include "../../custom/gameplay_settings.h"
 #include "../../custom/action_stamina.h"
 #include "../../../scenario/custom/challenge_cycle.hpp"
+#include "../../../scenario/custom/phase_snapshot.hpp"
 #include "../../game_mode.h"
 #include "scenario_session.h"
 #include "scenario_gameplay.h"
@@ -370,6 +371,14 @@ public:
                 CSOL_RejectGameRules("Scenario custom challenge clock configuration is invalid.");
                 return;
             }
+            m_timeMessage=REG_USER_MSG(csol::scenario::custom::PhaseMessage,
+                static_cast<int>(csol::scenario::custom::PhaseMessageSize));
+            if (!OwnsRules()) return;
+            if (m_timeMessage<64 || m_timeMessage>255)
+            {
+                CSOL_RejectGameRules("Scenario custom time message registration failed.");
+                return;
+            }
         }
         CSOL_ResetScenarioMapVote();
         const bool voteResourcesReady = CSOL_PrecacheScenarioMapVote();
@@ -561,6 +570,9 @@ public:
         }
         const auto music = m_runtime->session->Music();
         if (music) music->Replay(*player);
+        if (!scope.Current() || !player || handle.Get<CBaseEntity>()!=player) return;
+        if (!PublishCustomTime(player) && scope.Current())
+            CSOL_RejectGameRules("Scenario custom time could not be replayed to joining player.");
     }
     void ServerDeactivate() override
     {
@@ -690,15 +702,49 @@ public:
             CSOL_RejectGameRules("Scenario custom challenge clock lost its current stage.");
             return false;
         }
-        if (m_timePublishedRound == round && m_timePublishedPhase == value->time.phase) return true;
-        const bool active = value->time.phase != custom::Phase::Ended;
-        if (!CSOL_SetChallengeStaminaPhase(m_runtime, active ? value->time.phase : custom::Phase::Night, active))
+        if (m_timePublishedRound != round || m_timePublishedPhase != value->time.phase)
         {
-            CSOL_RejectGameRules("Scenario custom challenge phase could not reach stamina authority.");
+            const bool active = value->time.phase != custom::Phase::Ended;
+            if (!CSOL_SetChallengeStaminaPhase(m_runtime, active ? value->time.phase : custom::Phase::Night, active))
+            {
+                CSOL_RejectGameRules("Scenario custom challenge phase could not reach stamina authority.");
+                return false;
+            }
+            m_timePublishedRound = round; m_timePublishedPhase = value->time.phase;
+        }
+        if (m_timeSentRound==round && m_timeSentPhase==value->time.phase && m_timeSentPreparing==value->preparing)
+            return true;
+        if (!PublishCustomTime())
+        {
+            if (Ready()) CSOL_RejectGameRules("Scenario custom challenge phase could not be published.");
             return false;
         }
-        m_timePublishedRound = round; m_timePublishedPhase = value->time.phase;
+        m_timeSentRound=round;m_timeSentPhase=value->time.phase;m_timeSentPreparing=value->preparing;
         return true;
+    }
+    bool PublishCustomTime(CBasePlayer* recipient=nullptr)
+    {
+        namespace custom=csol::scenario::custom;
+        custom::ChallengePhaseView value;
+        if (!ReadCustomTime(value)) return !m_timeRound;
+        if (m_timeSending || m_timeMessage<64 || m_timeMessage>255 || m_timeRevision==UINT32_MAX) return false;
+        if (recipient && (recipient->has_disconnected || (recipient->pev->flags&(FL_FAKECLIENT|FL_DORMANT|FL_KILLME))))
+            return true;
+        const auto runtime=m_runtime;
+        const auto session=runtime->session;
+        const auto access=session->Map().EntityAccess();
+        const auto round=session->Map().RoundGeneration();
+        const auto bytes=custom::EncodePhase({value.time.phase,value.preparing,++m_timeRevision,
+            value.challenge,value.time.remaining});
+        if (!bytes) return false;
+        m_timeSending=true;
+        struct Sending {bool& value;~Sending(){value=false;}} sending{m_timeSending};
+        if (recipient) MESSAGE_BEGIN(MSG_ONE,m_timeMessage,nullptr,recipient->pev);
+        else MESSAGE_BEGIN(MSG_ALL,m_timeMessage);
+        for (const auto byte:*bytes) WRITE_BYTE(std::to_integer<unsigned>(byte));
+        MESSAGE_END();
+        return Ready() && m_runtime==runtime && runtime->session==session && access->Allowed() &&
+            session->Map().EntityAccess()==access && session->Map().RoundGeneration()==round;
     }
     void CheckSurvivalTimeout()
     {
@@ -2147,6 +2193,11 @@ private:
     csol::scenario::custom::ChallengeCycle m_timeCycle;
     std::uint64_t m_timeRound{}, m_timePublishedRound{};
     csol::scenario::custom::Phase m_timePublishedPhase{csol::scenario::custom::Phase::Ended};
+    int m_timeMessage{};
+    std::uint32_t m_timeRevision{};
+    std::uint64_t m_timeSentRound{};
+    csol::scenario::custom::Phase m_timeSentPhase{csol::scenario::custom::Phase::Ended};
+    bool m_timeSentPreparing{},m_timeSending{};
     float m_damageScale{1.0f}, m_damageScaleAt{};
     bool m_restarting{}, m_completionLocked{}, m_completing{}, m_applyingFinish{};
     std::array<bool, 33> m_givingDefaultPrimary{};

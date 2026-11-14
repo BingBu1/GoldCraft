@@ -47,3 +47,9 @@ B已停止后原子更新3文件：DLL、匹配GUID/age的PDB及客户端部署�
 build/csol-hud-root-regression-20261113-01/after.json确认17项HUD在B游戏根、下载目录与服务端都逐SHA未改；12个错误游戏根文件的正确内容寻址对象已在缓存，其余5项来自正确下载目录。既有错误原件保留，用于下一轮真实自动修复/VFS消费者复验。
 
 调用界面工具list_windows时收到实体Escape停止，之后未再调用任何Computer Use或输入。已完成后台构建和离线部署，尚未启动B复验真实v4能力、最终HUD ready/moneyReady和画面，不将本次标为HUD实机完成。下次明确恢复界面操作后，从这份已部署新版继续；不回滚踢击、不人工覆盖故障资源。
+
+## 真人恢复确认与实际后续版本
+
+用户明确恢复单B界面测试后，实际窗口和进程已由CoF领域后续配套更新：B PID36624，CSOLSupport为bae3338f2b79c915e2f75b700522ced24c8455d9c3af13ea264c44a2497471d9，GoldCraft52131e77、引擎5a4ecabc，刷新provider保留；不是先前a9 DLL仍在运行。实际入服v4清单3936项、required3469项最终全部校验，413个cache覆盖对象、0新下载、provider available1、paused0、无错误。未人工改写故障原件。
+
+实际F5帧zs_decoy0001.bmp已见人物头像/生命护甲、武器卡片、弹药和金钱现代HUD。该帧世界呈黑，因此先保留全场景未验；随后用户反馈“看来是正常的”，记录为真人确认HUD当前正常，停止继续接管输入。不是把截图当作原版字体像素、所有场景和多人完整验收。私有回执build/csol-hud-recovery-live-20261113-01/receipt.json。

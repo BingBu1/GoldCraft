@@ -20,6 +20,7 @@
 #include "scenario/core/scenario_upgrades.hpp"
 #include "scenario/core/scenario_abilities.hpp"
 #include "scenario/core/human_kick.hpp"
+#include "scenario/core/challenge_phase.hpp"
 #include "scenario/bosses/boss_health.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
 #include "scenario/core/scenario_respawn_ui.hpp"
@@ -60,6 +61,7 @@ void ResetSession()
     ResetScenarioUpgrades();
     ResetScenarioAbilities();
     ResetHumanKick();
+    ResetChallengePhase();
     ResetBossHealth();
     ResetScenarioRoundHud();
     ResetScenarioRespawnUi();

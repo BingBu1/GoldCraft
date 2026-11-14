@@ -17,7 +17,7 @@ namespace csol::client {
 // registration-independent order here.
 enum class OverlayLayer : unsigned char
 {
-    WallStatus, HudStyle, ScenarioKill, ScenarioUpgrades, CharacterSkills, HumanKick, BossHealth,
+    WallStatus, HudStyle, ScenarioKill, ScenarioUpgrades, CharacterSkills, HumanKick, ChallengePhase, BossHealth,
     ScenarioAbilities, ScenarioRoundHud, ScenarioRespawnUi, CharacterMenu, BuyMenu, MapVote, Count
 };
 
