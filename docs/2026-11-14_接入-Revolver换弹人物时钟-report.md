@@ -66,3 +66,9 @@
 `Build-CSOLServerCheckpoint.py` 增加显式 --process-budget per-build 和 --no-node-reuse；默认 shared 不变。独立预算仍受 --jobs2/MultiProcMaxCount2 约束，关闭的是发生空等的跨进程计数，/nr:false 禁止本次结束后保留节点。没有更改游戏功能、优化级别、精确浮点、完整源门禁或产物校验。第三轮沿同一编译缓存实际产生两个 clang 子进程并持续编译；完整MP终态/封存仍待，不宣称构建或游戏加速倍数。后续需给旧缓存补独立 TLog 配置，不能覆盖活动控制输入或误称整编完成。
 
 VP70 当前源重新验证：build/cof-vp70-current-20261114-01 的320开火/180世界/279Fidget/90转换和4450实际SDK通过。新增高备弹测试实际在03执行，旧源复现 SDK4454/line504 失败；02因不存在的插入锚未修改测试，是重复基线而非负例。75段8419原字节已重核，适配前证据 vp70-integration-20261114/ammo-implementation-before.json。VP70生产修复仍待当前完整构建结束后写入，避免污染其冻结输入；后续注册/Owner/effects/客户端/购买/实机均未完成。
+
+## 本轮构建与交付终态
+
+第三轮 `build/cof-revolver-reload-expanded-server-20261114-03` 完整MP编译/链接0错误，产物SHA `9bb0cedf25c2c21aece3108fc84dcdabfdb8f91fb381927553ee352316e4a5a9`，但广域冻结拒绝新增的 scenario_music_program.cpp/.hpp。随后尝试既有逐依赖审核，`build/cof-revolver-reload-expanded-scope-20261114-04.log` 又准确拒绝实际服务器源 `native/csol/scenario/core/music_resources.cpp` 的后续变化。因此未封为可部署构建、未更新任何运行DLL。范围工具临时允许“仅新增”的入口条件已恢复原源码；没有把可用性判断改成强制成功。下一次完整构建需覆盖稳定后的真实输入，不能拿旧链接产物替代新音乐/武器源。
+
+本轮阶段提交已发布 main d714dc4（换弹时钟）、2f8b102（高弹药）、177db69（六帧冷导出/有界构建调度）。VP70组件/高备弹另由 ce0dcba 发布，原320/180/279/90与SDK4549通过；见[VP70报告](2026-11-14_接入-VP70原生组件与高备弹兼容-report.md)。P345真人确认保持；左轮与VP70实际购买/HUD/认证Host、完整配套部署、实机与多人/性能继续，Goal保持active。按要求无子代理、无非打包跨聊通信。
