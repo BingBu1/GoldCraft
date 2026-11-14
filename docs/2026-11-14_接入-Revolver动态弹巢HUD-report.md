@@ -51,3 +51,13 @@ PROJECT_STATE/PROGRESS待同步：动态左轮HUD源码已验，10050总绘制/3
 完整客户端01所有代码已编链成功/SHA50b02bfa，571实际编译依赖核对通过且广域稳定，但CMake因已加入的其他领域文件重生成build.ninja，构建控制门拒绝封存；保留失败，不部署。已启动同缓存02以重生成后的控制输入再次验证，不将旧拒绝回执改成通过。
 
 此批资源作者、菜单元数据和原生广告列表可以单独审阅；实际原生命种子/Host启用和真正购买、客户端下载、单B/多人音画、CPU帧时依然未验收。精确共享待同步：PROJECT_STATE/PROGRESS记录13资源和10163/386/10332/15763组件证据，TODO保留完整左轮闭包，原Goal全部25身份及变体保持。
+
+## 完整客户端稳定封存
+
+`build/cof-revolver-dynamic-client-20261114-02/receipt.json` 已成功：实际571个Ninja编译输入、广域源码及构建控制均稳定，完整链接退出0。01同次链接成功但build.ninja重生成拒绝的回执保持。02产物SHA `50b02bfa4e7ae9b8d31982d36b469b3b56a97ecf4984da66dcf3566e6d368af4`，已独立复制到该目录frozen，未使用可被编译覆盖的硬链接。封存前571源再核同，匹配PDB SHA `3f1ec84575de85e6d98ca7b1ce5c3b0b58f93e3dea12c7bfd5bfe549a7b3cfd8`，GUID3754a143-3301-4c72-4c4c-44205044422e/age1一致；详见symbol-verification.json。资源刷新配置ON保留，未部署、未启动游戏、不作运行时provider/GPU或玩法通过。
+
+阶段已分开发布676ae93模型生命周期、e41c20d动态HUD、25c147b资源作者/三条广告/购买元数据，远端逐次核同。共享index并发期间音乐领域曾短暂提交联合暂存并重排；本任务检查自身18路径逐字匹配，未回退或改写他人历史。最终以当时HEAD完整publication清单为基线保留所有已发布条目，只添加本报告，e41c20d单独提交；完整index3947文件扫描零问题。私有核收记录在build/cof-dynamic-hud-publication-20261114-01，不发布机器/运行数据。
+
+原生命周期新增证据：原engine ClientPut1DD7C27在调用DLL ClientPutInServer前对实际player-edict+80清684字节entvars，闭合初次连接angle为零；actual MP ClientPut1001D830→player_0→Spawn100F4090完整458指令已读取。Spawn只有survival分支填32个firstDraw为1，不把正常重复Spawn当新private calloc。普通死亡/复生的完整callee字段关系仍继续审查，尚未把未知处写成强制初始值。准确区分已证新连接/普通重生，是左轮实际Host开放前的余项。
+
+下一步保持完整目标：闭合上述生命状态并接实际左轮Host/三枪准入/专服稳定配套构建与下载/单B整枪；随后VP70实际Owner/效果与其余全部武器/变体。P345已由用户确认正常，不重复其界面接管，真实多人和实际性能仍分别待验。
