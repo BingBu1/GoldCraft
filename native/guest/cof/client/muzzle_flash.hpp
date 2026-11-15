@@ -74,7 +74,9 @@ private:
     friend class GlockMuzzle;
     friend class RevolverMuzzle;
     friend class TMPMuzzle;
-    MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize, bool repeatFlashLookup = false) const noexcept;
+    friend class MP5Muzzle;
+    MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize,
+        const char* secondFlashModel = nullptr) const noexcept;
     MuzzleResult WorldWithSize(const std::array<float,3>&, float scale, float baseSize,
         bool repeatFlashLookup) const noexcept;
     bool Ready(bool cheapSmoke) const noexcept;
@@ -100,6 +102,17 @@ class TMPMuzzle
 {
 public:
     explicit TMPMuzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
+private:
+    P345Muzzle base_;
+};
+// Original27 uses local flash2/base2; its cooperative borrowed TMP P selects
+// world flash1/base2. Both paths preserve the second model callback before RNG.
+class MP5Muzzle
+{
+public:
+    explicit MP5Muzzle(MuzzleHost host) noexcept : base_(host) {}
     MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
 private:

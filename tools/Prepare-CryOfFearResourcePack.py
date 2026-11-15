@@ -1238,6 +1238,7 @@ MP5_PINS = [
     {"group":"MP5Models","original":"sprites/fog2.spr","host":"sprites/guest/cof/fog2.spr","bytes":4926,"sha256":"6e154e43fa4de8dcba86c74f9ff42fa9e3eb43d00b7ab29592e06c03c6e29b7f"},
     {"group":"MP5Models","original":"models/flash1.mdl","host":"models/guest/cof/common/flash1.mdl","bytes":133896,"sha256":"3b681b535fa69397e30d49c1afd8d54a842b80f7576be5b0e9b7d1983305552c"},
     {"group":"MP5Models","original":"sprites/gunsmoke.spr","host":"sprites/guest/cof/gunsmoke.spr","bytes":214062,"sha256":"f1db5d09c80c6d628642fb9df3a308e13331280a1c2560b2928353c20985b783"},
+    {"group":"MP5ClientModels","original":"models/flash2.mdl","host":"models/guest/cof/common/flash2.mdl","bytes":122304,"sha256":"f7f098c0db5eb3254458593d14c6b5a2e2e37af2d4afc1a1e56bb166c1df778c"},
     {"group":"MP5Sounds","original":"weapons/mp5/mp5_charger_back.wav","host":"guest/cof/weapons/mp5/mp5_charger_back.wav","bytes":14132,"sha256":"dd84d09f53f464a9ebfba13960bc716dcb5f9133439586b9fe700f757933a938"},
     {"group":"MP5Sounds","original":"weapons/mp5/mp5_charger_forward.wav","host":"guest/cof/weapons/mp5/mp5_charger_forward.wav","bytes":27568,"sha256":"9659a01be227b6ed8ced116e24022d56d7acbfad870814bcd1468d464111df6f"},
     {"group":"MP5Sounds","original":"weapons/mp5/mp5_magin.wav","host":"guest/cof/weapons/mp5/mp5_magin.wav","bytes":29310,"sha256":"e82fbf7a3daa4f598755332199cacb975421579ddc8bca4ddbea2468d37eda86"},
@@ -1330,7 +1331,9 @@ def current_manifest(weapon='P345'):
         raise ValueError('Unreviewed weapon resource manifest')
     text = HEADER.read_text('utf-8')
     actual = []
-    for suffix in ('Models', 'Sounds', 'LocalWaves', 'Events'):
+    groups = ('Models', 'ClientModels', 'Sounds', 'LocalWaves', 'Events') if weapon == 'MP5' else (
+        'Models', 'Sounds', 'LocalWaves', 'Events')
+    for suffix in groups:
         group = weapon + suffix
         source = group
         if group == 'GlockEvents':

@@ -162,12 +162,14 @@ bool ClipTexture(std::span<const byte> bytes) noexcept
     }
     return true;
 }
-template<class Resources, std::size_t Models, std::size_t Sounds, std::size_t Waves, std::size_t Events>
+template<class Resources, std::size_t Models, std::size_t Sounds, std::size_t Waves, std::size_t Events,
+    std::size_t ClientModels = 0>
 ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& output,
     const std::array<ResourcePath, Models>& models, const std::array<ResourcePath, Sounds>& sounds,
     const std::array<ResourcePath, Waves>& waves, const std::array<ResourcePath, Events>& events,
     const ResourcePath& inventory, const ResourcePath& particle, const ResourcePath& clipTexture,
-    unsigned sequenceCount, std::string_view classname) noexcept
+    unsigned sequenceCount, std::string_view classname,
+    const std::array<ResourcePath, ClientModels>& clientModels = {}) noexcept
 {
     const auto lease = authority;
     const auto current = [&] { return lease.current(lease.context); };
@@ -185,6 +187,8 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
         return current() && size > 0;
     };
     for (const auto& p : models)
+        if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
+    for (const auto& p : clientModels)
         if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
     for (const auto& p : sounds)
     {
@@ -262,6 +266,13 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
             value.decalDownloads[i] = g_engfuncs.pfnPrecacheGeneric(ShotDecals[i].host);
             if (!current()) return {ResourceStatus::Cancelled, ShotDecals[i].host};
             if (value.decalDownloads[i] < 0) return {ResourceStatus::EngineRejected, ShotDecals[i].host};
+        }
+    if constexpr (ClientModels > 0)
+        for (std::size_t i = 0; i < ClientModels; ++i)
+        {
+            value.clientModelDownloads[i] = g_engfuncs.pfnPrecacheGeneric(clientModels[i].host);
+            if (!current()) return {ResourceStatus::Cancelled, clientModels[i].host};
+            if (value.clientModelDownloads[i] < 0) return {ResourceStatus::EngineRejected, clientModels[i].host};
         }
     for (std::size_t i = 0; i < events.size(); ++i)
     {
@@ -354,7 +365,7 @@ ResourceResult PrepareTMPResources(const ResourceAuthority& authority, TMPResour
 ResourceResult PrepareMP5Resources(const ResourceAuthority& authority, MP5Resources& output) noexcept
 {
     return PrepareResources(authority, output, MP5Models, MP5Sounds, MP5LocalWaves, MP5Events,
-        MP5Inventory, MP5Particle, MP5ClipTexture, 20, "weapon_mp5");
+        MP5Inventory, MP5Particle, MP5ClipTexture, 20, "weapon_mp5", MP5ClientModels);
 }
 
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept

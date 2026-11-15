@@ -7,6 +7,7 @@
 #include <array>
 #include <bit>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <cstdint>
 #include <fcntl.h>
@@ -35,7 +36,12 @@ TEMPENTITY* Shell(float* origin,float* velocity,float* angles,float life,int ind
 void Call(unsigned id) { calls[callCount++] = id; }
 float Time() { Call(1); return now + static_cast<float>(timeIndex++) * 0.00001F; }
 cl_entity_t* Local() { Call(2); return &local; }
-model_t* Model(const char*, int* index) { Call(3); *index=13; return &model; }
+model_t* Model(const char* name, int* index) {
+    if(!std::strcmp(name,"models/flash1.mdl"))Call(3);
+    else if(!std::strcmp(name,"models/flash2.mdl"))Call(11);
+    else std::abort();
+    *index=13; return &model;
+}
 float Random(float, float) { Call(4); return randomIndex++ ? rollRandom : sizeRandom; }
 int Visible(int, cl_entity_t* entity) { Call(5); visible=*entity; visible.model=nullptr; return 1; }
 int Find(const char*) { Call(6); return 27; }
@@ -51,9 +57,10 @@ template<class T> bool Read(T& x) { return std::fread(&x,sizeof(x),1,stdin)==1; 
 template<class T> void Write(const T& x) { std::fwrite(&x,sizeof(x),1,stdout); }
 }
 int main(int argc,char** argv) {
-    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")&&std::strcmp(argv[1],"--tmp")))return 2;
+    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")&&std::strcmp(argv[1],"--tmp")&&std::strcmp(argv[1],"--mp5")))return 2;
     const bool revolver=argc==2&&!std::strcmp(argv[1],"--revolver");
     const bool tmp=argc==2&&!std::strcmp(argv[1],"--tmp");
+    const bool mp5=argc==2&&!std::strcmp(argv[1],"--mp5");
     _setmode(_fileno(stdin),_O_BINARY); _setmode(_fileno(stdout),_O_BINARY);
     static_assert(sizeof(cl_entity_t)==3000 && sizeof(dlight_t)==40);
     engine.GetLocalPlayer=Local; engine.CL_LoadModel=Model; engine.pfnRandomFloat=Random;
@@ -85,11 +92,14 @@ int main(int argc,char** argv) {
         MuzzleResult result=MuzzleResult::RequestsIssued; int selected=-1;
         if(op==0 || op==6)
         {
-            if(tmp)result=TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            if(mp5)result=MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            else if(tmp)result=TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else if(revolver)result=RevolverMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else result=muzzle.Local(view,attachment,scale,cheap);
         }
-        else if(op==1) result=tmp?TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
+        else if(op==1) result=mp5?MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
+            {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):
+            tmp?TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
             {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):
             muzzle.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale);
         else if(op==7 || op==8) {

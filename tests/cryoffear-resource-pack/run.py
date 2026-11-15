@@ -303,9 +303,9 @@ def main():
     mp5_dry = invoke('mp5', mp5_args, expected=0)
     mp5_plan_path = output/'mp5'/'plan.json'
     mp5_plan = json.loads(mp5_plan_path.read_bytes())
-    check(mp5_plan['weapon']=='MP5' and mp5_plan['primaryAssets']==44 and
-          mp5_plan['dependencyAssets']==1 and len(mp5_plan['assets'])==45,
-          '39 MP5 resources, five decals and one inherited texture companion')
+    check(mp5_plan['weapon']=='MP5' and mp5_plan['primaryAssets']==45 and
+          mp5_plan['dependencyAssets']==1 and len(mp5_plan['assets'])==46,
+          '40 MP5 resources, five decals and one inherited texture companion')
     check([(e['sequence'],e['frame']) for e in mp5_plan['studio5004']]==
           [(2,30),(2,67),(3,17),(3,53),(3,88),(3,108)] and
           len({e['localLogicalKey'] for e in mp5_plan['studio5004']})==4,
@@ -317,10 +317,14 @@ def main():
           player_row['sha256']!=mp5_world['sha256'], 'authored P retains explicit original W provenance')
     check(all(p['originalBytesPreserved'] for p in mp5_plan['assets'] if p is not player_row),
           'all other MP5 original resource bytes are preserved')
+    flash2 = next(p for p in mp5_plan['assets'] if p['original']=='models/flash2.mdl')
+    check(flash2['group']=='MP5ClientModels' and flash2['destination']=='models/guest/cof/common/flash2.mdl' and
+          flash2['bytes']==122304 and flash2['sha256']=='f7f098c0db5eb3254458593d14c6b5a2e2e37af2d4afc1a1e56bb166c1df778c',
+          'original local flash2 is a distinct client model dependency')
     mp5_written = invoke('mp5-write', [*mp5_args,'--write',
         '--expected-plan-sha256',json.loads(mp5_dry.stdout)['planSha256']], expected=0,
         candidate=output/'mp5'/'candidate',plan_path=mp5_plan_path)
-    check(json.loads(mp5_written.stdout)['files']==45, 'MP5 actual candidate count')
+    check(json.loads(mp5_written.stdout)['files']==46, 'MP5 actual candidate count')
     for row in mp5_plan['assets']:
         copied=output/'mp5'/'candidate'/row['destination']
         check(copied.is_file() and sha(copied)==row['sha256'] and copied.stat().st_nlink==1,
@@ -330,7 +334,7 @@ def main():
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=281,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=282,
         mp5PrimaryAssets=44, mp5DependencyAssets=1,
         tmpPrimaryAssets=46, tmpDependencyAssets=1,
         vp70PrimaryAssets=44, vp70DependencyAssets=1,

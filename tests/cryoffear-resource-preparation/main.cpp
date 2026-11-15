@@ -121,6 +121,8 @@ bool Unchanged(const Resources& a, const Resources& b)
 {
     if constexpr (requires { a.decalDownloads; })
         if (a.decalDownloads != b.decalDownloads) return false;
+    if constexpr (requires { a.clientModelDownloads; })
+        if (a.clientModelDownloads != b.clientModelDownloads) return false;
     // SDK Vector and the aggregate have padding; semantic transaction checks
     // must not depend on a compiler copying indeterminate padding bytes.
     return a.generation == b.generation && a.sequences.duration == b.sequences.duration &&
@@ -166,7 +168,8 @@ int main(int argc, char** argv)
         const auto calls = fixture.calls;
         Check(fixture.loads == 3 && fixture.frees == 3, "three cold reads, all released");
         constexpr auto decalCount = std::is_same_v<Resources, GlockResources> ? ShotDecals.size() : 0;
-        Check(fixture.models.size() == 10 && fixture.generics.size() == waves.size() + 2 + decalCount &&
+        constexpr auto clientModelCount = std::is_same_v<Resources, MP5Resources> ? MP5ClientModels.size() : 0;
+        Check(fixture.models.size() == 10 && fixture.generics.size() == waves.size() + 2 + decalCount + clientModelCount &&
             !fixture.generics.contains(texturePath.host), "engine retains sole automatic companion registration");
         Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
             std::string_view(models[9].original) == "sprites/gunsmoke.spr" &&
@@ -250,6 +253,10 @@ int main(int argc, char** argv)
         }
         if constexpr (std::is_same_v<Resources, MP5Resources>)
         {
+            for (std::size_t i = 0; i < MP5ClientModels.size(); ++i)
+                Check(prepared.clientModelDownloads[i] == fixture.generics.at(MP5ClientModels[i].host) &&
+                    !fixture.models.contains(MP5ClientModels[i].host),
+                    "MP5 local flash2 has a generic download without a server model slot");
             Check(std::string_view(models[2].original) == "models/weapons/mp5/w_mp5.mdl" &&
                 std::string_view(models[2].host) == "models/guest/cof/mp5/p_mp5.mdl" &&
                 fixture.files.at(models[2].host) != fixture.files.at(models[1].host),
@@ -457,6 +464,8 @@ int main(int argc, char** argv)
             Inputs(argv[1], argv[2], argv[3], MP5Models, MP5Sounds, MP5LocalWaves, MP5Events,
                 MP5Inventory, MP5Particle, MP5ClipTexture);
             fixture.files[MP5Models[unsigned(MP5Model::Player)].host] = Read(argv[5]);
+            for (const auto& resource : MP5ClientModels)
+                fixture.files.emplace(resource.host, Read(std::filesystem::path(argv[1]) / resource.original));
             exercise.template operator()<MP5Resources>(MP5Models, MP5Sounds, MP5LocalWaves, MP5Events,
                 MP5Inventory, MP5Particle, MP5ClipTexture, PrepareMP5Resources, 20, -4.25F, 2.F,
                 "weapon_mp5", "\"2.00\"", "MP5", "\"0.00\"", 0);

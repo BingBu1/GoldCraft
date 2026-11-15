@@ -85,6 +85,21 @@ generation-cancellation boundary.
 The catalogue explicitly names the original W as the authored P's geometry
 input; the fixture supplies the actual generated P, checks that it differs
 from W and never substitutes the original borrowed TMP P. That does not
-accept its grip or currently missing muzzle attachment. The resource author,
-full client/weapon registry, map-owner lifecycle and gameplay remain pending.
+accept its grip or rendered muzzle attachment. The authored P and optional
+map-owner lifecycle are now separately checked; production client/Host
+admission, full builds, deployment and gameplay remain pending.
 The five existing families remain in this same SDK run.
+
+## MP5 local flash2 dependency (2026-11-15)
+
+The matching original client uses flash1 followed by flash2 for local id27,
+while its cooperative borrowed-TMP world branch uses flash1. The host now
+preflights and registers `MP5ClientModels` as generic downloads without
+consuming a server model slot. MP5 returns one fixed client-model download
+index; every cancellation/failure preserves that field with the other output.
+The fixture uses the resource author's current reviewed resident P identity,
+not the withdrawn pre-attachment candidate in historical evidence.
+
+The current six-family run checks 4,120 conditions, including 657 for MP5,
+41 MP5 files and 92 callback edges. This is server cold preparation only;
+the actual client cold flash2 handle and MP5 capability remain pending.

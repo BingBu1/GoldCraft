@@ -224,6 +224,12 @@ inline constexpr std::array<ResourcePath, static_cast<unsigned>(MP5Model::Count)
     {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
     {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
 }};
+// Original client1004BD77 selects this after the common flash1 lookup.
+// It is a client effect model, downloaded without a server model slot.
+inline constexpr std::array<ResourcePath, 1> MP5ClientModels{{
+    {"models/flash2.mdl", "models/guest/cof/common/flash2.mdl"}
+}};
+
 enum class MP5Sound : unsigned
 {
     ChargerBack, ChargerForward, MagIn, MagOut, Fire, Tail, ItemGet, WeaponGet,
@@ -464,6 +470,6 @@ static_assert(ResourceNamesFit(P345Models)&&ResourceNamesFit(P345Sounds)&&Resour
 static_assert(ResourceNamesFit(GlockModels)&&ResourceNamesFit(GlockSounds)&&ResourceNamesFit(GlockLocalWaves)&&ResourceNamesFit(GlockEvents));
 static_assert(ResourceNamesFit(RevolverModels)&&ResourceNamesFit(RevolverSounds)&&ResourceNamesFit(RevolverLocalWaves)&&ResourceNamesFit(RevolverEvents));
 static_assert(ResourceNamesFit(TMPModels)&&ResourceNamesFit(TMPSounds)&&ResourceNamesFit(TMPLocalWaves)&&ResourceNamesFit(TMPEvents));
-static_assert(ResourceNamesFit(MP5Models)&&ResourceNamesFit(MP5Sounds)&&ResourceNamesFit(MP5LocalWaves)&&ResourceNamesFit(MP5Events));
+static_assert(ResourceNamesFit(MP5Models)&&ResourceNamesFit(MP5ClientModels)&&ResourceNamesFit(MP5Sounds)&&ResourceNamesFit(MP5LocalWaves)&&ResourceNamesFit(MP5Events));
 static_assert(ResourceNamesFit(VP70Models)&&ResourceNamesFit(VP70Sounds)&&ResourceNamesFit(VP70LocalWaves)&&ResourceNamesFit(VP70Events));
 }

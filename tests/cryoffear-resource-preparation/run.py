@@ -2,6 +2,7 @@
 """Build the production cold resource helper against the actual ReGameDLL SDK."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -96,7 +97,12 @@ def main():
             path = args.original/row['original']
             if sha(path) != row['sha256'] or path.stat().st_size != row['bytes']:
                 raise ValueError('Original MP5 resource identity differs: '+row['original'])
-        player = mp5_inputs['authoredPlayer']
+        resource_tool = ROOT/'tools/Prepare-CryOfFearResourcePack.py'
+        spec = importlib.util.spec_from_file_location('cof_resource_pack', resource_tool)
+        resource_pack = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(resource_pack)
+        resource_pack.current_manifest('MP5')
+        player = resource_pack.MP5_PLAYER_MODEL
         if sha(args.mp5_player) != player['sha256'] or args.mp5_player.stat().st_size != player['bytes']:
             raise ValueError('Authored MP5 P candidate differs from its explicit review identity')
         local_proof = mp5_proof.with_name('PREEDIT-local-route.json')
@@ -108,7 +114,18 @@ def main():
         mp5_client_rows = verify_original(client_sample, local_proof, [dict(
             va=local['va'], size=local['size'], sha256=local['sha256'], idaEqualsPE=True)],
             'd2a04641b301804f6f449aa68265042b13adc360925b80033d417ec9f38c9c00')
-        mp5_client_inputs.update((local_proof, client_sample, archive))
+        mp5_client_inputs.update((local_proof, client_sample, archive, resource_tool))
+        muzzle_proof = mp5_proof.with_name('PREEDIT-client-muzzle.json')
+        muzzle = json.loads(muzzle_proof.read_text('utf8'))
+        muzzle_rows = verify_original(client_sample, local_proof,
+            muzzle['originalFullIdaRegionsRechecked'], muzzle['sample']['sha256'])
+        if sum(row['size'] for row in muzzle_rows) != 2375:
+            raise ValueError('Incomplete original MP5 local/world muzzle evidence')
+        mp5_client_rows.extend(muzzle_rows)
+        flash2 = args.original/'models/flash2.mdl'
+        if flash2.stat().st_size != 122304 or sha(flash2) != 'f7f098c0db5eb3254458593d14c6b5a2e2e37af2d4afc1a1e56bb166c1df778c':
+            raise ValueError('Original local MP5 flash2 identity differs')
+        mp5_client_inputs.update((muzzle_proof, flash2))
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)

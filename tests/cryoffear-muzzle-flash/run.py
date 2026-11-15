@@ -68,6 +68,9 @@ def main():
     subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-muzzle-flash/oracle.py"),
                     "--sample", str(args.sample.resolve()), "--runner", str(out / "muzzle-flash.exe"),
                     "--weapon", "TMP", "--output", str(out / "tmp-differential.json")], check=True)
+    subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-muzzle-flash/oracle.py"),
+                    "--sample", str(args.sample.resolve()), "--runner", str(out / "muzzle-flash.exe"),
+                    "--weapon", "MP5", "--output", str(out / "mp5-differential.json")], check=True)
     data = (out / "muzzle-flash.exe").read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
     assert struct.unpack_from("<H", data, pe + 4)[0] == 0x14C

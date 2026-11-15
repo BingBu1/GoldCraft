@@ -93,6 +93,7 @@ void Resources(const fs::path& candidate,const fs::path& deployed,const fs::path
     family(VP70Models,VP70Sounds,VP70LocalWaves,VP70Events,VP70Inventory,VP70Particle,VP70ClipTexture);
     family(TMPModels,TMPSounds,TMPLocalWaves,TMPEvents,TMPInventory,TMPParticle,TMPClipTexture);
     family(MP5Models,MP5Sounds,MP5LocalWaves,MP5Events,MP5Inventory,MP5Particle,MP5ClipTexture);
+    for(const auto& p:MP5ClientModels)put(p.host);
     for(const auto& p:ShotDecals)put(p.host);
 }
 int String(const char* text)
@@ -140,8 +141,11 @@ bool PrepareTMP(void*,const TMPResources&,TMPPrepared& value) noexcept
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
 }
-bool PrepareMP5(void*,const MP5Resources&,TMPPrepared& value) noexcept
+bool PrepareMP5(void*,const MP5Resources& resources,TMPPrepared& value) noexcept
 {
+    for(std::size_t i=0;i<MP5ClientModels.size();++i)
+        Check(resources.clientModelDownloads[i]==context.generics.at(MP5ClientModels[i].host)&&
+            !context.models.contains(MP5ClientModels[i].host));
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
 }
@@ -700,6 +704,14 @@ int main(int argc,char** argv)
         else if(field==2)absent.mp5.effects&=~(1u<<unsigned(TMPEffect::KillLocalParticles));
         else absent.mp5.effects|=1u<<unsigned(TMPEffect::FirstDraw);
         Check(!runtime.BeginMap(absent)&&!runtime.PreparedMP5Resources());
+    }
+    for(const auto& path:MP5ClientModels)
+    {
+        const auto saved=context.files.at(path.host);context.files.erase(path.host);
+        Check(!runtime.BeginMap(Callbacks(true,true,true,true,true))&&!runtime.PreparedMP5Resources());
+        Check(runtime.EngineEntitiesReleased(runtime.LastIssuedMapEpoch()));
+        edict_t missingFlash{};InitEdict(missingFlash);Check(!CreateMP5(missingFlash.v));
+        context.files.emplace(path.host,saved);
     }
     const auto savedMP5Inventory=context.files.at(MP5Inventory.host);context.files.erase(MP5Inventory.host);
     Check(!runtime.BeginMap(Callbacks(true,true,true,true,true))&&!runtime.PreparedMP5Resources());

@@ -59,6 +59,7 @@ using guest::cof::resources::TMPParticle;
 using guest::cof::resources::TMPClipTexture;
 using guest::cof::resources::MP5Model;
 using guest::cof::resources::MP5Models;
+using guest::cof::resources::MP5ClientModels;
 using guest::cof::resources::MP5Sound;
 using guest::cof::resources::MP5Sounds;
 using guest::cof::resources::MP5LocalWaves;
@@ -153,6 +154,7 @@ struct MP5Resources
     std::array<int, MP5Models.size()> models{};
     std::array<int, MP5Sounds.size()> sounds{};
     std::array<int, MP5LocalWaves.size()> localWaveDownloads{};
+    std::array<int, MP5ClientModels.size()> clientModelDownloads{};
     std::array<unsigned short, MP5Events.size()> events{};
     int viewModelString{}, playerModelString{}, worldModelString{};
     int inventoryItemString{}, particleScriptString{};
