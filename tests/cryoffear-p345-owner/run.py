@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver","vp70"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp"),default="p345")
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
