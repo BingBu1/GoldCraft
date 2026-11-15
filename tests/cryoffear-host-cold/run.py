@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Cold-start the complete guest firearm closure in the unused isolated server.
 
-No graphical client, fake player, gameplay injection or main-server changes.
+No graphical client or main-server changes. An optional diagnostic owns one
+fake player to observe native movement and outgoing prediction snapshots.
 Every installed file is restored, including pre-existing hard-linked resources.
 """
 import argparse
@@ -60,9 +61,15 @@ def main():
     parser.add_argument('--include-mp5', action='store_true',
                         help='Require all six firearm definitions, including the independently typed MP5')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
+    parser.add_argument('--debugger-extra', type=Path,
+                        help='Optional bounded workspace CDB commands; attach after cold preparation')
     parser.add_argument('--runtime-audit', type=Path,
                         help='Optional read-only exact-version PowerShell audit of the live isolated process')
+    parser.add_argument('--jump-probe', type=Path,
+                        help='Optional compiled goldcraft_jump_snapshot_probe.amxx for the isolated server only')
     args = parser.parse_args()
+    if args.debugger_extra and (not args.debugger or not args.jump_probe):
+        parser.error('--debugger-extra requires --debugger and --jump-probe')
     if args.include_mp5 and not args.include_tmp:
         parser.error('--include-mp5 requires --include-tmp for the six-firearm profile')
     out = checked(args.output)
@@ -75,6 +82,19 @@ def main():
     for key in ('mp', 'pdb', 'client', 'engine', 'resources'):
         checked(getattr(args, key)).resolve(strict=True)
     inputs = {str(p): sha(p) for p in (Path(__file__), args.mp, args.pdb, args.client, args.engine, args.resources)}
+    if args.runtime_audit:
+        checked(args.runtime_audit).resolve(strict=True)
+        inputs[str(args.runtime_audit)] = sha(args.runtime_audit)
+    if args.debugger_extra:
+        checked(args.debugger_extra).resolve(strict=True)
+        if args.debugger_extra.stat().st_size > 32768:
+            raise ValueError('Bounded debugger commands required')
+        inputs[str(args.debugger_extra)] = sha(args.debugger_extra)
+    if args.jump_probe:
+        checked(args.jump_probe).resolve(strict=True)
+        if args.jump_probe.name != 'goldcraft_jump_snapshot_probe.amxx':
+            raise ValueError('Use the bounded native jump snapshot diagnostic')
+        inputs[str(args.jump_probe)] = sha(args.jump_probe)
     resources = json.loads(args.resources.read_text('utf8'))['files']
     if not resources or len(resources) > 1024:
         raise ValueError('Bounded explicit resource closure required')
@@ -88,7 +108,7 @@ def main():
     out.mkdir()
     rollback = out / 'rollback'
     rollback.mkdir()
-    changes, child = [], None
+    changes, child, debugger_child, debugger_command = [], None, None, None
     result = dict(success=False, sourceCopies=0, mainRuntimeTouched=False, gameplay=False,
                   checks={}, http=[], registration=[])
     cstrike = game / 'cstrike'
@@ -151,6 +171,12 @@ def main():
         replace(game / 'swds.dll', args.engine)
         replace(config, out / 'gameplay.json')
         replace(cstrike / 'server.cfg', out / 'server.cfg')
+        if args.jump_probe:
+            plugins = cstrike / 'addons/amxmodx/configs/plugins.ini'
+            text = plugins.read_text('utf-8-sig')
+            (out / 'plugins.ini').write_text(text + '\ngoldcraft_jump_snapshot_probe.amxx\n', 'utf8')
+            replace(plugins, out / 'plugins.ini')
+            replace(cstrike / 'addons/amxmodx/plugins/goldcraft_jump_snapshot_probe.amxx', args.jump_probe)
         result['hud'] = csol_hud_resources.verify(cstrike)
         assert result['hud']['success']
         menu = pair.compiled_menu(args.client)
@@ -177,9 +203,12 @@ def main():
             commands = out / 'debugger-commands.txt'
             commands.write_text(
                 f'bu swds!Sys_Error "da poi(@esp+4); da poi(@esp+8); kp 30; .dump /m /o {dump}; q"\n'
-                f'sxe -c ".exr -1; .ecxr; kp 30; .dump /m /o {dump}; q" av\ng\n', 'ascii')
-            command = [str(debugger), '-G', '-logo', str(out / 'debugger.log'),
-                       '-y', str(args.pdb.resolve(strict=True).parent), '-cf', str(commands), *command]
+                f'sxe -c ".exr -1; .ecxr; kp 30; .dump /m /o {dump}; q" av\n' +
+                (args.debugger_extra.read_text('ascii') + '\n' if args.debugger_extra else '') + 'g\n', 'ascii')
+            debugger_command = [str(debugger), '-G', '-logo', str(out / 'debugger.log'),
+                                '-y', str(args.pdb.resolve(strict=True).parent), '-cf', str(commands)]
+            if not args.debugger_extra:
+                command = [*debugger_command, *command]
         child = subprocess.Popen(command, cwd=game, env=env,
             startupinfo=startup, creationflags=subprocess.CREATE_NEW_CONSOLE)
         result['pid'] = child.pid
@@ -199,6 +228,8 @@ def main():
             raise TimeoutError('Cold startup did not become ready')
         result['checks'].update(slots32='32 max' in status, noPlayers='0 active' in status,
                                mode2='"2"' in rcon.command('csol_game_mode', config_path=private))
+        if 'CSOL map rejected:' in console.read_text('utf8', errors='replace'):
+            raise RuntimeError('Scenario map rejected; guest registration alone is not gameplay readiness')
         sys.path.insert(0, str(ROOT / 'tests/csol-dione'))
         inspector = module('guest_cold_memory', ROOT / 'tests/csol-dione/inspect_runtime.py')
         targets = [row for row in processes(('hlds.exe',)) if row.get('image') and
@@ -307,6 +338,55 @@ def main():
             if error.code != 404:
                 raise
             result['checks']['serverOnlyDamageSettingsDenied'] = True
+        if args.jump_probe:
+            result['gameplay'] = 'Owned fake actor, actual engine movement; no graphical/network client'
+            result['probeBegin'] = rcon.command('gc_jump_probe_begin', config_path=private)
+            if '[Jump snapshot] event=begin' not in result['probeBegin']:
+                raise RuntimeError('Native jump snapshot diagnostic did not create its owned actor')
+            deadline = time.monotonic() + 60
+            probe_audited = False
+            while time.monotonic() < deadline:
+                if child.poll() is not None:
+                    raise RuntimeError('Isolated server exited during jump snapshot diagnostic')
+                text = console.read_text('utf8', errors='replace')
+                if 'CSOL map rejected:' in text or 'Run time error' in text:
+                    raise RuntimeError('Native jump diagnostic encountered a rejected map or Pawn runtime error')
+                # Observe normal frames first. Attaching before native player
+                # admission changes the timing of the very path under study.
+                if args.debugger_extra and debugger_child is None and time.monotonic() >= deadline - 50:
+                    debugger_child = subprocess.Popen([*debugger_command, '-p', str(targets[0]['pid'])],
+                        cwd=game, startupinfo=startup, creationflags=subprocess.CREATE_NEW_CONSOLE)
+                    ready = time.monotonic() + 20
+                    while time.monotonic() < ready:
+                        debug_text = (out / 'debugger.log').read_text('utf8', errors='replace') if (out / 'debugger.log').exists() else ''
+                        if re.search(r'\d+:\d+> g\s', debug_text):
+                            break
+                        if debugger_child.poll() is not None:
+                            raise RuntimeError('Isolated function debugger exited before attach completed')
+                        time.sleep(.1)
+                    else:
+                        raise TimeoutError('Isolated function debugger did not resume the server')
+                if args.runtime_audit and not probe_audited and (
+                        '[Jump snapshot] event=jump n=6 ' in text or time.monotonic() >= deadline - 25):
+                    observed = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                        '-File', str(args.runtime_audit.resolve()), '-TargetDirectory', str(game.parent),
+                        '-ProcessId', str(targets[0]['pid'])], capture_output=True, timeout=20,
+                        creationflags=subprocess.CREATE_NO_WINDOW)
+                    (out / 'jump-runtime-audit.log').write_bytes(observed.stdout + observed.stderr)
+                    probe_audited = True
+                if '[Jump snapshot] event=end' in text:
+                    if 'event=end reason=complete' not in text:
+                        raise RuntimeError('Jump snapshot diagnostic stopped before completion')
+                    break
+                time.sleep(.1)
+            else:
+                raise TimeoutError('Native jump snapshot diagnostic did not finish')
+            samples = re.findall(r'\[Jump snapshot\] event=sample [^\r\n]*', text)
+            jumps = re.findall(r'\[Jump snapshot\] event=jump [^\r\n]*', text)
+            result['jumpProbe'] = dict(samples=len(samples), departures=len(jumps))
+            result['checks']['nativeJumpSnapshotProbeCompleted'] = len(samples) >= 50 and len(jumps) >= 3
+            if not result['checks']['nativeJumpSnapshotProbeCompleted']:
+                raise RuntimeError('Native jump diagnostic did not observe real native departures and snapshots')
         result['checks']['sourceInputsStable'] = all(sha(Path(path)) == digest for path, digest in inputs.items())
         result['success'] = all(result['checks'].values())
     except BaseException as error:
@@ -323,6 +403,12 @@ def main():
             except subprocess.TimeoutExpired:
                 child.terminate()
                 child.wait(timeout=5)
+        if debugger_child and debugger_child.poll() is None:
+            try:
+                debugger_child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                debugger_child.terminate()
+                debugger_child.wait(timeout=5)
         result['restored'] = True
         for row in reversed(changes):
             target = Path(row['target'])

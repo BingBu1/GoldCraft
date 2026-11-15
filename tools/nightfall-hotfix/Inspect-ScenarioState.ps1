@@ -70,6 +70,34 @@ foreach($process in $targets){
             $state.actualSpawns=$nativeSpawns
             $state.health=[BitConverter]::ToSingle($variables,352)
             $state.deadflag=[BitConverter]::ToInt32($variables,368)
+            $session=Read32 $process.Id $runtime
+            $players=Read32 $process.Id ($runtime+8)
+            $access=U32 $states ($offset+24)
+            $profile=U32 $states ($offset+32)
+            if($session -and $players -and $access -and $profile){
+                $profileData=[GoldCraftReadOnlyImage]::Read($process.Id,$profile,432)
+                $playerData=[GoldCraftReadOnlyImage]::Read($process.Id,$players,616)
+                $sessionData=[GoldCraftReadOnlyImage]::Read($process.Id,$session,5152)
+                $edict=U32 $states ($offset+48)
+                $edictData=[GoldCraftReadOnlyImage]::Read($process.Id,$edict,128)
+                $state.ownerChecks=[ordered]@{
+                    runtimeSessionMatches=((U32 $states ($offset+8))-eq $session);
+                    runtimePlayersMatches=((U32 $states ($offset+16))-eq $players);
+                    sessionState=[BitConverter]::ToInt32($sessionData,5148);
+                    roundMatches=([BitConverter]::ToUInt64($states,$offset+72)-eq [BitConverter]::ToUInt64($sessionData,832));
+                    mapAccessMatches=($access-eq (U32 $sessionData 1108));
+                    accessAllowed=[bool]([GoldCraftReadOnlyImage]::Read($process.Id,$access,1))[0];
+                    playersActive=[bool]$playerData[612];playersInvalidating=[bool]$playerData[614];
+                    registeredProfileMatches=($profile-eq (U32 $playerData (24+$slot*8)));
+                    profileGenerationMatches=([BitConverter]::ToUInt64($states,$offset+80)-eq [BitConverter]::ToUInt64($profileData,24));
+                    profileLifeMatches=([BitConverter]::ToUInt64($states,$offset+88)-eq [BitConverter]::ToUInt64($profileData,424));
+                    profileSpawnMatches=([BitConverter]::ToUInt64($states,$offset+96)-eq [BitConverter]::ToUInt64($profileData,56));
+                    profileEdictMatches=($edict-eq (U32 $profileData 12));
+                    edictSerialMatches=((U32 $states ($offset+52))-eq (U32 $edictData 4));
+                    privateActorMatches=($actor-eq (U32 $edictData 124));
+                    disconnected=[bool]([GoldCraftReadOnlyImage]::Read($process.Id,$actor+132,1))[0];
+                    flags=(U32 $variables 420)}
+            }
             if($clients -and $slot-le $maxClients){
                 $physics=[GoldCraftReadOnlyImage]::Read($process.Id,$clients+($slot-1)*20640+20220,256)
                 $info=[Text.Encoding]::ASCII.GetString($physics).Split([char]0)[0]

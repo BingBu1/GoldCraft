@@ -4,7 +4,9 @@
 the unused `cs-dione-probe` server. It leaves the main server and graphical
 client running, uses a separate loopback UDP/HTTP pair, starts Scenario with
 32 slots, and verifies the actual registered `ItemInfo` records using the
-loaded module's matching PDB. It does not create players or inject gameplay.
+loaded module's matching PDB. The default path does not create players or inject
+gameplay. A fatal scenario rejection now fails the test even if guest weapon
+registration itself succeeded.
 
 Supply `--mp`, `--pdb`, `--client`, `--engine`, `--resources` and a fresh
 `--output` beneath `build`. The resource JSON contains a `files` array with
@@ -32,6 +34,26 @@ hard-linked resources are never overwritten in place. An optional existing
 x86 CDB supplied with `--debugger` captures `Sys_Error` and access violations
 in the isolated test process. Dumps and generated files remain private build
 artifacts.
+
+For the native movement diagnostic, compile
+`amxx/tests/csol/goldcraft_jump_snapshot_probe.sma` with the pinned AMXX/ReAPI
+headers and pass its bytecode using `--jump-probe`. This optional path creates
+one owned fake CT, drives actual `RunPlayerMove` through native admission,
+observes `UpdateClientData` and the unchanged engine physics-info string, then
+drops only its owned actor. It requires at least 50 snapshots and three real
+departures. The actor's damage immunity is a declared fixture change; no stamina,
+balance, jump velocity or prediction permission is written by the probe.
+
+`--runtime-audit tools/nightfall-hotfix/Inspect-ScenarioState.ps1` records an
+identity-gated external observation before the probe and after its sixth
+departure (or at the bounded fallback deadline). Every audit includes its own
+read-only/non-atomic boundary. Pair observations by time; a full balance captured
+before jumping cannot explain a denial captured after six debits.
+
+`--debugger-extra` accepts a bounded private workspace command file with
+`--debugger` and `--jump-probe`. It attaches after ten seconds of normal probe
+frames. Breakpoints can change scheduling and invalidate latency measurements;
+debugger observations do not replace normal-frame or network-client acceptance.
 
 This is actual cold registration/resource/network evidence. It does not prove
 weapon input, visual grip, sounds, multiplayer, long-duration stability or game

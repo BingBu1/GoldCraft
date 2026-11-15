@@ -2615,7 +2615,9 @@
     "tests/cryoffear-player-think/main.cpp",
     "tests/cryoffear-player-think/oracle.py",
     "tests/cryoffear-player-think/README.md",
-    "docs/2026-11-15_实现-CoF玩家独立Think调度-report.md"
+    "docs/2026-11-15_实现-CoF玩家独立Think调度-report.md",
+    "amxx/tests/csol/goldcraft_jump_snapshot_probe.sma",
+    "docs/2026-11-15_排查-连跳权威状态与快照对照-report.md"
   ],
   "trees": {
     "native": [
