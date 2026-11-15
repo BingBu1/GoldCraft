@@ -3,6 +3,9 @@
 #include "../cryoffear-tmp-weapon/main.cpp"
 #undef main
 #include "native/csol/server/weapons/guest_cof_tmp_factory.hpp"
+#ifdef COF_TEST_FACTORY_MP5
+#include "native/csol/server/weapons/guest_cof_mp5_factory.hpp"
+#endif
 
 BOOL CCSPlayerWeapon::DefaultDeploy(char*,char*,int,char*,int){std::abort();}
 int CCSPlayerWeapon::DefaultReload(int,int,float){std::abort();}
@@ -14,6 +17,24 @@ void CCSPlayerWeapon::SendWeaponAnim(int,int){std::abort();}
 namespace
 {
 using namespace csol::server::cof;
+#ifdef COF_TEST_FACTORY_MP5
+using FactoryWeapon=MP5Weapon;
+using FactoryColdHost=MP5ColdHost;
+constexpr auto InstallFactory=InstallMP5Factory;
+constexpr auto ResetFactory=ResetMP5Factory;
+constexpr auto CreateFactory=CreateMP5;
+constexpr int FactoryHostId=901, FactoryDefaultAmmo=300;
+constexpr const char* FactoryName="MP5";
+#else
+using FactoryWeapon=TMPWeapon;
+using FactoryColdHost=TMPColdHost;
+constexpr auto InstallFactory=InstallTMPFactory;
+constexpr auto ResetFactory=ResetTMPFactory;
+constexpr auto CreateFactory=CreateTMP;
+constexpr int FactoryHostId=900, FactoryDefaultAmmo=30;
+constexpr const char* FactoryName="TMP";
+#endif
+
 std::vector<void*> allocations;
 unsigned allocated{},prepareCalls{},currentCalls{},mutateAt{},mutation{},scenarios{};
 bool allowed=true;
@@ -22,7 +43,7 @@ bool FactoryCurrent(void*) noexcept
 {
     if(++currentCalls==mutateAt)switch(mutation)
     {
-    case 1:ResetTMPFactory();break;
+    case 1:ResetFactory();break;
     case 2:++target->serialnumber;break;
     case 3:target->free=TRUE;break;
     case 4:target->v.flags|=FL_KILLME;break;
@@ -31,27 +52,32 @@ bool FactoryCurrent(void*) noexcept
     }
     return allowed;
 }
-bool FactoryPrepare(void*,TMPWeapon&,TMPPrepared& output) noexcept
+bool FactoryPrepare(void*,FactoryWeapon&,TMPPrepared& output) noexcept
 {++prepareCalls;output=prepared;return true;}
-TMPColdHost Host(){return {nullptr,FactoryCurrent,FactoryPrepare,ColdOwner,ColdInventory};}
+FactoryColdHost Host(){return {nullptr,FactoryCurrent,FactoryPrepare,ColdOwner,
+    [](void*,CBasePlayer&,FactoryWeapon&,int) noexcept {std::abort();return false;}};}
 void Configure(edict_t& entity)
 {
-    Initialize();ResetTMPFactory();allocations.clear();
+    Initialize();ResetFactory();allocations.clear();
+#ifdef COF_TEST_FACTORY_MP5
+    prepared.sequences.present=(std::uint64_t{1}<<20)-1;
+    prepared.aimOffset={0,-4.25F,2};prepared.aimZoom=50;prepared.hostPosition=1;
+#endif
     allocated=prepareCalls=currentCalls=mutateAt=mutation=0;allowed=true;
     entity={};entity.serialnumber=29;entity.v.pContainingEntity=&entity;target=&entity;
     g_engfuncs.pfnPvAllocEntPrivateData=[](edict_t* entity,int32 amount)->void* {
-        Check(amount>=int(sizeof(TMPWeapon)));
+        Check(amount>=int(sizeof(FactoryWeapon)));
         auto* memory=std::calloc(1,std::size_t(amount));Check(memory!=nullptr);
         allocations.push_back(memory);entity->pvPrivateData=memory;++allocated;return memory;
     };
 }
 void Release()
 {
-    ResetTMPFactory();
+    ResetFactory();
     for(auto* memory:allocations)
     {
-        auto* item=static_cast<TMPWeapon*>(memory);
-        delete item->m_pEntity;item->~TMPWeapon();std::free(memory);
+        auto* item=static_cast<FactoryWeapon*>(memory);
+        delete item->m_pEntity;item->~FactoryWeapon();std::free(memory);
     }
     allocations.clear();++scenarios;
 }
@@ -62,21 +88,24 @@ int main(int argc,char** argv)
     std::ifstream input(argv[1],std::ios::binary);
     std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
     Check(!bytes.empty());model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
-    edict_t temporary{};Configure(temporary);Check(InstallTMPFactory(Host()));
+    edict_t temporary{};Configure(temporary);Check(InstallFactory(Host()));
     temporary.v.health=37;temporary.v.movetype=71;temporary.v.solid=72;
-    auto* item=CreateTMP(temporary.v);
+    auto* item=CreateFactory(temporary.v);
     Check(item&&allocated==1&&prepareCalls==0&&item->pev==&temporary.v&&item->m_pfnThink==nullptr);
     Check(dynamic_cast<CCSPlayerWeapon*>(item->m_pEntity)&&item->m_pEntity->m_pContainingEntity==item);
     Check(temporary.v.health==37&&temporary.v.movetype==71&&temporary.v.solid==72);
+#ifdef COF_TEST_FACTORY_MP5
+    Check(!CreateTMP(temporary.v)&&!CreateFactory(*weapon.pev));
+#endif
     item->Precache();ItemInfo info{};
-    Check(prepareCalls==1&&item->ResourcesReady()&&item->GetItemInfo(&info)&&info.iId==900);
-    Check(goldcraft::scenario::ValidGuestProfile(item->ScenarioGuestProfile(),900));
+    Check(prepareCalls==1&&item->ResourcesReady()&&item->GetItemInfo(&info)&&info.iId==FactoryHostId);
+    Check(goldcraft::scenario::ValidGuestProfile(item->ScenarioGuestProfile(),FactoryHostId));
     auto& action=const_cast<MagazineActionState&>(item->ActionState());
     action.primary=123.5f;action.secondary=91.25f;action.loading=true;action.action=2;item->m_iClip=75;
-    Check(CreateTMP(temporary.v)==item&&allocated==1&&prepareCalls==1&&item->m_iClip==75&&action.primary==123.5f&&action.loading);
-    ResetTMPFactory();Check(CreateTMP(temporary.v)==item);Release();
+    Check(CreateFactory(temporary.v)==item&&allocated==1&&prepareCalls==1&&item->m_iClip==75&&action.primary==123.5f&&action.loading);
+    ResetFactory();Check(CreateFactory(temporary.v)==item);Release();
 
-    edict_t empty{};Configure(empty);Check(!CreateTMP(empty.v)&&allocated==0);Release();
+    edict_t empty{};Configure(empty);Check(!CreateFactory(empty.v)&&allocated==0);Release();
     for(int missing=0;missing<5;++missing)
     {
         edict_t entity{};Configure(entity);auto callbacks=Host();
@@ -86,35 +115,35 @@ int main(int argc,char** argv)
         case 2:callbacks.ownerBackends=nullptr;break;case 3:callbacks.inventoryPickup=nullptr;break;
         case 4:allowed=false;break;
         }
-        Check(!InstallTMPFactory(callbacks)&&!CreateTMP(entity.v)&&allocated==0);Release();
+        Check(!InstallFactory(callbacks)&&!CreateFactory(entity.v)&&allocated==0);Release();
     }
     for(unsigned stage:{1u,2u})for(unsigned kind=1;kind<=6;++kind)
     {
-        edict_t entity{};Configure(entity);Check(InstallTMPFactory(Host()));
+        edict_t entity{};Configure(entity);Check(InstallFactory(Host()));
         currentCalls=0;mutateAt=stage;mutation=kind;
-        Check(!CreateTMP(entity.v)&&allocated==(stage==1?0u:1u));
-        for(auto* memory:allocations)Check(!static_cast<TMPWeapon*>(memory)->ResourcesReady());
+        Check(!CreateFactory(entity.v)&&allocated==(stage==1?0u:1u));
+        for(auto* memory:allocations)Check(!static_cast<FactoryWeapon*>(memory)->ResourcesReady());
         Release();
     }
     edict_t reentrant{};Configure(reentrant);mutateAt=1;mutation=1;
-    Check(!InstallTMPFactory(Host())&&!CreateTMP(reentrant.v)&&allocated==0);Release();
-    edict_t wrong{};Configure(wrong);Check(InstallTMPFactory(Host()));wrong.pvPrivateData=&player;
-    Check(!CreateTMP(wrong.v)&&wrong.pvPrivateData==&player&&allocated==0);Release();
-    edict_t recycled{};Configure(recycled);Check(InstallTMPFactory(Host()));
-    auto* old=CreateTMP(recycled.v);Check(old);old->Precache();Check(old->ResourcesReady());
+    Check(!InstallFactory(Host())&&!CreateFactory(reentrant.v)&&allocated==0);Release();
+    edict_t wrong{};Configure(wrong);Check(InstallFactory(Host()));wrong.pvPrivateData=&player;
+    Check(!CreateFactory(wrong.v)&&wrong.pvPrivateData==&player&&allocated==0);Release();
+    edict_t recycled{};Configure(recycled);Check(InstallFactory(Host()));
+    auto* old=CreateFactory(recycled.v);Check(old);old->Precache();Check(old->ResourcesReady());
     recycled.pvPrivateData=nullptr;++recycled.serialnumber;
-    auto* fresh=CreateTMP(recycled.v);Check(fresh&&fresh!=old&&allocated==2&&!old->ResourcesReady());
+    auto* fresh=CreateFactory(recycled.v);Check(fresh&&fresh!=old&&allocated==2&&!old->ResourcesReady());
     fresh->Precache();Check(fresh->ResourcesReady()&&!old->ResourcesReady());Release();
-    edict_t spawned{};Configure(spawned);Check(InstallTMPFactory(Host()));
+    edict_t spawned{};Configure(spawned);Check(InstallFactory(Host()));
     g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
-    auto* world=CreateTMP(spawned.v);Check(world&&prepareCalls==0);world->Spawn();
-    Check(world->ResourcesReady()&&world->m_iDefaultAmmo==30&&world->m_iId==900&&world->m_pfnThink!=nullptr);
-    Check(static_cast<CCSPlayerWeapon*>(world->m_pEntity)->m_ItemInfo.iId==900);Release();
+    auto* world=CreateFactory(spawned.v);Check(world&&prepareCalls==0);world->Spawn();
+    Check(world->ResourcesReady()&&world->m_iDefaultAmmo==FactoryDefaultAmmo&&world->m_iId==FactoryHostId&&world->m_pfnThink!=nullptr);
+    Check(static_cast<CCSPlayerWeapon*>(world->m_pEntity)->m_ItemInfo.iId==FactoryHostId);Release();
     for(int invalid=0;invalid<3;++invalid)
     {
-        edict_t entity{};Configure(entity);Check(InstallTMPFactory(Host()));
+        edict_t entity{};Configure(entity);Check(InstallFactory(Host()));
         if(invalid==0)entity.free=TRUE;else if(invalid==1)entity.v.flags|=FL_KILLME;else entity.v.pContainingEntity=nullptr;
-        Check(!CreateTMP(entity.v)&&allocated==0);Release();
+        Check(!CreateFactory(entity.v)&&allocated==0);Release();
     }
-    std::cout<<scenarios<<" actual TMP native factory scenarios, "<<checks<<" SDK checks, zero failures\n";
+    std::cout<<scenarios<<" actual "<<FactoryName<<" native factory scenarios, "<<checks<<" SDK checks, zero failures\n";
 }

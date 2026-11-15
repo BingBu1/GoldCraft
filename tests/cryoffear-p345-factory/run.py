@@ -20,7 +20,7 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp'),default='p345',help='Actual native factory/subclass to exercise')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp','mp5'),default='p345',help='Actual native factory/subclass to exercise')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -30,7 +30,11 @@ def main():
              ROOT/'native/guest/cof/magazine_actions.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
-    if a.weapon=='tmp':sources.append(ROOT/'native/guest/cof/automatic_sound.cpp')
+    if a.weapon in ('tmp','mp5'):sources.append(ROOT/'native/guest/cof/automatic_sound.cpp')
+    if a.weapon=='mp5':
+        sources.extend((ROOT/'native/guest/cof/server/tmp_weapon.cpp',
+                        ROOT/'native/guest/cof/mp5_primary.cpp',
+                        ROOT/'native/csol/server/weapons/guest_cof_tmp_factory.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
