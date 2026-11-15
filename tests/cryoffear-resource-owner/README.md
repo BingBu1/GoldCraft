@@ -37,3 +37,13 @@ group. This audio/particle fixture supplies a controlled decal preparation
 provider (and checks those bytes), so it makes no decal GL readiness claim.
 The actual decal adapter, real textures, PVS and single-owner closure are tested
 by `tests/cryoffear-custom-decal`, including a hidden real WGL context.
+
+## MP5 original local audio and flash2 (2026-11-15)
+
+The fixture also supplies the four real original MP5 local waves. It exercises
+actual Studio5004 routing, cached flash2 model/index24, one thousand hot
+model callbacks without native lookup or file reads, stale borrowed-table
+rejection after retirement, and cancellation at the flash2 cold lookup.
+Missing flash2 prevents MP5 muzzle readiness while existing Glock/P345
+remain ready. This is actual SDK/audio/cold lifetime evidence; no game,
+P grip, performance or whole-weapon admission is claimed.

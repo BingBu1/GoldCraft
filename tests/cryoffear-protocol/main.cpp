@@ -87,6 +87,10 @@ void TmpTransport()
     Check(presentation.Receive({stale,client::Weapon::Tmp,false,90,350})==client::Result::StaleAuthority,"TMP cannot cross life ownership");
     auto invalid=value;invalid.originalWeapon=15;const auto saved=packet;
     Check(!EncodeState(invalid,packet)&&packet==saved,"unimplemented original gun remains rejected");
+    auto mp5=value;mp5.originalWeapon=27;
+    Check(EncodeState(mp5,packet)&&DecodeState(packet,output)&&output==mp5,"MP5 preserves the common signed wire fields");
+    Check(presentation.Receive({value.key,client::Weapon::Mp5,true,50,350})==client::Result::Applied,"MP5 presentation is a distinct supported original identity");
+    Check(presentation.UpdateClientData({90,13,350,3,1.2f,1},fov)&&fov.wholeFov==50,"MP5 aim reaches original common FOV consumer");
 }
 
 void InvalidPackets()
@@ -237,6 +241,7 @@ void Particles()
         ParticleMessageData{ParticleOperation::Add, 19, false, 32767},
         ParticleMessageData{ParticleOperation::Add, 21, false, 1},
         ParticleMessageData{ParticleOperation::Add, 14, false, 0},
+        ParticleMessageData{ParticleOperation::Add, 27, false, 0},
         ParticleMessageData{ParticleOperation::DeleteOwner, 0, false, 0},
         ParticleMessageData{ParticleOperation::KillLocal, 0, false, 0},
         ParticleMessageData{ParticleOperation::KillLocal, 0, true, 0}})

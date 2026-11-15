@@ -23,5 +23,9 @@
   "sound/weapons_new/tmp/tmp_charger_forward.wav": "cfa64cbacc520bb2c735e3c2d44a27258a9c5eee2bf445af49b8c2200272856c",
   "sound/weapons_new/tmp/tmp_magin.wav": "f5eabdab0be2f39dbfa50191f790d75d21f7feafcedcdf8dc717c0f376a3751c",
   "sound/weapons_new/tmp/tmp_magout.wav": "703d679b6bf1cb6dfde25c8bce3618c4edea1f0dcc8b29ae6d29feef4346e136",
-  "sound/weapons_new/tmp/tmp_stock.wav": "46d73bd1923a02fe9112e00c795c2c6ad581a0b716d4e5cf6d3917e8c8172ea7"
+  "sound/weapons_new/tmp/tmp_stock.wav": "46d73bd1923a02fe9112e00c795c2c6ad581a0b716d4e5cf6d3917e8c8172ea7",
+  "sound/weapons_new/mp5/mp5_charger_back.wav": "2b027b7b5b5c3ad6ed4d7c2b8681786c611f0344eae72d3511a957b19c1bd5ec",
+  "sound/weapons_new/mp5/mp5_charger_forward.wav": "3e4f69da2842cba52cb8ee356b7590ab1f213a43775c034e43dd02cc9084ea64",
+  "sound/weapons_new/mp5/mp5_magin.wav": "a19e0d724f78a0d0ae7bcd2b244ea00d00ca2e980baf65b338e1a5a09ab10ebf",
+  "sound/weapons_new/mp5/mp5_magout.wav": "772847f992d1cf58566ba9c37f641cf16444b7c8453224834b7c566ab17c88e0"
 }

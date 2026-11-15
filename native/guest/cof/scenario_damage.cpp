@@ -29,7 +29,8 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
     rapidjson::Document document;
     document.Parse<rapidjson::kParseValidateEncodingFlag | rapidjson::kParseIterativeFlag>(json.data(), json.size());
     if (document.HasParseError() || !document.IsObject() || document.MemberCount() != 2 ||
-        !document.HasMember("version") || !document["version"].IsInt() || (document["version"].GetInt() != 1 && document["version"].GetInt() != 2))
+        !document.HasMember("version") || !document["version"].IsInt() ||
+        document["version"].GetInt() < 1 || document["version"].GetInt() > 3)
         return reject("Invalid CoF scenario damage envelope");
 
     const bool legacy=document["version"].GetInt()==1;
@@ -37,7 +38,8 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
     if(!document.HasMember(group)||!document[group].IsObject())
         return reject("Missing explicit CoF damage group");
     const auto& entries=document[group];
-    const std::size_t required=legacy?PistolKeys.size():FirearmKeys.size();
+    const std::size_t required=legacy?PistolKeys.size():document["version"].GetInt()==2?
+        static_cast<unsigned>(Firearm::MP5):FirearmKeys.size();
     if(entries.MemberCount()!=required)
         return reject("CoF damage requires every declared weapon exactly once");
     std::array<ScenarioDamage,FirearmKeys.size()> prepared{};

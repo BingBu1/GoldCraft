@@ -270,9 +270,9 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
     if constexpr (ClientModels > 0)
         for (std::size_t i = 0; i < ClientModels; ++i)
         {
-            value.clientModelDownloads[i] = g_engfuncs.pfnPrecacheGeneric(clientModels[i].host);
+            value.clientModels[i] = g_engfuncs.pfnPrecacheModel(clientModels[i].host);
             if (!current()) return {ResourceStatus::Cancelled, clientModels[i].host};
-            if (value.clientModelDownloads[i] < 0) return {ResourceStatus::EngineRejected, clientModels[i].host};
+            if (value.clientModels[i] <= 0) return {ResourceStatus::EngineRejected, clientModels[i].host};
         }
     for (std::size_t i = 0; i < events.size(); ++i)
     {

@@ -154,7 +154,7 @@ struct MP5Resources
     std::array<int, MP5Models.size()> models{};
     std::array<int, MP5Sounds.size()> sounds{};
     std::array<int, MP5LocalWaves.size()> localWaveDownloads{};
-    std::array<int, MP5ClientModels.size()> clientModelDownloads{};
+    std::array<int, MP5ClientModels.size()> clientModels{};
     std::array<unsigned short, MP5Events.size()> events{};
     int viewModelString{}, playerModelString{}, worldModelString{};
     int inventoryItemString{}, particleScriptString{};

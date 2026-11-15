@@ -27,7 +27,7 @@ bool Text(const char (&input)[N], std::string_view& output) noexcept
 bool LocalWeaponSound(Weapon weapon) noexcept
 {
     return weapon == Weapon::Glock || weapon == Weapon::P345 ||
-           weapon == Weapon::Vp70 || weapon == Weapon::Revolver || weapon == Weapon::Tmp;
+           weapon == Weapon::Vp70 || weapon == Weapon::Revolver || weapon == Weapon::Tmp || weapon == Weapon::Mp5;
 }
 }
 

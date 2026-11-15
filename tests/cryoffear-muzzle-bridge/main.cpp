@@ -29,12 +29,15 @@ model_t viewModel{},playerModel{},flashModel{},otherModel{},bodyModel{};
 model_t p345ViewModel{},p345PlayerModel{};
 model_t revolverViewModel{},revolverPlayerModel{};
 model_t vp70ViewModel{},vp70PlayerModel{},tmpViewModel{},tmpPlayerModel{};
+model_t mp5ViewModel{},mp5PlayerModel{},mp5FlashModel{};
 std::vector<std::byte> p345PlayerBytes;
 std::vector<std::byte> revolverPlayerBytes;
 std::vector<std::byte> vp70PlayerBytes,tmpPlayerBytes;
+std::vector<std::byte> mp5PlayerBytes;
 bool p345Available{},p345Owned{};
 bool revolverAvailable{},revolverOwned{};
 bool vp70Available{},vp70Owned{},tmpAvailable{},tmpOwned{};
+bool mp5Available{},mp5Owned{},mp5FlashReady{true};
 cl_enginefunc_t muzzleEngine{};
 event_api_t cachedEvents{};
 std::vector<std::byte> playerBytes;
@@ -67,13 +70,15 @@ int Find(const char* path){
  if(!std::strcmp(path,RevolverModels[unsigned(RevolverModel::Player)].host))return revolverAvailable?32:0;
  if(!std::strcmp(path,TMPModels[0].host))return tmpAvailable?51:0;
  if(!std::strcmp(path,TMPModels[unsigned(TMPModel::Player)].host))return tmpAvailable?52:0;
+ if(!std::strcmp(path,MP5Models[0].host))return mp5Available?61:0;
+ if(!std::strcmp(path,MP5Models[unsigned(MP5Model::Player)].host))return mp5Available?62:0;
  if(!std::strcmp(path,VP70Models[0].host))return vp70Available?41:0;
  if(!std::strcmp(path,VP70Models[unsigned(VP70Model::Player)].host))return vp70Available?42:0;
  CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Player)].host));return 12;
 }
-model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:id==41?&vp70ViewModel:id==42?&vp70PlayerModel:id==51?&tmpViewModel:id==52?&tmpPlayerModel:nullptr;}
-void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel||model==&revolverPlayerModel||model==&vp70PlayerModel||model==&tmpPlayerModel);return model==&tmpPlayerModel?tmpPlayerBytes.data():model==&p345PlayerModel?p345PlayerBytes.data():model==&revolverPlayerModel?revolverPlayerBytes.data():model==&vp70PlayerModel?vp70PlayerBytes.data():playerBytes.data();}
-model_t* Flash(const char* path,int* id){CHECK(!std::strcmp(path,"models/flash1.mdl"));*id=13;return &flashModel;}
+model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:id==41?&vp70ViewModel:id==42?&vp70PlayerModel:id==51?&tmpViewModel:id==52?&tmpPlayerModel:id==61?&mp5ViewModel:id==62?&mp5PlayerModel:nullptr;}
+void* Extra(model_t* model){CHECK(model==&playerModel||model==&p345PlayerModel||model==&revolverPlayerModel||model==&vp70PlayerModel||model==&tmpPlayerModel||model==&mp5PlayerModel);return model==&mp5PlayerModel?mp5PlayerBytes.data():model==&tmpPlayerModel?tmpPlayerBytes.data():model==&p345PlayerModel?p345PlayerBytes.data():model==&revolverPlayerModel?revolverPlayerBytes.data():model==&vp70PlayerModel?vp70PlayerBytes.data():playerBytes.data();}
+model_t* Flash(const char* path,int* id){if(!std::strcmp(path,"models/flash2.mdl")){*id=63;return mp5FlashReady?&mp5FlashModel:nullptr;}CHECK(!std::strcmp(path,"models/flash1.mdl"));*id=13;return &flashModel;}
 int MuzzleIndex(const char* path){CHECK(!std::strcmp(path,"models/shell.mdl"));return 14;}
 int Visible(int type,cl_entity_t* entity){CHECK(type==0);++visible;lastVisible=*entity;if(retireVisible)InvalidateGuestCofMuzzle();if(retireEffects)effectsReady=false;return 1;}
 dlight_t* Dlight(int key){CHECK(key==0);++engineLights;return &dlight;}
@@ -90,7 +95,8 @@ namespace csol::client
 {
 bool GuestCofEffectsReady() noexcept{return effectsReady;}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept{return effectsReady?effectResources:0;}
-bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(tmpOwned?value==Weapon::Tmp:vp70Owned?value==Weapon::Vp70:revolverOwned?value==Weapon::Revolver:p345Owned?value==Weapon::P345:value==Weapon::Glock);}
+bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept{return effectsReady&&localOwned&&(mp5Owned?value==Weapon::Mp5:tmpOwned?value==Weapon::Tmp:vp70Owned?value==Weapon::Vp70:revolverOwned?value==Weapon::Revolver:p345Owned?value==Weapon::P345:value==Weapon::Glock);}
+bool GuestCofMuzzleModelsReady(unsigned original) noexcept{return effectsReady&&(original!=27||mp5FlashReady);}
 cl_enginefuncs_s* GuestCofMuzzleEngine() noexcept{return effectsReady?&muzzleEngine:nullptr;}
 bool GuestCofPointLightsReady() noexcept{return pointReady;}
 bool GuestCofMainStudioView() noexcept{return mainView;}
@@ -107,7 +113,7 @@ static void (*originalDrawPoints)()=NativePoints;
 }
 int main(int argc,char** argv)
 {
- if(argc<2||argc>6)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
+ if(argc<2||argc>7)return 2;FILE* file=std::fopen(argv[1],"rb");if(!file)return 3;
  std::fseek(file,0,SEEK_END);const long size=std::ftell(file);std::rewind(file);if(size<=0)return 4;
  playerBytes.resize(std::size_t(size));if(std::fread(playerBytes.data(),playerBytes.size(),1,file)!=1)return 5;std::fclose(file);
  auto* header=reinterpret_cast<studiohdr_t*>(playerBytes.data());CHECK(header->length==size&&header->numattachments>=2);
@@ -278,7 +284,7 @@ int main(int argc,char** argv)
   }
   ShutdownGuestCofMuzzle();vp70Owned=false;
  }
- if(argc==6)
+ if(argc>=6)
  {
   FILE* rfile=std::fopen(argv[5],"rb");CHECK(rfile!=nullptr);if(!rfile)return 3;
   std::fseek(rfile,0,SEEK_END);const long rsize=std::ftell(rfile);std::rewind(rfile);CHECK(rsize>0);
@@ -306,6 +312,28 @@ int main(int argc,char** argv)
    ra[1].bone=bone;rh->numattachments=count;
   }
   ShutdownGuestCofMuzzle();tmpOwned=false;
+ }
+ if(argc>=7)
+ {
+  FILE* source=std::fopen(argv[6],"rb");if(!source)return 3;
+  std::fseek(source,0,SEEK_END);const auto bytes=std::ftell(source);std::rewind(source);if(bytes<=0)return 4;
+  mp5PlayerBytes.resize(std::size_t(bytes));if(std::fread(mp5PlayerBytes.data(),mp5PlayerBytes.size(),1,source)!=1)return 5;std::fclose(source);
+  auto* mh=reinterpret_cast<studiohdr_t*>(mp5PlayerBytes.data());CHECK(mh->numattachments==1&&mh->length==bytes);
+  auto* ma=reinterpret_cast<mstudioattachment_t*>(mp5PlayerBytes.data()+mh->attachmentindex);
+  mp5ViewModel.type=mp5PlayerModel.type=mp5FlashModel.type=mod_studio;
+  std::strcpy(mp5ViewModel.name,MP5Models[0].host);std::strcpy(mp5PlayerModel.name,MP5Models[2].host);
+  mp5Available=true;InitializeGuestCofMuzzle(&provider);CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(27));
+  const auto initial=visible,initialShells=shells,initialQueries=modelQueries;
+  remote.curstate.weaponmodel=62;event.iparam1=27;eventCallback(&event);CHECK(GuestCofMuzzleWorldPending());
+  GuestCofMuzzleWorldPoints(&remote,&bodyModel,mh,bones);
+  CHECK(visible==initial+1&&lastVisible.model==&flashModel&&lastVisible.curstate.scale==2.F&&shells==initialShells);
+  const auto position=Transform(ma[0]);CHECK(std::equal(position.begin(),position.end(),lastVisible.origin));
+  mp5Owned=true;viewEntity.model=&mp5ViewModel;
+  CHECK(GuestCofMuzzleStudioEvent(&studioEvent,&viewEntity)&&visible==initial+2&&lastVisible.model==&mp5FlashModel&&lastVisible.curstate.scale==2.F);
+  CHECK(shells==initialShells&&modelQueries==initialQueries);
+  mp5FlashReady=false;CHECK(!GuestCofMuzzleReady(27)&&GuestCofMuzzleReady(3));
+  CHECK(GuestCofMuzzleStudioEvent(&studioEvent,&viewEntity)&&visible==initial+2);
+  mp5FlashReady=true;ShutdownGuestCofMuzzle();mp5Owned=false;
  }
  std::printf("checks=%u failures=%u actualGlockPlayerModel=yes sceneServices=controlled live=no performance=no\n",checks,failures);
  return failures?1:0;

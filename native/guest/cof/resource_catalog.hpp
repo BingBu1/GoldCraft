@@ -224,8 +224,8 @@ inline constexpr std::array<ResourcePath, static_cast<unsigned>(MP5Model::Count)
     {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
     {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
 }};
-// Original client1004BD77 selects this after the common flash1 lookup.
-// It is a client effect model, downloaded without a server model slot.
+// Original global precache1011FD90 registers this through10116990, before
+// client1004BD77 selects it. A generic download cannot supply its model index.
 inline constexpr std::array<ResourcePath, 1> MP5ClientModels{{
     {"models/flash2.mdl", "models/guest/cof/common/flash2.mdl"}
 }};

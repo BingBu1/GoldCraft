@@ -543,6 +543,7 @@ void CSOL_PrecacheGuestCof()
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Actual Glock consumers were not prepared\n"); return; }
         for(const auto& definition:Firearms)
         {
+            if(definition.identity==Firearm::MP5&&!host.runtime.PreparedMP5Resources())continue;
             if(definition.identity==Firearm::TMP&&!tmpEnabled)continue;
             const auto hud=PrepareFirearmPresentationResources(authority,definition.identity);
             if(!hud||!Current(&current))
@@ -551,6 +552,7 @@ void CSOL_PrecacheGuestCof()
         current.ready = true;
         for(const auto& definition:Firearms)
         {
+            if(definition.identity==Firearm::MP5&&!host.runtime.PreparedMP5Resources())continue;
             if(definition.identity==Firearm::TMP&&!tmpEnabled)continue;
             UTIL_PrecacheOtherWeapon(definition.classname.data());
             if(!Current(&current))return;
@@ -642,6 +644,7 @@ bool CSOL_GuestCofCanUse(CBasePlayer& player, int id) noexcept
     if(id==RevolverId){RevolverBackends backend{};return host.runtime.Backend(player,backend);}
     if(id==VP70Id){VP70Backends backend{};return host.runtime.Backend(player,backend);}
     if(id==TMPId){TMPBackends backend{};return host.runtime.Backend(player,backend);}
+    if(id==MP5HostId){TMPBackends backend{};return host.runtime.MP5Backend(player,backend);}
     GlockBackends backend{};return host.runtime.Backend(player,backend);
 }
 bool CSOL_GuestCofPreserveReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept

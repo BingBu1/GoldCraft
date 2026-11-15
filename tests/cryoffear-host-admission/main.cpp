@@ -88,7 +88,7 @@ GuestCofResourceState GuestCofResourcesState() noexcept{return resources;}
 bool GuestCofParticlesReady() noexcept{return particles;}
 bool GuestCofEffectsReady() noexcept{return effects&&audio;}
 bool GuestCofMuzzleReady() noexcept{return muzzle;}
-bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle)||(originalWeapon==21&&revolverMuzzle)||(originalWeapon==19&&vp70Muzzle)||(originalWeapon==14&&tmpMuzzle));}
+bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle)||(originalWeapon==21&&revolverMuzzle)||(originalWeapon==19&&vp70Muzzle)||(originalWeapon==14&&tmpMuzzle)||originalWeapon==27);}
 bool GuestCofPointLightsReady() noexcept{return points;}
 bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
@@ -98,7 +98,7 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900)&&frames==1)||(id==898&&frames==6));return hud&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900||id==901)&&frames==1)||(id==898&&frames==6));return hud&&id!=901&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
 bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897||id==898||id==899||id==900);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
@@ -234,6 +234,10 @@ int main(int argc,char** argv)
     tmpHud=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(900)&&weaponMask.value==31);
     tmpMuzzle=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(900)&&weaponMask.value==15);
     tmpMuzzle=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(900)&&weaponMask.value==31);
+    resources.weapons|=guest::cof::FirearmCapability(guest::cof::Firearm::MP5);
+    const auto beforeMP5Menu=menuLoads;GuestCofAdmissionFrame();
+    CHECK(!GuestCofAdmitted(901)&&GuestCofAdmitted(900)&&weaponMask.value==31&&menuLoads==beforeMP5Menu);
+    current.id=901;Press();CreateMove(.01F,&chain,1);CHECK(!(chain.buttons&IN_CANCEL));Release();
     generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     CHECK(mountMoves>0);

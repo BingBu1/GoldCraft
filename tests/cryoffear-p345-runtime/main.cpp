@@ -144,8 +144,8 @@ bool PrepareTMP(void*,const TMPResources&,TMPPrepared& value) noexcept
 bool PrepareMP5(void*,const MP5Resources& resources,TMPPrepared& value) noexcept
 {
     for(std::size_t i=0;i<MP5ClientModels.size();++i)
-        Check(resources.clientModelDownloads[i]==context.generics.at(MP5ClientModels[i].host)&&
-            !context.models.contains(MP5ClientModels[i].host));
+        Check(resources.clientModels[i]==context.models.at(MP5ClientModels[i].host)&&
+            !context.generics.contains(MP5ClientModels[i].host));
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
 }

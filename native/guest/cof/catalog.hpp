@@ -63,8 +63,8 @@ constexpr Firearm FirearmIdentity(Pistol identity) noexcept
     const auto index=static_cast<unsigned>(identity);
     return index<Pistols.size()?static_cast<Firearm>(index):Firearm::Count;
 }
-inline constexpr std::array<FirearmDefinition,Pistols.size()+1> Firearms=[] {
-    std::array<FirearmDefinition,Pistols.size()+1> result{};
+inline constexpr std::array<FirearmDefinition,Pistols.size()+2> Firearms=[] {
+    std::array<FirearmDefinition,Pistols.size()+2> result{};
     for(std::size_t i=0;i<Pistols.size();++i)
     {
         const auto& source=Pistols[i];
@@ -72,9 +72,12 @@ inline constexpr std::array<FirearmDefinition,Pistols.size()+1> Firearms=[] {
             source.price,source.ammunitionPrice,source.ammunitionCount,source.classname,source.ammunition,
             source.displayName,source.viewModel,source.playerModel,source.worldModel};
     }
-    result.back()={Firearm::TMP,900,14,30,300,2000,30,30,
+    result[static_cast<unsigned>(Firearm::TMP)]={Firearm::TMP,900,14,30,300,2000,30,30,
         "weapon_cof_tmp","cof_tmp","客串武器·MP9",
         "models/guest/cof/tmp/v_tmp.mdl","models/guest/cof/tmp/p_tmp.mdl","models/guest/cof/tmp/w_tmp.mdl"};
+    result[static_cast<unsigned>(Firearm::MP5)]={Firearm::MP5,901,27,30,300,2400,30,30,
+        "weapon_cof_mp5","cof_mp5","客串武器·MP5A3",
+        "models/guest/cof/mp5/v_mp5.mdl","models/guest/cof/mp5/p_mp5.mdl","models/guest/cof/mp5/w_mp5.mdl"};
     return result;
 }();
 constexpr const FirearmDefinition* FindFirearm(Firearm identity) noexcept
@@ -96,6 +99,7 @@ constexpr const FirearmDefinition* FindOriginalFirearm(int originalId) noexcept
     case 21:return FindFirearm(Firearm::Revolver);
     case 19:return FindFirearm(Firearm::VP70);
     case 14:return FindFirearm(Firearm::TMP);
+    case 27:return FindFirearm(Firearm::MP5);
     default:return nullptr;
     }
 }

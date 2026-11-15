@@ -46,3 +46,7 @@ P1（path_type=callflow）：原Local1004BC30→id27→flash1／flash2两次查�
 领域`docs/COF_GOAL.md`同步本阶段。共享文档更新明确待主调度应用（按用户要求不发非打包消息）：PROJECT_STATE／PROGRESS记录“MP5枪口组件和46文件闭包已验、未实际客户端／购买／部署”；GOAL保持25身份和变体；TODO把下一步列为实际MP5客户端／Host全链，已部署五枪仍由用户自测。
 
 原版 MP5 flash2 当前是generic下载；现有客户端`guest_cof_effects.cpp`只缓存flash1，且其常规`Model`走EV_FindModelIndex。后续须在实际客户端冷阶段核验并接通generic模型的加载API／句柄代际，不能因为资源声明或下载完成就强行设置准备成功。现有目录只有五个Firearm身份，MP5原27／宿主901尚未加入准入和买单。
+
+## 后续全局生产者纠正
+
+本阶段generic-only分类已被新IDA全局生产者证据纠正：原CoF会通过PrecacheModel登记flash2，实际宿主CL_LoadModel仅查登记表。撤回“generic即可构成完整闭包／不占model槽”的当前结论；该候选未部署／未用于MP5准入。现已改为模型登记并接实际客户端缓存，详见[后续报告](2026-11-15_接入-MP5客户端路由与全局模型登记-report.md)。

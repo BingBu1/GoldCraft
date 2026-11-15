@@ -2549,7 +2549,8 @@
     "docs/2026-11-15_接入-MP5地图生命周期与声音-report.md",
     "tests/cryoffear-mp5-owner/README.md",
     "tests/cryoffear-mp5-native-effects/README.md",
-    "docs/2026-11-15_接入-MP5原版枪口与flash2资源-report.md"
+    "docs/2026-11-15_接入-MP5原版枪口与flash2资源-report.md",
+    "docs/2026-11-15_接入-MP5客户端路由与全局模型登记-report.md"
   ],
   "trees": {
     "native": [

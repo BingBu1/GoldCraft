@@ -103,3 +103,15 @@ not the withdrawn pre-attachment candidate in historical evidence.
 The current six-family run checks 4,120 conditions, including 657 for MP5,
 41 MP5 files and 92 callback edges. This is server cold preparation only;
 the actual client cold flash2 handle and MP5 capability remain pending.
+
+## Global model registration correction (2026-11-15)
+
+Fresh IDA follows original world10120EB0 through1011FD90 to the flash2
+registration at1012001C and wrapper10116990. The first engine function is
+PrecacheModel, as proved by GiveFnptrsToDll copying to10222F48. The actual
+host CL_LoadModel10196110 only searches registered models. MP5ClientModels
+therefore now returns real model indices, not generic download indices.
+The earlier generic-only stage was never deployed or used to admit MP5.
+The suite checks eleven MP5 models and transactional cancellation; existing
+families retain ten. Client rendering and complete Host/shop acceptance
+remain separate.

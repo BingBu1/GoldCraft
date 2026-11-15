@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--revolver-model',type=Path)
     parser.add_argument('--vp70-model',type=Path)
     parser.add_argument('--tmp-model',type=Path)
+    parser.add_argument('--mp5-model',type=Path)
     parser.add_argument('--vp70-attachment-proof',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -39,6 +40,8 @@ def main():
         raise ValueError('Use the actual Revolver P model together with the P345 model')
     if args.tmp_model and (not args.vp70_model or sha(args.tmp_model)!='ad599b80f9e9d4e37cbb0f981d218a7741f414bfa7d3ddfd4be86368273da87f'):
         raise ValueError('Use actual TMP P together with all four verified pistol models')
+    if args.mp5_model and (not args.tmp_model or sha(args.mp5_model)!='7390f49357e9fcdc726324447ee9603d438eb673423e67be0fa876b7dc14e1a2'):
+        raise ValueError('Use the reviewed resident MP5 P with its authored muzzle attachment and all five earlier models')
     vp70_inputs=[]
     if args.vp70_model:
         if not args.p345_model or not args.revolver_model:
@@ -95,6 +98,7 @@ def main():
     if args.revolver_model:inputs.add(args.revolver_model.resolve())
     if args.vp70_model:inputs.add(args.vp70_model.resolve())
     if args.tmp_model:inputs.add(args.tmp_model.resolve())
+    if args.mp5_model:inputs.add(args.mp5_model.resolve())
     inputs.update(vp70_inputs)
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
@@ -121,6 +125,7 @@ def main():
         if args.revolver_model:arguments.append(str(args.revolver_model.resolve()))
         if args.vp70_model:arguments.append(str(args.vp70_model.resolve()))
         if args.tmp_model:arguments.append(str(args.tmp_model.resolve()))
+        if args.mp5_model:arguments.append(str(args.mp5_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

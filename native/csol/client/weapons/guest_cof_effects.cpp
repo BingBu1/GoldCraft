@@ -28,8 +28,8 @@ ForwardDisplacementState forwardDisplacement;
 Weapon weapon{Weapon::None};
 std::size_t weaponViewIndex{guest::cof::Firearms.size()};
 bool attachedCamera{}, punchUsed{}, prepared{}, eventRegistered{};
-int cameraMode{}, shellIndex{}, flashIndex{}, cheapSmokeIndex{};
-model_t* flashModel{};
+int cameraMode{}, shellIndex{}, flashIndex{}, mp5FlashIndex{}, cheapSmokeIndex{};
+model_t *flashModel{},*mp5FlashModel{};
 std::array<model_t*,guest::cof::Firearms.size()> viewModels{};
 cl_enginefunc_t effectsEngine;
 event_api_t effectsEvents;
@@ -40,8 +40,8 @@ bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(
 void ClearResources() noexcept
 {
     if(resourceSerial)resourceSerial=resourceSerial==std::numeric_limits<std::uint64_t>::max()?0:resourceSerial+1;
-    prepared=false; preparedGeneration=0; shellIndex=flashIndex=cheapSmokeIndex=0;
-    flashModel=nullptr; viewModels={};
+    prepared=false; preparedGeneration=0; shellIndex=flashIndex=mp5FlashIndex=cheapSmokeIndex=0;
+    flashModel=mp5FlashModel=nullptr; viewModels={};
 }
 void AdvanceScope() noexcept
 {
@@ -67,9 +67,11 @@ int ShellModel(const char* name)
 }
 model_t* CachedMuzzleModel(const char* name,int* index)
 {
-    if (!name || !index || !GuestCofEffectsReady() || std::strcmp(name,"models/flash1.mdl")) return nullptr;
-    *index=flashIndex;
-    return flashModel;
+    if (!name || !index || !GuestCofEffectsReady()) return nullptr;
+    if(!std::strcmp(name,"models/flash1.mdl")){*index=flashIndex;return flashModel;}
+    if(!std::strcmp(name,"models/flash2.mdl")&&mp5FlashModel)
+    {*index=mp5FlashIndex;return mp5FlashModel;}
+    return nullptr;
 }
 bool Local(void*,const LocalSound& sound) noexcept { return PlayGuestCofLocalSound(sound); }
 void ViewPunch(event_args_s* event)
@@ -180,6 +182,9 @@ bool PrepareGuestCofEffects() noexcept
     }
     int flash{},smoke{};
     auto* muzzle=Model(GlockModels[unsigned(GlockModel::Flash)].host,current,resources,mod_studio,&flash);
+    int mp5Flash{};model_t* mp5Muzzle{};
+    if(cached[static_cast<unsigned>(guest::cof::Firearm::MP5)])
+        mp5Muzzle=Model(MP5ClientModels[0].host,current,resources,mod_studio,&mp5Flash);
     auto* cheap=Model(GlockModels[unsigned(GlockModel::CheapSmoke)].host,current,resources,mod_sprite,&smoke);
     int shell{};
     auto* shellModel=Model(GlockModels[unsigned(GlockModel::Shell)].host,current,resources,mod_studio,&shell);
@@ -192,6 +197,7 @@ bool PrepareGuestCofEffects() noexcept
     // Do not fall through to an unrelated native sample if one is encountered.
     effectsEngine.pfnPlaySoundByNameAtLocation=nullptr;
     shellIndex=shell; flashIndex=flash; cheapSmokeIndex=smoke; flashModel=muzzle;
+    mp5FlashIndex=mp5Flash;mp5FlashModel=mp5Muzzle;
     viewModels=cached; preparedGeneration=current; prepared=true;
     return true;
 }
@@ -202,6 +208,12 @@ bool GuestCofEffectsReady() noexcept
 }
 bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept
 {return GuestCofEffectsReady()&&weapon==value&&weaponViewIndex<viewModels.size()&&viewModels[weaponViewIndex];}
+bool GuestCofMuzzleModelsReady(unsigned originalWeapon) noexcept
+{
+    const auto* definition=guest::cof::FindOriginalFirearm(int(originalWeapon));
+    return definition&&GuestCofEffectsReady()&&flashModel&&
+        (definition->identity!=guest::cof::Firearm::MP5||(mp5FlashModel&&mp5FlashIndex>0));
+}
 std::uint64_t GuestCofEffectsResourceSerial() noexcept {return GuestCofEffectsReady()?resourceSerial:0;}
 bool ResetGuestCofForwardDisplacement() noexcept
 {
