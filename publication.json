@@ -2555,7 +2555,20 @@
     "tests/cryoffear-mp5-presentation/README.md",
     "docs/2026-11-15_接入-MP5生产Host与效果分发-report.md",
     "docs/2026-11-15_构建-MP5整枪与配套冷服-report.md",
-    "docs/2026-11-15_分析-M16原版工厂与火控入口-report.md"
+    "docs/2026-11-15_分析-M16原版工厂与火控入口-report.md",
+    "native/guest/cof/m16_control.hpp",
+    "native/guest/cof/m16_control.cpp",
+    "native/guest/cof/m16_shot.hpp",
+    "native/guest/cof/m16_shot.cpp",
+    "tests/cryoffear-m16-control/README.md",
+    "tests/cryoffear-m16-control/main.cpp",
+    "tests/cryoffear-m16-control/oracle.py",
+    "tests/cryoffear-m16-control/run.py",
+    "tests/cryoffear-m16-shot/README.md",
+    "tests/cryoffear-m16-shot/main.cpp",
+    "tests/cryoffear-m16-shot/oracle.py",
+    "tests/cryoffear-m16-shot/run.py",
+    "docs/2026-11-15_实现-M16原版火控装填与发射组件-report.md"
   ],
   "trees": {
     "native": [
