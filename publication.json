@@ -2527,7 +2527,9 @@
     "docs/2026-11-15_部署-MP9整枪与模型更新保留-report.md",
     "docs/2026-11-15_修复-绝命档案活动体力与不足费用禁跳-report.md",
     "tests/cryoffear-scene-admission/README.md",
-    "docs/2026-11-15_修复-CoF场景波动撤销武器权限-report.md"
+    "docs/2026-11-15_修复-CoF场景波动撤销武器权限-report.md",
+    "tests/cryoffear-mp5-primary/README.md",
+    "docs/2026-11-15_实现-MP5原版攻击组件-report.md"
   ],
   "trees": {
     "native": [
