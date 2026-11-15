@@ -97,3 +97,16 @@ TMP now participates in the real resource suite. Its exact original16 sequences,
 The resource suite now requires `--mp5-player-model <workspace-build-p_mp5.mdl>`. The corresponding pack command uses `--component mp5-and-shot-decals --authored-player-model <same-file>`. This is an explicit, hash-pinned host-authored P model. Original MP5 W bytes are authoring input and cannot substitute for it. The plan retains the original W identity separately and checks it again before publishing the candidate.
 
 MP5 produces46 resources:40 declared resources, five decals and the inherited magazine texture companion. Its local flash2 model is separate from the world flash1 dependency and belongs to the client-model generic download group. Six actual Studio5004 events map to four local samples, separate from the native looping/end samples. All original files remain byte-identical except the independently authored P row, which is explicitly marked. The32 CLI cases include missing P and W-as-P refusals. Candidate generation does not establish grip, rendering, deployment or gameplay acceptance.
+
+## M16 resource author
+
+The m16-and-shot-decals component authors45 files:39 reviewed M16 assets,
+five shared decals and the explicit inherited clip texture. Original V/P/W and
+all20 Studio5004 events are preserved byte for byte. The source P already has
+two attachments; structural admission does not establish its host cache layout
+or final character grip. Local/native magtap, cock1, cock2, switch and fire
+samples remain independent. Candidate generation never deploys to a game.
+
+The combined seven-family suite adds M16 CLI plan/write and verifies every
+independent copy. Use the existing run.py command and matching original roots
+plus the reviewed MP5 authored P; no separate M16 P argument is required.

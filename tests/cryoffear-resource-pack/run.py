@@ -71,13 +71,17 @@ def main():
         inherited_game_root=args.inherited_game_root, output=output/'mp5'/'candidate',
         plan=output/'mp5'/'plan.json', server_model_sounds='disabled', component='mp5-and-shot-decals',
         authored_player_model=args.mp5_player_model))
+    m16_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root,output=output/'m16'/'candidate',
+        plan=output/'m16'/'plan.json',server_model_sounds='disabled',component='m16-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
               *(Path(p['source']) for p in revolver_baseline['assets']),
               *(Path(p['source']) for p in vp70_baseline['assets']),
               *(Path(p['source']) for p in tmp_baseline['assets']),
-              *(Path(p['source']) for p in mp5_baseline['assets'])}
+              *(Path(p['source']) for p in mp5_baseline['assets']),
+              *(Path(p['source']) for p in m16_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -329,12 +333,38 @@ def main():
         copied=output/'mp5'/'candidate'/row['destination']
         check(copied.is_file() and sha(copied)==row['sha256'] and copied.stat().st_nlink==1,
               'actual MP5 independent candidate identity '+row['destination'])
+    m16_args=['--component','m16-and-shot-decals']
+    m16_dry=invoke('m16',m16_args,expected=0)
+    m16_plan_path=output/'m16'/'plan.json';m16_plan=json.loads(m16_plan_path.read_bytes())
+    check(m16_plan['weapon']=='M16' and m16_plan['primaryAssets']==44 and m16_plan['dependencyAssets']==1 and len(m16_plan['assets'])==45,
+          'M16 thirty-nine resources, five decals and one explicit inherited texture')
+    check(len(m16_plan['studio5004'])==20 and len({e['localLogicalKey'] for e in m16_plan['studio5004']})==6,
+          'all twenty M16 Studio events retain six local sample keys')
+    m16_names={p['destination'] for p in m16_plan['assets']}
+    check('models/guest/cof/common/556shell.mdl' in m16_names and 'models/guest/cof/common/flash2.mdl' in m16_names,
+          'M16 real rifle-shell and flash2 models retained')
+    for name in ('m16_magtap','m16_cock1','m16_cock2','m16_switch','m16_fire'):
+        check('sound/guest/cof/weapons_new/m16/'+name+'.wav' in m16_names and 'sound/guest/cof/weapons/m16/'+name+'.wav' in m16_names,
+              'M16 local/native sound counterparts '+name)
+    check('sound/guest/cof/weapons_new/m16/m16_cock.wav' not in m16_names and 'sound/guest/cof/weapons/m16/m16_cock.wav' in m16_names,
+          'unconsumed local legacy cock excluded while original native precache preserved')
+    m16_written=invoke('m16-write',[*m16_args,'--write','--expected-plan-sha256',json.loads(m16_dry.stdout)['planSha256']],expected=0,
+        candidate=output/'m16'/'candidate',plan_path=m16_plan_path)
+    check(json.loads(m16_written.stdout)['files']==45,'actual M16 candidate count')
+    for row in m16_plan['assets']:
+        copied=output/'m16'/'candidate'/row['destination']
+        check(sha(copied)==row['sha256'] and copied.stat().st_size==row['bytes'] and copied.stat().st_nlink==1,
+              'actual M16 independent candidate identity '+row['destination'])
+    m16_view=next(row for row in m16_plan['assets'] if row['destination']=='models/guest/cof/m16/v_m16.mdl')
+    check((output/'m16'/'candidate'/m16_view['destination']).read_bytes()==Path(m16_view['source']).read_bytes(),
+          'all M16 original geometry animations and model events preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=282,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=327,
+        m16PrimaryAssets=44,m16DependencyAssets=1,
         mp5PrimaryAssets=44, mp5DependencyAssets=1,
         tmpPrimaryAssets=46, tmpDependencyAssets=1,
         vp70PrimaryAssets=44, vp70DependencyAssets=1,

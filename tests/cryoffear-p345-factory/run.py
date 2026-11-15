@@ -20,8 +20,10 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp','mp5'),default='p345',help='Actual native factory/subclass to exercise')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp','mp5','m16'),default='p345',help='Actual native factory/subclass to exercise')
+    p.add_argument('--sample',type=Path,help='Required original CoF MP for M16 pre-edit proof')
     a=p.parse_args();output=a.output.absolute()
+    gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
     if output.exists() or not output.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use fresh workspace build directory')
@@ -35,10 +37,33 @@ def main():
         sources.extend((ROOT/'native/guest/cof/server/tmp_weapon.cpp',
                         ROOT/'native/guest/cof/mp5_primary.cpp',
                         ROOT/'native/csol/server/weapons/guest_cof_tmp_factory.cpp'))
+    if a.weapon=='m16':
+        sources.extend((ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/m16_shot.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
     original={'boundary':'No original oracle; real SDK GetClassPtr/OnCreate/CCSPlayerWeapon host adaptation'}
+    if a.weapon=='m16':
+        if a.sample is None:p.error('--weapon m16 requires --sample')
+        proof=ROOT/'analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-factory.json'
+        value=json.loads(proof.read_text('utf8'));data=a.sample.read_bytes()
+        if not value['beforeImplementation'] or sha(a.sample)!=value['sampleSha256']:raise ValueError('M16 original factory identity differs')
+        nt=int.from_bytes(data[60:64],'little');opt=nt+24
+        base=int.from_bytes(data[opt+28:opt+32],'little');section=opt+int.from_bytes(data[nt+20:nt+22],'little')
+        for row in value['regions']:
+            rva=int(row['va'],16)-base;found=False
+            for i in range(int.from_bytes(data[nt+6:nt+8],'little')):
+                at=section+i*40;va=int.from_bytes(data[at+12:at+16],'little');size=int.from_bytes(data[at+16:at+20],'little');raw=int.from_bytes(data[at+20:at+24],'little')
+                if va<=rva and rva+row['size']<=va+size:
+                    start=raw+rva-va;found=hashlib.sha256(data[start:start+row['size']]).hexdigest()==row['sha256'];break
+            if not found:raise ValueError('Original factory region differs: '+row['va'])
+        inputs.update((proof,a.sample.resolve()))
+        for name,digest in value['archives'].items():
+            path=proof.parent/name
+            if sha(path)!=digest:raise ValueError('Original factory archive differs')
+            inputs.add(path)
+        original.update(sampleSha256=value['sampleSha256'],proofSha256=sha(proof),verifiedRegions=len(value['regions']))
+
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -109,7 +134,7 @@ def main():
     negative=[]
     after={str(v):sha(v) for v in sorted(deps)}
     success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
-    receipt=dict(success=success,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
+    receipt=dict(success=success,gitBefore=gitBefore,gitAfter=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
                  negative=negative,sourceCopies=0,pistol=a.weapon,boundary='Actual GetClassPtr/OnCreate/CCSPlayerWeapon construction and real guest Precache; controlled engine private allocator and component edges; no registry/shop/transport/deployment/live acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')

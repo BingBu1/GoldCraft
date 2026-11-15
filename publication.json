@@ -2592,7 +2592,13 @@
     "tests/cryoffear-pushback/oracle.py",
     "tests/cryoffear-pushback/run.py",
     "tests/cryoffear-pushback/README.md",
-    "docs/2026-11-15_实现-CoF长枪原版推搡回调-report.md"
+    "docs/2026-11-15_实现-CoF长枪原版推搡回调-report.md",
+    "native/csol/server/weapons/guest_cof_m16_factory.cpp",
+    "native/csol/server/weapons/guest_cof_m16_factory.hpp",
+    "tests/cryoffear-m16-factory/main.cpp",
+    "tests/cryoffear-m16-factory/README.md",
+    "tests/cryoffear-p345-factory/run.py",
+    "docs/2026-11-15_接入-M16原生工厂与枪械资源-report.md"
   ],
   "trees": {
     "native": [

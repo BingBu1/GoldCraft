@@ -1326,16 +1326,296 @@ def safe_relative(name):
     return name
 
 
+M16_PINS = [
+    {
+        "group": "M16Models",
+        "original": "models/weapons/m16/v_m16.mdl",
+        "host": "models/guest/cof/m16/v_m16.mdl",
+        "bytes": 2598940,
+        "sha256": "8aaa8cc0ce4badc51b2f176752f8a858cddf95b113e011eff97ad912b7aa467b"
+    },
+    {
+        "group": "M16Models",
+        "original": "models/weapons/m16/w_m16.mdl",
+        "host": "models/guest/cof/m16/w_m16.mdl",
+        "bytes": 338396,
+        "sha256": "e88ed15271bc6ad2eb8e841d15628e308faf3f976076179b34d47edf0d03de9e"
+    },
+    {
+        "group": "M16Models",
+        "original": "police/models/weapons/m16/p_m16.mdl",
+        "host": "models/guest/cof/m16/p_m16.mdl",
+        "bytes": 340240,
+        "sha256": "69e88ff618b4000e572a067712247f0e5f9f7ea4e886d51080ee0d6dc00a5fd9"
+    },
+    {
+        "group": "M16Models",
+        "original": "models/null.mdl",
+        "host": "models/guest/cof/common/null.mdl",
+        "bytes": 1868,
+        "sha256": "97fc6326a1d63b97242c766381c7be774d0dc89b0e28fa10189a5937f17a1890"
+    },
+    {
+        "group": "M16Models",
+        "original": "models/556shell.mdl",
+        "host": "models/guest/cof/common/556shell.mdl",
+        "bytes": 7572,
+        "sha256": "31e55cd51a988b887b20ebf97e0d2593c70f13ba08b8d3282be7a3337ba40e9b"
+    },
+    {
+        "group": "M16Models",
+        "original": "models/w_9mmclip.mdl",
+        "host": "models/guest/cof/common/w_9mmclip.mdl",
+        "bytes": 1772,
+        "sha256": "2afde7ef1e3d987d203f517715dedc482768cc666c964a617990326734ee00e1"
+    },
+    {
+        "group": "M16Models",
+        "original": "sprites/bubble.spr",
+        "host": "sprites/guest/cof/bubble.spr",
+        "bytes": 1086,
+        "sha256": "377276c6b6960a1415248bc96e1d370e5eeb504ffd6d95c0f81e480ab82a46eb"
+    },
+    {
+        "group": "M16Models",
+        "original": "sprites/fog2.spr",
+        "host": "sprites/guest/cof/fog2.spr",
+        "bytes": 4926,
+        "sha256": "6e154e43fa4de8dcba86c74f9ff42fa9e3eb43d00b7ab29592e06c03c6e29b7f"
+    },
+    {
+        "group": "M16Models",
+        "original": "models/flash1.mdl",
+        "host": "models/guest/cof/common/flash1.mdl",
+        "bytes": 133896,
+        "sha256": "3b681b535fa69397e30d49c1afd8d54a842b80f7576be5b0e9b7d1983305552c"
+    },
+    {
+        "group": "M16Models",
+        "original": "sprites/gunsmoke.spr",
+        "host": "sprites/guest/cof/gunsmoke.spr",
+        "bytes": 214062,
+        "sha256": "f1db5d09c80c6d628642fb9df3a308e13331280a1c2560b2928353c20985b783"
+    },
+    {
+        "group": "M16ClientModels",
+        "original": "models/flash2.mdl",
+        "host": "models/guest/cof/common/flash2.mdl",
+        "bytes": 122304,
+        "sha256": "f7f098c0db5eb3254458593d14c6b5a2e2e37af2d4afc1a1e56bb166c1df778c"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_cock.wav",
+        "host": "guest/cof/weapons/m16/m16_cock.wav",
+        "bytes": 43096,
+        "sha256": "9dfa7b46815e94d147d99bab6c76a9981730b27a0769eba15498c745ba838d35"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_magin.wav",
+        "host": "guest/cof/weapons/m16/m16_magin.wav",
+        "bytes": 54118,
+        "sha256": "940a2f580f1136f5c86d5c2149734a1e293e7e18de4b6c88117fb3be99c578c4"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_magout.wav",
+        "host": "guest/cof/weapons/m16/m16_magout.wav",
+        "bytes": 20722,
+        "sha256": "7280f4ed8833c2daf9e543c83d84a609416b32e70edc9e686749cb56d88d8164"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_fire.wav",
+        "host": "guest/cof/weapons/m16/m16_fire.wav",
+        "bytes": 38738,
+        "sha256": "477867f4d6413cb7624578e1c80e6a3abe723bf390b9ceca23b4409f9d0ea00f"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_magtap.wav",
+        "host": "guest/cof/weapons/m16/m16_magtap.wav",
+        "bytes": 25306,
+        "sha256": "5404a39aac51a8c1ee779565f80412b96ef28a48528274a0ca7fd6bbd4160084"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_cock1.wav",
+        "host": "guest/cof/weapons/m16/m16_cock1.wav",
+        "bytes": 18902,
+        "sha256": "f3af6e5c0299a33b3fcd706a6c0d43d04525432e20ec88962bb2a7f4b3c575f7"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_cock2.wav",
+        "host": "guest/cof/weapons/m16/m16_cock2.wav",
+        "bytes": 20796,
+        "sha256": "7bc3c50581217669e567926f34f0a703de6ddd2230fd02218b494ebead172b95"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/m16/m16_switch.wav",
+        "host": "guest/cof/weapons/m16/m16_switch.wav",
+        "bytes": 15974,
+        "sha256": "73198807427112ace1c9ac0d4c0d4345ecd2a02601f59c6aeae48b2685af8274"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/item_get.wav",
+        "host": "guest/cof/weapons/item_get.wav",
+        "bytes": 22110,
+        "sha256": "e50b2bf740d0e9f673024995fe8885a1b3301cac8bd48f77b8f69a4ae06af663"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/weapon_get.wav",
+        "host": "guest/cof/weapons/weapon_get.wav",
+        "bytes": 21560,
+        "sha256": "35c31cf77cd0ff236061696c22a69bde596bacb29ae2bde946f98ed50b6158a8"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/sleeve_generic1.wav",
+        "host": "guest/cof/weapons/sleeve_generic1.wav",
+        "bytes": 24268,
+        "sha256": "4ac664f754635a82bd4dac6677e8f67bd79e449eff33fbb4de7d65a3bbcc5655"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/sleeve_generic2.wav",
+        "host": "guest/cof/weapons/sleeve_generic2.wav",
+        "bytes": 33128,
+        "sha256": "0337c5b98fe21726962cf9dc4ae1d9605a6b7ac7190a17eed4ed0e7a254758c1"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/sleeve_generic3.wav",
+        "host": "guest/cof/weapons/sleeve_generic3.wav",
+        "bytes": 17450,
+        "sha256": "76f82ffb2a7dcf1e2bcb6bb1430a7d3d4f429126d37dce9c05e8da4a51988551"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/melee_swing.wav",
+        "host": "guest/cof/weapons/melee_swing.wav",
+        "bytes": 33256,
+        "sha256": "631515a589da923dce206ba2c15f8c8a348b4bec8ca96fa34c3940d2a16632d7"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/melee_hit.wav",
+        "host": "guest/cof/weapons/melee_hit.wav",
+        "bytes": 39556,
+        "sha256": "9f5bc3c8d8bbb8ff84e12b974b71fe22ad81a7bb07a15d35b58fd0f2af96f37a"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/weapon_fire_empty.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty.wav",
+        "bytes": 22340,
+        "sha256": "b4d1f0ef30b30276bc2a1b0c7dfc222e00251abce594df6e791d8b0937fcf629"
+    },
+    {
+        "group": "M16Sounds",
+        "original": "weapons/weapon_fire_empty_noclick.wav",
+        "host": "guest/cof/weapons/weapon_fire_empty_noclick.wav",
+        "bytes": 18228,
+        "sha256": "de0ae838bdbfa7f75bc1b10b35814b4aa19a574d589adf36f071061b63d9ed8f"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_magin.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_magin.wav",
+        "bytes": 357532,
+        "sha256": "f2be106e7c7f900885eee13da0e2b4bd09f44581fcf52a5db1cd809c130e1664"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_magout.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_magout.wav",
+        "bytes": 274478,
+        "sha256": "50d61f04b75faf36dd6d9d40aa23c9aba491248c744130fcea8cc98f2dfd1d39"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_fire.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_fire.wav",
+        "bytes": 505418,
+        "sha256": "b5728b348f0c24ad9d865ec6cc19b411ce878334e66cc8079d4a0a113f8a4267"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_magtap.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_magtap.wav",
+        "bytes": 334334,
+        "sha256": "61acfd24ed6e0e7dee05fbe6eef7fe40fc627935cd9eef7f6ae9985e2ead6e76"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_cock1.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_cock1.wav",
+        "bytes": 123192,
+        "sha256": "0da055f4dabc433f76910990cb1e2c44e6026fd0fe1dc614c6719e10c9c7f205"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_cock2.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_cock2.wav",
+        "bytes": 135566,
+        "sha256": "bb34f2ab0a1704f74faca3354385c125919cbacd94e7b7aada659c8fb27cbf06"
+    },
+    {
+        "group": "M16LocalWaves",
+        "original": "weapons_new/m16/m16_switch.wav",
+        "host": "sound/guest/cof/weapons_new/m16/m16_switch.wav",
+        "bytes": 108430,
+        "sha256": "a04d3c8c152fff96da7501b836f1efe24e5860cb31fd32e35cff9ff48dbc4e59"
+    },
+    {
+        "group": "M16Events",
+        "original": "events/muzzleflash.sc",
+        "host": "events/guest/cof/muzzleflash.sc",
+        "bytes": 1778,
+        "sha256": "2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"
+    },
+    {
+        "group": "M16Events",
+        "original": "events/viewpunch.sc",
+        "host": "events/guest/cof/viewpunch.sc",
+        "bytes": 1778,
+        "sha256": "2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"
+    },
+    {
+        "group": "M16Inventory",
+        "original": "inventoryitems/weapons/weapon_m16.txt",
+        "host": "inventoryitems/guest/cof/weapons/weapon_m16.txt",
+        "bytes": 479,
+        "sha256": "ee699b41cd5096221823d4678f0d6fc5b8dad8fb92fabe28857568ad0e22e34b"
+    },
+    {
+        "group": "M16Particle",
+        "original": "aurora/gunsmoke.aur",
+        "host": "aurora/guest/cof/gunsmoke.aur",
+        "bytes": 685,
+        "sha256": "e37c7e21896e7d206ca020d60b263bac1dac193c600bbb18d7ca4d205f299fb7"
+    }
+]
+
 def current_manifest(weapon='P345'):
-    if weapon not in ('P345', 'Glock', 'Revolver', 'VP70', 'TMP', 'MP5'):
+    if weapon not in ('P345', 'Glock', 'Revolver', 'VP70', 'TMP', 'MP5', 'M16'):
         raise ValueError('Unreviewed weapon resource manifest')
     text = HEADER.read_text('utf-8')
     actual = []
-    groups = ('Models', 'ClientModels', 'Sounds', 'LocalWaves', 'Events') if weapon == 'MP5' else (
+    groups = ('Models', 'ClientModels', 'Sounds', 'LocalWaves', 'Events') if weapon in ('MP5','M16') else (
         'Models', 'Sounds', 'LocalWaves', 'Events')
     for suffix in groups:
         group = weapon + suffix
         source = group
+        alias={'M16ClientModels':'MP5ClientModels','M16Events':'MP5Events'}.get(group)
+        if alias:
+            if not re.search(r'\b'+group+r'\s*=\s*'+alias+r'\s*;',text):raise ValueError('Unreviewed M16 resource alias')
+            source=alias
         if group == 'GlockEvents':
             if not re.search(r'\bGlockEvents\s*=\s*P345Events\s*;', text):
                 raise ValueError('Unreviewed Glock event alias')
@@ -1348,6 +1628,9 @@ def current_manifest(weapon='P345'):
     for suffix in ('Inventory', 'Particle'):
         group = weapon + suffix
         source = group
+        if group=='M16Particle':
+            if not re.search(r'\bM16Particle\s*=\s*MP5Particle\s*;',text):raise ValueError('Unreviewed M16 particle alias')
+            source='MP5Particle'
         if group == 'GlockParticle':
             if not re.search(r'\bGlockParticle\s*=\s*P345Particle\s*;', text):
                 raise ValueError('Unreviewed Glock particle alias')
@@ -1357,7 +1640,7 @@ def current_manifest(weapon='P345'):
             raise ValueError('Authoritative resource path missing: ' + group)
         actual.append((group, *match.groups()))
     pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
-            'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS}[weapon]
+            'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS, 'M16': M16_PINS}[weapon]
     wanted = [(p['group'], p['original'], p['host']) for p in pins]
     if actual != wanted:
         raise ValueError('Resource header differs from the reviewed '+weapon+' manifest; review new identities first')
@@ -1368,7 +1651,7 @@ def current_manifest(weapon='P345'):
     dependency = re.search(r'\bP345ClipTexture\s*\{\s*"([^"]+)",\s*"([^"]+)"\s*\};', text)
     if not dependency or dependency.groups() != (CLIP_TEXTURE['original'], CLIP_TEXTURE['host']):
         raise ValueError('Clip texture dependency path differs from the reviewed companion')
-    if weapon in ('Glock', 'Revolver', 'VP70', 'TMP', 'MP5') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
+    if weapon in ('Glock', 'Revolver', 'VP70', 'TMP', 'MP5', 'M16') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
         raise ValueError('Unreviewed '+weapon+' clip texture alias')
     return digest(HEADER.read_bytes())
 
@@ -1442,7 +1725,7 @@ def plan(args):
         raise ValueError('Candidate must be fresh and must not contain its dry-run plan')
     weapon = {'p345-and-shot-decals': 'P345', 'glock-and-shot-decals': 'Glock',
               'revolver-and-shot-decals': 'Revolver', 'vp70-and-shot-decals': 'VP70',
-              'tmp-and-shot-decals': 'TMP', 'mp5-and-shot-decals': 'MP5', 'shot-decals': 'shot-decals'}[args.component]
+              'tmp-and-shot-decals': 'TMP', 'mp5-and-shot-decals': 'MP5', 'm16-and-shot-decals': 'M16', 'shot-decals': 'shot-decals'}[args.component]
     family = 'P345' if weapon == 'shot-decals' else weapon
     player_model = getattr(args, 'authored_player_model', None)
     if family == 'MP5':
@@ -1454,7 +1737,7 @@ def plan(args):
     table_hash = current_manifest(family)
     assets, studio = [], []
     weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
-                   'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS}[family]
+                   'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS, 'M16': M16_PINS}[family]
     pins = SHOT_DECAL_PINS if weapon == 'shot-decals' else weapon_pins + SHOT_DECAL_PINS
     for pin in pins:
         source_name = safe_relative(pin['original'])
@@ -1528,6 +1811,7 @@ def plan(args):
                 [(2, 20, 'stock'), (5, 21, 'magout'), (5, 51, 'magin'),
                  (6, 21, 'magout'), (6, 51, 'magin'), (6, 75, 'charger_back'),
                  (6, 83, 'charger_forward')] if family == 'TMP' else
+                [[3,17,"magout"],[3,49,"magin"],[3,66,"magtap"],[4,17,"magout"],[4,49,"magin"],[4,66,"magtap"],[4,90,"cock1"],[4,97,"cock2"],[6,8,"switch"],[10,17,"magout"],[10,49,"magin"],[10,66,"magtap"],[11,17,"magout"],[11,49,"magin"],[11,66,"magtap"],[11,90,"cock1"],[11,97,"cock2"],[13,7,"switch"],[32,7,"switch"],[33,7,"switch"]] if family == 'M16' else
                 [(2, 30, 'magout'), (2, 67, 'magin'), (3, 17, 'charger_back'),
                  (3, 53, 'magout'), (3, 88, 'magin'), (3, 108, 'charger_forward')] if family == 'MP5' else
                 [(4, 7, 'magout'), (4, 40, 'magplace'), (4, 52, 'magin'),
@@ -1643,7 +1927,7 @@ def write_candidate(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--original-game-root', type=Path, required=True)
-    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'mp5-and-shot-decals', 'shot-decals'),
+    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'mp5-and-shot-decals', 'm16-and-shot-decals', 'shot-decals'),
                         default='p345-and-shot-decals')
     parser.add_argument('--authored-player-model', type=Path,
         help='Explicit pinned host-authored MP5 P model, inside workspace build; never an original W copy')

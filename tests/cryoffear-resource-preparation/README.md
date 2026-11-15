@@ -1,4 +1,14 @@
-# P345 and Glock cold resource preparation
+# CoF cold resource preparation
+
+M16 checkpoint: --include-m16 adds its complete cold closure without registry
+or purchase admission. Actual40 files/90 engine edges include38 sequence timings,
+17 native samples,7 local WAVs,556shell and flash2 model IDs. The original
+Studio5004 branch explicitly admits id9, including all20 model events using six
+sample keys; per-shot fire and legacy cock remain separate resources.
+The final M16 suite passes684 checks and the other five families3463.
+An explicit --mp5-player can additionally test the authored MP5 P family.
+No original P grip, native audio voice or complete-weapon readiness follows.
+
 
 Current muzzle-resource checkpoint: both outputs contain ten model/sprite IDs,
 including the original client consumers' `flash1.mdl` and `gunsmoke.spr` in the

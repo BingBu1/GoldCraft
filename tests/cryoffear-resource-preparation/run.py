@@ -22,7 +22,9 @@ def sha(path):
 def verify_original(sample, proof_path, regions=None, expected_sha=SAMPLE_SHA):
     data = sample.read_bytes()
     proof = json.loads(proof_path.read_text('utf-8'))
-    if sha(sample) != expected_sha or proof.get('sampleSha256', proof.get('clientSha256')) != expected_sha:
+    proof_sha=proof.get('sampleSha256',proof.get('clientSha256'))
+    if expected_sha!=SAMPLE_SHA:proof_sha=proof.get('clientSha256',proof_sha)
+    if sha(sample) != expected_sha or proof_sha != expected_sha:
         raise ValueError('Original module identity differs')
     nt = struct.unpack_from('<I', data, 60)[0]
     if data[nt:nt+4] != b'PE\0\0' or struct.unpack_from('<H', data, nt+4)[0] != 0x14c:
@@ -56,6 +58,7 @@ def main():
         parser.add_argument('--'+name, type=Path, required=True)
     parser.add_argument("--presentation",type=Path,help="Actual generated client HUD resources for both live pistols")
     parser.add_argument("--mp5-player",type=Path,help="Explicit authored MP5 P candidate; never a copied W or TMP P")
+    parser.add_argument("--include-m16",action="store_true",help="Exercise original M16 cold closure; does not admit the gun")
     args = parser.parse_args()
     output = args.output.absolute()
     for part in (output, *output.parents):
@@ -126,6 +129,21 @@ def main():
         if flash2.stat().st_size != 122304 or sha(flash2) != 'f7f098c0db5eb3254458593d14c6b5a2e2e37af2d4afc1a1e56bb166c1df778c':
             raise ValueError('Original local MP5 flash2 identity differs')
         mp5_client_inputs.update((muzzle_proof, flash2))
+    m16_proof=ROOT/'analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-resources.json'
+    m16_rows=[];m16_client_rows=[];m16_input_paths=set()
+    if args.include_m16:
+        m16=json.loads(m16_proof.read_text('utf8'))
+        if not m16['beforeImplementation']:raise ValueError('M16 requires pre-edit evidence')
+        m16_rows=verify_original(args.sample,m16_proof)
+        m16_client_sample=ROOT/'analysis/cof-weapons-20261111/client-evidence/samples/client.dll'
+        m16_client_rows=verify_original(m16_client_sample,m16_proof,m16['clientRegions'],m16['clientSha256'])
+        for item in m16['resources']:
+            path=args.original/item['original']
+            if path.stat().st_size!=item['bytes'] or sha(path)!=item['sha256']:raise ValueError('M16 resource identity differs: '+item['original'])
+            m16_input_paths.add(path.resolve())
+        view_proof=m16_proof.parent/m16['originalViewEvents']
+        if sha(view_proof)!=m16['originalViewEventsSha256']:raise ValueError('M16 view event evidence differs')
+        m16_input_paths.update((m16_proof,m16_client_sample,view_proof))
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)
@@ -171,7 +189,7 @@ def main():
             source = args.original/('sound/' if original.endswith('.wav') else '')/original
         resources.append(dict(original=original, host=host, path=str(source.resolve()), sha256=sha(source)))
     for original in ('inventoryitems/weapons/weapon_p345.txt', 'inventoryitems/weapons/weapon_glock.txt', 'inventoryitems/weapons/weapon_revolver.txt', 'inventoryitems/weapons/weapon_vp70.txt',
-                     'inventoryitems/weapons/weapon_tmp.txt', 'inventoryitems/weapons/weapon_mp5.txt', 'aurora/gunsmoke.aur'):
+                     'inventoryitems/weapons/weapon_tmp.txt', 'inventoryitems/weapons/weapon_mp5.txt', 'inventoryitems/weapons/weapon_m16.txt', 'aurora/gunsmoke.aur'):
         path = args.original/original
         resources.append(dict(original=original, path=str(path.resolve()), sha256=sha(path)))
     resources.append(dict(original='models/w_9mmclipT.mdl', host='models/guest/cof/common/w_9mmclipT.mdl',
@@ -181,6 +199,7 @@ def main():
         args.sample.resolve(), proof, revolver_proof, vp70_raw, tmp_proof, glock_proof, glock_raw, empty_bytes, empty_verification, project, args.environment.resolve(), ROOT/'.tools/clang-toolchain.json',
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
+    inputs.update(m16_input_paths)
     if args.mp5_player:
         inputs.update((mp5_proof, args.mp5_player.resolve()))
         inputs.update(mp5_client_inputs)
@@ -230,6 +249,10 @@ def main():
             [str(args.presentation.resolve())] if args.presentation else []
         if args.mp5_player:
             extra.append(str(args.mp5_player.resolve()))
+        if args.include_m16:
+            if not extra:extra=['']
+            if len(extra)==1:extra.append('')
+            extra.append('m16')
         test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve()),
                                str(args.clip_texture.resolve()), *extra],
                               cwd=output, capture_output=True, text=True, timeout=30)
@@ -238,7 +261,7 @@ def main():
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, m16Regions=m16_rows, m16ClientRegions=m16_client_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')

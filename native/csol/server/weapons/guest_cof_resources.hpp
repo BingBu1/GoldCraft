@@ -67,6 +67,16 @@ using guest::cof::resources::MP5Events;
 using guest::cof::resources::MP5Inventory;
 using guest::cof::resources::MP5Particle;
 using guest::cof::resources::MP5ClipTexture;
+using guest::cof::resources::M16Model;
+using guest::cof::resources::M16Models;
+using guest::cof::resources::M16ClientModels;
+using guest::cof::resources::M16Sound;
+using guest::cof::resources::M16Sounds;
+using guest::cof::resources::M16LocalWaves;
+using guest::cof::resources::M16Events;
+using guest::cof::resources::M16Inventory;
+using guest::cof::resources::M16Particle;
+using guest::cof::resources::M16ClipTexture;
 using guest::cof::resources::ShotDecals;
 struct ResourceAuthority
 {
@@ -160,6 +170,21 @@ struct MP5Resources
     int inventoryItemString{}, particleScriptString{};
     int inventoryDownload{}, particleDownload{};
 };
+struct M16Resources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, M16Models.size()> models{};
+    std::array<int, M16Sounds.size()> sounds{};
+    std::array<int, M16LocalWaves.size()> localWaveDownloads{};
+    std::array<int, M16ClientModels.size()> clientModels{};
+    std::array<unsigned short, M16Events.size()> events{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{};
+    int inventoryDownload{}, particleDownload{};
+};
 enum class ResourceStatus : unsigned char
 { Prepared, InvalidAuthority, MissingEngine, MissingFile, InvalidMetadata, InvalidModel, EngineRejected, Cancelled };
 struct ResourceResult
@@ -183,6 +208,7 @@ ResourceResult PrepareTMPResources(const ResourceAuthority&, TMPResources&) noex
 // The authored P must already be present in the authoritative VFS. Preparation
 // does not certify its grip, attachments, client effects or firearm admission.
 ResourceResult PrepareMP5Resources(const ResourceAuthority&, MP5Resources&) noexcept;
+ResourceResult PrepareM16Resources(const ResourceAuthority&, M16Resources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }
