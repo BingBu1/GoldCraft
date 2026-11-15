@@ -73,7 +73,10 @@ public:
 private:
     friend class GlockMuzzle;
     friend class RevolverMuzzle;
-    MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize) const noexcept;
+    friend class TMPMuzzle;
+    MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize, bool repeatFlashLookup = false) const noexcept;
+    MuzzleResult WorldWithSize(const std::array<float,3>&, float scale, float baseSize,
+        bool repeatFlashLookup) const noexcept;
     bool Ready(bool cheapSmoke) const noexcept;
     bool Current() const noexcept;
     MuzzleResult Lights(const float* origin) const noexcept;
@@ -88,6 +91,17 @@ public:
     MuzzleResult Local(const cl_entity_s& view,unsigned attachment,float scale,float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment,float scale) const noexcept
     {return base_.World(attachment,scale);}
+private:
+    P345Muzzle base_;
+};
+// Original14 uses local base4 and exact TMP P-model world base2.
+// Both branches issue the original second flash1 model callback before RNG.
+class TMPMuzzle
+{
+public:
+    explicit TMPMuzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
 private:
     P345Muzzle base_;
 };

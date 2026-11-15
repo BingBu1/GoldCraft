@@ -20,10 +20,14 @@ class Replay:
   for a in [m.STUB+0x200,m.STUB+0x220,m.STUB+0x240,m.STUB+0x280,m.STUB+0x2A0,m.STUB+0x2C0,m.STUB+0x2E0,m.STUB+0x300]:u.mem_write(a,b'\xC3')
   u.mem_write(m.STUB+0x260,b'\xD9\x05'+m.u32(m.DATA+16)+b'\xC3');u.hook_add(unicorn.UC_HOOK_CODE,self.hook)
   self.ranges={hex(a):hashlib.sha256(u.mem_read(a,n)).hexdigest() for a,n in [(0x1004BC30,1166),(0x10090130,1209),(0x1004BB80,169),(0x1005C0F0,137),(0x1005C180,128),(0x1005BFF0,79),(0x1005C3D0,21)]}
-  self.default_weapon={'P345':7,'Revolver':21,'VP70':19}[weapon]
+  self.weapon=weapon
+  self.default_weapon={'P345':7,'Revolver':21,'VP70':19,'TMP':14}[weapon]
   if weapon=='Revolver':
    u.mem_write(MODEL,b'models/weapons/revolver/v_revolver.mdl\0')
    u.mem_write(WORLD,b'police/models/weapons/revolver/p_revolver.mdl\0')
+  elif weapon=='TMP':
+   u.mem_write(MODEL,b'models/weapons/tmp/v_tmp.mdl\0')
+   u.mem_write(WORLD,b'police/models/weapons/tmp/p_tmp.mdl\0')
   elif weapon=='VP70':
    u.mem_write(MODEL,b'models/weapons/vp70/v_vp70.mdl\0')
    u.mem_write(WORLD,b'police/models/weapons/vp70/p_vp70.mdl\0')
@@ -63,6 +67,9 @@ class Replay:
    self.direction=bytes(u.mem_read(angles,12));u.reg_write(UC_X86_REG_EAX,0)
  def run(self,row):
   header,local,view,pool=row;op,self.now,self.size,self.roll,scale,cheap,att=HEADER_IN.unpack(header);u=self.u
+  family='glock' if op in (7,8) else {'P345':'p345','Revolver':'revolver','VP70':'vp70','TMP':'tmp'}[self.weapon]
+  u.mem_write(MODEL,('models/weapons/'+family+'/v_'+family+'.mdl').encode()+bytes([0]))
+  u.mem_write(WORLD,('police/models/weapons/'+family+'/p_'+family+'.mdl').encode()+bytes([0]))
   self.calls=[];self.timeIndex=self.randomIndex=0;self.visible=bytes(3000);self.sprite=bytes(36);self.direction=bytes(12);self.attachments=[view[2912:2924],view[2924:2936]]
   u.mem_write(LOCAL,local);u.mem_write(VIEW,view);u.mem_write(VIEW+2964,m.u32(MODEL));u.mem_write(POOL,pool[:3968]);u.mem_write(LAST,pool[3968:]);u.mem_write(DL,bytes([0xCD])*40);u.mem_write(m.CVARS+0x10C,struct.pack('<f',cheap));u.mem_write(0x101BA478,m.u32(7))
   u.mem_write(HEADER+0xD4,m.u32(2));u.mem_write(WEAPON+156,m.u32(3 if op in (7,8) else self.default_weapon))
@@ -92,7 +99,7 @@ def cases():
     radius=m.f32(rng.choice([0,-0.0,128,rng.uniform(-10,300)]));die=m.f32(now+rng.choice([-1,0,1]));decay=m.f32(rng.uniform(-10,1000));key=rng.choice([0,0,17]);struct.pack_into('<f',pool,i*124+12,radius);struct.pack_into('<ffi',pool,i*124+28,die,decay,key)
    yield HEADER_IN.pack(op,now,size,roll,scale,cheap,att),bytes(local),bytes(view),bytes(pool)
 def main():
- p=argparse.ArgumentParser();p.add_argument('--sample',type=Path,required=True);p.add_argument('--runner',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--weapon',choices=['P345','Revolver','VP70'],default='P345');a=p.parse_args();r=Replay(a.sample,a.weapon);rows=list(cases());named=[]
+ p=argparse.ArgumentParser();p.add_argument('--sample',type=Path,required=True);p.add_argument('--runner',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--weapon',choices=['P345','Revolver','VP70','TMP'],default='P345');a=p.parse_args();r=Replay(a.sample,a.weapon);rows=list(cases());named=[]
  for name,dies,keys,key,slot in [('equal-deadline',[1]*32,[0]*32,0,0),('strict-expired-slot1',[1,0]+[1]*30,[0]*32,0,1),('full-slot0',[2]*32,[0]*32,0,0),('matching-key-before-expiry',[0]*32,[0]*7+[17]+[0]*24,17,7)]:
   h,l,v,pool=rows[240];pool=bytearray(pool)
   for i in range(32):struct.pack_into('<f',pool,i*124+28,dies[i]);struct.pack_into('<i',pool,i*124+36,keys[i])
@@ -106,12 +113,12 @@ def main():
     else:
      for i in range(32):struct.pack_into('<f',pool,i*124+dict(radius=12,die=28,decay=32)[field],value)
     rows.append((HEADER_IN.pack(*values),l,v,bytes(pool)))
- payload=b''.join(b''.join(row) for row in rows);expected=b''.join(r.run(row) for row in rows);actual=subprocess.run([str(a.runner.resolve()),*(['--revolver']if a.weapon=='Revolver'else[])],input=payload,capture_output=True,check=True).stdout;assert len(actual)==len(expected)==len(rows)*OUTPUT_SIZE,(len(actual),len(expected),OUTPUT_SIZE)
+ payload=b''.join(b''.join(row) for row in rows);expected=b''.join(r.run(row) for row in rows);actual=subprocess.run([str(a.runner.resolve()),*(['--revolver']if a.weapon=='Revolver'else['--tmp']if a.weapon=='TMP'else[])],input=payload,capture_output=True,check=True).stdout;assert len(actual)==len(expected)==len(rows)*OUTPUT_SIZE,(len(actual),len(expected),OUTPUT_SIZE)
  for name,index,slot in named:assert struct.unpack_from('<i',expected,index*OUTPUT_SIZE+4)[0]==slot,name
  failures=[]
  for i in range(len(rows)):
   want=expected[i*OUTPUT_SIZE:(i+1)*OUTPUT_SIZE];got=actual[i*OUTPUT_SIZE:(i+1)*OUTPUT_SIZE]
   if want!=got:failures.append(dict(case=i,operation=HEADER_IN.unpack(rows[i][0])[0],firstByte=next(j for j,(x,y) in enumerate(zip(want,got)) if x!=y),original=want.hex(),native=got.hex()))
- receipt=dict(sampleSha256=m.SHA,weapon=a.weapon,cases=len(rows),nativeLatchChecks=6,glockCases=360,namedAllocationBoundaries=[x[0] for x in named],mismatchCount=len(failures),mismatches=failures[:3],originalRanges=r.ranges,inputSha256=hashlib.sha256(payload).hexdigest(),originalOutputSha256=hashlib.sha256(expected).hexdigest(),nativeOutputSha256=hashlib.sha256(actual).hexdigest(),gameplay=False,performance=False,scope='Selected original pistol emission and pool, plus Glock world AngleVectors/shell; bone transforms and host services modeled; no gameplay acceptance')
+ receipt=dict(sampleSha256=m.SHA,weapon=a.weapon,cases=len(rows),nativeLatchChecks=6,glockCases=360,namedAllocationBoundaries=[x[0] for x in named],mismatchCount=len(failures),mismatches=failures[:3],originalRanges=r.ranges,inputSha256=hashlib.sha256(payload).hexdigest(),originalOutputSha256=hashlib.sha256(expected).hexdigest(),nativeOutputSha256=hashlib.sha256(actual).hexdigest(),gameplay=False,performance=False,scope='Selected original firearm emission and pool, plus Glock world AngleVectors/shell; bone transforms and host services modeled; no gameplay acceptance')
  a.output.write_text(json.dumps(receipt,indent=2));print(json.dumps({k:v for k,v in receipt.items() if k not in ('mismatches','originalRanges')}));assert not failures
 if __name__=='__main__':main()

@@ -164,10 +164,17 @@ int main(int argc, char** argv)
     engine.pEfxAPI = &effects;
     event.event = 5004;
     std::strcpy(event.options, "weapons/p345_shoot.wav");
-    for (const auto weapon : {Weapon::Glock,Weapon::P345,Weapon::Vp70,Weapon::Revolver})
+    for (const auto weapon : {Weapon::Glock,Weapon::P345,Weapon::Vp70,Weapon::Revolver,Weapon::Tmp})
     {
         CHECK(service.StudioEvent(event, entity, weapon) == EffectResult::Dispatched);
         CHECK(std::strcmp(sample,"weapons_new/p345_shoot.wav") == 0);
+    }
+    for(const char* name:{"tmp_charger_back","tmp_charger_forward","tmp_magin","tmp_magout","tmp_stock"})
+    {
+        std::snprintf(event.options,sizeof(event.options),"weapons/tmp/%s.wav",name);
+        CHECK(service.StudioEvent(event,entity,Weapon::Tmp)==EffectResult::Dispatched);
+        char expected[128];std::snprintf(expected,sizeof(expected),"weapons_new/tmp/%s.wav",name);
+        CHECK(std::strcmp(sample,expected)==0);
     }
     std::strcpy(event.options,"prefix\\weapons/p345.wav");
     CHECK(service.StudioEvent(event, entity, Weapon::P345) == EffectResult::Dispatched);
@@ -219,5 +226,5 @@ int main(int argc, char** argv)
         CHECK(service.StudioEvent(event, entity, Weapon::P345) == EffectResult::Dispatched);
     countAllocations = false;
     CHECK(allocations == 0);
-    std::puts("PASS realSDK x86 layouts;5004 four pistols/local/spatial/no fallback;5006 attachment1/2*10,life2.5;5080 command;missing backends;hot allocations0");
+    std::puts("PASS realSDK x86 layouts;5004 four pistols/TMP/local/spatial/no fallback;5006 attachment1/2*10,life2.5;5080 command;missing backends;hot allocations0");
 }

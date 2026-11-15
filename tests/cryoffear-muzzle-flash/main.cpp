@@ -51,8 +51,9 @@ template<class T> bool Read(T& x) { return std::fread(&x,sizeof(x),1,stdin)==1; 
 template<class T> void Write(const T& x) { std::fwrite(&x,sizeof(x),1,stdout); }
 }
 int main(int argc,char** argv) {
-    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")))return 2;
-    const bool revolver=argc==2;
+    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")&&std::strcmp(argv[1],"--tmp")))return 2;
+    const bool revolver=argc==2&&!std::strcmp(argv[1],"--revolver");
+    const bool tmp=argc==2&&!std::strcmp(argv[1],"--tmp");
     _setmode(_fileno(stdin),_O_BINARY); _setmode(_fileno(stdout),_O_BINARY);
     static_assert(sizeof(cl_entity_t)==3000 && sizeof(dlight_t)==40);
     engine.GetLocalPlayer=Local; engine.CL_LoadModel=Model; engine.pfnRandomFloat=Random;
@@ -84,10 +85,13 @@ int main(int argc,char** argv) {
         MuzzleResult result=MuzzleResult::RequestsIssued; int selected=-1;
         if(op==0 || op==6)
         {
-            if(revolver)result=RevolverMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            if(tmp)result=TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            else if(revolver)result=RevolverMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else result=muzzle.Local(view,attachment,scale,cheap);
         }
-        else if(op==1) result=muzzle.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale);
+        else if(op==1) result=tmp?TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
+            {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):
+            muzzle.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale);
         else if(op==7 || op==8) {
             GlockMuzzle glock({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate});
             if(op==7)result=glock.World({view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},

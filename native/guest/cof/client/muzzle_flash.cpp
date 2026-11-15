@@ -97,11 +97,15 @@ MuzzleResult P345Muzzle::Lights(const float* origin) const noexcept
 MuzzleResult P345Muzzle::Local(const cl_entity_s& view, unsigned attachment,
                              float scale, float cheapSmoke) const noexcept
 {return LocalWithSize(view,attachment,scale,cheapSmoke,4.0F);}
+MuzzleResult TMPMuzzle::Local(const cl_entity_s& view,unsigned attachment,float scale,float cheapSmoke) const noexcept
+{return base_.LocalWithSize(view,attachment,scale,cheapSmoke,4.0F,true);}
+MuzzleResult TMPMuzzle::World(const std::array<float,3>& attachment,float scale) const noexcept
+{return base_.WorldWithSize(attachment,scale,2.0F,true);}
 MuzzleResult RevolverMuzzle::Local(const cl_entity_s& view,unsigned attachment,
     float scale,float cheapSmoke) const noexcept
 {return base_.LocalWithSize(view,attachment,scale,cheapSmoke,6.0F);}
 MuzzleResult P345Muzzle::LocalWithSize(const cl_entity_s& view,unsigned attachment,
-    float scale,float cheapSmoke,float baseSize) const noexcept
+    float scale,float cheapSmoke,float baseSize,bool repeatFlashLookup) const noexcept
 {
     if(!Current())return MuzzleResult::Cancelled;
     if (attachment >= 4 || !view.model || !Finite(view.attachment[attachment]) ||
@@ -122,6 +126,12 @@ MuzzleResult P345Muzzle::LocalWithSize(const cl_entity_s& view,unsigned attachme
     auto* model = e.CL_LoadModel("models/flash1.mdl", &modelIndex);
     if(!Current())return MuzzleResult::Cancelled;
     if (!model) return MuzzleResult::BackendFailed;
+    if(repeatFlashLookup)
+    {
+        model=e.CL_LoadModel("models/flash1.mdl",&modelIndex);
+        if(!Current())return MuzzleResult::Cancelled;
+        if(!model)return MuzzleResult::BackendFailed;
+    }
     const float size = static_cast<float>(static_cast<double>(e.pfnRandomFloat(-1.0F, 1.0F)) + double(baseSize));
     if(!Current())return MuzzleResult::Cancelled;
     auto& entity = *host_.localVisibleEntity;
@@ -151,6 +161,9 @@ MuzzleResult P345Muzzle::LocalWithSize(const cl_entity_s& view,unsigned attachme
     return Lights(position.data());
 }
 MuzzleResult P345Muzzle::World(const std::array<float, 3>& attachment, float scale) const noexcept
+{return WorldWithSize(attachment,scale,3.0F,false);}
+MuzzleResult P345Muzzle::WorldWithSize(const std::array<float,3>& attachment,float scale,
+    float baseSize,bool repeatFlashLookup) const noexcept
 {
     if(!Current())return MuzzleResult::Cancelled;
     if (!Finite(attachment.data()) || !std::isfinite(scale)) return MuzzleResult::InvalidInput;
@@ -165,7 +178,13 @@ MuzzleResult P345Muzzle::World(const std::array<float, 3>& attachment, float sca
     auto* model = e.CL_LoadModel("models/flash1.mdl", &modelIndex);
     if(!Current())return MuzzleResult::Cancelled;
     if (!model) return MuzzleResult::BackendFailed;
-    const float size = static_cast<float>(static_cast<double>(e.pfnRandomFloat(-1.0F, 1.0F)) + 3.0);
+    if(repeatFlashLookup)
+    {
+        model=e.CL_LoadModel("models/flash1.mdl",&modelIndex);
+        if(!Current())return MuzzleResult::Cancelled;
+        if(!model)return MuzzleResult::BackendFailed;
+    }
+    const float size = static_cast<float>(static_cast<double>(e.pfnRandomFloat(-1.0F, 1.0F)) + double(baseSize));
     if(!Current())return MuzzleResult::Cancelled;
     auto& entity = *host_.worldVisibleEntity;
     std::memcpy(&entity, &source, sizeof(entity));

@@ -24,10 +24,10 @@ bool Text(const char (&input)[N], std::string_view& output) noexcept
     return true;
 }
 
-bool LocalPistol(Weapon weapon) noexcept
+bool LocalWeaponSound(Weapon weapon) noexcept
 {
     return weapon == Weapon::Glock || weapon == Weapon::P345 ||
-           weapon == Weapon::Vp70 || weapon == Weapon::Revolver;
+           weapon == Weapon::Vp70 || weapon == Weapon::Revolver || weapon == Weapon::Tmp;
 }
 }
 
@@ -43,7 +43,7 @@ EffectResult WeaponEffects::StudioEvent(const mstudioevent_s& event, const cl_en
 
     if (event.event == 5004)
     {
-        if (LocalPistol(currentWeapon) && options.find("weapons/") != options.npos)
+        if (LocalWeaponSound(currentWeapon) && options.find("weapons/") != options.npos)
         {
             if (!host_.localSound) return EffectResult::MissingBackend;
             const auto separator = options.find_first_of("/\\");

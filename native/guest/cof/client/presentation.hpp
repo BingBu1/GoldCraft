@@ -15,7 +15,7 @@ namespace guest::cof::client
 // authenticates this identity and begins each ownership interval explicitly.
 using ::guest::cof::AuthorityKey;
 
-enum class Weapon : std::uint8_t { None = 0, Glock = 3, P345 = 7, Vp70 = 19, Revolver = 21 };
+enum class Weapon : std::uint8_t { None = 0, Glock = 3, P345 = 7, Tmp = 14, Vp70 = 19, Revolver = 21 };
 
 struct DecodedState
 {
