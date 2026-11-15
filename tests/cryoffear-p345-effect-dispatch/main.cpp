@@ -51,7 +51,7 @@ void Engine()
         Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
         else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
-        else Check(flags==1&&index==35&&(i==7||i==19||i==14)&&j==19);
+        else Check(flags==1&&index==35&&(i==7||i==19||i==14||i==27)&&j==19);
         ++playbacks;
     };
 }
@@ -306,6 +306,48 @@ int main(int argc,char** argv)
     ++wrongTMP.events[0];wrongTMP.generation=tmpResources.generation;
     Check(!effects.Dispatch(wrongTMP,runtimeView.binding,player,tmp,kill,true)&&packets.size()==beforeWrongTMP);
     retireBegin=true;Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,kill,true));
+    Check(packets.back().bytes.size()==ParticleBytes);retireBegin=false;valid=true;
+    MP5Resources mp5Resources{};mp5Resources.generation=glock.generation;mp5Resources.events=glock.events;
+    mp5Resources.viewModelString=100;mp5Resources.models[unsigned(MP5Model::Shell)]=31;
+    TMPPrepared mp5Cold{};Check(effects.FillPrepared(mp5Resources,mp5Cold));
+    Check(mp5Cold.ballistics.customDecalMessage&&mp5Cold.melee.shakeMessage&&mp5Cold.particleReady&&
+        mp5Cold.deployPreludeReady&&mp5Cold.world==MeleeWorld::Multiplayer);
+    Check(effects.MP5Capabilities()==(effects.TMPCapabilities()&~(1u<<unsigned(TMPEffect::FirstDraw))));
+    MP5Weapon mp5;edict_t mp5Entity{};mp5Entity.serialnumber=93;mp5Entity.pvPrivateData=&mp5;
+    mp5Entity.v.pContainingEntity=&mp5Entity;mp5.pev=&mp5Entity.v;mp5.m_iId=901;
+    mp5.m_iPrimaryAmmoType=1;mp5.m_iClip=30;mp5.m_pPlayer=&player;player.m_pActiveItem=&mp5;
+    Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,tmpAim));
+    const auto mp5Presentation=State();Check(mp5Presentation.originalWeapon==27&&mp5Presentation.aimEnabled&&
+        mp5Presentation.key.generation>tmpPresentation.key.generation&&!mp5Presentation.revolverAngle);
+    const auto noFirstDraw=packets.size();
+    Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,{TMPEffect::FirstDraw})&&packets.size()==noFirstDraw);
+    Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,{TMPEffect::AutomaticSound}));
+    for(bool immediate:{false,true})
+    {
+        TMPEvent killed{TMPEffect::KillLocalParticles};killed.enabled=immediate;
+        Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,killed));
+        ParticleMessageData packet{};Check(DecodeParticle(packets.back().bytes,packet)&&
+            packet.operation==ParticleOperation::KillLocal&&packet.immediate==immediate);
+    }
+    Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,tmpSmoke));
+    Check(DecodeParticle(packets.back().bytes,particle)&&particle.originalWeapon==27);
+    tmpShot.a=1;Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,tmpShot));
+    Check(DecodeControl(packets.back().bytes,shot)&&shot.operation==ControlOperation::ShotState&&shot.body==1);
+    tmpShot.a=3;Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,tmpShot));
+    Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,tmpShell)&&packets.back().bytes[0]==std::byte(TE_MODEL));
+    for(int sequence:{0,7,8,11,19,20})
+    {TMPEvent view{TMPEffect::ViewAnimation};view.value=sequence;Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,view));}
+    TMPEvent invalidView{TMPEffect::ViewAnimation};invalidView.value=21;
+    Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,invalidView));
+    TMPEvent mp5Fire{TMPEffect::FireEvent};mp5Fire.value=27;mp5Fire.other=1;const auto beforeMp5Fire=playbacks;
+    Check(effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,mp5Fire)&&playbacks==beforeMp5Fire+1);
+    Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    CrosshairSnapshot mp5Spread{};Check(DecodeCrosshair(packets.back().bytes,mp5Spread)&&mp5Spread.key==mp5Presentation.key&&mp5Spread.scalar==0);
+    const auto noCrossIdentity=packets.size();
+    Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,tmp,kill)&&packets.size()==noCrossIdentity);
+    auto staleMP5=mp5Resources;++staleMP5.generation;
+    Check(!effects.Dispatch(staleMP5,runtimeView.binding,player,mp5,kill)&&packets.size()==noCrossIdentity);
+    retireBegin=true;Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,kill));
     Check(packets.back().bytes.size()==ParticleBytes);retireBegin=false;valid=true;
     for(unsigned slot=1;slot<=32;++slot)
     {

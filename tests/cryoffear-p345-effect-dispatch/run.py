@@ -55,6 +55,8 @@ def main():
         ROOT / 'native/guest/cof/server/revolver_weapon.cpp',
         ROOT / 'native/guest/cof/server/vp70_weapon.cpp',
         ROOT / 'native/guest/cof/server/tmp_weapon.cpp',
+        ROOT / 'native/guest/cof/server/mp5_weapon.cpp',
+        ROOT / 'native/guest/cof/mp5_primary.cpp',
         ROOT / 'native/guest/cof/automatic_sound.cpp',
         *[ROOT/('native/guest/cof/server/'+name+'.cpp') for name in ('control_dispatch','crosshair_dispatch','effects_dispatch','screen_shake','sound_dispatch')],
         *[ROOT/('native/guest/cof/'+name+'.cpp') for name in ('control_protocol','crosshair_protocol','particle_protocol','presentation_protocol','sound_protocol')],

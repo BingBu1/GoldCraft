@@ -31,11 +31,13 @@ public:
     std::uint32_t P345Capabilities() const noexcept;
     std::uint32_t VP70Capabilities() const noexcept;
     std::uint32_t TMPCapabilities() const noexcept;
+    std::uint32_t MP5Capabilities() const noexcept;
     std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
     bool FillPrepared(const VP70Resources&, guest::cof::server::VP70Prepared&) noexcept;
     bool FillPrepared(const TMPResources&, guest::cof::server::TMPPrepared&) noexcept;
+    bool FillPrepared(const MP5Resources&, guest::cof::server::TMPPrepared&) noexcept;
     bool FillPrepared(const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept;
     bool Dispatch(const GlockResources&, const OwnerBinding&, CBasePlayer&,
         CBasePlayerWeapon&, const guest::cof::server::GlockEvent&) noexcept;
@@ -45,6 +47,8 @@ public:
         CBasePlayerWeapon&,const guest::cof::server::VP70Event&,bool firstDrawn) noexcept;
     bool Dispatch(const TMPResources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::TMPEvent&,bool firstDrawn) noexcept;
+    bool Dispatch(const MP5Resources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::TMPEvent&) noexcept;
     bool Dispatch(const RevolverResources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&,RevolverOwnerState) noexcept;
     // Call after real native item processing, and on life/ownership retirement.
@@ -77,6 +81,8 @@ private:
         std::array<unsigned short,2> events{};
         int shellModel{};
     };
+    bool DispatchAutomatic(const WeaponResources&,const OwnerBinding&,CBasePlayer&,CBasePlayerWeapon&,
+        const guest::cof::server::TMPEvent&,unsigned originalWeapon,std::uint32_t capabilities,bool firstDrawn) noexcept;
     bool DispatchWeapon(const WeaponResources&,const OwnerBinding&,CBasePlayer&,CBasePlayerWeapon&,
         const guest::cof::server::GlockEvent&,unsigned originalWeapon,const char* fireSound,std::uint32_t capabilities,
         std::optional<float> revolverAngle={}) noexcept;

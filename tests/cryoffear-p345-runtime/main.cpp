@@ -51,6 +51,8 @@ struct RuntimeAdapter
     template<class T>
     bool Backend(CBasePlayer& player,T& output) noexcept
     {return context.runtime&&context.runtime->Backend(player,output);}
+    bool MP5Backend(CBasePlayer& player,TMPBackends& output) noexcept
+    {return context.runtime&&context.runtime->MP5Backend(player,output);}
 };
 struct {RuntimeAdapter runtime;} host;
 #include "sdk-player-authority.inc"
@@ -662,6 +664,13 @@ int main(int argc,char** argv)
         !mp5Frame.firstDrawn&&mp5Frame.bulletDamage==57&&mp5Frame.reserveLimit==90);
     context.mp5Enabled=false;TMPBackends noMP5{};Check(!runtime.MP5Backend(player,noMP5)&&runtime.Backend(player,tmpParallel));
     context.mp5Enabled=true;
+    const auto previousMask=context.enabledWeapons;
+    context.enabledWeapons=0;context.tmpEnabled=false;
+    guest::cof::PlaySfxCall mp5Authority{};
+    Check(PlayerAuthority(player,mp5Authority)&&mp5Authority.current&&mp5Authority.current(mp5Authority.context));
+    context.mp5Enabled=false;guest::cof::PlaySfxCall absentMP5{&context,nullptr};
+    Check(!PlayerAuthority(player,absentMP5)&&absentMP5.context==&context&&!absentMP5.current);
+    context.mp5Enabled=true;context.tmpEnabled=true;context.enabledWeapons=previousMask;
     edict_t mp5Entity{};InitEdict(mp5Entity);auto* mp5=CreateMP5(mp5Entity.v);Check(mp5);
     mp5->Spawn();Check(mp5->ResourcesReady()&&mp5->m_iId==901&&mp5->m_iDefaultAmmo==300);
     Check(mp5->AddToPlayer(&player)&&mp5->m_iClip==30&&mp5->m_iPrimaryAmmoType==6);
