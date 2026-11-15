@@ -41,18 +41,43 @@ def main():
 
     authored, details = module.author(original, profile)
     check(authored == candidate, 'actual author reproduces complete candidate bytes')
-    check(len(authored) == len(original) + 88, 'only one native attachment record appended')
-    check(struct.unpack_from('<ii', authored, 212) == (1, len(original)), 'real native attachment count and offset')
-    check(struct.unpack_from('<i', authored, 72)[0] == len(authored), 'actual model length includes appended record')
-    restored = bytearray(authored[:len(original)])
+    at = struct.unpack_from('<i', original, 188)[0]
+    table = struct.unpack_from('<i', original, 184)[0]
+    textures = struct.unpack_from('<i', original, 180)[0]
+    check(len(authored) == len(original) + 88, 'one native attachment record inserted')
+    check(struct.unpack_from('<ii', authored, 212) == (1, at), 'attachment precedes pixel data')
+    check(struct.unpack_from('<i', authored, 72)[0] == len(authored), 'actual model length includes inserted record')
+    restored = bytearray(authored[:at] + authored[at+88:])
     restored[72:76] = original[72:76]
+    restored[188:192] = original[188:192]
     restored[212:220] = original[212:220]
+    for i in range(textures):
+        offset = table + 80*i + 76
+        restored[offset:offset+4] = original[offset:offset+4]
     check(restored == original, 'all geometry animation materials bones and source payload preserved')
     check(details['floatEncodingError'] < 1e-4, 'float32 native record retains geometric center')
     from cryoffear_studio import Studio
     native = Studio(candidate)
     check(len(native.attachments) == 1 and native.bones[native.attachments[0]['bone']]['name'] == profile['bone'],
           'real studio reader resolves authored attachment and bone')
+    check([t['sha256'] for t in native.textures] == [t['sha256'] for t in Studio(original).textures],
+          'every embedded texture preserves exact indexed pixels and palette')
+
+    def resident_attachment(data):
+        # Exact HL10210 101D8252..101D8279 and 101D8365..101D8372
+        # allocation/copy boundary; texture upload itself is outside this check.
+        size = struct.unpack_from('<i', data, 188)[0] if struct.unpack_from('<i', data, 184)[0] else len(data)
+        count, offset = struct.unpack_from('<ii', data, 212)
+        prefix = data[:size]
+        if count != 1 or offset < 244 or offset + 88 > len(prefix):
+            return False
+        return struct.unpack_from('<i', prefix, offset + 36)[0] == native.attachments[0]['bone']
+
+    check(resident_attachment(authored), 'native retained cache contains complete attachment and valid bone')
+    previous = bytearray(original + authored[at:at+88])
+    struct.pack_into('<i', previous, 72, len(previous))
+    struct.pack_into('<ii', previous, 212, 1, len(original))
+    check(not resident_attachment(previous), 'previous tail-appended model fails real native cache boundary')
     invalid = [('schema', True), ('status', 'verified'), ('modelSha256', '0' * 64),
                ('landmarkVertices', [0, 0, 1]), ('landmarkVertices', [-1, 0, 1]),
                ('landmarkVertices', [0, 1, 0x7fffffff]), ('landmarkVertices', [0, 1]),

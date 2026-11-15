@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Append one explicitly calibrated attachment to a zero-attachment v10 model.
+"""Insert one calibrated attachment into a v10 model's resident prefix.
 
 This is offline resource authoring. It does not infer an original game muzzle,
 change geometry/animation, deploy assets, or establish grip/gameplay acceptance.
@@ -66,17 +66,39 @@ def author(data, profile):
     attachment = struct.pack('<32sii12f', name.encode('ascii'), profile['type'], bone,
                              *origin, *(v for row in vectors for v in row))
     assert len(attachment) == 88
-    output = bytearray(data)
-    at = len(output)
-    output.extend(attachment)
+    # HL10210 Mod_LoadStudioModel (101D81E0) retains only texturedataindex
+    # bytes when textures are embedded. A table after pixel data is discarded.
+    at, table = source.i(188), source.i(184)
+    if at < 244 or table < 244 or table + 80 * len(source.textures) > at:
+        raise ValueError('Embedded texture table must precede its pixel tail')
+    if any(source.i(offset) >= at for offset in
+           (144, 152, 160, 168, 176, 184, 200, 208, 216, 224, 232, 240)):
+        raise ValueError('Metadata beyond the resident prefix is unsupported')
+    cursor = at
+    for i, texture in enumerate(source.textures):
+        if source.i(table + 80*i + 76) != cursor:
+            raise ValueError('A packed embedded texture tail is required')
+        cursor += len(texture['pixels'])
+    if cursor != len(data):
+        raise ValueError('Unclassified bytes after embedded textures')
+    output = bytearray(data[:at] + attachment + data[at:])
     if len(output) > 0x7fffffff:
         raise ValueError('Authored model exceeds studio integer width')
     struct.pack_into('<i', output, 72, len(output))
+    struct.pack_into('<i', output, 188, at + len(attachment))
     struct.pack_into('<ii', output, 212, 1, at)
-    # The three header words and appended table are the entire permitted delta.
-    restored = bytearray(output[:len(data)])
+    for i in range(len(source.textures)):
+        offset = table + 80*i + 76
+        struct.pack_into('<i', output, offset, source.i(offset) + len(attachment))
+    # Removing the insertion and undoing explicit relocations must recover
+    # every original byte, including all geometry, animations and texture data.
+    restored = bytearray(output[:at] + output[at + len(attachment):])
     restored[72:76] = data[72:76]
+    restored[188:192] = data[188:192]
     restored[212:220] = data[212:220]
+    for i in range(len(source.textures)):
+        offset = table + 80*i + 76
+        restored[offset:offset+4] = data[offset:offset+4]
     if restored != data:
         raise ValueError('Original payload changed outside attachment metadata')
     checked = Studio(output)
@@ -87,7 +109,8 @@ def author(data, profile):
     return bytes(output), dict(bone=profile['bone'], localOrigin=checked.attachments[0]['origin'],
                               modelSpaceCenter=center, floatEncodingError=error,
                               geometryAndAnimationBytesPreserved=True, originalAttachments=0,
-                              authoredAttachments=1)
+                              authoredAttachments=1, residentPrefixBytes=at + len(attachment),
+                              insertionOffset=at, textureBytesPreserved=True)
 
 
 def main():

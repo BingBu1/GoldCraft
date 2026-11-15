@@ -2473,6 +2473,7 @@
     "tests/csol-challenge-environment/run.py",
     "tests/csol-challenge-environment/sdk.cpp",
     "docs/2026-11-14_接入-VP70库存角色重绑与客户端枪口-report.md",
+    "docs/2026-11-15_修复-VP70附件驻留与购买准入-report.md",
     "tools/Author-MissingStudioAttachment.py",
     "native/csol/scenario/custom/sky_lighting.hpp",
     "docs/2026-11-14_修复-永夜天空与模型补光-report.md",
