@@ -56,6 +56,12 @@ class MP5(shared.TMP):
             self.event(34)
             self.ret(8)
             return
+        if address == 0x100F91B0:
+            self.event(8, arg(0), arg(1), arg(2))
+            for offset, change in ((0x68, .25), (0x6C, -.5), (0x70, .75)):
+                self.write(self.pev(1) + offset, bits(number(self.read(self.pev(1) + offset)) + change))
+            self.ret(12)
+            return
         if address == 0x100F2A50:
             self.event(33, arg(0))
             self.ret(4)

@@ -13,15 +13,20 @@ WORK,STACK,EDGE,bits=shared.WORK,shared.STACK,shared.EDGE,shared.bits
 
 
 class Transitions(shared.TMP):
+    original_id=14
+    sequence_count=16
+    enter=0x1007E5B0
+    exit=0x1007E2E0
+    functions={0:0x1007E8A0,1:0x10080030,2:0x10080030,3:0x1007E2A0}
     def __init__(self,sample):
         super().__init__(sample)
         self.write(WORK+0xa0000+8,0x1011F680)
-        self.write(WORK+0xa0000+0x12C,0x1007E5B0);self.write(WORK+0xa0000+0x130,0x1007E2E0)
+        self.write(WORK+0xa0000+0x12C,self.enter);self.write(WORK+0xa0000+0x130,self.exit)
         self.write(0x10223070,EDGE+0x128);self.write(0x1022302C,EDGE+0x7480)
         self.uc.mem_write(EDGE+0x7480,bytes.fromhex('d905')+(WORK+0xce000).to_bytes(4,'little')+b'\xc3')
         self.write(WORK+0xce000,bits(1));self.model=WORK+0xc0000
-        self.write(self.model+164,16);self.write(self.model+168,244)
-        for i in range(16):
+        self.write(self.model+164,self.sequence_count);self.write(self.model+168,244)
+        for i in range(self.sequence_count):
             self.write(self.model+244+i*176+32,bits(30));self.write(self.model+244+i*176+56,31)
 
     def hook(self,uc,address,size,user):
@@ -44,7 +49,7 @@ class Transitions(shared.TMP):
         op,now,clip,action,aim,flags,speed,self.condition,primary,secondary,extra,owner,pending,gate,gateTime=row
         self.events=[];self.last=[];self.aimMessages=0
         self.uc.mem_write(self.weapon+8,b'\0'*0x600)
-        self.write(self.weapon+0x188,55);self.write(self.weapon+0x160,self.obj(1));self.write(self.weapon+0x168,14)
+        self.write(self.weapon+0x188,55);self.write(self.weapon+0x160,self.obj(1));self.write(self.weapon+0x168,self.original_id)
         self.write(self.globals,now)
         for off,value in ((0x1E4,clip),(0x128,action),(0x178,aim),(0x1CC,primary),(0x1D0,secondary),
                           (0x1D4,extra),(0x1D8,0),(0x1A4,pending)):
@@ -56,13 +61,13 @@ class Transitions(shared.TMP):
         self.write(self.pev(1)+0x1A8,flags)
         self.uc.reg_write(UC_X86_REG_ESP,STACK+0xff00);self.write(STACK+0xff00,EDGE+0xff00)
         self.uc.reg_write(UC_X86_REG_ECX,self.weapon);self.uc.reg_write(UC_X86_REG_MXCSR,0x1F80)
-        self.uc.emu_start({0:0x1007E8A0,1:0x10080030,2:0x10080030,3:0x1007E2A0}[op],EDGE+0xff00,count=15000)
+        self.uc.emu_start(self.functions[op],EDGE+0xff00,count=15000)
         return [*[self.read(self.weapon+off)for off in (0x128,0x178,0x1CC,0x1D0,0x1D4,0x1D8)],
                 self.read(self.obj(1)+0x308),self.read(self.weapon+0x1A4),*self.events]
 
 
-def generate(sample,cases,expected):
-    original=Transitions(sample);count=0
+def generate(sample,cases,expected,original_class=Transitions):
+    original=original_class(sample);count=0
     for now in (.1,13.37,8192.3):
         for clip in (0,1,30):
             rows=[[op,bits(now),clip,0,op==2,0,0,0,0,0,0,0,0,0,0]for op in range(4)]

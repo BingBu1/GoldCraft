@@ -35,6 +35,9 @@ bool traceDeploy{};
 std::vector<unsigned> deployOrder;
 std::vector<std::pair<int,int>> deployRandom;
 bool fidgetMode{};
+bool mutateRecoil{};
+int grantOnHit{};
+Vector lastShotAngles{};
 unsigned fidgetChance{},fidgetChoice{};
 std::vector<unsigned> fidgetOrder;
 int shotLatch{};
@@ -49,7 +52,7 @@ template<class... T>void Event(unsigned kind,T... values)
 bool Current(void*) noexcept{return current;}
 bool OwnerFrame(void*,TMPOwnerFrame& out) noexcept{out=frame;return true;}
 void Recoil(void*,CBasePlayer&,const Vector&) noexcept{++meleeCalls;}
-bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const TMPEvent& e) noexcept
+bool Effect(void*,CBasePlayer& owner,CBasePlayerWeapon& item,const TMPEvent& e) noexcept
 {
     if(transitionMode)
     {
@@ -66,9 +69,12 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const TMPEvent& e) noexce
     {
     case TMPEffect::Shell:Event(kind,a[0],a[1],a[2],b[0],b[1],b[2],Bits(e.a),e.value,e.other);break;
     case TMPEffect::FireEvent:Event(kind,a[0],a[1],a[2],b[0],b[1],b[2],e.value,e.other);break;
-    case TMPEffect::Recoil:Event(kind,a[0],a[1],a[2]);break;
+    case TMPEffect::Recoil:
+        Event(kind,a[0],a[1],a[2]);
+        if(mutateRecoil){owner.pev->punchangle.x+=.25F;owner.pev->punchangle.y-=.5F;owner.pev->punchangle.z+=.75F;}
+        break;
     case TMPEffect::Shake:Event(kind,Bits(e.a),Bits(e.b),Bits(e.c),Bits(float(e.value)));break;
-    case TMPEffect::ViewAnimation:Event(kind,e.value);break;
+    case TMPEffect::ViewAnimation:Event(kind,e.value);owner.pev->weaponanim=e.value;break;
     case TMPEffect::ShotState:Event(kind,Bits(e.a));break;
     case TMPEffect::ShotLatch:shotLatch=e.value;shotLatchDeadline=e.a;break;
     case TMPEffect::InventoryChanged:
@@ -101,7 +107,7 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
-        Check(amount>=0&&!std::strcmp(name,"cof_tmp")&&(maximum==90||maximum==300));
+        Check(amount>=0&&(!std::strcmp(name,"cof_tmp")||!std::strcmp(name,"cof_mp5"))&&(maximum==90||maximum==300));
         const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
         m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
     }
@@ -123,6 +129,7 @@ bool extendedAllowed=true;
 void Initialize()
 {
     events.clear();current=true;cancel=-1;failEffect=observeReload=fidgetMode=transitionMode=false;shotLatch=0;shotLatchDeadline=0;frame={};frame.bulletDamage=37;frame.meleeDamage=11;
+    mutateRecoil=false;grantOnHit=0;lastShotAngles={};
     frame.firstDrawn=true;frame.randomSeed=17;frame.sourceMode=PistolSource::NormalMuzzle;
     automaticFires=automaticStops=automaticTails=0;
     frame.reserveLimit=300;
@@ -145,6 +152,7 @@ void Initialize()
     {if(traceDeploy)deployRandom.emplace_back(low,high);return 2;};
     g_engfuncs.pfnMakeVectors=[](const float* angles)
     {
+        lastShotAngles={angles[0],angles[1],angles[2]};
         Event(30,Bits(angles[0]),Bits(angles[1]),Bits(angles[2]));
         globals.v_forward={1,0,0};globals.v_right={0,1,0};globals.v_up={0,0,1};
     };
@@ -188,6 +196,7 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
     Check(&owner==&player&&CheckPistolBallistics(shot,fx,call)==BallisticsStatus::Ready);
     Event(31,Bits(shot.source.x),Bits(shot.source.y),Bits(shot.source.z),Bits(shot.direction.x),Bits(shot.direction.y),Bits(shot.direction.z),
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
+    if(grantOnHit)static_cast<CBasePlayerWeapon*>(player.m_pActiveItem)->m_iClip+=grantOnHit;
     return {BallisticsStatus::Fired,{}};
 }
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
@@ -227,7 +236,7 @@ unsigned CSOL_LegacyWeaponMask(int id){Check(id==900);return 0;}
 
 int main(int argc,char** argv)
 {
-    if(argc!=8)return 1;
+    if(argc!=8&&argc!=12)return 1;
     std::ifstream file(argv[3],std::ios::binary);if(!file)return 1;
     std::vector<char> bytes{std::istreambuf_iterator<char>(file),{}};model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
     std::ifstream cases(argv[1]),expected(argv[2]);if(!cases||!expected)return 1;
@@ -376,6 +385,124 @@ int main(int argc,char** argv)
     weapon.Holster();Check(!weapon.m_pfnThink);weapon.DelayedMelee();Check(meleeCalls==beforeHolsterMelee);
     Initialize();globals.time=10;frame.pressed=0x40;player.pev->button=0x40;weapon.ItemPostFrame();
     Check(weapon.ActionState().aiming&&player.pev->fov==55);
+#ifdef COF_TEST_MP5
+    const int beforeMP5=checks;
+    Initialize();weapon.Invalidate();
+    MP5Weapon mp5;
+    mp5.pev=&weaponEdict.v;weaponEdict.pvPrivateData=&mp5;
+    mp5.m_pEntity=&itemWrapper;itemWrapper.m_pContainingEntity=&mp5;
+    static char mp5Strings[]="\0models/guest/cof/mp5/v_mp5.mdl\0models/guest/cof/mp5/p_mp5.mdl\0models/guest/cof/mp5/w_mp5.mdl\0inventoryitems/guest/cof/weapons/weapon_mp5.txt\0weapon_cof_mp5\0";
+    globals.pStringBase=mp5Strings;
+    prepared.viewModelString=1;
+    prepared.playerModelString=prepared.viewModelString+int(std::strlen(mp5Strings+prepared.viewModelString))+1;
+    prepared.worldModelString=prepared.playerModelString+int(std::strlen(mp5Strings+prepared.playerModelString))+1;
+    prepared.inventoryItemString=prepared.worldModelString+int(std::strlen(mp5Strings+prepared.worldModelString))+1;
+    mp5.pev->classname=prepared.inventoryItemString+int(std::strlen(mp5Strings+prepared.inventoryItemString))+1;
+    prepared.sequences.present=(std::uint64_t{1}<<20)-1;prepared.sequences.duration.fill(1.F);
+    prepared.aimOffset={0,-4.25F,2};prepared.aimZoom=50;prepared.hostPosition=1;
+    backends.preparedEffects=MP5RequiredEffects;frame.firstDrawn=false;
+    const auto mp5Plan=RecommendedLongGunAnimationPlan(LongGun::MP5,PistolAnimationRig::Stock);
+    std::string mp5Error;
+    Check(mp5Plan&&animations.Prepare(player,model,{1,1},LongGun::MP5,*mp5Plan,_stricmp,mp5Error));
+    g_engfuncs.pfnSetOrigin=[](edict_t* entity,const float* origin){entity->v.origin={origin[0],origin[1],origin[2]};};
+    g_engfuncs.pfnSetSize=[](edict_t* entity,const float* low,const float* high)
+    {entity->v.mins={low[0],low[1],low[2]};entity->v.maxs={high[0],high[1],high[2]};};
+    mp5.ConfigureColdHost({nullptr,Current,
+        [](void*,MP5Weapon&,TMPPrepared& out) noexcept{out=prepared;return true;},ColdOwner,
+        [](void*,CBasePlayer&,MP5Weapon&,int) noexcept{std::abort();return false;}});
+    mp5.Spawn();Check(mp5.Status()==TMPStatus::Applied&&mp5.m_iDefaultAmmo==300&&mp5.ResourcesReady());
+    ItemInfo mp5Info{};Check(mp5.GetItemInfo(&mp5Info)&&mp5Info.iId==901&&mp5Info.iPosition==1&&
+        !std::strcmp(mp5Info.pszName,"weapon_cof_mp5")&&!std::strcmp(mp5Info.pszAmmo1,"cof_mp5"));
+    player.m_pActiveItem=&mp5;mp5.m_iPrimaryAmmoType=1;mp5.m_iClip=30;player.m_rgAmmo[1]=40;
+    Check(mp5.Bind(player,prepared,backends)==TMPStatus::Ready&&mp5.Deploy()&&!frame.firstDrawn);
+    globals.time=10;player.pev->v_angle={1,2,3};player.pev->punchangle={.1F,.2F,.3F};mutateRecoil=true;
+    mp5.PrimaryAttack();Check(mp5.Status()==TMPStatus::Applied&&mp5.m_iClip==29&&Bits(mp5.Spread().scalar)==Bits(.35F));
+    Check(Bits(mp5.ActionState().primary)==Bits(float(double(10.F)+.06))&&mp5.ActionState().secondary==11.F);
+    Check(Bits(lastShotAngles.x)==Bits(1.F+(.1F+.25F))&&Bits(lastShotAngles.y)==Bits(2.F+(.2F-.5F))&&
+        Bits(lastShotAngles.z)==Bits(3.F+(.3F+.75F)));
+    globals.time=12;mp5.m_iClip=75;mp5.PrimaryAttack();Check(mp5.m_iClip==74);
+    globals.time=14;mp5.m_iClip=1;grantOnHit=5;mp5.PrimaryAttack();grantOnHit=0;
+    Check(mp5.m_iClip==5&&Bits(mp5.ActionState().primary)==Bits(float(double(14.F)+.06)));
+    globals.time=16;frame.infiniteAmmo=true;mp5.m_iClip=1;mp5.PrimaryAttack();frame.infiniteAmmo=false;
+    Check(mp5.m_iClip==1&&Bits(mp5.ActionState().primary)==Bits(float(double(16.F)+.06)));
+    globals.time=18;mp5.SecondaryAttack();Check(mp5.m_pfnThink&&Bits(mp5.pev->nextthink)==Bits(18.F+.3F)&&
+        mp5.ActionState().primary==19.25F&&player.pev->sequence>=0);
+    globals.time=mp5.pev->nextthink;const auto beforeMP5Melee=meleeCalls;mp5.DelayedMelee();
+    Check(meleeCalls==beforeMP5Melee+1&&!mp5.m_pfnThink);
+    globals.time=22;mp5.m_iClip=20;mp5.Reload();Check(!mp5.m_iClip&&mp5.m_fInReload);
+    globals.time=mp5.ActionState().ownerAttack;mp5.ItemPostFrame();Check(mp5.m_iClip==30&&!mp5.m_fInReload&&player.m_rgAmmo[1]==10);
+    globals.time=26;frame.pressed=0x40;player.pev->button=0x40;mp5.ItemPostFrame();
+    Check(mp5.ActionState().aiming&&player.pev->fov==50);
+    globals.time=28;mp5.m_iClip=0;mp5.m_fFireOnEmpty=1;mp5.PrimaryAttack();Check(mp5.Status()==TMPStatus::Applied);
+    Check(player.pev->weaponanim==20);mp5.WeaponIdle();
+    Check(mp5.Status()==TMPStatus::Applied&&mp5.ActionState().idle==28.F&&player.pev->weaponanim==20);
+    goldcraft::inventory::Snapshot mp5Snapshot;Check(mp5.SaveInventorySnapshot(mp5Snapshot)&&mp5Snapshot.kind!=snapshot.kind);
+    Check(!mp5.RestoreInventorySnapshot(snapshot));
+    mp5.Holster();Check(mp5.ActionState().ownerAttack==29.F&&!mp5.m_pfnThink);
+    globals.time=30;Check(mp5.Deploy());mp5.m_iClip=30;globals.time=32;
+    failEffect=true;mp5.PrimaryAttack();Check(mp5.Status()==TMPStatus::MissingBackend&&mp5.m_iClip==30);
+    failEffect=false;mp5.PrimaryAttack();Check(mp5.Status()==TMPStatus::Applied&&mp5.m_iClip==29);
+    if(argc!=12)return 18;
+    std::ifstream mp5Cases(argv[8]),mp5Expected(argv[9]);if(!mp5Cases||!mp5Expected)return 18;
+    unsigned mp5Rows{};
+    while(mp5Cases>>std::ws&&mp5Cases.peek()!=std::char_traits<char>::eof())
+    {
+        std::array<unsigned,12> row{};for(auto& value:row)if(!(mp5Cases>>std::hex>>value))return 19;
+        current=true;failEffect=false;cancel=-1;frame.firstDrawn=false;frame.pressed=0;
+        player.pev->health=100;player.pev->deadflag=DEAD_NO;player.pev->movetype=0;
+        player.pev->button=0;player.pev->waterlevel=0;
+        mp5.Spawn();mp5.m_iPrimaryAmmoType=1;player.m_rgAmmo[1]=0;mp5.m_iClip=30;
+        Check(mp5.Bind(player,prepared,backends)==TMPStatus::Ready&&mp5.Deploy());
+        events.clear();shotLatch=0;shotLatchDeadline=0;globals.time=Float(row[0]);mp5.m_iClip=int(row[1]);
+        auto& state=const_cast<MagazineActionState&>(mp5.ActionState());
+        state.primary=Float(row[2]);state.secondary=state.idle=state.ownerAttack=0;
+        state.action=int(row[3]);state.aiming=row[7]!=0;
+        frame.pressed=row[4];player.pev->waterlevel=int(row[5]);mp5.m_fFireOnEmpty=int(row[6]);
+        frame.infiniteAmmo=row[8]!=0;frame.originalFlags=row[9];
+        auto& spread=const_cast<SpreadState&>(mp5.Spread());spread.scalar=Float(row[10]);spread.recoveryDeadline=Float(row[11]);spread.vector={.01F,.01F,.01F};
+        globals.v_forward={1,2,3};globals.v_up={4,5,6};globals.v_right={7,8,9};
+        for(auto* value:{mp5.pev,player.pev})
+        {value->origin={11,12,13};value->view_ofs={1,2,3};value->velocity={4,5,6};value->v_angle={1,2,3};value->punchangle={.1F,.2F,.3F};}
+        mp5.PrimaryAttack();
+        std::vector<unsigned> actual{unsigned(mp5.m_iClip),Bits(state.primary),Bits(state.secondary),Bits(state.idle),0,
+            Bits(spread.scalar),Bits(spread.recoveryDeadline),unsigned(shotLatch),Bits(shotLatchDeadline)};
+        actual.insert(actual.end(),events.begin(),events.end());
+        std::string line;if(!std::getline(mp5Expected,line))return 20;std::istringstream input(line);
+        std::vector<unsigned> wanted;unsigned word;while(input>>std::hex>>word)wanted.push_back(word);
+        if(!input.eof()||actual!=wanted)
+        {std::cerr<<"MP5 SDK original Primary mismatch row "<<mp5Rows<<" actual/wanted "<<actual.size()<<'/'<<wanted.size()<<'\n';return 21;}
+        ++mp5Rows;
+    }
+    Check(mp5Rows==320);if(mp5Expected>>std::ws&&mp5Expected.peek()!=std::char_traits<char>::eof())return 22;
+    std::ifstream mp5Transitions(argv[10]),mp5TransitionExpected(argv[11]);
+    if(!mp5Transitions||!mp5TransitionExpected)return 23;
+    unsigned mp5TransitionRows{};
+    while(mp5Transitions>>std::ws&&mp5Transitions.peek()!=std::char_traits<char>::eof())
+    {
+        std::array<unsigned,15> row{};for(auto& value:row)if(!(mp5Transitions>>std::hex>>value))return 24;
+        current=true;failEffect=false;cancel=-1;player.pev->waterlevel=0;player.pev->button=0;
+        frame.firstDrawn=false;frame.condition3AA=false;frame.pendingGate=false;frame.pendingGateTime=0;frame.toggleAim=true;
+        mp5.Spawn();mp5.m_iPrimaryAmmoType=1;mp5.m_iClip=30;
+        Check(mp5.Bind(player,prepared,backends)==TMPStatus::Ready&&mp5.Deploy());
+        events.clear();transitionMode=true;const unsigned op=row[0];globals.time=Float(row[1]);mp5.m_iClip=int(row[2]);
+        auto& state=const_cast<MagazineActionState&>(mp5.ActionState());
+        state={int(row[2]),0,int(row[3]),0,0,0,row[4]!=0,row[12]!=0,false,
+            Float(row[8]),Float(row[9]),Float(row[10]),0,Float(row[11])};
+        frame.originalFlags=row[5];player.pev->velocity={Float(row[6]),0,0};frame.condition3AA=row[7]!=0;
+        frame.pressed=(op==1||op==2)?0x40:0;player.pev->button=frame.pressed;
+        frame.pendingGate=row[13]!=0;frame.pendingGateTime=Float(row[14]);
+        if(op==3)mp5.Holster();else mp5.ItemPostFrame();
+        std::vector<unsigned> actual{unsigned(state.action),state.aiming,Bits(state.primary),Bits(state.secondary),Bits(state.extra),
+            Bits(state.idle),Bits(state.ownerAttack),state.pendingReload};actual.insert(actual.end(),events.begin(),events.end());
+        std::string line;if(!std::getline(mp5TransitionExpected,line))return 25;std::istringstream input(line);
+        std::vector<unsigned> wanted;unsigned word;while(input>>std::hex>>word)wanted.push_back(word);
+        if(!input.eof()||actual!=wanted)
+        {std::cerr<<"MP5 SDK original transition mismatch row "<<mp5TransitionRows<<" op "<<op<<'\n';return 26;}
+        ++mp5TransitionRows;transitionMode=false;
+    }
+    Check(mp5TransitionRows==90);if(mp5TransitionExpected>>std::ws&&mp5TransitionExpected.peek()!=std::char_traits<char>::eof())return 27;
+    std::cout<<"MP5 actual SDK lifecycle: "<<checks-beforeMP5<<" checks; controlled transport/damage, no runtime registry or gameplay\n";
+#endif
     std::cout<<"TMP actual SDK core: "<<rows<<" original Primary / "<<worldRows<<" world / "<<transitionRows
         <<" transitions; "<<checks<<" checks, zero failures; external consumers controlled\n";
 }

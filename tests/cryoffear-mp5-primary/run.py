@@ -84,6 +84,10 @@ def main():
                 capture_output=True, text=True, timeout=30)
             (output / (name + '.log')).write_text(result.stdout + result.stderr, 'utf-8')
             negatives.append(dict(name=name, expected=wanted, actual=result.returncode, passed=result.returncode == wanted))
+        stale = subprocess.run([str(executable), str(output / 'cases.txt'), str(output / 'expected.txt'), '--stale-angles'],
+            cwd=output, capture_output=True, text=True, timeout=30)
+        (output / 'stale-angles.log').write_text(stale.stdout + stale.stderr, 'utf-8')
+        negatives.append(dict(name='pre-recoil-angle-snapshot', expected=5, actual=stale.returncode, passed=stale.returncode == 5))
     after = {str(path): sha(path) for path in sorted(dependencies)}
     success = not built.returncode and tested is not None and not tested.returncode and before == after and \
         compiler_hash == sha(args.compiler) and all(value['passed'] for value in negatives)

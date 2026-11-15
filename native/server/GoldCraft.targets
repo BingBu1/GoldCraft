@@ -269,6 +269,19 @@
       <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\guest\cof\server\mp5_weapon.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\guest\cof\mp5_primary.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_tmp_factory.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>

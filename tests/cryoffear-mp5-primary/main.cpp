@@ -25,6 +25,7 @@ namespace
 {
 using namespace guest::cof;
 unsigned checks{};
+bool staleShotAngles{};
 void Check(bool value, int line)
 {
     ++checks;
@@ -37,6 +38,7 @@ struct Context
 {
     MP5PrimaryState state{};
     MP5PrimaryFrame frame{};
+    MP5Vector punchAngles{.1F, .2F, .3F};
     std::vector<unsigned> events;
     unsigned effects{8}, latch{}, calls{}, failAt{}, cancelAt{};
     float latchDeadline{};
@@ -71,7 +73,9 @@ bool Effect(void* value, const MP5PrimaryEvent& e) noexcept
     case MP5PrimaryEffect::FireEvent:
         c.Event(7, Bits(a[0]), Bits(a[1]), Bits(a[2]), Bits(b[0]), Bits(b[1]), Bits(b[2]), e.value, e.other); break;
     case MP5PrimaryEffect::PlayerFire: c.Event(34); break;
-    case MP5PrimaryEffect::Recoil: c.Event(8, Bits(a[0]), Bits(a[1]), Bits(a[2])); break;
+    case MP5PrimaryEffect::Recoil:
+        c.Event(8, Bits(a[0]), Bits(a[1]), Bits(a[2]));
+        c.punchAngles[0] += .25F; c.punchAngles[1] -= .5F; c.punchAngles[2] += .75F; break;
     case MP5PrimaryEffect::Shake: c.Event(9, Bits(e.a), Bits(e.b), Bits(e.c), Bits(float(e.value))); break;
     case MP5PrimaryEffect::ViewAnimation: c.Event(3, e.value); break;
     case MP5PrimaryEffect::PlayerMove: c.Event(33, 5); break;
@@ -100,6 +104,13 @@ bool AutoAim(void* value, float slope, MP5Vector& out) noexcept
     auto& c = *static_cast<Context*>(value); c.Event(35, Bits(slope));
     out = {1.F, 0.F, 0.F}; return c.Step();
 }
+bool ShotAngles(void* value, MP5Vector& out) noexcept
+{
+    auto& c = *static_cast<Context*>(value);
+    constexpr MP5Vector originalPunch{.1F,.2F,.3F};
+    for (unsigned i = 0; i != 3; ++i) out[i] = c.frame.viewAngles[i] + (staleShotAngles ? originalPunch[i] : c.punchAngles[i]);
+    return c.Step();
+}
 bool RandomLong(void* value, int low, int high, int& out) noexcept
 {
     auto& c = *static_cast<Context*>(value); c.Event(32, low, high);
@@ -122,7 +133,7 @@ bool Sound(void* value) noexcept
 }
 MP5PrimaryHost Host(Context& c) noexcept
 {
-    return {&c, Current, Effect, Reload, MakeVectors, GunPosition, AutoAim, RandomLong, Bullet, Sound};
+    return {&c, Current, Effect, Reload, MakeVectors, GunPosition, ShotAngles, AutoAim, RandomLong, Bullet, Sound};
 }
 Context Initial()
 {
@@ -132,7 +143,7 @@ Context Initial()
     c.frame.weaponEntity = 19; c.frame.viewModel = 32;
     c.frame.weaponOrigin = c.frame.ownerOrigin = {11, 12, 13};
     c.frame.weaponViewOffset = {1, 2, 3}; c.frame.weaponVelocityY = 5;
-    c.frame.viewAngles = {1, 2, 3}; c.frame.punchAngles = {.1F, .2F, .3F};
+    c.frame.viewAngles = {1, 2, 3};
     c.frame.initialBasis = {{1, 2, 3}, {7, 8, 9}, {4, 5, 6}}; c.frame.randomSeed = 17;
     c.events.reserve(512); return c;
 }
@@ -147,7 +158,12 @@ std::vector<unsigned> Words(const std::string& line)
 
 int main(int argc, char** argv)
 {
-    if (argc != 3) return 1;
+    if (argc != 3 && argc != 4) return 1;
+    if (argc == 4)
+    {
+        if (std::string_view(argv[3]) != "--stale-angles") return 1;
+        staleShotAngles = true;
+    }
     std::ifstream cases(argv[1]), expected(argv[2]);
     if (!cases || !expected) return 1;
     std::string row, answer; unsigned count{};

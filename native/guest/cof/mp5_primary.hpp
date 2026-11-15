@@ -24,7 +24,7 @@ struct MP5PrimaryFrame
     std::uint32_t ownerFlags{}, randomSeed{};
     int eventOwner2814{};
     bool fireOnEmpty{}, infiniteAmmo{};
-    MP5Vector weaponOrigin{}, weaponViewOffset{}, ownerOrigin{}, viewAngles{}, punchAngles{};
+    MP5Vector weaponOrigin{}, weaponViewOffset{}, ownerOrigin{}, viewAngles{};
     float weaponVelocityY{};
     MP5Basis initialBasis;
 };
@@ -58,6 +58,8 @@ struct MP5PrimaryHost
     bool (*reload)(void*) noexcept {};
     bool (*makeVectors)(void*, const MP5Vector&, MP5Basis&) noexcept {};
     bool (*gunPosition)(void*, MP5Vector&) noexcept {};
+    // Read view+punch after recoil and animation consumers, as 1005B8C1 does.
+    bool (*shotAngles)(void*, MP5Vector&) noexcept {};
     bool (*autoAim)(void*, float slope, MP5Vector&) noexcept {};
     bool (*randomLong)(void*, int low, int high, int&) noexcept {};
     bool (*bullet)(void*, const MP5PrimaryBullet&) noexcept {};

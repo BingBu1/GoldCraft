@@ -26,11 +26,15 @@ after compilation and testing.
 The 768 cases include full-auto, both aim states, all three random hip
 animations, wet/empty branches, equality at empty deadlines, last-round
 timing, infinite ammo, fractional damage truncation and legal host clips up
-to 10,000. Every one of the 21 external call boundaries also exercises
+to 10,000. Every one of the 22 external call boundaries also exercises
 cancellation and consumer failure; a rejected consumer does not revoke the
 backend or prevent a later attack. Missing consumers reject before mutation.
 Ten thousand component calls record allocation behavior. Empty/truncated
 input, corrupt expected output and excess output must fail the harness.
+
+The host supplies shot angles after the recoil callback, matching the
+original view+punch reread. The oracle mutates punch at that controlled edge;
+a host returning its earlier snapshot must fail the differential.
 
 Direction construction, native animation, ballistic damage, effect transport
 and sound emission are explicit controlled ABI edges. This is not complete

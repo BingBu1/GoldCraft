@@ -42,7 +42,7 @@ MP5PrimaryResult MP5PrimaryAttack(MP5PrimaryState& state, const MP5PrimaryFrame&
                                 const MP5PrimaryHost& host) noexcept
 {
     if (!host.current || !host.effect || !host.reload || !host.makeVectors ||
-        !host.gunPosition || !host.autoAim || !host.randomLong || !host.bullet || !host.automaticSound)
+        !host.gunPosition || !host.shotAngles || !host.autoAim || !host.randomLong || !host.bullet || !host.automaticSound)
         return MP5PrimaryResult::MissingHost;
     if (!host.current(host.context)) return MP5PrimaryResult::Cancelled;
     auto& action = state.action;
@@ -71,7 +71,7 @@ MP5PrimaryResult MP5PrimaryAttack(MP5PrimaryState& state, const MP5PrimaryFrame&
     if (!std::isfinite(f.damage) || f.damage < -2147483648.F || f.damage >= 2147483648.F ||
         !std::isfinite(state.spread.scalar) || !Finite(state.spread.vector) ||
         !Finite(f.weaponOrigin) || !Finite(f.weaponViewOffset) || !Finite(f.ownerOrigin) ||
-        !Finite(f.viewAngles) || !Finite(f.punchAngles) || !std::isfinite(f.weaponVelocityY) ||
+        !Finite(f.viewAngles) || !std::isfinite(f.weaponVelocityY) ||
         !Finite(f.initialBasis.forward) || !Finite(f.initialBasis.right) || !Finite(f.initialBasis.up))
         return MP5PrimaryResult::InvalidInput;
     MP5PrimaryEvent shell{MP5PrimaryEffect::Shell};
@@ -115,7 +115,8 @@ MP5PrimaryResult MP5PrimaryAttack(MP5PrimaryState& state, const MP5PrimaryFrame&
     if (!call.Emit(view) || !call.Emit({MP5PrimaryEffect::PlayerMove}) ||
         !call.Emit({MP5PrimaryEffect::MuzzleFlash})) return call.result;
     MP5Vector angles{};
-    for (unsigned i = 0; i != 3; ++i) angles[i] = f.viewAngles[i] + f.punchAngles[i];
+    if (!call.Run([&]() noexcept { return host.shotAngles(host.context, angles); })) return call.result;
+    if (!Finite(angles)) return MP5PrimaryResult::InvalidInput;
     if (!call.Run([&]() noexcept { return host.makeVectors(host.context, angles, basis); })) return call.result;
     MP5PrimaryBullet bullet{};
     if (!call.Run([&]() noexcept { return host.gunPosition(host.context, bullet.source); })) return call.result;

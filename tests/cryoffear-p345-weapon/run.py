@@ -24,6 +24,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--weapon',choices=('p345','tmp'),default='p345')
+    p.add_argument('--compile-mp5',action='store_true',help='Also compile the distinct MP5 SDK instance; gameplay checks still exercise the selected weapon')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -36,6 +37,8 @@ def main():
     if a.weapon=='tmp':
         sources[0]=ROOT/'tests/cryoffear-tmp-weapon/main.cpp';sources[1]=ROOT/'native/guest/cof/server/tmp_weapon.cpp'
         sources.append(ROOT/'native/guest/cof/automatic_sound.cpp')
+    if a.compile_mp5:
+        sources.extend((ROOT/'native/guest/cof/server/mp5_weapon.cpp',ROOT/'native/guest/cof/mp5_primary.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),Path(__file__).with_name('oracle.py')}
@@ -57,6 +60,14 @@ def main():
     inputs.add(Path(__file__).with_name('fidget_oracle.py'))
     with (output/'fidget-cases.txt').open('w') as cases,(output/'fidget-expected.txt').open('w') as expected:
         original['transitions' if a.weapon=='tmp' else 'fidget']=fidget_generator(a.sample,cases,expected)
+    if a.compile_mp5:
+        if a.weapon!='tmp':raise ValueError('MP5 SDK fixture currently extends the automatic weapon suite')
+        path=ROOT/'tests/cryoffear-mp5-primary/sdk_oracle.py';inputs.update((path,path.with_name('oracle.py')))
+        spec=importlib.util.spec_from_file_location('mp5_sdk_primary',path);mp5=importlib.util.module_from_spec(spec);spec.loader.exec_module(mp5)
+        with (output/'mp5-cases.txt').open('w')as cases,(output/'mp5-expected.txt').open('w')as expected:
+            original['mp5']=mp5.generate(a.sample,cases,expected)
+        with (output/'mp5-transition-cases.txt').open('w')as cases,(output/'mp5-transition-expected.txt').open('w')as expected:
+            original['mp5Transitions']=mp5.generate_transitions(a.sample,cases,expected)
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -105,6 +116,7 @@ def main():
            *('/D'+d for d in defs),*('/I'+str(v) for v in includes),'/I'+str(ROOT),'/I'+str(output),
            '/I'+str(ROOT/'native/include'),
            '/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include')]
+    if a.compile_mp5:flags.append('/DCOF_TEST_MP5=1')
     env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));temp=output/'temp';temp.mkdir();env.update(TEMP=str(temp),TMP=str(temp))
     deps=set(inputs);commands=[]
     for i,source in enumerate(sources):
@@ -121,6 +133,7 @@ def main():
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:
         extra=[str(output/name)for name in ('world-cases.txt','world-expected.txt','fidget-cases.txt','fidget-expected.txt')]
+        if a.compile_mp5:extra.extend(str(output/name)for name in ('mp5-cases.txt','mp5-expected.txt','mp5-transition-cases.txt','mp5-transition-expected.txt'))
         tested=subprocess.run([str(exe),str(output/'cases.txt'),str(output/'expected.txt'),str(model),*extra],cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     negative=[]
