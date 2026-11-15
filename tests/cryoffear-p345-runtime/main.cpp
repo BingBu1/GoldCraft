@@ -533,6 +533,12 @@ int main(int argc,char** argv)
     TMPBackends tmpBackend{};Check(runtime.Backend(player,tmpBackend));
     TMPOwnerFrame tmpFrame{};Check(tmpBackend.ownerFrame(tmpBackend.context,tmpFrame)&&
         tmpFrame.reserveLimit==90&&tmpFrame.bulletDamage==48&&!tmpFrame.firstDrawn);
+    const auto oldMask=context.enabledWeapons;context.enabledWeapons=0;
+    guest::cof::PlaySfxCall tmpAuthority{};
+    Check(PlayerAuthority(player,tmpAuthority)&&tmpAuthority.current&&tmpAuthority.current(tmpAuthority.context));
+    context.tmpEnabled=false;guest::cof::PlaySfxCall noAuthority{&context,nullptr};
+    Check(!PlayerAuthority(player,noAuthority)&&noAuthority.context==&context&&!noAuthority.current);
+    context.tmpEnabled=true;context.enabledWeapons=oldMask;
     context.tmpEnabled=false;TMPBackends rejectedTMP{};Check(!runtime.Backend(player,rejectedTMP));context.tmpEnabled=true;
     edict_t tmpEntity{};InitEdict(tmpEntity);auto* tmp=CreateTMP(tmpEntity.v);Check(tmp);
     tmp->Spawn();Check(tmp->ResourcesReady()&&tmp->m_iId==900&&tmp->m_iDefaultAmmo==30);

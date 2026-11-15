@@ -29,7 +29,7 @@ cvar_t *protocol{},*weaponMask{};
 DWORD ownerThread{};
 std::uint64_t generation{}, resources{};
 std::uint32_t admittedWeapons{};
-std::array<bool,guest::cof::Pistols.size()> menuAttempted{},menuPrepared{};
+std::array<bool,guest::cof::Firearms.size()> menuAttempted{},menuPrepared{};
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
 void Publish(std::uint32_t weapons) noexcept
 {
@@ -90,10 +90,10 @@ void GuestCofAdmissionFrame() noexcept
     std::uint32_t prepared{};
     for(unsigned i=0;i<menuAttempted.size();++i)
     {
-        const auto& weapon=guest::cof::Pistols[i];
-        const auto bit=guest::cof::PistolCapability(weapon.identity);
+        const auto& weapon=guest::cof::Firearms[i];
+        const auto bit=guest::cof::FirearmCapability(weapon.identity);
         if(!(state.weapons&bit)||!GuestCofMuzzleReady(unsigned(weapon.originalId))||
-            !HudStyleWeaponResourcesReady(weapon.hostId,guest::cof::PistolHudAmmoFrames(weapon.identity)))continue;
+            !HudStyleWeaponResourcesReady(weapon.hostId,guest::cof::FirearmHudAmmoFrames(weapon.identity)))continue;
         if(!menuAttempted[i])
         {menuAttempted[i]=true;menuPrepared[i]=PrepareBuyMenuItem(weapon.hostId);}
         if(connection->generation()!=current||GuestCofEffectsResourceSerial()!=effect)
@@ -112,8 +112,8 @@ bool GuestCofAdmitted() noexcept
 }
 bool GuestCofAdmitted(int id) noexcept
 {
-    const auto* weapon=guest::cof::FindPistol(id);
-    return weapon&&GuestCofAdmitted()&&(admittedWeapons&guest::cof::PistolCapability(weapon->identity));
+    const auto* weapon=guest::cof::FindFirearm(id);
+    return weapon&&GuestCofAdmitted()&&(admittedWeapons&guest::cof::FirearmCapability(weapon->identity));
 }
 void GuestCofAdmissionDiagnostics(std::ostream& out)
 {
@@ -130,6 +130,6 @@ void GuestCofAdmissionDiagnostics(std::ostream& out)
         << ",\"control\":" << GuestCofControlReady() << ",\"ironsight\":" << GuestCofIronsightReady()
         << ",\"mouse\":" << GuestCofMouseReady() << ",\"crosshair\":" << GuestCofCrosshairReady()
         << ",\"input\":" << GuestCofInputReady() << ",\"viewmodelContext\":" << GuestCofViewmodelReady()
-        << ",\"hud\":" << HudStyleWeaponResourcesReady(guest::cof::Pistols[0].hostId) << '}';
+        << ",\"hud\":" << HudStyleWeaponResourcesReady(guest::cof::Firearms[0].hostId) << '}';
 }
 }

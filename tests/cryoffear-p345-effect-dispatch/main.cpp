@@ -51,7 +51,7 @@ void Engine()
         Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
         else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
-        else Check(flags==1&&index==35&&(i==7||i==19)&&j==19);
+        else Check(flags==1&&index==35&&(i==7||i==19||i==14)&&j==19);
         ++playbacks;
     };
 }
@@ -252,6 +252,61 @@ int main(int argc,char** argv)
     vpView.value=23;Check(!effects.Dispatch(vp70Resources,runtimeView.binding,player,vp70,vpView,true));
     Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
     CrosshairSnapshot vpSpread{};Check(DecodeCrosshair(packets.back().bytes,vpSpread)&&vpSpread.scalar==0&&vpSpread.key==vpPresentation.key);
+    TMPResources tmpResources{};tmpResources.generation=glock.generation;tmpResources.events=glock.events;
+    tmpResources.viewModelString=100;tmpResources.models[unsigned(TMPModel::Shell)]=31;
+    TMPPrepared tmpCold{};Check(effects.FillPrepared(tmpResources,tmpCold));
+    Check(tmpCold.ballistics.customDecalMessage&&tmpCold.melee.shakeMessage&&tmpCold.particleReady&&
+        tmpCold.deployPreludeReady&&tmpCold.world==MeleeWorld::Multiplayer);
+    const auto tmpCapabilities=effects.TMPCapabilities();
+    Check((tmpCapabilities&(1u<<unsigned(TMPEffect::Shell)))&&
+        (tmpCapabilities&(1u<<unsigned(TMPEffect::FirstDraw)))&&
+        (tmpCapabilities&(1u<<unsigned(TMPEffect::KillLocalParticles)))&&
+        !(tmpCapabilities&(1u<<unsigned(TMPEffect::FireSound)))&&
+        !(tmpCapabilities&(1u<<unsigned(TMPEffect::AutomaticSound))));
+    TMPWeapon tmp;edict_t tmpEntity{};tmpEntity.serialnumber=92;tmpEntity.pvPrivateData=&tmp;
+    tmpEntity.v.pContainingEntity=&tmpEntity;tmp.pev=&tmpEntity.v;tmp.m_iId=900;
+    tmp.m_iPrimaryAmmoType=1;tmp.m_iClip=30;tmp.m_pPlayer=&player;player.m_pActiveItem=&tmp;
+    TMPEvent tmpAim{TMPEffect::Aim};tmpAim.enabled=true;tmpAim.value=50;tmpAim.a=350;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpAim,true));
+    const auto tmpPresentation=State();Check(tmpPresentation.originalWeapon==14&&tmpPresentation.aimEnabled&&
+        !tmpPresentation.revolverAngle&&tmpPresentation.key.generation>vpPresentation.key.generation);
+    const auto beforeTmpDraw=packets.size();
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,{TMPEffect::FirstDraw},true));
+    Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,{TMPEffect::FirstDraw},false)&&packets.size()==beforeTmpDraw);
+    Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,vp70,{TMPEffect::FirstDraw},true));
+    Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,{TMPEffect::FireSound},true));
+    Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,{TMPEffect::AutomaticSound},true));
+    for(bool immediate:{false,true})
+    {
+        TMPEvent kill{TMPEffect::KillLocalParticles};kill.enabled=immediate;
+        Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,kill,true));
+        ParticleMessageData killed{};Check(DecodeParticle(packets.back().bytes,killed)&&
+            killed.operation==ParticleOperation::KillLocal&&killed.immediate==immediate&&
+            packets.back().destination==MSG_ONE_UNRELIABLE);
+    }
+    TMPEvent tmpShot{TMPEffect::ShotState};tmpShot.a=1;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpShot,true));
+    Check(DecodeControl(packets.back().bytes,shot)&&shot.operation==ControlOperation::ShotState&&shot.body==1);
+    tmpShot.a=3;Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpShot,true));
+    TMPEvent tmpSmoke{TMPEffect::Gunsmoke};tmpSmoke.value=19;tmpSmoke.enabled=true;tmpSmoke.modelString=100;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpSmoke,true));
+    Check(DecodeParticle(packets.back().bytes,particle)&&particle.originalWeapon==14);
+    TMPEvent tmpShell{TMPEffect::Shell};tmpShell.first={1,2,3};tmpShell.second={4,5,6};tmpShell.value=31;tmpShell.other=1;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpShell,true)&&packets.back().bytes[0]==std::byte(TE_MODEL));
+    TMPEvent tmpView{TMPEffect::ViewAnimation};tmpView.value=15;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpView,true));
+    tmpView.value=16;Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpView,true));
+    TMPEvent tmpFire{TMPEffect::FireEvent};tmpFire.value=14;tmpFire.other=1;const auto tmpPlays=playbacks;
+    Check(effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,tmpFire,true)&&playbacks==tmpPlays+1);
+    Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    CrosshairSnapshot tmpSpread{};Check(DecodeCrosshair(packets.back().bytes,tmpSpread)&&tmpSpread.key==tmpPresentation.key&&tmpSpread.scalar==0);
+    auto wrongTMP=tmpResources;++wrongTMP.generation;
+    const auto beforeWrongTMP=packets.size();TMPEvent kill{TMPEffect::KillLocalParticles};kill.enabled=true;
+    Check(!effects.Dispatch(wrongTMP,runtimeView.binding,player,tmp,kill,true)&&packets.size()==beforeWrongTMP);
+    ++wrongTMP.events[0];wrongTMP.generation=tmpResources.generation;
+    Check(!effects.Dispatch(wrongTMP,runtimeView.binding,player,tmp,kill,true)&&packets.size()==beforeWrongTMP);
+    retireBegin=true;Check(!effects.Dispatch(tmpResources,runtimeView.binding,player,tmp,kill,true));
+    Check(packets.back().bytes.size()==ParticleBytes);retireBegin=false;valid=true;
     for(unsigned slot=1;slot<=32;++slot)
     {
         FirstDrawLifecycle ledger;FirstDrawConnection key{1,slot,0,int(slot),slot};bool drawn=true;

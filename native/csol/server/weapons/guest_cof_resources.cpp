@@ -295,10 +295,10 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
 }
 }
 
-ResourceResult PreparePistolPresentationResources(const ResourceAuthority& authority,guest::cof::Pistol pistol) noexcept
+ResourceResult PrepareFirearmPresentationResources(const ResourceAuthority& authority,guest::cof::Firearm firearm) noexcept
 {
     const auto lease=authority;
-    const auto paths=guest::cof::PistolPresentationResources(pistol);
+    const auto paths=guest::cof::FirearmPresentationResources(firearm);
     if(!lease.current||!lease.generation)return {ResourceStatus::InvalidAuthority};
     const auto current=[&]{return lease.current(lease.context);};
     if(!current())return {ResourceStatus::Cancelled};
@@ -317,6 +317,13 @@ ResourceResult PreparePistolPresentationResources(const ResourceAuthority& autho
         if(index<0)return {ResourceStatus::EngineRejected,path};
     }
     return {ResourceStatus::Prepared};
+}
+
+ResourceResult PreparePistolPresentationResources(const ResourceAuthority& authority,guest::cof::Pistol pistol) noexcept
+{
+    const auto index=static_cast<unsigned>(pistol);
+    return PrepareFirearmPresentationResources(authority,index<guest::cof::PistolKeys.size()?
+        static_cast<guest::cof::Firearm>(index):guest::cof::Firearm::Count);
 }
 
 ResourceResult PrepareP345Resources(const ResourceAuthority& authority, P345Resources& output) noexcept

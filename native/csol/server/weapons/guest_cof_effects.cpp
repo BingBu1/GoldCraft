@@ -35,6 +35,7 @@ unsigned OriginalWeapon(const CBasePlayerWeapon& item) noexcept
     if(item.m_iId==Pistols[1].hostId&&dynamic_cast<const P345Weapon*>(&item))return 7;
     if(item.m_iId==Pistols[2].hostId&&dynamic_cast<const RevolverWeapon*>(&item))return 21;
     if(item.m_iId==Pistols[3].hostId&&dynamic_cast<const VP70Weapon*>(&item))return 19;
+    if(item.m_iId==TMPHostId&&dynamic_cast<const TMPWeapon*>(&item))return 14;
     return 0;
 }
 float Spread(const CBasePlayerWeapon& item) noexcept
@@ -43,6 +44,7 @@ float Spread(const CBasePlayerWeapon& item) noexcept
     if(auto* weapon=dynamic_cast<const P345Weapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const RevolverWeapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const VP70Weapon*>(&item))return weapon->Spread().scalar;
+    if(auto* weapon=dynamic_cast<const TMPWeapon*>(&item))return weapon->Spread().scalar;
     return -1;
 }
 }
@@ -168,6 +170,24 @@ std::uint32_t GlockEffects::VP70Capabilities() const noexcept
     return Current()?result:0;
 }
 bool GlockEffects::FillPrepared(const VP70Resources& resources,VP70Prepared& prepared) noexcept
+{
+    if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
+    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
+    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
+    prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
+    return Current();
+}
+std::uint32_t GlockEffects::TMPCapabilities() const noexcept
+{
+    if(!Current())return 0;
+    constexpr auto common=(1u<<unsigned(TMPEffect::FirstDraw))-1u;
+    auto result=P345Capabilities()&common&~(1u<<unsigned(TMPEffect::FireSound));
+    if(policy_.nativeMultiplayer&&policy_.noCustomClothing)result|=1u<<unsigned(TMPEffect::FirstDraw);
+    if(MessageId(particle_))result|=1u<<unsigned(TMPEffect::KillLocalParticles);
+    return Current()?result:0;
+}
+bool GlockEffects::FillPrepared(const TMPResources& resources,TMPPrepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
     prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
@@ -363,6 +383,33 @@ bool GlockEffects::Dispatch(const VP70Resources& resources,const OwnerBinding& b
     return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,resources.models[unsigned(VP70Model::Shell)]},
         binding,player,weapon,translated,19,nullptr,VP70Capabilities());
 }
+bool GlockEffects::Dispatch(const TMPResources& resources,const OwnerBinding& binding,
+    CBasePlayer& player,CBasePlayerWeapon& weapon,const TMPEvent& event,bool firstDrawn) noexcept
+{
+    if(event.kind==TMPEffect::FirstDraw||event.kind==TMPEffect::KillLocalParticles)
+    {
+        if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events||
+            !player.pev||!weapon.pev||OriginalWeapon(weapon)!=14||
+            !(TMPCapabilities()&(1u<<unsigned(event.kind))))return false;
+        auto* owner=player.edict();auto* item=weapon.edict();if(!owner||!item)return false;
+        Lease lease{*this,binding,player,weapon,owner,item,owner->serialnumber,item->serialnumber,{}};
+        if(!Active(&lease))return false;
+        if(event.kind==TMPEffect::FirstDraw)return firstDrawn;
+        return Sent(SendKillLocalParticles(player,event.enabled,particle_,{&lease,Active}))&&Active(&lease);
+    }
+    constexpr std::array mapping{GlockEffect::DeployPrelude,GlockEffect::ReserveHud,GlockEffect::InventoryChanged,
+        GlockEffect::ViewAnimation,GlockEffect::EmptyClick,GlockEffect::Shell,GlockEffect::Gunsmoke,
+        GlockEffect::FireEvent,GlockEffect::Recoil,GlockEffect::Shake,GlockEffect::Aim,GlockEffect::FireSound,
+        GlockEffect::ShotState,GlockEffect::ShotLatch,GlockEffect::PickupSound,GlockEffect::DeployReset,
+        GlockEffect::Sleeve,GlockEffect::AmmoPickupSound};
+    static_assert(mapping.size()==unsigned(TMPEffect::FirstDraw));
+    static_assert([&]{for(unsigned i=0;i<mapping.size();++i)if(unsigned(mapping[i])!=i)return false;return true;}());
+    const auto index=unsigned(event.kind);if(index>=mapping.size())return false;
+    const GlockEvent translated{mapping[index],event.first,event.second,event.a,event.b,event.c,
+        event.value,event.other,event.enabled,event.modelString};
+    return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,resources.models[unsigned(TMPModel::Shell)]},
+        binding,player,weapon,translated,14,nullptr,TMPCapabilities());
+}
 bool GlockEffects::Dispatch(const RevolverResources& resources,const OwnerBinding& binding,
     CBasePlayer& player,CBasePlayerWeapon& weapon,const RevolverEvent& event,RevolverOwnerState state) noexcept
 {
@@ -470,7 +517,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         CSOL_UpdateWeaponInventory(&player);
         return Active(&lease);
     case GlockEffect::ViewAnimation:
-        if (event.value < 0 || event.value > (originalWeapon==21?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
+        if (event.value < 0 || event.value > (originalWeapon==14?15:originalWeapon==21?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
         weapon.SendWeaponAnim(event.value, 0);
         return Active(&lease);
     case GlockEffect::DeployReset:
@@ -481,7 +528,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
     case GlockEffect::Aim:
         return Presentation(lease, event.enabled, event.value, event.a);
     case GlockEffect::Shell:
-        return (originalWeapon==7||originalWeapon==19)&&event.value==resources.shellModel&&event.other==1&&
+        return (originalWeapon==7||originalWeapon==19||originalWeapon==14)&&event.value==resources.shellModel&&event.other==1&&
             Sent(EjectWeaponShell({event.first,event.second,event.a,event.value,event.other},call));
     case GlockEffect::Gunsmoke:
         if (!event.enabled || event.other != 0 || event.modelString != resources.viewModelString ||
@@ -504,7 +551,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
     case GlockEffect::Shake:
         return Sent(ShakePlayers({player.pev->origin, event.a, event.b, event.c, float(event.value)}, shake_, call).status);
     case GlockEffect::ShotState:
-        return event.a == (originalWeapon==21?4.0F:3.0F) &&
+        return event.a == (originalWeapon==14?1.0F:originalWeapon==21?4.0F:3.0F) &&
             SendShotState(player,static_cast<std::uint8_t>(event.a),control_,control)==ControlStatus::Sent;
     case GlockEffect::FireSound:
     {

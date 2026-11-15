@@ -32,6 +32,13 @@ int main(int argc,char** argv)
     Check(module&&module->hudState&&module->ammoKind==csol::hud_style::AmmoKind::Magazine,
         "real statically registered leftwheel module supplies typed frame producer");
     Check(FindWeaponModule(896)&&FindWeaponModule(897),"previous guest modules remain registered");
+    for(int id:{899,900})
+    {
+        const auto* guest=FindWeaponModule(id);
+        Check(guest&&guest->ammoKind==csol::hud_style::AmmoKind::Magazine&&!guest->dynamicCrosshair&&
+            !guest->drawHud&&guest->ammoRect.right==32&&guest->ammoRect.bottom==32,
+            "automatic/VP70 static magazine modules use their own typed original icon and single shared crosshair");
+    }
     crosshairCalls=0;
     for(const auto* item:WeaponModules())if(item->drawHud)item->drawHud(13,1,false);
     Check(crosshairCalls==1&&crosshairHidden==13&&crosshairIntermission==1&&!crosshairAmmo,
@@ -94,6 +101,31 @@ int main(int argc,char** argv)
             const std::vector<char> data{std::istreambuf_iterator<char>(input),{}};
             Put(entry.path().lexically_relative(root).generic_string(),std::string(data.begin(),data.end()));
         }
+        if(std::filesystem::exists(root/"resource/csol/hud/v1/cof_tmp_ammo.tga"))
+        {
+            definition.id=900;definition.name="weapon_cof_tmp";definition.slot=0;
+            state={};state.id=900;state.slot=0;state.kind=csol::hud_style::AmmoKind::Magazine;state.reserve=500;state.clip=30;
+            retryAfter=0;Prepare();PrepareSelection();
+            Check(loaded&&HudStyleWeaponResourcesReady(900,1),"actual original TMP static icon prepares through real catalog and texture owner");
+            if(!loaded||!HudStyleWeaponResourcesReady(900,1))return 1;
+            const auto& actual=selectionCards.at(900);const auto& source=catalog.weapons.at("weapon_cof_tmp");
+            const auto expected=csol::DecodeTGA(files.at(source.ammo));const auto& upload=capture.uploads.at(actual.ammo.id);
+            Check(expected.RGBA==upload.RGBA&&upload.Width==32&&upload.Height==32,"actual TMP original magazine pixels reach owned texture unchanged");
+            const auto tmpReads=reads;
+            for(int clip:{0,1,30,75,511,65535,std::numeric_limits<int>::max()})
+            {
+                state.clip=clip;Draw();
+                Check(ammoImage.id==actual.ammo.id&&WeaponDigits()==std::to_string(clip)+"500","TMP static magazine retains complete authoritative clip/reserve and its own icon");
+            }
+            Check(reads==tmpReads,"TMP numeric updates do not open or upload resources");
+            capture.record=false;allocation_probe::calls=0;allocation_probe::active=true;
+            for(int i=0;i<100;++i){state.clip=i;BeginHudStyle(0,0);DrawHudStyle();Paint();}
+            allocation_probe::active=false;capture.record=true;
+            Check(allocation_probe::calls==0&&reads==tmpReads,"100 TMP hot redraws allocate and read zero resources");
+            HudStyleVideoInit();Check(capture.live.empty(),"TMP texture ownership retires on video replacement");
+        }
+        else
+        {
         retryAfter=0;Prepare();PrepareSelection();
         Check(loaded&&HudStyleWeaponResourcesReady(898,6),"actual thirteen-file author output prepares real catalog and full row");
         const auto& actualFrames=selectionCards.at(898).ammoFrames;
@@ -109,6 +141,7 @@ int main(int argc,char** argv)
                 "real exported resource frame and numeric ammunition agree");
         }
         HudStyleVideoInit();Check(capture.live.empty(),"real converted frame ownership retires on video replacement");
+        }
     }
     extension=nullptr;privateFont=nullptr;surface=nullptr;schemes=nullptr;
     std::cout<<"Revolver actual HUD checks="<<checks<<" failures="<<failures<<'\n';

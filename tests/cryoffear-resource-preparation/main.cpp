@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "native/guest/cof/catalog.hpp"
 #include "native/csol/server/weapons/guest_cof_resources.hpp"
 
 #include <algorithm>
@@ -427,42 +428,43 @@ int main(int argc, char** argv)
         exercise.template operator()<TMPResources>(TMPModels, TMPSounds, TMPLocalWaves, TMPEvents,
             TMPInventory, TMPParticle, TMPClipTexture, PrepareTMPResources, 16, -4.75f, 3.f,
             "weapon_tmp", "\"3\"", "TMP", "\"0\"", 0);
-        if(argc==5)for(auto pistol:{guest::cof::Pistol::Glock,guest::cof::Pistol::P345})
+        if(argc==5)for(const auto& definition:guest::cof::Firearms)
         {
             fixture=Fixture{};
-            const auto paths=guest::cof::PistolPresentationResources(pistol);
+            const auto firearm=definition.identity;
+            const auto paths=guest::cof::FirearmPresentationResources(firearm);
             for(const auto* path:paths)fixture.files.emplace(path,Read(std::filesystem::path(argv[4])/path));
             ResourceAuthority authority{&fixture,Current,19};
-            Check(bool(PreparePistolPresentationResources(authority,pistol)),"actual three authored HUD dependencies registered");
+            Check(bool(PrepareFirearmPresentationResources(authority,firearm)),"actual three authored HUD dependencies registered");
             Check(fixture.steps==6&&fixture.precaches==3&&fixture.loads==0&&fixture.generics.size()==3,
                 "HUD cold preflight precedes generic registration without hot reads");
             for(const auto* path:paths)
             {
                 fixture.Reset();fixture.missing=path;
-                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::MissingFile&&fixture.precaches==0,
+                Check(PrepareFirearmPresentationResources(authority,firearm).status==ResourceStatus::MissingFile&&fixture.precaches==0,
                     "missing HUD resource rejects before any generic registration");
             }
             for(int edge=1;edge<=6;++edge)
             {
                 fixture.Reset();fixture.cancelAt=edge;
-                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::Cancelled,
+                Check(PrepareFirearmPresentationResources(authority,firearm).status==ResourceStatus::Cancelled,
                     "every HUD callback observes generation retirement");
             }
             for(int edge=4;edge<=6;++edge)
             {
                 fixture.Reset();fixture.rejectAt=edge;
-                Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::EngineRejected,
+                Check(PrepareFirearmPresentationResources(authority,firearm).status==ResourceStatus::EngineRejected,
                     "engine generic rejection never reports ready");
             }
             fixture.Reset();auto invalid=authority;invalid.current=nullptr;
-            Check(PreparePistolPresentationResources(invalid,pistol).status==ResourceStatus::InvalidAuthority,
+            Check(PrepareFirearmPresentationResources(invalid,firearm).status==ResourceStatus::InvalidAuthority,
                 "HUD needs a real generation provider");
             fixture.Reset();g_engfuncs.pfnPrecacheGeneric=nullptr;
-            Check(PreparePistolPresentationResources(authority,pistol).status==ResourceStatus::MissingEngine,
+            Check(PrepareFirearmPresentationResources(authority,firearm).status==ResourceStatus::MissingEngine,
                 "HUD missing actual generic consumer rejects");
             g_engfuncs.pfnPrecacheGeneric=Generic;
-            Check(PreparePistolPresentationResources(authority,guest::cof::Pistol::Revolver).status==ResourceStatus::InvalidMetadata,
-                "unregistered Revolver presentation is not reported available");
+            Check(PreparePistolPresentationResources(authority,guest::cof::Pistol::Count).status==ResourceStatus::InvalidMetadata,
+                "invalid family identity is not reported available");
         }
     }
     catch (const std::exception& e) { std::printf("%s\n", e.what()); return 3; }

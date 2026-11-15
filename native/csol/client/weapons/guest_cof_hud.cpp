@@ -34,5 +34,19 @@ constinit const WeaponModule revolverModule{
     .ammoSprite="sprites/guest/cof/revolver_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false,.hudState=RevolverHudState};
 const WeaponModuleRegistration revolverRegistration{revolverModule};
+constexpr int vp70Ids[]{guest::cof::FindFirearm(guest::cof::Firearm::VP70)->hostId};
+constinit const WeaponModule vp70Module{
+    .ids=vp70Ids,.order=93,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/vp70_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false};
+const WeaponModuleRegistration vp70Registration{vp70Module};
+constexpr int tmpIds[]{guest::cof::FindFirearm(guest::cof::Firearm::TMP)->hostId};
+constinit const WeaponModule tmpModule{
+    .ids=tmpIds,.order=94,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/tmp_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false};
+const WeaponModuleRegistration tmpRegistration{tmpModule};
 }
 }

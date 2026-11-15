@@ -2518,7 +2518,8 @@
     "docs/2026-11-15_接入-TMP通用枪械目录与客户端路由-report.md",
     "tests/cof-sprint-transition/README.md",
     "tests/csol-action-stamina/README.md",
-    "docs/2026-11-15_修复-CoF奔跑转换与实际体力夹具-report.md"
+    "docs/2026-11-15_修复-CoF奔跑转换与实际体力夹具-report.md",
+    "docs/2026-11-15_接入-TMP生产Host与原图HUD-report.md"
   ],
   "trees": {
     "native": [

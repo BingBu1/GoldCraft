@@ -35,7 +35,7 @@ bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mo
 cvar_t protocol{};
 cvar_t weaponMask{};
 bool p345Hud{true},p345Muzzle{true},revolverHud{true},revolverMuzzle{true};
-bool vp70Hud{true},vp70Muzzle{true};
+bool vp70Hud{true},vp70Muzzle{true},tmpHud{true},tmpMuzzle{true};
 GuestCofResourceState resources;
 csol::WeaponCurrent current;
 std::map<std::string, cmd_function_t> commands;
@@ -88,7 +88,7 @@ GuestCofResourceState GuestCofResourcesState() noexcept{return resources;}
 bool GuestCofParticlesReady() noexcept{return particles;}
 bool GuestCofEffectsReady() noexcept{return effects&&audio;}
 bool GuestCofMuzzleReady() noexcept{return muzzle;}
-bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle)||(originalWeapon==21&&revolverMuzzle)||(originalWeapon==19&&vp70Muzzle));}
+bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept{return muzzle&&(originalWeapon==3||(originalWeapon==7&&p345Muzzle)||(originalWeapon==21&&revolverMuzzle)||(originalWeapon==19&&vp70Muzzle)||(originalWeapon==14&&tmpMuzzle));}
 bool GuestCofPointLightsReady() noexcept{return points;}
 bool GuestCofControlReady() noexcept{return control;}
 bool GuestCofIronsightReady() noexcept{return ironsight;}
@@ -98,8 +98,8 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899)&&frames==1)||(id==898&&frames==6));return hud&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud);}
-bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897||id==898||id==899);++menuLoads;if(retireInMenu)++generation;return menu;}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900)&&frames==1)||(id==898&&frames==6));return hud&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
+bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897||id==898||id==899||id==900);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
 int main(int argc,char** argv)
@@ -122,6 +122,15 @@ int main(int argc,char** argv)
         CHECK(buy.images.contains(898)&&buy.weaponInfo.items.contains(898)&&buy.images.at(898).width==170&&buy.images.at(898).height==80);
         const auto download=csol::hud_style::ResourcePaths(catalog);
         for(const auto& frame:revolver.ammoFrames)CHECK(!frame.empty()&&std::find(download.begin(),download.end(),frame)!=download.end());
+    }
+    if(catalog.weapons.contains("weapon_cof_tmp"))
+    {
+        const auto& tmp=catalog.weapons.at("weapon_cof_tmp");
+        CHECK(tmp.title=="客串武器·MP9"&&tmp.ammoFrames[0].empty()&&!tmp.ammo.empty());
+        CHECK(buy.images.contains(900)&&buy.weaponInfo.items.contains(900)&&
+            buy.images.at(900).width==170&&buy.images.at(900).height==80);
+        CHECK(buy.weaponInfo.items.at(900).description.find("冲锋枪")!=std::string::npos);
+        const auto* item=csol::buy::Find(900);CHECK(item&&item->category==3&&item->extendedPrice==2000);
     }
     CHECK(buy.weaponInfo.items.at(896).table==false&&buy.weaponInfo.items.at(896).grade==std::array<int,3>{-1,-1,-1});
     const auto paths=csol::buy::Resources(buy);CHECK(std::find(paths.begin(),paths.end(),"gfx/csol/buy/cof_glock.tga")!=paths.end());
@@ -217,7 +226,14 @@ int main(int argc,char** argv)
     CHECK(ParsePistolAdmission("1","").weapons==1&&ParsePistolAdmission("1","3").weapons==3);
     CHECK(ParsePistolAdmission("0","3").weapons==0&&ParsePistolAdmission("1","0").weapons==0);
     for(const char* invalid:{"-1","+3"," 3","3 ","3x","16","4294967296"})CHECK(ParsePistolAdmission("1",invalid).weapons==0);
-    CHECK(!GuestCofAdmitted(900)&&weaponMask.value==15); // No TMP HUD/admission contract enabled yet.
+    CHECK(!GuestCofAdmitted(900)&&weaponMask.value==15); // Resources are still absent.
+    resources.weapons|=guest::cof::FirearmCapability(guest::cof::Firearm::TMP);
+    GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(900)&&weaponMask.value==31);
+    current.id=900;Press();CreateMove(.01F,&chain,1);CHECK(chain.buttons&IN_CANCEL);Release();
+    tmpHud=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(900)&&GuestCofAdmitted(899)&&weaponMask.value==15);
+    tmpHud=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(900)&&weaponMask.value==31);
+    tmpMuzzle=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(900)&&weaponMask.value==15);
+    tmpMuzzle=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(900)&&weaponMask.value==31);
     generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     CHECK(mountMoves>0);

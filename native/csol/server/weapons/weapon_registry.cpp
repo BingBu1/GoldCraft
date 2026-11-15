@@ -260,7 +260,7 @@ bool CSOL_SendWeaponPickup(CBasePlayer* player,int id)
 }
 bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
-    if(const auto* guest=::guest::cof::FindPistol(id)) {
+    if(const auto* guest=::guest::cof::FindFirearm(id)) {
         price=guest->ammunitionPrice;count=guest->ammunitionCount;return true;
     }
     if (id == csol::m249ex::Id) { price=csol::m249ex::AmmoCost;count=csol::m249ex::AmmoBuyAmount;return true; }

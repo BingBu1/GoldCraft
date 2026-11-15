@@ -149,6 +149,7 @@ struct ResourceResult
 // The caller authenticates map/content generation and caches this value before
 // input starts. Failure leaves output unchanged; precache side effects remain.
 // This is resource preparation, not P-model grip or effect/backend admission.
+ResourceResult PrepareFirearmPresentationResources(const ResourceAuthority&,guest::cof::Firearm) noexcept;
 ResourceResult PreparePistolPresentationResources(const ResourceAuthority&,guest::cof::Pistol) noexcept;
 ResourceResult PrepareP345Resources(const ResourceAuthority&, P345Resources&) noexcept;
 ResourceResult PrepareRevolverResources(const ResourceAuthority&, RevolverResources&) noexcept;
