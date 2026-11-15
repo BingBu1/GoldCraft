@@ -1,6 +1,15 @@
 {
   "format": 1,
   "files": [
+    "tools/nightfall-update/package.py",
+    "tools/nightfall-update/Configuration.ps1",
+    "tools/nightfall-update/Publication.ps1",
+    "tools/nightfall-update/Hash.ps1",
+    "tools/nightfall-update/README.md",
+    "tests/nightfall-update/run.py",
+    "tests/nightfall-update/hash.ps1",
+    "docs/2026-11-15_交付-永夜服务器累计更新包-report.md",
+    "publication.json",
     "docs/2026-11-15_接入-绝命档案原版疾跑输入-report.md",
     "tests/csol-standalone-input/README.md",
     "tests/cryoffear-automatic-sound/README.md",
@@ -1353,7 +1362,6 @@
     "patches/ysm-geo-neoforge.patch",
     "patches/zombieplague-reapi.json",
     "patches/zombieplague-reapi.patch",
-    "publication.json",
     "sandbox-policy.json",
     "sources.lock.json",
     "tests/bw-contrast/BwContrastInteropMain.java",
