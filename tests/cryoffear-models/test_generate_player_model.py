@@ -84,6 +84,27 @@ class RealGeometry(unittest.TestCase):
             with self.subTest(model=name):
                 output, receipt = GENERATOR.generate(source, self.template, calibration, candidate=True)
                 rebuilt = Studio(output)
+                resident_bytes = rebuilt.i(188)
+                # The real native cache discards the pixel tail after upload.
+                for offset in (144, 152, 160, 168, 176, 184, 200, 208, 216):
+                    self.assertLessEqual(rebuilt.i(offset), resident_bytes)
+                for body_index in range(rebuilt.i(204)):
+                    body_at = rebuilt.i(208) + 76*body_index
+                    self.assertLessEqual(body_at + 76, resident_bytes)
+                    model_at = rebuilt.i(body_at + 72)
+                    for model_index in range(rebuilt.i(body_at + 64)):
+                        at = model_at + 112*model_index
+                        self.assertLessEqual(at + 112, resident_bytes)
+                        for count_at, index_at, size in ((72, 76, 20), (80, 84, 1), (80, 88, 12),
+                                                         (92, 96, 1), (92, 100, 12)):
+                            self.assertLessEqual(rebuilt.i(at + index_at) + size*rebuilt.i(at + count_at),
+                                                 resident_bytes)
+                self.assertLessEqual(rebuilt.i(216) + 88*len(rebuilt.attachments), resident_bytes)
+                cursor = resident_bytes
+                for i, texture in enumerate(rebuilt.textures):
+                    self.assertEqual(rebuilt.i(rebuilt.i(184) + 80*i + 76), cursor)
+                    cursor += len(texture['pixels'])
+                self.assertEqual(cursor, len(output))
                 self.assertTrue(receipt['candidate'])
                 self.assertFalse(receipt['deliverable'])
                 self.assertEqual(rebuilt.i(164), 1)

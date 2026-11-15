@@ -91,3 +91,9 @@ The suite also authors and validates Revolver (45 files), including untouched St
 ## TMP checkpoint (2026-11-15)
 
 TMP now participates in the real resource suite. Its exact original16 sequences, aim0/-4.75/3 with FOV50, five local Studio samples and distinct native loop/end resources are checked. Cold preparation passes653 TMP checks (3463 across five guns); the resource author passes351 checks /27 CLI cases and creates47 TMP assets with original bytes preserved. These are cold/parser/candidate checks, without registry, deployment, rendered/audio or live performance acceptance. See docs/2026-11-15_接入-TMP冷资源与原生工厂-report.md.
+
+## MP5 authored player model (2026-11-15)
+
+The resource suite now requires `--mp5-player-model <workspace-build-p_mp5.mdl>`. The corresponding pack command uses `--component mp5-and-shot-decals --authored-player-model <same-file>`. This is an explicit, hash-pinned host-authored P model. Original MP5 W bytes are authoring input and cannot substitute for it. The plan retains the original W identity separately and checks it again before publishing the candidate.
+
+MP5 produces45 resources:39 declared resources, five decals and the inherited magazine texture companion. Six actual Studio5004 events map to four local samples, separate from the native looping/end samples. All original files remain byte-identical except the independently authored P row, which is explicitly marked. The32 CLI cases include missing P and W-as-P refusals. Candidate generation does not establish grip, rendering, deployment or gameplay acceptance.

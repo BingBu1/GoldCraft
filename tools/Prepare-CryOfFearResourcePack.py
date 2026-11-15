@@ -1227,6 +1227,49 @@ TMP_PINS = [
     {"group":"TMPInventory","original":"inventoryitems/weapons/weapon_tmp.txt","host":"inventoryitems/guest/cof/weapons/weapon_tmp.txt","bytes":447,"sha256":"f39a3846ec28effe200a231e63d133ba06c59f73d756006dcb0a086614719002"},
     {"group":"TMPParticle","original":"aurora/gunsmoke.aur","host":"aurora/guest/cof/gunsmoke.aur","bytes":685,"sha256":"e37c7e21896e7d206ca020d60b263bac1dac193c600bbb18d7ca4d205f299fb7"}
 ]
+MP5_PINS = [
+    {"group":"MP5Models","original":"models/weapons/mp5/v_mp5.mdl","host":"models/guest/cof/mp5/v_mp5.mdl","bytes":2283620,"sha256":"d76dcbc785acba0d82535fdec24ed0dd2995cd2e19ba1290d06a30e365389cd4"},
+    {"group":"MP5Models","original":"models/weapons/mp5/w_mp5.mdl","host":"models/guest/cof/mp5/w_mp5.mdl","bytes":1343356,"sha256":"c056c1f8f09e96d7b09c9d589272fc66dca4d8d993b0e80097ee16d5987ba3c5"},
+    {"group":"MP5Models","original":"models/weapons/mp5/w_mp5.mdl","host":"models/guest/cof/mp5/p_mp5.mdl","bytes":1343356,"sha256":"c056c1f8f09e96d7b09c9d589272fc66dca4d8d993b0e80097ee16d5987ba3c5"},
+    {"group":"MP5Models","original":"models/null.mdl","host":"models/guest/cof/common/null.mdl","bytes":1868,"sha256":"97fc6326a1d63b97242c766381c7be774d0dc89b0e28fa10189a5937f17a1890"},
+    {"group":"MP5Models","original":"models/shell.mdl","host":"models/guest/cof/common/shell.mdl","bytes":70344,"sha256":"5ccd27014190edee6aa8eb62d5408d1de75863d81a3c51e915e49f32ff8c5060"},
+    {"group":"MP5Models","original":"models/w_9mmclip.mdl","host":"models/guest/cof/common/w_9mmclip.mdl","bytes":1772,"sha256":"2afde7ef1e3d987d203f517715dedc482768cc666c964a617990326734ee00e1"},
+    {"group":"MP5Models","original":"sprites/bubble.spr","host":"sprites/guest/cof/bubble.spr","bytes":1086,"sha256":"377276c6b6960a1415248bc96e1d370e5eeb504ffd6d95c0f81e480ab82a46eb"},
+    {"group":"MP5Models","original":"sprites/fog2.spr","host":"sprites/guest/cof/fog2.spr","bytes":4926,"sha256":"6e154e43fa4de8dcba86c74f9ff42fa9e3eb43d00b7ab29592e06c03c6e29b7f"},
+    {"group":"MP5Models","original":"models/flash1.mdl","host":"models/guest/cof/common/flash1.mdl","bytes":133896,"sha256":"3b681b535fa69397e30d49c1afd8d54a842b80f7576be5b0e9b7d1983305552c"},
+    {"group":"MP5Models","original":"sprites/gunsmoke.spr","host":"sprites/guest/cof/gunsmoke.spr","bytes":214062,"sha256":"f1db5d09c80c6d628642fb9df3a308e13331280a1c2560b2928353c20985b783"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_charger_back.wav","host":"guest/cof/weapons/mp5/mp5_charger_back.wav","bytes":14132,"sha256":"dd84d09f53f464a9ebfba13960bc716dcb5f9133439586b9fe700f757933a938"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_charger_forward.wav","host":"guest/cof/weapons/mp5/mp5_charger_forward.wav","bytes":27568,"sha256":"9659a01be227b6ed8ced116e24022d56d7acbfad870814bcd1468d464111df6f"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_magin.wav","host":"guest/cof/weapons/mp5/mp5_magin.wav","bytes":29310,"sha256":"e82fbf7a3daa4f598755332199cacb975421579ddc8bca4ddbea2468d37eda86"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_magout.wav","host":"guest/cof/weapons/mp5/mp5_magout.wav","bytes":28338,"sha256":"d85a01d6922558dabb21b2858f7f2ee6422f239ba8726eeb50cb7db1d90ffc87"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_shoot_loop.wav","host":"guest/cof/weapons/mp5/mp5_shoot_loop.wav","bytes":73174,"sha256":"fcc5c4b8fe193eff5a4bd3b3514693cb4463ac7d4c002e9fdc0b84a34b7b6a9c"},
+    {"group":"MP5Sounds","original":"weapons/mp5/mp5_shoot_end.wav","host":"guest/cof/weapons/mp5/mp5_shoot_end.wav","bytes":45792,"sha256":"56c53c3d581ee89f379cbd71a2fb28b98cb30d5ac71696376cf68a5766ab330b"},
+    {"group":"MP5Sounds","original":"weapons/item_get.wav","host":"guest/cof/weapons/item_get.wav","bytes":22110,"sha256":"e50b2bf740d0e9f673024995fe8885a1b3301cac8bd48f77b8f69a4ae06af663"},
+    {"group":"MP5Sounds","original":"weapons/weapon_get.wav","host":"guest/cof/weapons/weapon_get.wav","bytes":21560,"sha256":"35c31cf77cd0ff236061696c22a69bde596bacb29ae2bde946f98ed50b6158a8"},
+    {"group":"MP5Sounds","original":"weapons/sleeve_generic1.wav","host":"guest/cof/weapons/sleeve_generic1.wav","bytes":24268,"sha256":"4ac664f754635a82bd4dac6677e8f67bd79e449eff33fbb4de7d65a3bbcc5655"},
+    {"group":"MP5Sounds","original":"weapons/sleeve_generic2.wav","host":"guest/cof/weapons/sleeve_generic2.wav","bytes":33128,"sha256":"0337c5b98fe21726962cf9dc4ae1d9605a6b7ac7190a17eed4ed0e7a254758c1"},
+    {"group":"MP5Sounds","original":"weapons/sleeve_generic3.wav","host":"guest/cof/weapons/sleeve_generic3.wav","bytes":17450,"sha256":"76f82ffb2a7dcf1e2bcb6bb1430a7d3d4f429126d37dce9c05e8da4a51988551"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing1.wav","host":"guest/cof/player/police/Swing/Swing1.wav","bytes":46076,"sha256":"72ad87048f17225cc696be76ba4623bab4c169606300b134243bb207c9344248"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing2.wav","host":"guest/cof/player/police/Swing/Swing2.wav","bytes":35178,"sha256":"23f01531592a61ef8cdd1f11f7c80f614666bbe795418f1eccc88e697be9eb5b"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing3.wav","host":"guest/cof/player/police/Swing/Swing3.wav","bytes":44216,"sha256":"26ca79e9575ad9d90687eea53e75f4ee22a2eaae4e0e1422cda1769321e6f3d1"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing4.wav","host":"guest/cof/player/police/Swing/Swing4.wav","bytes":37976,"sha256":"bd6317e251285827a705298591231a31729882305dff54321b64b0b70833aeb7"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing5.wav","host":"guest/cof/player/police/Swing/Swing5.wav","bytes":23372,"sha256":"ae0085cd5a580303460770e2bb97eda506ccd87dde2019a129c90c896f03dd94"},
+    {"group":"MP5Sounds","original":"player/police/Swing/Swing6.wav","host":"guest/cof/player/police/Swing/Swing6.wav","bytes":28018,"sha256":"df8e230506ce0985f3038f18b009266bf5458624a84219f6185561353c7a118c"},
+    {"group":"MP5Sounds","original":"weapons/mobile/punch_swing.wav","host":"guest/cof/weapons/mobile/punch_swing.wav","bytes":17450,"sha256":"76f82ffb2a7dcf1e2bcb6bb1430a7d3d4f429126d37dce9c05e8da4a51988551"},
+    {"group":"MP5Sounds","original":"weapons/mobile/punch_smack.wav","host":"guest/cof/weapons/mobile/punch_smack.wav","bytes":7092,"sha256":"70164307237d414829ca9a7edbda804c5050e845f977688cb7cd25d6b1d83657"},
+    {"group":"MP5Sounds","original":"weapons/weapon_fire_empty.wav","host":"guest/cof/weapons/weapon_fire_empty.wav","bytes":22340,"sha256":"b4d1f0ef30b30276bc2a1b0c7dfc222e00251abce594df6e791d8b0937fcf629"},
+    {"group":"MP5Sounds","original":"weapons/weapon_fire_empty_noclick.wav","host":"guest/cof/weapons/weapon_fire_empty_noclick.wav","bytes":18228,"sha256":"de0ae838bdbfa7f75bc1b10b35814b4aa19a574d589adf36f071061b63d9ed8f"},
+    {"group":"MP5LocalWaves","original":"weapons_new/mp5/mp5_charger_back.wav","host":"sound/guest/cof/weapons_new/mp5/mp5_charger_back.wav","bytes":184724,"sha256":"2b027b7b5b5c3ad6ed4d7c2b8681786c611f0344eae72d3511a957b19c1bd5ec"},
+    {"group":"MP5LocalWaves","original":"weapons_new/mp5/mp5_charger_forward.wav","host":"sound/guest/cof/weapons_new/mp5/mp5_charger_forward.wav","bytes":359330,"sha256":"3e4f69da2842cba52cb8ee356b7590ab1f213a43775c034e43dd02cc9084ea64"},
+    {"group":"MP5LocalWaves","original":"weapons_new/mp5/mp5_magin.wav","host":"sound/guest/cof/weapons_new/mp5/mp5_magin.wav","bytes":382292,"sha256":"a19e0d724f78a0d0ae7bcd2b244ea00d00ca2e980baf65b338e1a5a09ab10ebf"},
+    {"group":"MP5LocalWaves","original":"weapons_new/mp5/mp5_magout.wav","host":"sound/guest/cof/weapons_new/mp5/mp5_magout.wav","bytes":369590,"sha256":"772847f992d1cf58566ba9c37f641cf16444b7c8453224834b7c566ab17c88e0"},
+    {"group":"MP5Events","original":"events/muzzleflash.sc","host":"events/guest/cof/muzzleflash.sc","bytes":1778,"sha256":"2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"},
+    {"group":"MP5Events","original":"events/viewpunch.sc","host":"events/guest/cof/viewpunch.sc","bytes":1778,"sha256":"2c7d43b8dc6ea01a32acddb7798b9dabf0ec44c7a6dcf75160539a7fe53e029d"},
+    {"group":"MP5Inventory","original":"inventoryitems/weapons/weapon_mp5.txt","host":"inventoryitems/guest/cof/weapons/weapon_mp5.txt","bytes":455,"sha256":"917fd1e6fa3eda9a94de9ad80561680502ce70abd6623d5dedaabe2ce2fb578d"},
+    {"group":"MP5Particle","original":"aurora/gunsmoke.aur","host":"aurora/guest/cof/gunsmoke.aur","bytes":685,"sha256":"e37c7e21896e7d206ca020d60b263bac1dac193c600bbb18d7ca4d205f299fb7"},
+]
+MP5_PLAYER_MODEL = {"bytes":1344808,"sha256":"7390f49357e9fcdc726324447ee9603d438eb673423e67be0fa876b7dc14e1a2"}
+
 SHOT_DECAL_PINS = [dict(group='ShotDecals', original=f'gfx/decals/shot{i}.tga',
     host=f'gfx/guest/cof/decals/shot{i}.tga', bytes=12306, sha256=sha)
     for i, sha in enumerate((
@@ -1283,7 +1326,7 @@ def safe_relative(name):
 
 
 def current_manifest(weapon='P345'):
-    if weapon not in ('P345', 'Glock', 'Revolver', 'VP70', 'TMP'):
+    if weapon not in ('P345', 'Glock', 'Revolver', 'VP70', 'TMP', 'MP5'):
         raise ValueError('Unreviewed weapon resource manifest')
     text = HEADER.read_text('utf-8')
     actual = []
@@ -1310,7 +1353,8 @@ def current_manifest(weapon='P345'):
         if not match:
             raise ValueError('Authoritative resource path missing: ' + group)
         actual.append((group, *match.groups()))
-    pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS, 'VP70': VP70_PINS, 'TMP': TMP_PINS}[weapon]
+    pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
+            'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS}[weapon]
     wanted = [(p['group'], p['original'], p['host']) for p in pins]
     if actual != wanted:
         raise ValueError('Resource header differs from the reviewed '+weapon+' manifest; review new identities first')
@@ -1321,7 +1365,7 @@ def current_manifest(weapon='P345'):
     dependency = re.search(r'\bP345ClipTexture\s*\{\s*"([^"]+)",\s*"([^"]+)"\s*\};', text)
     if not dependency or dependency.groups() != (CLIP_TEXTURE['original'], CLIP_TEXTURE['host']):
         raise ValueError('Clip texture dependency path differs from the reviewed companion')
-    if weapon in ('Glock', 'Revolver', 'VP70', 'TMP') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
+    if weapon in ('Glock', 'Revolver', 'VP70', 'TMP', 'MP5') and not re.search(r'\b'+weapon+r'ClipTexture\s*=\s*P345ClipTexture\s*;', text):
         raise ValueError('Unreviewed '+weapon+' clip texture alias')
     return digest(HEADER.read_bytes())
 
@@ -1394,11 +1438,20 @@ def plan(args):
     if output.exists() or plan_path == output or plan_path.is_relative_to(output):
         raise ValueError('Candidate must be fresh and must not contain its dry-run plan')
     weapon = {'p345-and-shot-decals': 'P345', 'glock-and-shot-decals': 'Glock',
-              'revolver-and-shot-decals': 'Revolver', 'vp70-and-shot-decals': 'VP70', 'tmp-and-shot-decals': 'TMP', 'shot-decals': 'shot-decals'}[args.component]
+              'revolver-and-shot-decals': 'Revolver', 'vp70-and-shot-decals': 'VP70',
+              'tmp-and-shot-decals': 'TMP', 'mp5-and-shot-decals': 'MP5', 'shot-decals': 'shot-decals'}[args.component]
     family = 'P345' if weapon == 'shot-decals' else weapon
+    player_model = getattr(args, 'authored_player_model', None)
+    if family == 'MP5':
+        if player_model is None:
+            raise ValueError('MP5 requires --authored-player-model; original W is an authoring input, not a P substitute')
+        player_model = workspace_target(player_model)
+    elif player_model is not None:
+        raise ValueError('An authored player model is only reviewed for MP5')
     table_hash = current_manifest(family)
     assets, studio = [], []
-    weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS, 'VP70': VP70_PINS, 'TMP': TMP_PINS}[family]
+    weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
+                   'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS}[family]
     pins = SHOT_DECAL_PINS if weapon == 'shot-decals' else weapon_pins + SHOT_DECAL_PINS
     for pin in pins:
         source_name = safe_relative(pin['original'])
@@ -1435,6 +1488,14 @@ def plan(args):
                 studio = [event for event in events if event['event'] == 5004]
             elif any(event['event'] == 5004 for event in events):
                 raise ValueError('Additional model has unreviewed Studio5004 audio')
+        if family == 'MP5' and pin['host'] == 'models/guest/cof/mp5/p_mp5.mdl':
+            original_input = dict(source=str(source), bytes=len(data), sha256=pin['sha256'], sourceIdentity=identity)
+            authored, authored_identity = checked_bytes(player_model, MP5_PLAYER_MODEL)
+            model_events(authored)
+            row.update(source=str(player_model), sourceRoot=str(BUILD),
+                sourceKind='explicit-host-authored-player-model', bytes=len(authored),
+                sha256=MP5_PLAYER_MODEL['sha256'], sourceIdentity=authored_identity,
+                originalBytesPreserved=False, originalInput=original_input)
         assets.append(row)
         if source_name == 'models/w_9mmclip.mdl' and integer(data, 184) == 0:
             # Exact ReHLDS PrecacheModelTexture rule: replace .mdl with T.mdl.
@@ -1464,6 +1525,8 @@ def plan(args):
                 [(2, 20, 'stock'), (5, 21, 'magout'), (5, 51, 'magin'),
                  (6, 21, 'magout'), (6, 51, 'magin'), (6, 75, 'charger_back'),
                  (6, 83, 'charger_forward')] if family == 'TMP' else
+                [(2, 30, 'magout'), (2, 67, 'magin'), (3, 17, 'charger_back'),
+                 (3, 53, 'magout'), (3, 88, 'magin'), (3, 108, 'charger_forward')] if family == 'MP5' else
                 [(4, 7, 'magout'), (4, 40, 'magplace'), (4, 52, 'magin'),
                  (5, 7, 'magout'), (5, 40, 'magplace'), (5, 52, 'magin'),
                  (5, 77, 'rackback'), (5, 82, 'slide'), (17, 9, 'switch'),
@@ -1549,6 +1612,11 @@ def write_candidate(value):
             _, identity = checked_bytes(no_links(Path(row['source'])), row)
             if identity != row['sourceIdentity']:
                 raise ValueError('Source changed before publication')
+            if 'originalInput' in row:
+                original = row['originalInput']
+                _, identity = checked_bytes(no_links(Path(original['source'])), original)
+                if identity != original['sourceIdentity']:
+                    raise ValueError('Player-model authoring input changed before publication')
         family = 'P345' if value['weapon'] == 'shot-decals' else value['weapon']
         if current_manifest(family) != value['resourceHeaderSha256'] or digest(Path(__file__).read_bytes()) != value['toolSha256'] or any(
                 digest((ROOT/path).read_bytes()) != wanted for path, wanted in value['consumerSha256'].items()):
@@ -1572,8 +1640,10 @@ def write_candidate(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--original-game-root', type=Path, required=True)
-    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'shot-decals'),
+    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'mp5-and-shot-decals', 'shot-decals'),
                         default='p345-and-shot-decals')
+    parser.add_argument('--authored-player-model', type=Path,
+        help='Explicit pinned host-authored MP5 P model, inside workspace build; never an original W copy')
     parser.add_argument('--inherited-game-root', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--plan', type=Path, required=True)

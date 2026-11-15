@@ -71,8 +71,10 @@ def author(data, profile):
     at, table = source.i(188), source.i(184)
     if at < 244 or table < 244 or table + 80 * len(source.textures) > at:
         raise ValueError('Embedded texture table must precede its pixel tail')
+    # The required empty attachment table may point at the pixel boundary;
+    # both its count and offset are replaced below, so it is not a reference.
     if any(source.i(offset) >= at for offset in
-           (144, 152, 160, 168, 176, 184, 200, 208, 216, 224, 232, 240)):
+           (144, 152, 160, 168, 176, 184, 200, 208, 224, 232, 240)):
         raise ValueError('Metadata beyond the resident prefix is unsupported')
     cursor = at
     for i, texture in enumerate(source.textures):

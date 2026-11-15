@@ -24,6 +24,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('original-game-root', 'inherited-game-root', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--mp5-player-model', type=Path, required=True)
     args = parser.parse_args()
     spec = importlib.util.spec_from_file_location('cof_pack', TOOL)
     tool = importlib.util.module_from_spec(spec)
@@ -66,12 +67,17 @@ def main():
     tmp_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root, output=output/'tmp'/'candidate',
         plan=output/'tmp'/'plan.json', server_model_sounds='disabled', component='tmp-and-shot-decals'))
+    mp5_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root, output=output/'mp5'/'candidate',
+        plan=output/'mp5'/'plan.json', server_model_sounds='disabled', component='mp5-and-shot-decals',
+        authored_player_model=args.mp5_player_model))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
               *(Path(p['source']) for p in revolver_baseline['assets']),
               *(Path(p['source']) for p in vp70_baseline['assets']),
-              *(Path(p['source']) for p in tmp_baseline['assets'])}
+              *(Path(p['source']) for p in tmp_baseline['assets']),
+              *(Path(p['source']) for p in mp5_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -287,12 +293,45 @@ def main():
     tmp_source=next(p for p in tmp_plan['assets'] if p['original']=='models/weapons/tmp/v_tmp.mdl')
     check((output/'tmp'/'candidate'/tmp_source['destination']).read_bytes()==Path(tmp_source['source']).read_bytes(),
           'all original TMP geometry, animations and Studio events preserved')
+    mp5_args = ['--component', 'mp5-and-shot-decals', '--authored-player-model', args.mp5_player_model.resolve()]
+    invoke('mp5-missing-player', ['--component', 'mp5-and-shot-decals'])
+    invoke('mp5-player-wrong-family', ['--authored-player-model', args.mp5_player_model.resolve()])
+    unmodified_world = output/'fixtures'/'unmodified-mp5-world.mdl'
+    mp5_world = next(p for p in mp5_baseline['assets'] if p['destination']=='models/guest/cof/mp5/w_mp5.mdl')
+    shutil.copyfile(mp5_world['source'], unmodified_world)
+    invoke('mp5-world-as-player', ['--component','mp5-and-shot-decals','--authored-player-model', unmodified_world])
+    mp5_dry = invoke('mp5', mp5_args, expected=0)
+    mp5_plan_path = output/'mp5'/'plan.json'
+    mp5_plan = json.loads(mp5_plan_path.read_bytes())
+    check(mp5_plan['weapon']=='MP5' and mp5_plan['primaryAssets']==44 and
+          mp5_plan['dependencyAssets']==1 and len(mp5_plan['assets'])==45,
+          '39 MP5 resources, five decals and one inherited texture companion')
+    check([(e['sequence'],e['frame']) for e in mp5_plan['studio5004']]==
+          [(2,30),(2,67),(3,17),(3,53),(3,88),(3,108)] and
+          len({e['localLogicalKey'] for e in mp5_plan['studio5004']})==4,
+          'six original MP5 Studio events use four local samples')
+    player_row = next(p for p in mp5_plan['assets'] if p['destination']=='models/guest/cof/mp5/p_mp5.mdl')
+    check(player_row['sourceKind']=='explicit-host-authored-player-model' and
+          not player_row['originalBytesPreserved'] and
+          player_row['originalInput']['sha256']==mp5_world['sha256'] and
+          player_row['sha256']!=mp5_world['sha256'], 'authored P retains explicit original W provenance')
+    check(all(p['originalBytesPreserved'] for p in mp5_plan['assets'] if p is not player_row),
+          'all other MP5 original resource bytes are preserved')
+    mp5_written = invoke('mp5-write', [*mp5_args,'--write',
+        '--expected-plan-sha256',json.loads(mp5_dry.stdout)['planSha256']], expected=0,
+        candidate=output/'mp5'/'candidate',plan_path=mp5_plan_path)
+    check(json.loads(mp5_written.stdout)['files']==45, 'MP5 actual candidate count')
+    for row in mp5_plan['assets']:
+        copied=output/'mp5'/'candidate'/row['destination']
+        check(copied.is_file() and sha(copied)==row['sha256'] and copied.stat().st_nlink==1,
+              'actual MP5 independent candidate identity '+row['destination'])
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=236,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=281,
+        mp5PrimaryAssets=44, mp5DependencyAssets=1,
         tmpPrimaryAssets=46, tmpDependencyAssets=1,
         vp70PrimaryAssets=44, vp70DependencyAssets=1,
         revolverPrimaryAssets=44, revolverDependencyAssets=1,

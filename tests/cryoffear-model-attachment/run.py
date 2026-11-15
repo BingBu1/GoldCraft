@@ -74,6 +74,12 @@ def main():
         return struct.unpack_from('<i', prefix, offset + 36)[0] == native.attachments[0]['bone']
 
     check(resident_attachment(authored), 'native retained cache contains complete attachment and valid bone')
+    empty_table = bytearray(original)
+    struct.pack_into('<i', empty_table, 216, at)
+    empty_profile = copy.deepcopy(profile)
+    empty_profile['modelSha256'] = sha(empty_table)
+    empty_authored, _ = module.author(empty_table, empty_profile)
+    check(empty_authored == authored, 'empty attachment table may point at resident boundary')
     previous = bytearray(original + authored[at:at+88])
     struct.pack_into('<i', previous, 72, len(previous))
     struct.pack_into('<ii', previous, 212, 1, len(original))

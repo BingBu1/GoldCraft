@@ -20,6 +20,8 @@ Run generation with `--source-model`, `--template-model`, `--calibration`, `--ou
 
 The tool expands source commands to triangles for filtering, then groups compatible adjacent triangles into native strip/fan commands. It preserves winding, integer UVs, texture flags/pixels/palette, sampled transformed normals, all skin families of selected meshes, body alternatives and attachments. Normal spans remain contiguous per material for native Studio lighting. Removed body groups are recorded in `bodyMap`; any game code that controls `body` must account for that mapping. Geometry freezes into a one-frame looping `idle` on the original template skeleton. It does not implement moving reload parts or a weapon gameplay state machine.
 
+All model metadata and geometry precede the packed texture pixel tail. The native engine retains only the prefix ending at `texturedataindex` after upload. The real-asset tests check that boundary as well as geometry equivalence; an independently valid complete file is insufficient if its retained cache loses those tables.
+
 The private assets and their calibration evidence are not committed. From Git Bash, run the real-asset tests with:
 
 ```bash

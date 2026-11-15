@@ -221,16 +221,11 @@ def generate(source, template, calibration, *, candidate=False):
     output.put(172, 'ii', 1, group)
     texture_at = output.reserve(80*len(used_textures))
     output.put(180, 'ii', len(used_textures), texture_at)
-    first_pixels = None
     for index, original in enumerate(used_textures):
         texture = source.textures[original]
         at = texture_at + 80*index
         output.name(at, 64, texture['name'])
-        pixels = output.append(texture['pixels'])
-        if first_pixels is None:
-            first_pixels = pixels
-        output.put(at + 64, '4i', texture['flags'], texture['width'], texture['height'], pixels)
-    output.put(188, 'i', first_pixels)
+        output.put(at + 64, '3i', texture['flags'], texture['width'], texture['height'])
     skins = b''.join(struct.pack('<H', texturemap[row[old]]) for row in source.skins for old in skinrefs)
     output.put(192, 'iii', len(skinrefs), len(source.skins), output.append(skins))
     body_at = output.reserve(76*len(bodies))
@@ -282,6 +277,12 @@ def generate(source, template, calibration, *, candidate=False):
         output.put(at + 40, '3f', *transform(t, attachment['origin']))
         for j, vector in enumerate(attachment['vectors']):
             output.put(at + 52 + 12*j, '3f', *transform(t, vector, normal=True))
+    # Mod_LoadStudioModel retains only texturedataindex bytes after upload.
+    # All skeleton, geometry, skin and attachment tables must precede pixels.
+    output.put(188, 'i', len(output.data))
+    for index, original in enumerate(used_textures):
+        pixels = output.append(source.textures[original]['pixels'])
+        output.put(texture_at + 80*index + 76, 'i', pixels)
     output.put(72, 'i', len(output.data))
     data = bytes(output.data)
     reread = Studio(data)
