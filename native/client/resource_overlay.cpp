@@ -4,6 +4,7 @@
 #include <IFileSystem.h>
 #include <bcrypt.h>
 #include "resource_overlay.hpp"
+#include "resource_cache.hpp"
 #include "goldcraft/resource_sync.hpp"
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@
 #include <iterator>
 #include <mutex>
 #include <shared_mutex>
+#include <unordered_set>
 #include <sys/stat.h>
 #pragma comment(lib, "bcrypt.lib")
 
@@ -39,6 +41,10 @@ ExistsFn originalExists{};
 SizeFn originalSize{};
 TimeFn originalTime{};
 LocalFn originalLocal{};
+using FilenoFn = int(__cdecl*)(void*);
+using OsHandleFn = intptr_t(__cdecl*)(int);
+FilenoFn hostFileno{};
+OsHandleFn hostOsHandle{};
 
 std::string Lower(std::string value) {
     for (auto& c : value) {
@@ -117,17 +123,24 @@ std::string Absolute(const std::string& name) {
     while (result.size() > 3 && (result.back() == '/' || result.back() == '\\')) result.pop_back();
     return result;
 }
-bool PlainPath(const std::string& name, bool directory) {
+// `plain` holds ancestor directories already proven ordinary during the same
+// mount. Hundreds of objects share the cache root's ancestors; querying each
+// of them again per object was most of a 0.5 s mount in live samples.
+bool PlainPath(const std::string& name, bool directory, std::unordered_set<std::string>* plain = nullptr) {
     std::string current = name;
     bool leaf = true;
+    std::vector<std::string> walked;
     while (current.size() >= 3) {
+        if (!leaf && plain && plain->contains(current)) break;
         const auto attributes = GetFileAttributesA(current.c_str());
         if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
             bool(attributes & FILE_ATTRIBUTE_DIRECTORY) != (leaf ? directory : true)) return false;
+        if (!leaf && plain) walked.push_back(current);
         const auto slash = current.find_last_of("/\\");
         if (slash == std::string::npos || slash <= 2) break;
         current.resize(slash); leaf = false;
     }
+    if (plain) for (auto& value : walked) plain->insert(std::move(value));
     return true;
 }
 bool MatchModule(void** table) {
@@ -151,6 +164,13 @@ bool MatchModule(void** table) {
     constexpr char hex[] = "0123456789abcdef";
     for (size_t i = 0; i < digest.size(); ++i)
         if (FileSystemSha[2*i] != hex[digest[i] >> 4] || FileSystemSha[2*i+1] != hex[digest[i] & 15]) return false;
+    // Exact matched module IAT, not this plugin's statically linked CRT.
+    hostFileno = *reinterpret_cast<FilenoFn*>(uintptr_t(module) + 0xa11c);
+    HMODULE crt{};
+    if (!hostFileno || !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<const char*>(hostFileno), &crt)) return false;
+    hostOsHandle = reinterpret_cast<OsHandleFn>(GetProcAddress(crt, "_get_osfhandle"));
+    if (!hostOsHandle) return false;
     return true;
 }
 void ClearLocked() {
@@ -186,7 +206,8 @@ bool SafeName(const std::string& name) {
         (top == "sound" && (ext == ".wav" || ext == ".mp3")) || lower == "sound/sentences.json" ||
         (top == "bgm" && ext == ".mp3") ||
         (top == "resource" && (ext == ".tga" || (ext == ".ttf" && (lower.starts_with("resource/font/") || lower.starts_with("resource/csol/"))))) ||
-        lower == "resource/csol/hud/v1/csolhudscheme.res" || lower == "resource/cso_chn.txt" ||
+        lower == "resource/csol/hud/v1/csolhudscheme.res" ||
+        lower == "resource/csol/wall/v1/wallupgradescheme.res" || lower == "resource/cso_chn.txt" ||
         (top == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||
         (top == "gfx" && (ext == ".tga" || ext == ".bmp")) || lower == "gfx/tattoo/tattoo.cso" ||
         (top == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||
@@ -215,13 +236,15 @@ bool Install(metahook_api_s* incoming, mh_interface_s* interfaces) {
 bool Begin(const std::string& directory, const Paths& verifiedPaths) {
     if (!fs) return Fail("Resource overlay is not installed");
     const auto absoluteRoot = Absolute(directory);
-    if (absoluteRoot.empty() || !PlainPath(absoluteRoot, true)) return Fail("Invalid resource overlay root");
+    std::unordered_set<std::string> plain;
+    if (absoluteRoot.empty() || !PlainPath(absoluteRoot, true, &plain)) return Fail("Invalid resource overlay root");
+    const auto prefix = Lower(absoluteRoot) + "/objects/";
     std::map<std::string, Entry> candidate;
     for (const auto& [name, absolute] : verifiedPaths) {
         if (!SafeName(name)) return Fail("Unsafe resource overlay name");
         const auto actual = Absolute(absolute);
-        const auto normalized = Lower(actual), prefix = Lower(absoluteRoot) + "/objects/";
-        if (actual.empty() || !normalized.starts_with(prefix) || !PlainPath(actual, false))
+        const auto normalized = Lower(actual);
+        if (actual.empty() || !normalized.starts_with(prefix) || !PlainPath(actual, false, &plain))
             return Fail("Resource overlay path is not an independent file under its root");
         const auto object = normalized.substr(prefix.size());
         if (object.size() <= 65 || object[64] != '/' || object.substr(65) != Lower(name) ||
@@ -280,6 +303,20 @@ std::unique_ptr<Reader> OpenReader(const char* name) {
     catch (...) { fs->Close(handle); throw; }
 }
 Reader::~Reader() { if (handle_) filesystem_->Close(handle_); }
+std::unique_ptr<resource_cache::PendingSource> Reader::DeferredSource() const {
+    if (!handle_ || !hostFileno || !hostOsHandle) return {};
+    // IDA Find10002820 / Seek10006D00, exact FileSystemSha above.
+    void* stream{}; std::uint64_t start{}, length{};
+    std::memcpy(&stream, handle_, sizeof(stream));
+    std::memcpy(&start, static_cast<const char*>(handle_) + 8, sizeof(start));
+    std::memcpy(&length, static_cast<const char*>(handle_) + 16, sizeof(length));
+    if (!stream || length != size_) return {};
+    const auto fd = hostFileno(stream);
+    if (fd < 0) return {};
+    const auto os = hostOsHandle(fd);
+    if (os == -1) return {};
+    return resource_cache::PendingSource::Duplicate(reinterpret_cast<void*>(os), start, size_);
+}
 int Reader::ReadAt(std::uint32_t offset, std::span<std::uint8_t> output) {
     if (!handle_ || offset > size_ || output.size() > size_ - offset || output.size() > 2u*1024u*1024u) return -1;
     if (output.empty()) return 0;

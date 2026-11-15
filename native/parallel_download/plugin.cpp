@@ -89,7 +89,7 @@ void TickImpl(){
     if(!running){
         if(!pool)pool=std::make_unique<Pool>();
         running=true;
-        engine.Con_Printf("ParallelDownload: start %u files, 8 workers\n",unsigned(jobs.size()));
+        engine.Con_Printf("ParallelDownload: start %u files, 8 concurrent transfers (Asio)\n",unsigned(jobs.size()));
         uiReported=false;counterDraws=0;
         engine.Con_Printf("ParallelDownload: UI surface=%p panel=%p paints=%u draws=%u\n",surface,panel,uiPaints,counterDraws);
     }

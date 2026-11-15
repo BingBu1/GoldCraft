@@ -7,12 +7,135 @@
 #include <array>
 #include <chrono>
 #include <map>
+#include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <stdexcept>
 
 namespace goldcraft::resource_update {
 namespace {
 using Clock = std::chrono::steady_clock;
+using resource_timing::Measure;
 constexpr std::size_t ChunkSize = 256 * 1024;
+// The pump runs once per host frame while admission is paused. Live samples
+// of the earlier 12 ms slice measured one pump every 32-37 ms, so about 60%
+// of the admission was spent outside it: 345 pumps and 4.8 s of work took
+// 12.3 s. This is a measured host-frame interval, not a claim about how the
+// engine paces frames. Use most of that interval; the dialog still redraws.
+constexpr auto PumpBudget = std::chrono::milliseconds(30);
+constexpr std::size_t InFlight = 32;
+class HashPool {
+public:
+    struct Job {
+        // The worker obtains the source itself (plain Win32, no engine):
+        // from the engine's duplicated VFS winner, or a content cache object.
+        std::unique_ptr<resource_cache::PendingSource> pending;
+        std::unique_ptr<resource_cache::SourceFile> source;
+        const resource_cache::Cache* cache{};
+        std::string name;
+        resource_sync::Entry expected{};
+        resource_sync::Digest digest{};
+        std::uint32_t size{};
+        std::uint64_t bytes{};
+        bool success{}, reused{};
+        Profile profile;
+        std::atomic<bool> cancelled{}, done{};
+    };
+    HashPool() {
+        for (unsigned i = 0; i < 4; ++i) threads_.emplace_back([this](std::stop_token stop) { Run(stop); });
+    }
+    ~HashPool() {
+        for (auto& thread : threads_) thread.request_stop();
+        ready_.notify_all();
+        // Join before destroying the queue, cache or mutex.
+        threads_.clear();
+    }
+    std::shared_ptr<Job> Submit(std::unique_ptr<resource_cache::PendingSource> pending, std::uint32_t size) {
+        auto job = std::make_shared<Job>(); job->pending = std::move(pending); job->size = size;
+        std::lock_guard lock(mutex_);
+        if (identities_.size() >= 64) return {};
+        identities_.push_back(job); ready_.notify_one(); return job;
+    }
+    // Bounded by the manifest: at most one per resource of the live session.
+    // A cache object costs milliseconds; an identity about 0.1 ms. Workers
+    // take identities first so a burst of wrong files cannot stall the VFS pass.
+    std::shared_ptr<Job> SubmitCache(const resource_cache::Cache& cache, const std::string& name,
+                                     const resource_sync::Entry& expected) {
+        auto job = std::make_shared<Job>();
+        job->cache = &cache; job->name = name; job->expected = expected; job->size = expected.size;
+        std::lock_guard lock(mutex_);
+        objects_.push_back(job); ready_.notify_one(); return job;
+    }
+    std::uint64_t Completions() { std::lock_guard lock(mutex_); return completions_; }
+    // Sleeps the paused admission thread inside its slice instead of
+    // returning to the next host frame while four workers sit idle.
+    bool Wait(std::uint64_t seen, Clock::time_point deadline) {
+        std::unique_lock lock(mutex_);
+        return finished_.wait_until(lock, deadline, [&] { return completions_ != seen; });
+    }
+private:
+    void Run(std::stop_token stop) {
+        std::array<std::uint8_t, ChunkSize> buffer{};
+        for (;;) {
+            std::shared_ptr<Job> job;
+            {
+                std::unique_lock lock(mutex_);
+                ready_.wait(lock, stop, [this] { return !identities_.empty() || !objects_.empty(); });
+                if (stop.stop_requested()) return;
+                auto& queue = identities_.empty() ? objects_ : identities_;
+                job = std::move(queue.front()); queue.pop_front();
+            }
+            try {
+                if (!job->cancelled && job->pending)
+                    job->source = Measure(job->profile.leaseOpen, [&] { return job->pending->Lease(); });
+                else if (!job->cancelled && job->cache)
+                    job->source = Measure(job->profile.cacheOpen, [&] { return job->cache->Open(job->name, job->expected); });
+                if (!job->cancelled && job->source) {
+                    const auto stamp = job->source->Identity();
+                    {
+                        std::lock_guard lock(mutex_);
+                        if (const auto found = digests_.find(stamp); found != digests_.end()) {
+                            job->digest = found->second; job->reused = true;
+                        }
+                    }
+                    if (!job->reused) {
+                        resource_cache::Hash hash;
+                        for (std::uint32_t offset = 0; offset < job->size;) {
+                            if (job->cancelled || stop.stop_requested()) break;
+                            const auto count = std::min<std::size_t>(buffer.size(), job->size - offset);
+                            auto span = std::span<std::uint8_t>(buffer.data(), count);
+                            if (!Measure(job->profile.readAt, [&] { return job->source->ReadAt(offset, span); })) break;
+                            Measure(job->profile.hashUpdate, [&] { hash.Update(span); }); offset += std::uint32_t(count); job->bytes += count;
+                        }
+                        if (job->bytes == job->size) job->digest = Measure(job->profile.hashFinish, [&] { return hash.Finish(); });
+                    }
+                    job->success = !job->cancelled && !stop.stop_requested() &&
+                        (job->reused || job->bytes == job->size) && Measure(job->profile.unchanged, [&] { return job->source->Unchanged(); });
+                    if (job->success && !job->reused) {
+                        std::lock_guard lock(mutex_);
+                        if (digests_.size() >= 32768) digests_.clear();
+                        digests_[stamp] = job->digest;
+                    }
+                }
+            } catch (...) { job->success = false; }
+            // A proven source keeps its read lease for the final pass.
+            job->pending.reset();
+            if (!job->success) job->source.reset();
+            job->done.store(true, std::memory_order_release);
+            { std::lock_guard lock(mutex_); ++completions_; }
+            finished_.notify_all();
+        }
+    }
+    std::mutex mutex_;
+    std::condition_variable_any ready_;
+    std::condition_variable finished_;
+    std::uint64_t completions_{};
+    std::deque<std::shared_ptr<Job>> identities_, objects_;
+    std::map<resource_cache::SourceFile::Stamp, resource_sync::Digest> digests_;
+    std::vector<std::jthread> threads_;
+};
 std::string Lower(std::string value) {
     for (auto& c : value) if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
     return value;
@@ -40,20 +163,28 @@ struct Session::Impl {
     struct Active { std::size_t index; std::shared_ptr<resource_download::Job> job; };
     std::vector<Active> active;
     Status status;
+    Clock::time_point started{};
     std::string url;
     std::size_t cursor{}, nextPending{};
-    std::uint32_t offset{};
-    bool cacheRead{};
-    std::unique_ptr<resource_overlay::Reader> reader;
-    std::unique_ptr<resource_cache::Hash> hash;
-    std::array<std::uint8_t, ChunkSize> bytes{};
+    HashPool hashes;
+    struct Checking { std::size_t index; bool cache; std::shared_ptr<HashPool::Job> job; };
+    std::vector<Checking> checking;
+    // By resource index: the read lease (writers, renames and deletion denied)
+    // under which the first pass proved that VFS winner's SHA.
+    std::vector<std::unique_ptr<resource_cache::SourceFile>> leases;
+    std::size_t carried{};
+    bool remounted{};
     explicit Impl(std::string root) : cache(std::move(root)) {}
-    void ResetReader() { reader.reset(); hash.reset(); offset = 0; cacheRead = false; }
+    void ResetReader() {
+        for (auto& item : checking) item.job->cancelled.store(true, std::memory_order_release);
+        checking.clear(); leases.clear();
+    }
     bool Rollback() {
         if (!transaction) return true;
         // Readers and jobs are closed by the caller before changing the mount.
-        if (!resource_overlay::Restore(previous)) return false;
-        transaction = false; previous = {}; return true;
+        // An admission that never replaced the mount has nothing to restore.
+        if (remounted && !resource_overlay::Restore(previous)) return false;
+        transaction = remounted = false; previous = {}; return true;
     }
     bool Reset() {
         worker.Cancel(); active.clear(); pending.clear(); mounted.clear(); ResetReader();
@@ -62,7 +193,7 @@ struct Session::Impl {
             status.error = std::string("Cannot restore previous resource overlay: ") + resource_overlay::Error();
             return false;
         }
-        resources.clear(); status = {}; cursor = nextPending = 0; url.clear();
+        resources.clear(); status = {}; cursor = nextPending = carried = 0; url.clear();
         changed.clear(); return true;
     }
     void Fail(std::string reason) {
@@ -70,42 +201,67 @@ struct Session::Impl {
         if (!Rollback()) reason += std::string("; cannot restore previous resource overlay: ") + resource_overlay::Error();
         status.phase = Phase::failed; status.error = std::move(reason);
     }
-    void Next() { ResetReader(); ++cursor; status.checked = cursor; }
-    void Mismatch() {
-        reader.reset(); hash.reset(); offset = 0;
+    void Mismatch(std::size_t index, bool cached) {
+        const auto& resource = resources[index];
         if (status.phase == Phase::verifying)
-            throw std::runtime_error("Final VFS body differs from manifest: " + resources[cursor].name);
-        if (cacheRead) { pending.push_back(cursor); Next(); }
-        else {
-            changed.push_back(resources[cursor].name);
-            cacheRead = true; hash = std::make_unique<resource_cache::Hash>();
-        }
+            throw std::runtime_error("Final VFS body differs from manifest: " + resource.name);
+        if (cached) { pending.push_back(index); status.queued = pending.size(); ++status.checked; return; }
+        changed.push_back(resource.name);
+        // Ancestor pinning, the open and the SHA of a content-cache object are
+        // ordinary Win32 work: about 2 ms a file when done on this thread.
+        checking.push_back({index, true, Measure(status.profile.submitHash,
+            [&] { return hashes.SubmitCache(cache, resource.name, resource.expected); })});
     }
-    void CheckChunk() {
-        const auto& resource = resources[cursor];
-        status.current = resource.name;
-        if (!hash) {
-            reader = resource_overlay::OpenReader(resource.name.c_str());
-            if (!reader || reader->Size() != resource.expected.size) { Mismatch(); return; }
-            hash = std::make_unique<resource_cache::Hash>();
+    void Checks(Clock::time_point deadline) {
+        for (;;) {
+            const auto seen = hashes.Completions();
+            for (std::size_t i = 0; i < checking.size() && Clock::now() < deadline;) {
+                if (!checking[i].job->done.load(std::memory_order_acquire)) { ++i; continue; }
+                auto item = std::move(checking[i]); checking.erase(checking.begin() + i);
+                const auto& resource = resources[item.index];
+                status.hashedBytes += item.job->bytes;
+                status.profile.leaseOpen.Merge(item.job->profile.leaseOpen);
+                status.profile.cacheOpen.Merge(item.job->profile.cacheOpen);
+                status.profile.readAt.Merge(item.job->profile.readAt);
+                status.profile.hashUpdate.Merge(item.job->profile.hashUpdate);
+                status.profile.hashFinish.Merge(item.job->profile.hashFinish);
+                status.profile.unchanged.Merge(item.job->profile.unchanged);
+                if (item.job->reused) ++status.reused;
+                if (!item.job->success || item.job->digest != resource.expected.sha256) {
+                    Mismatch(item.index, item.cache); continue;
+                }
+                if (item.cache) {
+                    mounted[resource.name] = cache.Path(resource.name, resource.expected); ++status.cached;
+                } else if (status.phase == Phase::checking) {
+                    // A matching file can already be supplied by the previous
+                    // server's verified overlay. Keep that binding.
+                    const auto found = previous.paths.find(Lower(resource.name));
+                    if (found != previous.paths.end()) { mounted[resource.name] = found->second; ++carried; }
+                    leases[item.index] = std::move(item.job->source);
+                }
+                ++status.checked;
+            }
+            while (cursor < resources.size() && checking.size() < InFlight && Clock::now() < deadline) {
+                const auto index = cursor;
+                const auto& resource = resources[index]; status.current = resource.name;
+                auto reader = Measure(status.profile.openReader, [&] { return resource_overlay::OpenReader(resource.name.c_str()); });
+                auto source = Measure(status.profile.backgroundSource, [&] {
+                    return reader && reader->Size() == resource.expected.size ? reader->DeferredSource() : nullptr;
+                });
+                Measure(status.profile.closeReader, [&] { reader.reset(); }); // Engine Close stays on the main thread.
+                if (!source) { ++cursor; Mismatch(index, false); continue; }
+                auto job = Measure(status.profile.submitHash, [&] { return hashes.Submit(std::move(source), resource.expected.size); });
+                if (!job) break; // A cancelled generation may still be draining.
+                checking.push_back({index, false, std::move(job)}); ++cursor;
+            }
+            if (Clock::now() >= deadline || (cursor == resources.size() && checking.empty())) return;
+            // Drain finished identities in this pump; do not impose a
+            // files-per-frame cap on metadata-only verification.
+            if (std::any_of(checking.begin(), checking.end(),
+                [](const Checking& item) { return item.job->done.load(std::memory_order_acquire); })) continue;
+            // A refused submit with nothing of ours in flight retries next frame.
+            if (checking.empty() || !hashes.Wait(seen, deadline)) return;
         }
-        const auto count = std::min<std::size_t>(bytes.size(), resource.expected.size - offset);
-        const auto buffer = std::span<std::uint8_t>(bytes.data(), count);
-        const bool read = cacheRead ? cache.Read(resource.name, resource.expected, buffer, offset) :
-            reader && reader->ReadAt(offset, buffer) == int(count);
-        if (!read) { Mismatch(); return; }
-        hash->Update(buffer); offset += std::uint32_t(count);
-        if (offset != resource.expected.size) return;
-        if (hash->Finish() != resource.expected.sha256) { Mismatch(); return; }
-        if (cacheRead) {
-            mounted[resource.name] = cache.Path(resource.name, resource.expected); ++status.cached;
-        } else if (status.phase == Phase::checking) {
-            // A matching file can already be supplied by the previous server's
-            // verified overlay. Keep that binding in the next generation.
-            const auto found = previous.paths.find(Lower(resource.name));
-            if (found != previous.paths.end()) mounted[resource.name] = found->second;
-        }
-        Next();
     }
     void Downloads() {
         for (std::size_t i = 0; i < active.size();) {
@@ -114,7 +270,7 @@ struct Session::Impl {
             const auto& resource = resources[item.index];
             if (!item.job->success)
                 throw std::runtime_error(resource.name + ": " + item.job->error);
-            if (!cache.Store(resource.name, resource.expected, item.job->bytes))
+            if (!Measure(status.profile.cacheStore, [&] { return cache.Store(resource.name, resource.expected, item.job->bytes); }))
                 throw std::runtime_error(resource.name + ": " + cache.Error());
             mounted[resource.name] = cache.Path(resource.name, resource.expected);
             ++status.downloaded; active.erase(active.begin() + i);
@@ -131,25 +287,52 @@ struct Session::Impl {
     }
     void Pump() {
         if (status.phase == Phase::idle || status.phase == Phase::failed || status.phase == Phase::ready) return;
-        const auto deadline = Clock::now() + std::chrono::milliseconds(3);
+        const auto begin = Clock::now();
+        // Admission is paused here. VFS resolution must stay on this thread;
+        // file bodies, cache objects and SHA remain on the pool.
+        const auto deadline = begin + PumpBudget;
+        struct Timing {
+            Status& status; Clock::time_point begin, started;
+            ~Timing() {
+                const auto now = Clock::now();
+                ++status.pumps;
+                status.elapsedMs = std::chrono::duration<double, std::milli>(now - started).count();
+                status.pumpMaxMs = std::max(status.pumpMaxMs,
+                    std::chrono::duration<double, std::milli>(now - begin).count());
+                status.pumpWorkMs += std::chrono::duration<double, std::milli>(now - begin).count();
+            }
+        } timing{status, begin, started};
         try {
             Downloads();
             if (status.phase == Phase::checking || status.phase == Phase::verifying) {
-                std::size_t chunks{};
-                while (cursor < resources.size() && chunks++ < 8 && Clock::now() < deadline) CheckChunk();
-                if (cursor != resources.size()) return;
+                Checks(deadline);
+                if (cursor != resources.size() || !checking.empty()) return;
                 if (status.phase == Phase::verifying) {
+                    leases.clear();
                     status.phase = Phase::ready; status.current.clear(); return;
                 }
                 status.phase = Phase::downloading;
+                // A transfer can last minutes. Do not deny other writers for
+                // that long; the final pass then resolves every name again.
+                if (!pending.empty()) for (auto& lease : leases) lease.reset();
             }
             Downloads();
             if (nextPending != pending.size() || !active.empty()) return;
-            if (mounted.empty()) resource_overlay::Clear();
-            else if (!resource_overlay::Begin(cache.Root(), mounted))
-                throw std::runtime_error(resource_overlay::Error());
+            // Every binding was inherited from the mount that is still active,
+            // and none was dropped: the first pass already read the final view.
+            const bool retained = carried == mounted.size() && mounted.size() == previous.paths.size();
+            if (!retained) Measure(status.profile.mount, [&] {
+                remounted = true;
+                if (mounted.empty()) resource_overlay::Clear();
+                else if (!resource_overlay::Begin(cache.Root(), mounted))
+                    throw std::runtime_error(resource_overlay::Error());
+            });
             // Prove the actual consumer path after mounting, not only a file
             // written under cstrike_downloads that an older GAME/PAK can hide.
+            // A read lease pins bytes, not the winner of a VFS name lookup:
+            // another search path can acquire a higher-priority same-name file.
+            // Resolve every name again; unchanged identities still reuse their
+            // verified digest and background/cache scheduling stays intact.
             status.phase = Phase::verifying; cursor = 0; status.checked = 0;
         } catch (const std::exception& failure) { Fail(failure.what()); }
     }
@@ -159,7 +342,7 @@ Session::~Session() { impl_->Reset(); }
 bool Session::Reset() { return impl_->Reset(); }
 bool Session::Commit() {
     if (impl_->status.phase != Phase::ready || !impl_->transaction) return false;
-    impl_->transaction = false; impl_->previous = {}; return true;
+    impl_->transaction = impl_->remounted = false; impl_->previous = {}; return true;
 }
 const Status& Session::GetStatus() const { return impl_->status; }
 const std::vector<Resource>& Session::Resources() const { return impl_->resources; }
@@ -186,7 +369,9 @@ bool Session::Begin(std::uint64_t generation, std::string url, std::vector<Resou
         }
         for (const auto& [name, path] : impl_->previous.paths)
             if (!unique.contains(name)) impl_->changed.push_back(name);
+        impl_->leases.resize(impl_->resources.size());
         impl_->url = std::move(url); impl_->status.total = impl_->resources.size();
+        impl_->started = Clock::now();
         impl_->status.phase = Phase::checking;
         return true;
     } catch (const std::exception& failure) { impl_->Fail(failure.what()); return false; }

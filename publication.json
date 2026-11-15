@@ -2496,7 +2496,22 @@
     "tests/cryoffear-tmp-factory/README.md",
     "docs/2026-11-15_接入-TMP冷资源与原生工厂-report.md",
     "tests/cryoffear-tmp-owner/README.md",
-    "docs/2026-11-15_接入-TMP玩家帧与动作绑定-report.md"
+    "docs/2026-11-15_接入-TMP玩家帧与动作绑定-report.md",
+    "cmake/goldcraft-asio.cmake",
+    "native/include/goldcraft/async_download.hpp",
+    "native/client/resource_timing.hpp",
+    "native/parallel_download/CMakeLists.txt",
+    "native/parallel_download/transfer.cpp",
+    "tests/parallel-download/coroutines.cpp",
+    "tests/parallel-download/main.cpp",
+    "tests/parallel-download/performance.py",
+    "tests/resource-update/performance.py",
+    "tools/Prepare-Asio.py",
+    "tools/Build-ParallelDownload.py",
+    "tools/Build-GoldCraftCheckpoint.py",
+    "tools/Deploy-ClientTransport.py",
+    "docs/2026-11-15_实现-Asio协程下载与完整VFS复核-report.md",
+    "native/parallel_download/plugin.cpp"
   ],
   "trees": {
     "native": [

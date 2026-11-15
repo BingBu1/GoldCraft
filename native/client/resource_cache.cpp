@@ -77,6 +77,50 @@ bool Regular(HANDLE file, std::uint32_t size) {
 std::atomic<unsigned long> serial{};
 }
 
+SourceFile::SourceFile(void* handle, std::uint64_t offset, std::uint32_t size)
+    : handle_(handle), offset_(offset), size_(size) {}
+SourceFile::~SourceFile() { if (handle_) CloseHandle(handle_); }
+bool SourceFile::Inspect(Stamp& stamp) const {
+    BY_HANDLE_FILE_INFORMATION info{};
+    FILE_BASIC_INFO basic{};
+    if (!GetFileInformationByHandle(handle_, &info) ||
+        !GetFileInformationByHandleEx(handle_, FileBasicInfo, &basic, sizeof(basic)) ||
+        (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) return false;
+    const auto length = (std::uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+    if (offset_ > length || size_ > length - offset_) return false;
+    stamp = {info.dwVolumeSerialNumber, (std::uint64_t(info.nFileIndexHigh) << 32) | info.nFileIndexLow,
+        std::uint64_t(basic.CreationTime.QuadPart), std::uint64_t(basic.LastWriteTime.QuadPart),
+        std::uint64_t(basic.ChangeTime.QuadPart), length, offset_, size_, info.dwFileAttributes};
+    return true;
+}
+std::unique_ptr<SourceFile> SourceFile::Reopen(void* source, std::uint64_t offset, std::uint32_t size) {
+    // DuplicateHandle shares the original file position. ReOpenFile does not.
+    // Deny writers/deletion for this bounded job, including hardlink aliases.
+    auto handle = ReOpenFile(source, GENERIC_READ, FILE_SHARE_READ, FILE_FLAG_SEQUENTIAL_SCAN);
+    if (handle == INVALID_HANDLE_VALUE) return {};
+    auto result = std::unique_ptr<SourceFile>(new SourceFile(handle, offset, size));
+    if (!result->Inspect(result->stamp_)) return {};
+    return result;
+}
+PendingSource::PendingSource(void* handle, std::uint64_t offset, std::uint32_t size)
+    : handle_(handle), offset_(offset), size_(size) {}
+PendingSource::~PendingSource() { CloseHandle(handle_); }
+std::unique_ptr<PendingSource> PendingSource::Duplicate(void* handle, std::uint64_t offset, std::uint32_t size) {
+    HANDLE copy{};
+    if (!DuplicateHandle(GetCurrentProcess(), handle, GetCurrentProcess(), &copy, 0, FALSE, DUPLICATE_SAME_ACCESS))
+        return {};
+    return std::unique_ptr<PendingSource>(new PendingSource(copy, offset, size));
+}
+std::unique_ptr<SourceFile> PendingSource::Lease() const { return SourceFile::Reopen(handle_, offset_, size_); }
+bool SourceFile::Unchanged() const { Stamp now{}; return Inspect(now) && now == stamp_; }
+bool SourceFile::ReadAt(std::uint32_t offset, std::span<std::uint8_t> output) {
+    if (offset > size_ || output.size() > size_ - offset) return false;
+    LARGE_INTEGER at{}; at.QuadPart = offset_ + offset;
+    DWORD count{};
+    return SetFilePointerEx(handle_, at, nullptr, FILE_BEGIN) &&
+        ReadFile(handle_, output.data(), DWORD(output.size()), &count, nullptr) && count == output.size();
+}
+
 struct Hash::Impl {
     BCRYPT_HASH_HANDLE handle{};
     bool finished{};
@@ -126,6 +170,15 @@ bool Cache::Read(const std::string& name, const resource_sync::Entry& expected,
     DWORD count{};
     return SetFilePointerEx(file.handle, seek, nullptr, FILE_BEGIN) &&
         ReadFile(file.handle, out.data(), DWORD(out.size()), &count, nullptr) && count == out.size();
+}
+std::unique_ptr<SourceFile> Cache::Open(const std::string& name, const resource_sync::Entry& expected) const {
+    const auto path = Path(name, expected);
+    Parents parents;
+    if (!parents.Lock(path, false)) return {};
+    File file{CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+    if (!file.Valid() || !Regular(file.handle, expected.size)) return {};
+    return SourceFile::Reopen(file.handle, 0, expected.size);
 }
 bool Cache::Store(const std::string& name, const resource_sync::Entry& expected,
                   std::span<const std::uint8_t> bytes) {

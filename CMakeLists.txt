@@ -241,6 +241,8 @@ if(GOLDCRAFT_BUILD_CLIENT)
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/userinfo_client.cpp native/client/vitals.cpp native/client/status_motion.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
+    include(cmake/goldcraft-asio.cmake)
+    target_link_libraries(GoldCraft PRIVATE goldcraft_asio)
     target_sources(GoldCraft PRIVATE native/client/spectator_menu.cpp)
     target_sources(GoldCraft PRIVATE native/client/hud_clock.cpp)
     target_sources(GoldCraft PRIVATE native/client/resource_native_hud.cpp

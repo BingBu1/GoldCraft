@@ -3,6 +3,7 @@
 """Build project sources directly and test actual x86 filesystem/HTTP integration."""
 import argparse
 import hashlib
+import importlib.util
 import http.server
 import json
 import os
@@ -15,6 +16,9 @@ import time
 import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location('prepare_asio', ROOT / 'tools/Prepare-Asio.py')
+asio = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(asio)
 
 def identity(path):
     path = pathlib.Path(path).resolve()
@@ -27,11 +31,15 @@ def main():
     parser.add_argument('--compiler', type=pathlib.Path, required=True)
     parser.add_argument('--environment', type=pathlib.Path,
                         help='Optional JSON environment from the configured Windows toolchain')
+    parser.add_argument('--case', help='Run a single named integration case')
+    parser.add_argument('--baseline-update-object', type=pathlib.Path,
+                        help='Link a recorded old resource_update object for regression proof')
     args = parser.parse_args()
     out = args.output.resolve()
     assert out.is_relative_to(ROOT / 'build') and not out.exists()
     out.mkdir(parents=True)
     frozen = []
+    asio_include = asio.prepare()
     def freeze(relative):
         source = ROOT / relative
         before = identity(source)
@@ -40,6 +48,11 @@ def main():
     for component in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']:
         for extension in ['cpp', 'hpp']: freeze('native/client/' + component + '.' + extension)
     freeze('native/include/goldcraft/resource_sync.hpp')
+    freeze('native/include/goldcraft/async_download.hpp')
+    freeze('tools/Prepare-Asio.py')
+    for source in asio_include.rglob('*'):
+        if source.is_file(): frozen.append(identity(source))
+    freeze('native/client/resource_timing.hpp')
     freeze('tests/resource-update/main.cpp'); freeze('tests/resource-update/run.py')
     sdk = pathlib.Path('external/MetaHookSv-20261007/MetaHook/include')
     for source in (ROOT / sdk).rglob('*'):
@@ -53,10 +66,11 @@ def main():
     if args.environment: env.update(json.loads(args.environment.read_text('utf-8-sig')))
     env['TEMP'] = env['TMP'] = str(out / 'temp')
     compiler = str(args.compiler.resolve(strict=True))
-    includes = [ROOT / 'native/client', ROOT / 'native/include']
+    includes = [ROOT / 'native/client', ROOT / 'native/include', asio_include]
     includes += [ROOT / sdk / x for x in ['', 'Interface', 'HLSDK/common', 'HLSDK/cl_dll', 'HLSDK/engine', 'HLSDK/public', 'HLSDK/pm_shared', 'HLSDK/dlls', 'SourceSDK', 'SourceSDK/tier1']]
     flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/clang:-O3', '/utf-8',
-             '/arch:AVX2', '/fp:precise', '/clang:-flto=thin', '/D_CRT_SECURE_NO_WARNINGS', '/DNOMINMAX']
+             '/arch:AVX2', '/fp:precise', '/clang:-flto=thin', '/D_CRT_SECURE_NO_WARNINGS', '/DNOMINMAX',
+             '/DASIO_STANDALONE', '/DASIO_NO_DEPRECATED', '/D_WIN32_WINNT=0x0A00']
     flags += ['/I' + str(x) for x in includes]
     steps = []
     def execute(name, command, limit=35):
@@ -72,12 +86,15 @@ def main():
         return code
     objects = []
     for name, relative in [(x, 'native/client/' + x + '.cpp') for x in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']] + [('fixture', 'tests/resource-update/main.cpp')]:
+        if name == 'resource_update' and args.baseline_update_object:
+            obj = args.baseline_update_object.resolve(strict=True)
+            frozen.append(identity(obj)); objects.append(obj); continue
         obj = out / (name + '.obj'); objects.append(obj)
         assert execute('compile-' + name, [compiler, *flags, '/c', '/Fo' + str(obj), ROOT / relative], 120) == 0
     # Avoid Windows legacy installer-name heuristics for an ordinary test host.
     exe = out / 'resource-check.exe'
     assert execute('link', [compiler, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', *objects,
-                           '/Fe' + str(exe), '/link', '/threads:1', 'winhttp.lib', 'bcrypt.lib']) == 0
+                           '/Fe' + str(exe), '/link', '/threads:1', 'winhttp.lib', 'bcrypt.lib', 'ws2_32.lib', 'mswsock.lib']) == 0
     body = bytes(((i * 73 + 19) ^ (i >> 9)) & 255 for i in range(256 * 1024))
     old, third = bytes(x ^ 0x5a for x in body), bytes(x ^ 0xc3 for x in body)
     sha, third_sha = hashlib.sha256(body).hexdigest(), hashlib.sha256(third).hexdigest()
@@ -116,17 +133,25 @@ def main():
              ('corrupt-cache', 'update', 'models/update.mdl', 1),
              ('long-name', 'update', 'models/' + 'a' * 52 + '.mdl', 1),
              ('transaction', 'transaction', 'models/update.mdl', 2),
-             ('rollback-failure', 'rollback-failure', 'models/update.mdl', 0)]
+             ('mtime-change', 'mtime-change', 'models/update.mdl', 1),
+             ('replace-source', 'replace-source', 'models/update.mdl', 1),
+             ('rollback-failure', 'rollback-failure', 'models/update.mdl', 0),
+             ('lease', 'lease', 'models/update.mdl', 0),
+             ('shadow', 'shadow', 'models/update.mdl', 0)]
+    if args.case: cases = [case for case in cases if case[0] == args.case]; assert cases
     results = []
     try:
         for label, mode, name, request_count in cases:
             base = out / 'cases' / label; game = base / 'game'; game.mkdir(parents=True)
             for filename, data in [('new.bin', body), ('old.bin', old), ('third.bin', third), ('old-linked-source.bin', old)]:
                 (base / filename).write_bytes(data)
-            initial = body if mode == 'same' else old
+            initial = body if mode in ('same', 'mtime-change', 'replace-source', 'lease', 'shadow') else old
             if name == 'sprites/packed.spr':
                 entry = struct.pack('<56sii', name.encode(), 12, len(initial))
                 (game / 'pak0.pak').write_bytes(struct.pack('<4sii', b'PACK', 12 + len(initial), len(entry)) + initial + entry)
+                # Prove we hash the actual PAK winner, not GetLocalPath's loose
+                # filename. The competing loose body is deliberately different.
+                loose = base / 'fallback' / name; loose.parent.mkdir(parents=True); loose.write_bytes(third)
             else:
                 destination = game / name; destination.parent.mkdir(parents=True)
                 if mode == 'old-hardlink': os.link(base / 'old-linked-source.bin', destination)

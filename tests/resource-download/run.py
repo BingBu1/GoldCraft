@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Freeze and test the production x86 downloader against controlled loopback HTTP."""
+"""Compile project sources in place and exercise actual x86 asynchronous HTTP."""
 import argparse
 import hashlib
 import http.server
 import json
 import os
 import pathlib
-import shutil
+import importlib.util
 import subprocess
 import threading
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+spec = importlib.util.spec_from_file_location('prepare_asio', ROOT / 'tools/Prepare-Asio.py')
+asio = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(asio)
 
 def identity(path):
     path = pathlib.Path(path).resolve()
@@ -30,15 +33,13 @@ def main():
     assert out.is_relative_to(ROOT / 'build') and not out.exists()
     out.mkdir(parents=True)
     frozen = []
+    asio_include = asio.prepare()
     for relative in ['native/client/resource_download.hpp', 'native/client/resource_download.cpp',
                      'native/include/goldcraft/resource_sync.hpp', 'tests/resource-download/main.cpp',
-                     'tests/resource-download/run.py']:
-        source, target = ROOT / relative, out / 'source' / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        before = identity(source)
-        shutil.copy2(source, target)
-        assert identity(source) == before and identity(target)['sha256'] == before['sha256']
-        frozen.append(dict(original=before, frozen=identity(target)))
+                     'tests/resource-download/run.py', 'native/include/goldcraft/async_download.hpp',
+                     'tools/Prepare-Asio.py']:
+        frozen.append(identity(ROOT / relative))
+    frozen += [identity(path) for path in asio_include.rglob('*') if path.is_file()]
     def save(name, value): (out / name).write_text(json.dumps(value, ensure_ascii=False, indent=2), 'utf-8')
     save('inputs.json', frozen)
     (out / 'temp').mkdir()
@@ -46,8 +47,10 @@ def main():
     if args.environment: env.update(json.loads(args.environment.read_text('utf-8-sig')))
     env['TEMP'] = env['TMP'] = str(out / 'temp')
     compiler = str(args.compiler.resolve(strict=True))
-    flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/utf-8',
-             '/arch:AVX2', '/fp:precise', '/I' + str(out / 'source/native/client'), '/I' + str(out / 'source/native/include')]
+    flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/Zi', '/utf-8',
+             '/clang:-O3', '/arch:AVX2', '/fp:precise', '/DASIO_STANDALONE', '/DASIO_NO_DEPRECATED',
+             '/D_WIN32_WINNT=0x0A00', '/I' + str(asio_include),
+             '/I' + str(ROOT / 'native/client'), '/I' + str(ROOT / 'native/include')]
     steps = []
     def execute(name, command, limit=30):
         start = time.monotonic()
@@ -63,10 +66,11 @@ def main():
         return code
     for label, relative in [('worker', 'native/client/resource_download.cpp'), ('fixture', 'tests/resource-download/main.cpp')]:
         assert execute('compile-' + label, [compiler, *flags, '/c', '/Fo' + str(out / (label + '.obj')),
-                                           out / 'source' / relative], 120) == 0
+                                           ROOT / relative], 120) == 0
     exe = out / 'download.exe'
     assert execute('link', [compiler, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', out / 'worker.obj',
-                           out / 'fixture.obj', '/Fe' + str(exe), '/link', '/threads:1', 'winhttp.lib', 'bcrypt.lib']) == 0
+                           out / 'fixture.obj', '/Fe' + str(exe), '/link', '/threads:1', '/DEBUG',
+                           '/PDB:' + str(out / 'download.pdb'), 'winhttp.lib', 'bcrypt.lib', 'ws2_32.lib', 'mswsock.lib']) == 0
     # Independent Python source bytes and hashlib establish the HTTP/manifest oracle.
     body = bytes(((i * 73 + 19) ^ (i >> 9)) & 255 for i in range(256 * 1024))
     old = bytes((x ^ 0x5a) for x in body)
@@ -136,11 +140,11 @@ def main():
     finally:
         stop.set(); server.shutdown(); server.server_close(); thread.join()
         save('http-requests.json', requests)
-    changed = [x['frozen']['path'] for x in frozen if identity(x['frozen']['path']) != x['frozen']]
+    changed = [x['path'] for x in frozen if identity(x['path']) != x]
     result = dict(success=all(x['passed'] for x in results) and not changed, cases=results, steps=steps,
                   frozen=frozen, compiler=identity(compiler), bodies=[identity(out / 'new-body.bin'), identity(out / 'old-body.bin')],
-                  changed=changed, serverAddress=base, productionModified=False, deployed=False,
-                  boundary='Actual x86 C++20 WinHTTP+BCrypt module, real loopback HTTP bytes; engine integration and real game not exercised.')
+                  changed=changed, serverAddress=base, sourceCompiledInPlace=True, deployed=False,
+                  boundary='Actual x86 C++20 Asio/WinHTTP+BCrypt module, real loopback HTTP bytes; engine integration and real game not exercised.')
     save('result.json', result)
     print(json.dumps(dict(success=result['success'], cases=results)))
     raise SystemExit(0 if result['success'] else 1)

@@ -10,6 +10,7 @@
 struct metahook_api_s;
 struct mh_interface_s;
 class IFileSystem;
+namespace goldcraft::resource_cache { class PendingSource; }
 namespace goldcraft::resource_overlay {
 using Paths = std::map<std::string, std::string>;
 struct Snapshot { std::string root; Paths paths; };
@@ -35,6 +36,9 @@ public:
     // Returns bytes read, or -1 on invalid range/read error. Each call seeks
     // explicitly because multiple original PAK handles share a FILE position.
     int ReadAt(std::uint32_t offset, std::span<std::uint8_t> output);
+    // Must be acquired on the main thread. A worker turns the result into an
+    // independent read lease after this VFS reader closes.
+    std::unique_ptr<resource_cache::PendingSource> DeferredSource() const;
 private:
     friend std::unique_ptr<Reader> OpenReader(const char*);
     Reader(IFileSystem* filesystem, void* handle, std::uint32_t size)
