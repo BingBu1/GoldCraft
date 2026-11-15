@@ -68,4 +68,27 @@ struct M16FrameHost
 // afterwards. Special1/2 lifecycle is not admitted.
 M16ControlResult AdvanceM16DerivedFrame(MagazineActionState&, float& actionDeadline,
     const M16FrameHost&) noexcept;
+
+struct M16InputOwner
+{
+    std::uint32_t buttons{};
+    float activityBlock{};
+    int moveType{};
+};
+enum class M16InputEvent : unsigned char
+{
+    InventoryChanged, Primary, Secondary, Aim, Reload
+};
+struct M16InputHost
+{
+    void* context{};
+    bool (*current)(void*) noexcept {};
+    float (*time)(void*) noexcept {};
+    bool (*owner)(void*, M16InputOwner&) noexcept {};
+    bool (*event)(void*, M16InputEvent) noexcept {};
+};
+// Original1011D9BC onward for the M16 virtual table. Call after the original
+// common reload-commit stage; weapon actions retain their own eligibility.
+M16ControlResult DispatchM16FrameInput(const MagazineActionState&, int& fireOnEmpty,
+    const M16InputHost&) noexcept;
 }

@@ -235,4 +235,46 @@ M16ControlResult AdvanceM16DerivedFrame(MagazineActionState& state, float& deadl
     }
     return M16ControlResult::Applied;
 }
+
+M16ControlResult DispatchM16FrameInput(const MagazineActionState& state, int& fireOnEmpty,
+    const M16InputHost& host) noexcept
+{
+    if (!host.current || !host.time || !host.owner || !host.event)
+        return M16ControlResult::MissingHost;
+    if (!host.current(host.context)) return M16ControlResult::Cancelled;
+    M16InputOwner owner;
+    const bool supplied = host.owner(host.context, owner);
+    if (!host.current(host.context)) return M16ControlResult::Cancelled;
+    if (!supplied) return M16ControlResult::ConsumerRejected;
+    const auto emit = [&](M16InputEvent event) noexcept
+    {
+        if (!host.current(host.context)) return M16ControlResult::Cancelled;
+        const bool accepted = host.event(host.context, event);
+        if (!host.current(host.context)) return M16ControlResult::Cancelled;
+        return accepted ? M16ControlResult::Applied : M16ControlResult::ConsumerRejected;
+    };
+    const auto attack = [&](M16InputEvent event) noexcept
+    {
+        if (owner.moveType == 5) return M16ControlResult::Applied;
+        const auto update = emit(M16InputEvent::InventoryChanged);
+        return update == M16ControlResult::Applied ? emit(event) : update;
+    };
+    if ((owner.buttons & 0x800U) && owner.activityBlock <= 0 &&
+        host.time(host.context) >= state.secondary)
+        return attack(M16InputEvent::Secondary);
+    if ((owner.buttons & 0x40U) && owner.activityBlock <= 0 &&
+        host.time(host.context) >= state.ownerAttack)
+        return attack(M16InputEvent::Aim);
+    if ((owner.buttons & 1U) && owner.activityBlock <= 0 &&
+        host.time(host.context) >= state.primary)
+    {
+        if (owner.moveType == 5) return M16ControlResult::Applied;
+        if (!state.clip) fireOnEmpty = 1;
+        return attack(M16InputEvent::Primary);
+    }
+    if ((owner.buttons & 0x2000U) && !state.loading)
+        return owner.moveType == 5 ? M16ControlResult::Applied : emit(M16InputEvent::Reload);
+    if (!(owner.buttons & 0x841U)) fireOnEmpty = 0;
+    return M16ControlResult::Applied;
+}
 }

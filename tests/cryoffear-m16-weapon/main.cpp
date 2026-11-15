@@ -30,7 +30,7 @@ M16OwnerFrame frame{};
 bool current=true;
 int cancel=-1, checks{}, meleeCalls{};
 bool failEffect{}, observeReload{};
-bool traceDeploy{}, mutateMovement{};
+bool traceDeploy{}, mutateMovement{}, mutateInput{};
 std::vector<unsigned> deployOrder;
 std::vector<std::pair<int,int>> deployRandom;
 bool fidgetMode{};
@@ -77,7 +77,13 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const M16Event& e) noexce
         if(observeReload)Check(item.m_iClip==20&&item.m_fInReload&&item.m_pPlayer->m_rgAmmo[item.m_iPrimaryAmmoType]==20);
         if(fidgetMode)Event(kind);
         break;
-    case M16Effect::ReserveHud:if(fidgetMode)Event(kind,e.value);break;
+    case M16Effect::ReserveHud:
+        if(fidgetMode)Event(kind,e.value);
+        if(mutateInput)
+        {
+            mutateInput=false;globals.time+=1.F;item.m_pPlayer->pev->button=1;frame.pressed=1;
+        }
+        break;
     case M16Effect::Gunsmoke:
         Check(e.value==19&&e.enabled&&e.other==0&&
             static_cast<unsigned>(e.modelString)==static_cast<unsigned>(item.m_pPlayer->pev->viewmodel));
@@ -120,7 +126,7 @@ bool extendedAllowed=true;
 
 void Initialize()
 {
-    events.clear();current=true;mutateMovement=false;cancel=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=0;frame={};frame.bulletDamage=37;
+    events.clear();current=true;mutateMovement=mutateInput=false;cancel=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=0;frame={};frame.bulletDamage=37;
     frame.randomSeed=17;frame.sourceMode=PistolSource::NormalMuzzle;
     frame.reserveLimit=200;frame.stamina=100;
     globals={};globals.maxClients=2;globals.time=0;
@@ -272,6 +278,23 @@ int main(int argc,char** argv)
     Initialize();Ready();State().aiming=State().pendingReload=true;frame.toggleAim=false;
     events.clear();weapon.ItemPostFrame();
     Check(!State().aiming&&State().pendingReload&&SawView(20));
+    // A real pre-input HUD consumer advances time and changes the held key.
+    // An entry-time snapshot must not suppress the now-ready primary attack.
+    Initialize();Ready();State().primary=State().secondary=10.5F;
+    player.m_rgAmmo[1]=41;mutateInput=true;events.clear();weapon.ItemPostFrame();
+    Check(globals.time==11.F&&weapon.m_iClip==19&&weapon.BurstPending()&&SawView(9));
+    // Original fidget selects its mode branch before the second RNG callback.
+    for(bool burst:{false,true})
+    {
+        Initialize();Ready();if(!burst){weapon.ToggleFireMode();Ready(12);}
+        g_engfuncs.pfnRandomLong=[](int low,int high)
+        {
+            Check(low==0);if(high==599)return 50;
+            Check(high==2);weapon.ToggleFireMode();return 1;
+        };
+        events.clear();weapon.ItemPostFrame();
+        Check(weapon.BurstMode()!=burst&&SawView(burst?30:27));
+    }
     // M16 requires an attack edge to start its group; scheduled shots ignore
     // the long group deadline and remain tied to this inventory/life.
     Initialize();Ready();frame.pressed=0;events.clear();weapon.PrimaryAttack();

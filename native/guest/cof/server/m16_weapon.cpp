@@ -994,12 +994,14 @@ void M16Weapon::ItemPostFrame()
         if (!Current(&l)) return;
         if (chance == 50 && !action_.aiming)
         {
+            const int baseSequence = burst_ ? 29 : 26;
             const int choice = g_engfuncs.pfnRandomLong(0, 2);
             if (!Current(&l)) return;
-            if (choice >= 0 && choice <= 2 && !View((burst_ ? 29 : 26) + choice)) return;
+            if (choice >= 0 && choice <= 2 && !View(baseSequence + choice)) return;
         }
     }
-    if (now > wearDeadline_) { wearDeadline_ = AddDouble(now,.75); if (wear_ > 0) --wear_; }
+    if (gpGlobals->time > wearDeadline_)
+    { wearDeadline_ = AddDouble(gpGlobals->time,.75); if (wear_ > 0) --wear_; }
     if (wear_ < 0) wear_ = 0;
     if (wear_ > wearMaximum_) wear_ = wearMaximum_; // original max hook is empty for M16
     if (reserveHud_ != action_.reserve)
@@ -1011,38 +1013,52 @@ void M16Weapon::ItemPostFrame()
     {
         MagazineReload reload{action_.clip,action_.reserve,action_.ownerAttack,true};
         ActionBridge bridge{this, lease_}; bridge.lease.active = true;
-        CommitMagazineReload(reload,20,0,now,ReloadCommitted,&bridge);
+        CommitMagazineReload(reload,20,0,gpGlobals->time,ReloadCommitted,&bridge);
         if (!Current(&bridge.lease)) return;
         if (bridge.callbackFailed) return;
         action_.clip = reload.clip; action_.reserve = reload.reserve; action_.loading = reload.loading;
         WriteAmmo();
     }
-    const unsigned buttons = m_pPlayer->pev->button;
-    const bool allowed = frame.activityBlock <= 0 && m_pPlayer->pev->movetype != 5;
-    if ((buttons & 0x800u) && frame.activityBlock <= 0 && action_.secondary <= now)
-    {
-        if (allowed) { if (!Emit({M16Effect::InventoryChanged})) return; SecondaryAttack(); }
-    }
-    else if ((buttons & 0x40u) && allowed && action_.ownerAttack <= now)
-    {
-        if (!Emit({M16Effect::InventoryChanged})) return;
-        if (action_.primary <= now && action_.secondary <= now && action_.extra <= now && !action_.action &&
-            (frame.pressed & 0x40u) && (frame.toggleAim || !action_.aiming))
-            if (!SetAim(!action_.aiming)) return;
-    }
-    else if ((buttons & 1u) && frame.activityBlock <= 0 && action_.primary <= now)
-    {
-        if (allowed)
+    const M16InputHost input{&bridge,
+        [](void* p) noexcept { return Current(&static_cast<Bridge*>(p)->lease); },
+        [](void*) noexcept { return gpGlobals->time; },
+        [](void* p, M16InputOwner& out) noexcept
         {
-            if (!action_.clip) m_fFireOnEmpty = 1;
-            if (!Emit({M16Effect::InventoryChanged})) return;
-            PrimaryAttack();
-        }
-    }
-    else if ((buttons & 0x2000u) && !action_.loading)
-    { if (m_pPlayer->pev->movetype != 5) Reload(); }
-    else if (!(buttons & 0x841u)) m_fFireOnEmpty = 0;
-    if (!Current(const_cast<Lease*>(&l))) return;
+            auto& b = *static_cast<Bridge*>(p);
+            M16OwnerFrame owner;
+            if (!b.item.backends_.ownerFrame(b.item.backends_.context, owner) || !Current(&b.lease)) return false;
+            out = {static_cast<std::uint32_t>(b.item.m_pPlayer->pev->button), owner.activityBlock,
+                b.item.m_pPlayer->pev->movetype};
+            return true;
+        },
+        [](void* p, M16InputEvent event) noexcept
+        {
+            auto& b = *static_cast<Bridge*>(p);
+            b.item.WriteAmmo(); b.item.MirrorTimers(true);
+            switch (event)
+            {
+            case M16InputEvent::InventoryChanged: return b.item.Emit({M16Effect::InventoryChanged});
+            case M16InputEvent::Primary: b.item.PrimaryAttack(); break;
+            case M16InputEvent::Secondary: b.item.SecondaryAttack(); break;
+            case M16InputEvent::Reload: b.item.Reload(); break;
+            case M16InputEvent::Aim:
+            {
+                M16OwnerFrame owner;
+                if (!b.item.Check(owner)) return false;
+                auto& action = b.item.action_;
+                const float now = gpGlobals->time;
+                if (action.primary <= now && action.secondary <= now && action.extra <= now &&
+                    !action.action && !action.special && (owner.pressed & 0x40U) &&
+                    (owner.toggleAim || !action.aiming)) return b.item.SetAim(!action.aiming);
+                return true;
+            }
+            }
+            return Current(&b.lease) && (b.item.status_ == M16Status::Applied ||
+                b.item.status_ == M16Status::Ineligible);
+        }};
+    const auto dispatched = DispatchM16FrameInput(action_, m_fFireOnEmpty, input);
+    if (!Current(&l)) return;
+    if (dispatched != M16ControlResult::Applied) { SetResult(dispatched); return; }
     WriteAmmo(); MirrorTimers(true);
 }
 void M16Weapon::WeaponIdle()

@@ -2606,7 +2606,11 @@
     "tests/cryoffear-m16-frame/main.cpp",
     "tests/cryoffear-m16-frame/oracle.py",
     "tests/cryoffear-m16-frame/run.py",
-    "docs/2026-11-15_修复-M16原版派生帧时序-report.md"
+    "docs/2026-11-15_修复-M16原版派生帧时序-report.md",
+    "tests/cryoffear-m16-input/README.md",
+    "tests/cryoffear-m16-input/main.cpp",
+    "tests/cryoffear-m16-input/oracle.py",
+    "tests/cryoffear-m16-input/run.py"
   ],
   "trees": {
     "native": [
