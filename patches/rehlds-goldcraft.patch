@@ -84,13 +84,14 @@ index 12c4a5a..2d00db5 100644
  }
  
 diff --git a/rehlds/engine/host.cpp b/rehlds/engine/host.cpp
-index 9cd73e6..4492521 100644
+index f7c4670..dd3416c 100644
 --- a/rehlds/engine/host.cpp
 +++ b/rehlds/engine/host.cpp
-@@ -27,6 +27,10 @@
+@@ -27,6 +27,11 @@
  */
  
  #include "precompiled.h"
++#include "player_think_stage.h"
 +#include "steam_approval.h"
 +#include "userinfo.h"
 +#include "precache.h"
@@ -98,7 +99,7 @@ index 9cd73e6..4492521 100644
  
  double realtime;
  double rolling_fps;
-@@ -428,6 +432,7 @@ void EXT_FUNC SV_DropClient_hook(IGameClient* cl, bool crash, const char *string
+@@ -428,6 +433,7 @@ void EXT_FUNC SV_DropClient_hook(IGameClient* cl, bool crash, const char *string
  
  void EXT_FUNC SV_DropClient_api(IGameClient* cl, bool crash, const char* fmt, ...)
  {
@@ -106,7 +107,7 @@ index 9cd73e6..4492521 100644
  	char buf[1024];
  	va_list argptr;
  
-@@ -440,6 +445,7 @@ void EXT_FUNC SV_DropClient_api(IGameClient* cl, bool crash, const char* fmt, ..
+@@ -440,6 +446,7 @@ void EXT_FUNC SV_DropClient_api(IGameClient* cl, bool crash, const char* fmt, ..
  
  void SV_DropClient(client_t *cl, qboolean crash, const char *fmt, ...)
  {
@@ -114,7 +115,7 @@ index 9cd73e6..4492521 100644
  	char buf[1024];
  	va_list argptr;
  
-@@ -452,6 +458,7 @@ void SV_DropClient(client_t *cl, qboolean crash, const char *fmt, ...)
+@@ -452,6 +459,7 @@ void SV_DropClient(client_t *cl, qboolean crash, const char *fmt, ...)
  
  void SV_DropClient_internal(client_t *cl, qboolean crash, const char *string)
  {
@@ -122,7 +123,7 @@ index 9cd73e6..4492521 100644
  	int i;
  	unsigned char final[512];
  	float connection_time;
-@@ -516,6 +523,7 @@ void SV_DropClient_internal(client_t *cl, qboolean crash, const char *string)
+@@ -516,6 +524,7 @@ void SV_DropClient_internal(client_t *cl, qboolean crash, const char *string)
  	}
  #endif // REHLDS_FIXES
  	cl->edict = NULL;
@@ -130,7 +131,7 @@ index 9cd73e6..4492521 100644
  	Q_memset(cl->userinfo, 0, sizeof(cl->userinfo));
  	Q_memset(cl->physinfo, 0, sizeof(cl->physinfo));
  
-@@ -563,6 +571,7 @@ void Host_ClearClients(qboolean bFramesOnly)
+@@ -563,6 +572,7 @@ void Host_ClearClients(qboolean bFramesOnly)
  		for (i = 0; i < g_psvs.maxclientslimit; i++, host_client++)
  			SV_ClearFrames(&host_client->frames);
  
@@ -138,23 +139,26 @@ index 9cd73e6..4492521 100644
  		Q_memset(g_psvs.clients, 0, sizeof(client_t) * g_psvs.maxclientslimit);
  		SV_AllocClientFrames();
  	}
-@@ -570,6 +579,7 @@ void Host_ClearClients(qboolean bFramesOnly)
+@@ -570,6 +580,8 @@ void Host_ClearClients(qboolean bFramesOnly)
  
  void Host_ShutdownServer(qboolean crash)
  {
++	GoldCraftPlayerThinkStageReset();
 +	GC_HttpReset();
  	int i;
  	if (!g_psv.active)
  		return;
-@@ -590,6 +600,7 @@ void Host_ShutdownServer(qboolean crash)
+@@ -589,7 +601,9 @@ void Host_ShutdownServer(qboolean crash)
+ 	SV_ClearEntities();
  	SV_ClearCaches();
  	FreeAllEntPrivateData();
++	GoldCraftPlayerThinkStageReset();
  	Q_memset(&g_psv, 0, sizeof(server_t));
 +	gc_precache.Reset();
  	CL_ClearClientState();
  
  	SV_ClearClientStates();
-@@ -599,6 +610,7 @@ void Host_ShutdownServer(qboolean crash)
+@@ -599,6 +613,7 @@ void Host_ShutdownServer(qboolean crash)
  	for (i = 0; i < g_psvs.maxclientslimit; i++, host_client++)
  		SV_ClearFrames(&host_client->frames);
  
@@ -162,23 +166,26 @@ index 9cd73e6..4492521 100644
  	Q_memset(g_psvs.clients, 0, sizeof(client_t) * g_psvs.maxclientslimit);
  	HPAK_FlushHostQueue();
  	Steam_Shutdown();
-@@ -633,6 +645,7 @@ void Host_CheckDyanmicStructures(void)
+@@ -633,6 +648,8 @@ void Host_CheckDyanmicStructures(void)
  
  void Host_ClearMemory(qboolean bQuiet)
  {
++	GoldCraftPlayerThinkStageReset();
 +    GC_HttpReset();
  
  	//Engine string pooling
  #ifdef REHLDS_FIXES
-@@ -656,6 +669,7 @@ void Host_ClearMemory(qboolean bQuiet)
+@@ -655,7 +672,9 @@ void Host_ClearMemory(qboolean bQuiet)
+ 
  	g_pcls.signon = 0;
  	SV_ClearCaches();
++	GoldCraftPlayerThinkStageReset();
  	Q_memset(&g_psv, 0, sizeof(server_t));
 +	gc_precache.Reset();
  	CL_ClearClientState();
  	SV_ClearClientStates();
  }
-@@ -1101,7 +1115,7 @@ int Host_Init(quakeparms_t *parms)
+@@ -1101,7 +1120,7 @@ int Host_Init(quakeparms_t *parms)
  	com_argv = parms->argv;
  	realtime = 0;
  
@@ -187,7 +194,7 @@ index 9cd73e6..4492521 100644
  
  	Voice_RegisterCvars();
  	Cvar_RegisterVariable(&console);
-@@ -1227,6 +1241,7 @@ void Host_Shutdown(void)
+@@ -1227,6 +1246,7 @@ void Host_Shutdown(void)
  	}
  
  	isdown = TRUE;
@@ -2585,18 +2592,19 @@ index c35b293..383fdb4 100644
  	{
  		Steam3Server()->Shutdown();
 diff --git a/rehlds/engine/sv_user.cpp b/rehlds/engine/sv_user.cpp
-index 4e0d26e..8580c75 100644
+index ecbbe4b..d4d96eb 100644
 --- a/rehlds/engine/sv_user.cpp
 +++ b/rehlds/engine/sv_user.cpp
-@@ -27,6 +27,7 @@
+@@ -27,6 +27,8 @@
  */
  
  #include "precompiled.h"
 +#include "precache.h"
++#include "player_think_stage.h"
  
  sv_adjusted_positions_t truepositions[MAX_CLIENTS];
  qboolean g_balreadymoved;
-@@ -107,7 +108,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+@@ -107,7 +109,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
  
  	while (MSG_ReadBits(1))
  	{
@@ -2605,7 +2613,7 @@ index 4e0d26e..8580c75 100644
  		if (idx < 0 || idx >= g_psv.num_resources)
  		{
  			c = -1;
-@@ -115,7 +116,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+@@ -115,7 +117,7 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
  		}
  
  #ifdef REHLDS_FIXES
@@ -2614,7 +2622,7 @@ index 4e0d26e..8580c75 100644
  #else // REHLDS_FIXES
  		resource_t *r = &g_psv.resourcelist[idx];
  #endif // REHLDS_FIXES
-@@ -205,12 +206,12 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
+@@ -205,12 +207,12 @@ void SV_ParseConsistencyResponse(client_t *pSenderClient)
  #ifdef REHLDS_FIXES
  		dropmessage[0] = '\0';
  
@@ -2629,7 +2637,7 @@ index 4e0d26e..8580c75 100644
  			return;
  		}
  #else // REHLDS_FIXES
-@@ -260,7 +261,7 @@ int EXT_FUNC SV_TransferConsistencyInfo_internal(void)
+@@ -260,7 +262,7 @@ int EXT_FUNC SV_TransferConsistencyInfo_internal(void)
  	for (int i = 0; i < g_psv.num_resources; i++)
  	{
  #ifdef REHLDS_FIXES
@@ -2638,7 +2646,7 @@ index 4e0d26e..8580c75 100644
  #else // REHLDS_FIXES
  		resource_t *r = &g_psv.resourcelist[i];
  #endif // REHLDS_FIXES
-@@ -346,15 +347,16 @@ void SV_SendConsistencyList(sizebuf_t *msg)
+@@ -346,15 +348,16 @@ void SV_SendConsistencyList(sizebuf_t *msg)
  	int delta = 0;
  	int lastcheck = 0;
  #ifdef REHLDS_FIXES
@@ -2657,7 +2665,7 @@ index 4e0d26e..8580c75 100644
  		if (r && (r->ucFlags & RES_CHECKFILE) != 0)
  		{
  			MSG_WriteBits(1, 1);
-@@ -363,7 +365,7 @@ void SV_SendConsistencyList(sizebuf_t *msg)
+@@ -363,7 +366,7 @@ void SV_SendConsistencyList(sizebuf_t *msg)
  			if (delta > 31)
  			{
  				MSG_WriteBits(0, 1);
@@ -2666,7 +2674,7 @@ index 4e0d26e..8580c75 100644
  			}
  			else
  			{
-@@ -412,7 +414,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+@@ -412,7 +415,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
  
  	if (check->v.solid == SOLID_BSP)
  	{
@@ -2675,7 +2683,7 @@ index 4e0d26e..8580c75 100644
  		Q_strncpy(pe->name, pe->model->name, sizeof(pe->name) - 1);
  		pe->name[sizeof(pe->name) - 1] = 0;
  	}
-@@ -420,7 +422,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+@@ -420,7 +423,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
  	{
  		if (check->v.modelindex)
  		{
@@ -2684,7 +2692,7 @@ index 4e0d26e..8580c75 100644
  			Q_strncpy(pe->name, pe->model->name, sizeof(pe->name) - 1);
  			pe->name[sizeof(pe->name) - 1] = 0;
  		}
-@@ -455,7 +457,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
+@@ -455,7 +458,7 @@ void SV_CopyEdictToPhysent(physent_t *pe, int e, edict_t *check)
  		{
  			if (check->v.modelindex)
  			{
@@ -2693,7 +2701,22 @@ index 4e0d26e..8580c75 100644
  				if (pModel)
  				{
  					if (pModel->flags & STUDIO_TRACE_HITBOX)
-@@ -1698,7 +1700,9 @@ void SV_ParseMove(client_t *pSenderClient)
+@@ -853,8 +856,13 @@ void SV_RunCmd(usercmd_t* ucmd, int random_seed, qboolean fNetCmd, qboolean fCho
+ 		sv_player->v.v_angle[1] = ucmd->viewangles[1];
+ 		sv_player->v.v_angle[2] = ucmd->viewangles[2];
+ 	}
++	const std::uint32_t thinkStageMap = std::uint32_t(g_psvs.spawncount);
+ 	SV_PlayerRunPreThink(sv_player, (float)host_client->svtimebase);
+-	SV_PlayerRunThink(sv_player, frametime, host_client->svtimebase);
++	edict_t* const thinkStagePlayer = sv_player;
++	const int thinkStageSerial = thinkStagePlayer->serialnumber;
++	const double thinkStageTimebase = host_client->svtimebase;
++	SV_PlayerRunThink(thinkStagePlayer, frametime, thinkStageTimebase);
++	GoldCraftPlayerThinkStage(thinkStagePlayer, frametime, thinkStageTimebase, thinkStageMap, thinkStageSerial);
+ 	if (Length(sv_player->v.basevelocity) > 0.0)
+ 	{
+ 		sv_player->v.clbasevelocity[0] = sv_player->v.basevelocity[0];
+@@ -1698,7 +1706,9 @@ void SV_ParseMove(client_t *pSenderClient)
  	//check move commands rate for this player
  #ifdef REHLDS_FIXES
  	int numCmdsToIssue = numcmds;
@@ -3641,3 +3664,31 @@ index 859c1dc..df19d7b 100644
  TEST(IsSafeFileExtension, SecurityChecks, 1000)
  {
  	struct testdata_t
+diff --git a/rehlds/engine/sys_dll.cpp b/rehlds/engine/sys_dll.cpp
+index 53d6559..9f8550c 100644
+--- a/rehlds/engine/sys_dll.cpp
++++ b/rehlds/engine/sys_dll.cpp
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "player_think_stage.h"
+ 
+ void(*Launcher_ConsolePrintf)(char *, ...);
+ char *(*Launcher_GetLocalizedString)(unsigned int);
+@@ -1112,6 +1113,7 @@ IgnoreThisDLL:
+ 
+ void ReleaseEntityDlls(void)
+ {
++	GoldCraftPlayerThinkStageReset();
+ 	extensiondll_t *pextdll;
+ 	extensiondll_t *pextdllMac;
+ 
+@@ -1123,6 +1125,7 @@ void ReleaseEntityDlls(void)
+ 	if (gNewDLLFunctions.pfnGameShutdown)
+ 		gNewDLLFunctions.pfnGameShutdown();
+ 
++	GoldCraftPlayerThinkStageReset();
+ 	Cvar_UnlinkExternals();
+ 
+ 	pextdll = &g_rgextdll[0];

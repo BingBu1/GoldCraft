@@ -2617,7 +2617,17 @@
     "tests/cryoffear-player-think/README.md",
     "docs/2026-11-15_实现-CoF玩家独立Think调度-report.md",
     "amxx/tests/csol/goldcraft_jump_snapshot_probe.sma",
-    "docs/2026-11-15_排查-连跳权威状态与快照对照-report.md"
+    "docs/2026-11-15_排查-连跳权威状态与快照对照-report.md",
+    "native/engine/player_think_stage.cpp",
+    "native/engine/player_think_stage.h",
+    "native/include/goldcraft/player_think_stage_api.hpp",
+    "tools/Build-ReHLDSCheckpoint.py",
+    "tests/cryoffear-player-think-stage/main.cpp",
+    "tests/cryoffear-player-think-stage/run.py",
+    "tests/cryoffear-player-think-stage/dll.cpp",
+    "tests/cryoffear-player-think-stage/run_dll.py",
+    "tests/cryoffear-player-think-stage/README.md",
+    "docs/2026-11-15_接入-CoF原生玩家Think引擎阶段-report.md"
   ],
   "trees": {
     "native": [
