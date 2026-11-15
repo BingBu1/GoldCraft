@@ -42,3 +42,17 @@ F1（`host_adaptation / validated`）：暂时不能绘制的帧被错误提升�
 完成普通射击／换弹／切枪的最终运行核对；本轮由用户自行测试，物理Escape停止仍有效，未通过其他输入接口绕过。Glock旧供体的袖口破面另项保留；981fb25a离线候选尚未部署或冒称手模完成。全部25个CoF库存身份及变体的完整Goal继续。
 
 共享文件精确更新交接（不跨聊发送）：`PROJECT_STATE.md`记录共用撤权根因及本报告；`docs/PROGRESS.md`记录旧败／新过和最终构建／部署层级；`docs/GOAL.md`保持全范围；`TODO.md`只保留真实普通操作／手模／后续身份验收。协调窗口尚未分配，领域报告是本轮持久记录，不覆盖其他会话共享编辑。
+
+## 后续退出故障与最终自测版本
+
+本轮被动观察只有315次有效读：五枪能力始终31，但服务端slot1没有活动玩家对象。随后专服36668和B38140退出，5685次读取明确失败，不将其计为玩法通过。dump显示专服在换图创建挂载机枪时，`CMountgun::Precache → Mod_LoadModel → Sys_Error`因为`models/shell762.mdl`缺失而退出；客户端随后在`HudShutdown → ShutdownScenarioMapVote → DHANDLE::operator bool`访问已卸载VGUI接口。离线日志为`build/cof-shared-crash-20261115-01/server.log`、`server-details.log`、`client.log`，不是枪械射击崩溃的证据。
+
+服务器shell762资源在14:25已被共享环境的后续更新补齐；只读核同原解包资源SHA `0386f3dd05a90f09fbe8f8447c0abd2b4adc6e802313af104dbc2daca62c1c7a`／8692字节。本轮未再次覆盖该资源；挂载机枪第二P变体仍缺，另列共享交接，不把这次补件当整张地图验收。
+
+客户端退出修复是宿主适配：已读实际VGUI2Extension `CBaseUIProxy::Shutdown`，其`ClientVGUI_Shutdown`在原生卸载前，`BaseUI_Shutdown`在原生卸载后。实际SDK `PHandle::Get`需要调用`ivgui()`，而`Set(nullptr)`只清无效句柄。修改前依据记在私有`VGUI-PREEDIT.json`；不改变CSOL投票规则或布局。
+
+`scenario_map_vote.cpp`新增ClientVGUI生命周期订阅：在原生VGUI仍有效时释放投票纹理／字体、退休子面板、清空借用接口；公开Shutdown保持幂等，并在回调迭代外注销订阅，避免修改当前被遍历的回调容器。晚到的HUD退出不再查询失效接口。该文件原有资源刷新／字体等其他会话改动保持，Git只暂存本轮窄补丁。
+
+`build/cof-ui-shutdown-20261115-03`真实SDK接口／生产退出方法6检查通过、失效接口读取0、全部输入稳定；01／02夹具缺SDK包含路径的构建失败保留。最终完整client `2aac598552ed6ebb4eebcdfc207bc9caac32df0011d9898a5954e6b15a36694d`稳定构建，最终DLL注册2235通过；替代先前1bbf版本，三文件安装回执为`build/cof-ui-lifetime-update-20261115-01/deployment.json`。权威312HUD闭包、既有模型／下载组件和受保护安装核同。专服PID40176／B23000已恢复，用户自行测试；没有自动按键、没有最终退出或五枪玩法通过的结论。
+
+共用撤权代码已发布main `9be9bfee8279e5570b65060f33b310b2affa5e2d`，GitHub逐SHA核同；4114文件／32314287字节精确索引扫描零问题。本节退出修复与最终收据另作窄提交，完整CoF Goal仍active。

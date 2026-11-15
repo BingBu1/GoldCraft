@@ -24,3 +24,11 @@ the host adapter's lifecycle behavior, not original gameplay fidelity, live
 network behavior or performance. Original allocation/lifecycle evidence and
 the captured live cancellation are documented in the linked report:
 [CoF scene lifetime repair](../../docs/2026-11-15_修复-CoF场景波动撤销武器权限-report.md).
+
+`run_ui.py` accepts the same three arguments and extracts the actual map-vote
+ClientVGUI callback and public shutdown bodies. It compiles against the exact
+VGUI2Extension callback ABI and checks both native-VGUI-first and HUD-first
+teardown, duplicate cleanup, panel retirement and callback-list ownership.
+The controlled dead-interface boundary records any stale access. The real old
+failure is documented by the matching client's crash dump; this fixture does
+not replace a real engine shutdown test.

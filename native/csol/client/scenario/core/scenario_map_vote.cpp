@@ -42,7 +42,7 @@ vgui::DHANDLE<vgui::Panel> listPanel;
 std::unordered_map<std::string,int> textures;
 bool loaded{},visible{},mouseHeld{},restoreMouse{},swallowMouse{},registered{},listPainting{},dragging{},gameUiVisible{};
 // GoldCraft rule: keep an active ballot open; host UI/focus only suspends it.
-bool pendingOpen{};
+bool pendingOpen{},clientLifetimeRegistered{};
 int left{},top{},fontHeight{},scroll{},hover{-1},dragY{},dragStart{};
 float scale{1},angles[3]{};
 std::uint16_t selection{};
@@ -291,6 +291,25 @@ public:
     void ActivateGameUI(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost){gameUiVisible=true;Suspend();}}
     void ShowConsole(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Suspend();}
 }overlay;
+// BaseUI's Shutdown callback runs after native VGUI module teardown. Retire
+// borrowed panels/interfaces in ClientVGUI_Shutdown, while VGUI is still alive.
+class ClientLifetime final:public IVGUI2Extension_ClientVGUICallbacks {
+public:
+    int GetAltitude()const override{return 35;}
+    void Initialize(CreateInterfaceFn*,int)override{}
+    void Start()override{}
+    void SetParent(vgui::VPANEL)override{}
+    void UseVGUI1(VGUI2Extension_CallbackContext*)override{}
+    void HideScoreBoard(VGUI2Extension_CallbackContext*)override{}
+    void HideAllVGUIMenu(VGUI2Extension_CallbackContext*)override{}
+    void ActivateClientUI(VGUI2Extension_CallbackContext*)override{}
+    void HideClientUI(VGUI2Extension_CallbackContext*)override{}
+    void Shutdown()override{
+        ResetScenarioMapVote();
+        if(listPanel){listPanel->MarkForDeletion();listPanel=nullptr;}
+        input=nullptr;surface=nullptr;clientUI=nullptr;font=0;
+    }
+}clientLifetime;
 }
 void InitializeScenarioMapVote()
 {
@@ -302,6 +321,7 @@ void InitializeScenarioMapVote()
     const auto plugin=api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");const auto pluginFactory=plugin?Sys_GetFactory(plugin):nullptr;
     extension=pluginFactory?static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
     if(!registered&&extension&&surface&&input){extension->RegisterBaseUICallbacks(&overlay);registered=true;}
+    if(!clientLifetimeRegistered&&extension&&surface&&input){extension->RegisterClientVGUICallbacks(&clientLifetime);clientLifetimeRegistered=true;}
 }
 void ResetScenarioMapVote()
 {
@@ -312,8 +332,9 @@ void ResetScenarioMapVote()
 void ShutdownScenarioMapVote()
 {
     ResetScenarioMapVote();if(registered&&extension)extension->UnregisterBaseUICallbacks(&overlay);
+    if(clientLifetimeRegistered&&extension)extension->UnregisterClientVGUICallbacks(&clientLifetime);
     if(listPanel){listPanel->MarkForDeletion();listPanel=nullptr;}
-    registered=false;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;font=0;
+    registered=clientLifetimeRegistered=false;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;font=0;
 }
 void ScenarioMapVoteFrame()
 {
