@@ -338,6 +338,12 @@ ResourceResult PrepareVP70Resources(const ResourceAuthority& authority, VP70Reso
         VP70Inventory, VP70Particle, VP70ClipTexture, 23, "weapon_vp70");
 }
 
+ResourceResult PrepareTMPResources(const ResourceAuthority& authority, TMPResources& output) noexcept
+{
+    return PrepareResources(authority, output, TMPModels, TMPSounds, TMPLocalWaves, TMPEvents,
+        TMPInventory, TMPParticle, TMPClipTexture, 16, "weapon_tmp");
+}
+
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {
     return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,

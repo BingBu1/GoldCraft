@@ -48,6 +48,15 @@ using guest::cof::resources::VP70Events;
 using guest::cof::resources::VP70Inventory;
 using guest::cof::resources::VP70Particle;
 using guest::cof::resources::VP70ClipTexture;
+using guest::cof::resources::TMPModel;
+using guest::cof::resources::TMPModels;
+using guest::cof::resources::TMPSound;
+using guest::cof::resources::TMPSounds;
+using guest::cof::resources::TMPLocalWaves;
+using guest::cof::resources::TMPEvents;
+using guest::cof::resources::TMPInventory;
+using guest::cof::resources::TMPParticle;
+using guest::cof::resources::TMPClipTexture;
 using guest::cof::resources::ShotDecals;
 struct ResourceAuthority
 {
@@ -97,6 +106,20 @@ struct VP70Resources
     int inventoryItemString{}, particleScriptString{};
     int inventoryDownload{}, particleDownload{};
 };
+struct TMPResources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, TMPModels.size()> models{};
+    std::array<int, TMPSounds.size()> sounds{};
+    std::array<int, TMPLocalWaves.size()> localWaveDownloads{};
+    std::array<unsigned short, TMPEvents.size()> events{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{};
+    int inventoryDownload{}, particleDownload{};
+};
 struct GlockResources
 {
     std::uint64_t generation{};
@@ -130,6 +153,7 @@ ResourceResult PreparePistolPresentationResources(const ResourceAuthority&,guest
 ResourceResult PrepareP345Resources(const ResourceAuthority&, P345Resources&) noexcept;
 ResourceResult PrepareRevolverResources(const ResourceAuthority&, RevolverResources&) noexcept;
 ResourceResult PrepareVP70Resources(const ResourceAuthority&, VP70Resources&) noexcept;
+ResourceResult PrepareTMPResources(const ResourceAuthority&, TMPResources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }

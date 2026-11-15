@@ -152,7 +152,8 @@ int main(int argc, char** argv)
     const auto exercise = [&]<class Resources>(const auto& models, const auto& sounds, const auto& waves,
         const auto& events, ResourcePath inventory, ResourcePath particle, ResourcePath texturePath,
         auto prepare, unsigned sequenceCount, float expectedRight, float expectedUp,
-        const char* classname, const char* upText, const char* family)
+        const char* classname, const char* upText, const char* family,
+        const char* forwardText = "\"0.05\"", std::uint32_t forwardBits = 0x3d4ccccd)
     {
         const auto checkStart = checks, failureStart = failures;
         ResourceAuthority authority{&fixture, Current, 17};
@@ -171,7 +172,7 @@ int main(int argc, char** argv)
             prepared.models[8] > 0 && prepared.models[9] > 0,
             "real muzzle model and cheap smoke sprite admitted before input");
         Check(prepared.generation == 17, "generation retained");
-        Check(std::bit_cast<std::uint32_t>(prepared.aimOffset.x) == 0x3d4ccccd &&
+        Check(std::bit_cast<std::uint32_t>(prepared.aimOffset.x) == forwardBits &&
             prepared.aimOffset.y == expectedRight && prepared.aimOffset.z == expectedUp && prepared.aimZoom == 50,
             "original aim field order and exact float");
         const auto& view = fixture.files.at(models[0].host);
@@ -236,6 +237,16 @@ int main(int argc, char** argv)
                 std::string_view(waves[4].original) == "weapons_new/vp70/vp70_fire.wav" && events.size() == 2,
                 "VP70 original multiplayer P and independent native/local sound identities");
         }
+        if constexpr (std::is_same_v<Resources, TMPResources>)
+        {
+            Check(std::string_view(models[2].original) == "police/models/weapons/tmp/p_tmp.mdl" &&
+                std::string_view(sounds[unsigned(TMPSound::Fire)].original) == "weapons/tmp/tmp_shoot_loop.wav" &&
+                std::string_view(sounds[unsigned(TMPSound::Tail)].original) == "weapons/tmp/tmp_shoot_end.wav" &&
+                sounds.size() == 22 && waves.size() == 5 && events.size() == 2,
+                "TMP cooperative P, dynamic native loop/tail and five local Studio samples");
+            Check(prepared.sounds[unsigned(TMPSound::Fire)] != prepared.sounds[unsigned(TMPSound::Tail)],
+                "automatic fire/tail retain distinct engine handles");
+        }
         for (std::size_t i = 0; i < events.size(); ++i)
             Check(fixture.events.at(events[i].host) == prepared.events[i], "actual event IDs preserved");
         Check(fixture.generics.at(inventory.host) == prepared.inventoryDownload &&
@@ -293,8 +304,8 @@ int main(int argc, char** argv)
         };
         const std::vector<std::string> bad{
             "", valid + "\"unfinished", valid + "\n\"ironsight_zoom\"{data \"50\"}",
-            replace("\"0.05\"", "\"nan\""), replace("\"0.05\"", "\"1e999\""),
-            replace("\"0.05\"", "\"0.05junk\""), replace("\"50\"", "\"256\""),
+            replace(forwardText, "\"nan\""), replace(forwardText, "\"1e999\""),
+            replace(forwardText, "\"0.05junk\""), replace("\"50\"", "\"256\""),
             replace("\"50\"", "\"-1\""), replace("\"50\"", "\"50.0\""),
             replace(classname, "weapon_invalid"), replace("ironsight_up", "missing_up"),
             replace("data", "bad"), valid + std::string(1, '\0'), valid + "\ntrailing",
@@ -410,6 +421,12 @@ int main(int argc, char** argv)
         exercise.template operator()<VP70Resources>(VP70Models, VP70Sounds, VP70LocalWaves, VP70Events,
             VP70Inventory, VP70Particle, VP70ClipTexture, PrepareVP70Resources, 23, -3.6f, 3.1f,
             "weapon_vp70", "\"3.1\"", "VP70");
+        fixture = Fixture{};
+        Inputs(argv[1], argv[2], argv[3], TMPModels, TMPSounds, TMPLocalWaves, TMPEvents,
+            TMPInventory, TMPParticle, TMPClipTexture);
+        exercise.template operator()<TMPResources>(TMPModels, TMPSounds, TMPLocalWaves, TMPEvents,
+            TMPInventory, TMPParticle, TMPClipTexture, PrepareTMPResources, 16, -4.75f, 3.f,
+            "weapon_tmp", "\"3\"", "TMP", "\"0\"", 0);
         if(argc==5)for(auto pistol:{guest::cof::Pistol::Glock,guest::cof::Pistol::P345})
         {
             fixture=Fixture{};

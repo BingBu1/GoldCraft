@@ -87,3 +87,7 @@ The first real-resource run, build/cof-resource-pack-test-20261111-01, passed118
 The companion-closure follow-up also requires the header P345ClipTexture path pair to match the candidate dependency. This preserves39 primary paths plus one dependency and keeps candidate SHA/size pins in the pack tool only. Production VFS admission validates structure, allowing legitimate complete texture updates. The final follow-up rerun is build/cof-resource-pack-test-20261111-03/receipt.json.
 
 The suite also authors and validates Revolver (45 files), including untouched Studio events and geometry, seven local model events, exact native shell-event audio, four local waves and the inherited clip companion. Shared P345/Glock plans and refusal cases continue to run. The first Revolver candidate with a 64-byte generic filename is withdrawn; corrected local filenames fit the real engine ABI.
+
+## TMP checkpoint (2026-11-15)
+
+TMP now participates in the real resource suite. Its exact original16 sequences, aim0/-4.75/3 with FOV50, five local Studio samples and distinct native loop/end resources are checked. Cold preparation passes653 TMP checks (3463 across five guns); the resource author passes351 checks /27 CLI cases and creates47 TMP assets with original bytes preserved. These are cold/parser/candidate checks, without registry, deployment, rendered/audio or live performance acceptance. See docs/2026-11-15_接入-TMP冷资源与原生工厂-report.md.

@@ -63,11 +63,15 @@ def main():
     vp70_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root, output=output/'vp70'/'candidate',
         plan=output/'vp70'/'plan.json', server_model_sounds='disabled', component='vp70-and-shot-decals'))
+    tmp_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root, output=output/'tmp'/'candidate',
+        plan=output/'tmp'/'plan.json', server_model_sounds='disabled', component='tmp-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
               *(Path(p['source']) for p in revolver_baseline['assets']),
-              *(Path(p['source']) for p in vp70_baseline['assets'])}
+              *(Path(p['source']) for p in vp70_baseline['assets']),
+              *(Path(p['source']) for p in tmp_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -257,12 +261,39 @@ def main():
     vp70_source=next(p for p in vp70_plan['assets'] if p['original']=='models/weapons/vp70/v_vp70.mdl')
     check((output/'vp70'/'candidate'/vp70_source['destination']).read_bytes()==Path(vp70_source['source']).read_bytes(),
           'all original VP70 model events and geometry preserved')
+    tmp_dry = invoke('tmp', ['--component', 'tmp-and-shot-decals'], expected=0)
+    tmp_plan_path = output/'tmp'/'plan.json'
+    tmp_plan = json.loads(tmp_plan_path.read_bytes())
+    check(tmp_plan['weapon']=='TMP' and tmp_plan['primaryAssets']==46 and
+          tmp_plan['dependencyAssets']==1 and len(tmp_plan['assets'])==47,
+          '41 TMP resources, five decals and one inherited texture companion')
+    check([(e['sequence'],e['frame']) for e in tmp_plan['studio5004']]==
+          [(2,20),(5,21),(5,51),(6,21),(6,51),(6,75),(6,83)] and
+          len({e['localLogicalKey'] for e in tmp_plan['studio5004']})==5,
+          'seven actual TMP Studio events use five independent local samples')
+    destinations={p['destination'] for p in tmp_plan['assets']}
+    for sound in ('tmp_shoot_loop.wav','tmp_shoot_end.wav'):
+        check('sound/guest/cof/weapons/tmp/'+sound in destinations and
+              'sound/guest/cof/weapons_new/tmp/'+sound not in destinations,
+              'automatic native sample is not invented as local Studio sample '+sound)
+    tmp_written = invoke('tmp-write', ['--component','tmp-and-shot-decals','--write',
+        '--expected-plan-sha256',json.loads(tmp_dry.stdout)['planSha256']], expected=0,
+        candidate=output/'tmp'/'candidate',plan_path=tmp_plan_path)
+    check(json.loads(tmp_written.stdout)['files']==47,'TMP actual candidate count')
+    for row in tmp_plan['assets']:
+        copied=output/'tmp'/'candidate'/row['destination']
+        check(copied.is_file() and sha(copied)==row['sha256'] and copied.stat().st_nlink==1,
+              'actual TMP independent candidate identity '+row['destination'])
+    tmp_source=next(p for p in tmp_plan['assets'] if p['original']=='models/weapons/tmp/v_tmp.mdl')
+    check((output/'tmp'/'candidate'/tmp_source['destination']).read_bytes()==Path(tmp_source['source']).read_bytes(),
+          'all original TMP geometry, animations and Studio events preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=189,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=236,
+        tmpPrimaryAssets=46, tmpDependencyAssets=1,
         vp70PrimaryAssets=44, vp70DependencyAssets=1,
         revolverPrimaryAssets=44, revolverDependencyAssets=1,
         glockPrimaryAssets=49, glockDependencyAssets=1,

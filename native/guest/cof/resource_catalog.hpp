@@ -147,6 +147,68 @@ inline constexpr ResourcePath VP70Particle{
     "aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
 inline constexpr auto VP70ClipTexture = P345ClipTexture;
 
+enum class TMPModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(TMPModel::Count)> TMPModels{{
+    {"models/weapons/tmp/v_tmp.mdl", "models/guest/cof/tmp/v_tmp.mdl"},
+    {"models/weapons/tmp/w_tmp.mdl", "models/guest/cof/tmp/w_tmp.mdl"},
+    {"police/models/weapons/tmp/p_tmp.mdl", "models/guest/cof/tmp/p_tmp.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shell.mdl", "models/guest/cof/common/shell.mdl"},
+    {"models/w_9mmclip.mdl", "models/guest/cof/common/w_9mmclip.mdl"},
+    {"sprites/bubble.spr", "sprites/guest/cof/bubble.spr"},
+    {"sprites/fog2.spr", "sprites/guest/cof/fog2.spr"},
+    {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
+    {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
+}};
+// Original1007F070 stores loop/end in1A8/1AC; automatic sound owns their lifecycle.
+enum class TMPSound : unsigned
+{
+    ChargerBack, ChargerForward, MagIn, MagOut, Stock, Fire, Tail, ItemGet, WeaponGet,
+    Sleeve1, Sleeve2, Sleeve3, Swing1, Swing2, Swing3, Swing4, Swing5, Swing6,
+    PunchSwing, PunchSmack, EmptyClick, EmptyNoClick, Count
+};
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(TMPSound::Count)> TMPSounds{{
+    {"weapons/tmp/tmp_charger_back.wav", "guest/cof/weapons/tmp/tmp_charger_back.wav"},
+    {"weapons/tmp/tmp_charger_forward.wav", "guest/cof/weapons/tmp/tmp_charger_forward.wav"},
+    {"weapons/tmp/tmp_magin.wav", "guest/cof/weapons/tmp/tmp_magin.wav"},
+    {"weapons/tmp/tmp_magout.wav", "guest/cof/weapons/tmp/tmp_magout.wav"},
+    {"weapons/tmp/tmp_stock.wav", "guest/cof/weapons/tmp/tmp_stock.wav"},
+    {"weapons/tmp/tmp_shoot_loop.wav", "guest/cof/weapons/tmp/tmp_shoot_loop.wav"},
+    {"weapons/tmp/tmp_shoot_end.wav", "guest/cof/weapons/tmp/tmp_shoot_end.wav"},
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/weapon_get.wav", "guest/cof/weapons/weapon_get.wav"},
+    {"weapons/sleeve_generic1.wav", "guest/cof/weapons/sleeve_generic1.wav"},
+    {"weapons/sleeve_generic2.wav", "guest/cof/weapons/sleeve_generic2.wav"},
+    {"weapons/sleeve_generic3.wav", "guest/cof/weapons/sleeve_generic3.wav"},
+    {"player/police/Swing/Swing1.wav", "guest/cof/player/police/Swing/Swing1.wav"},
+    {"player/police/Swing/Swing2.wav", "guest/cof/player/police/Swing/Swing2.wav"},
+    {"player/police/Swing/Swing3.wav", "guest/cof/player/police/Swing/Swing3.wav"},
+    {"player/police/Swing/Swing4.wav", "guest/cof/player/police/Swing/Swing4.wav"},
+    {"player/police/Swing/Swing5.wav", "guest/cof/player/police/Swing/Swing5.wav"},
+    {"player/police/Swing/Swing6.wav", "guest/cof/player/police/Swing/Swing6.wav"},
+    {"weapons/mobile/punch_swing.wav", "guest/cof/weapons/mobile/punch_swing.wav"},
+    {"weapons/mobile/punch_smack.wav", "guest/cof/weapons/mobile/punch_smack.wav"},
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
+}};
+// Only the five original Studio5004 samples use the local weapons_new rewrite.
+inline constexpr std::array<ResourcePath, 5> TMPLocalWaves{{
+    {"weapons_new/tmp/tmp_charger_back.wav", "sound/guest/cof/weapons_new/tmp/tmp_charger_back.wav"},
+    {"weapons_new/tmp/tmp_charger_forward.wav", "sound/guest/cof/weapons_new/tmp/tmp_charger_forward.wav"},
+    {"weapons_new/tmp/tmp_magin.wav", "sound/guest/cof/weapons_new/tmp/tmp_magin.wav"},
+    {"weapons_new/tmp/tmp_magout.wav", "sound/guest/cof/weapons_new/tmp/tmp_magout.wav"},
+    {"weapons_new/tmp/tmp_stock.wav", "sound/guest/cof/weapons_new/tmp/tmp_stock.wav"}
+}};
+inline constexpr std::array<ResourcePath, 2> TMPEvents{{
+    {"events/muzzleflash.sc", "events/guest/cof/muzzleflash.sc"},
+    {"events/viewpunch.sc", "events/guest/cof/viewpunch.sc"}
+}};
+inline constexpr ResourcePath TMPInventory{
+    "inventoryitems/weapons/weapon_tmp.txt", "inventoryitems/guest/cof/weapons/weapon_tmp.txt"};
+inline constexpr ResourcePath TMPParticle{
+    "aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
+inline constexpr auto TMPClipTexture = P345ClipTexture;
+
 enum class GlockModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
 inline constexpr std::array<ResourcePath, static_cast<unsigned>(GlockModel::Count)> GlockModels{{
     {"models/weapons/glock/v_glock.mdl", "models/guest/cof/glock/v_glock.mdl"},
