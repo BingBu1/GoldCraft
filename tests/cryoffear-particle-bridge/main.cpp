@@ -186,10 +186,20 @@ int main(int argc, char** argv)
     const auto deleted = quads;
     Draw(.28f);
     CHECK(quads == deleted);
-    for (unsigned i = 0; i < guest::cof::client::Aurora::MaxSystems; ++i)
+    Deliver({ParticleOperation::Add,7,false,100});
+    Draw(.30f);Draw(.32f);
+    const auto beforeSoft=quads;
+    Deliver({ParticleOperation::KillLocal,0,false,0});
+    Draw(.34f);
+    CHECK(quads>beforeSoft&&GuestCofParticlesReady()); // Soft kill retains fading particles.
+    Deliver({ParticleOperation::KillLocal,0,true,0});
+    const auto beforeHard=quads;
+    Draw(.36f);
+    CHECK(quads==beforeHard&&GuestCofParticlesReady()); // Hard kill retires systems on Frame.
+    for (unsigned i = 0; i < guest::cof::client::Aurora::SystemsPerSlab; ++i)
         Deliver({ParticleOperation::Add,7,false,100});
     Deliver({ParticleOperation::Add,7,false,100});
-    CHECK(GuestCofParticleStatus() == AuroraResult::CapacityExceeded);
+    CHECK(GuestCofParticleStatus() == AuroraResult::Applied);
     GuestCofParticlesVideoInit();
     CHECK(!GuestCofParticlesReady());
     CHECK(PrepareGuestCofParticles(plan) == AuroraResult::Applied);

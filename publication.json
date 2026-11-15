@@ -2490,7 +2490,9 @@
     "tests/cof-movement-input/run.py",
     "tests/cof-movement-input/gamedata.py",
     "tests/cof-movement-input/README.md",
-    "docs/2026-11-14_接入-CoF原生移动输入适配-report.md"
+    "docs/2026-11-14_接入-CoF原生移动输入适配-report.md",
+    "tests/cryoffear-tmp-weapon/README.md",
+    "docs/2026-11-15_接入-TMP原生类与独立粒子清理-report.md"
   ],
   "trees": {
     "native": [

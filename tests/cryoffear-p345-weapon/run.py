@@ -23,6 +23,7 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--weapon',choices=('p345','tmp'),default='p345')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -32,17 +33,30 @@ def main():
              ROOT/'native/guest/cof/magazine_actions.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
+    if a.weapon=='tmp':
+        sources[0]=ROOT/'tests/cryoffear-tmp-weapon/main.cpp';sources[1]=ROOT/'native/guest/cof/server/tmp_weapon.cpp'
+        sources.append(ROOT/'native/guest/cof/automatic_sound.cpp')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),Path(__file__).with_name('oracle.py')}
+    generator,world_generator,fidget_generator=generate,generate_world,generate_fidget
+    if a.weapon=='tmp':
+        path=ROOT/'tests/cryoffear-tmp-weapon/oracle.py';inputs.update((path,ROOT/'tests/cryoffear-ballistics/oracle.py'))
+        spec=importlib.util.spec_from_file_location('tmp_original_primary',path);oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
+        generator=oracle.generate
+        for name in ('world_oracle','transition_oracle'):
+            path=ROOT/('tests/cryoffear-tmp-weapon/'+name+'.py');inputs.add(path)
+            spec=importlib.util.spec_from_file_location('tmp_'+name,path);value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value)
+            if name=='world_oracle':world_generator=value.generate
+            else:fidget_generator=value.generate
     with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:
-        original=generate(a.sample,cases,expected)
+        original=generator(a.sample,cases,expected)
     with (output/'world-cases.txt').open('w') as cases,(output/'world-expected.txt').open('w') as expected:
-        original['world']=generate_world(a.sample,cases,expected)
+        original['world']=world_generator(a.sample,cases,expected)
     inputs.add(Path(__file__).with_name('world_oracle.py'))
     inputs.add(Path(__file__).with_name('fidget_oracle.py'))
     with (output/'fidget-cases.txt').open('w') as cases,(output/'fidget-expected.txt').open('w') as expected:
-        original['fidget']=generate_fidget(a.sample,cases,expected)
+        original['transitions' if a.weapon=='tmp' else 'fidget']=fidget_generator(a.sample,cases,expected)
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -106,7 +120,8 @@ def main():
     compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=120)
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:
-        tested=subprocess.run([str(exe),str(output/'cases.txt'),str(output/'expected.txt'),str(model),str(output/'world-cases.txt'),str(output/'world-expected.txt'),str(output/'fidget-cases.txt'),str(output/'fidget-expected.txt')],cwd=output,capture_output=True,text=True,timeout=30)
+        extra=[str(output/name)for name in ('world-cases.txt','world-expected.txt','fidget-cases.txt','fidget-expected.txt')]
+        tested=subprocess.run([str(exe),str(output/'cases.txt'),str(output/'expected.txt'),str(model),*extra],cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     negative=[]
     if tested is not None and tested.returncode==0:
@@ -116,7 +131,7 @@ def main():
             ('wrong-result',cases,'00000000 '+expected.split(' ',1)[1],5),('extra-result',cases,expected+'00000000\n',7)):
             casePath=output/(name+'-cases.txt');expectedPath=output/(name+'-expected.txt')
             casePath.write_text(rows);expectedPath.write_text(results)
-            rejected=subprocess.run([str(exe),str(casePath),str(expectedPath),str(model),str(output/'world-cases.txt'),str(output/'world-expected.txt'),str(output/'fidget-cases.txt'),str(output/'fidget-expected.txt')],cwd=output,capture_output=True,text=True,timeout=30)
+            rejected=subprocess.run([str(exe),str(casePath),str(expectedPath),str(model),*extra],cwd=output,capture_output=True,text=True,timeout=30)
             negative.append(dict(name=name,expected=wanted,actual=rejected.returncode,passed=rejected.returncode==wanted))
             (output/(name+'.log')).write_text(rejected.stdout+rejected.stderr,'utf-8')
     after={str(v):sha(v) for v in sorted(deps)}

@@ -7,6 +7,7 @@
 #include "native/guest/cof/crosshair_protocol.hpp"
 #include "native/guest/cof/sound_protocol.hpp"
 #include "native/guest/cof/control_protocol.hpp"
+#include "native/guest/cof/server/effects_dispatch.hpp"
 #include "native/guest/cof/first_draw_lifecycle.hpp"
 #include "shared-owner-runtime-sdk.inc"
 #include <map>
@@ -78,6 +79,27 @@ int main(int argc,char** argv)
     resources.viewModelString=100;resources.models[unsigned(P345Model::Shell)]=31;
     GlockEffects effects;Check(effects.Prepare({nullptr,PacketCurrent,glock.generation},glock,{true,true}));
     Check(effects.Capabilities()!=0&&effects.P345Capabilities()&(1u<<unsigned(P345Effect::Shell)));
+    const auto particleMessage=messages.at(ParticleMessage);
+    for(bool immediate:{false,true})
+    {
+        Check(SendKillLocalParticles(player,immediate,particleMessage,{nullptr,PacketCurrent})==WeaponEffectStatus::Issued);
+        ParticleMessageData killed{};
+        Check(DecodeParticle(packets.back().bytes,killed)&&killed.operation==ParticleOperation::KillLocal&&
+            killed.immediate==immediate&&!killed.originalWeapon&&!killed.owner);
+        Check(packets.back().target==player.edict()&&packets.back().id==particleMessage&&
+            packets.back().destination==MSG_ONE_UNRELIABLE);
+    }
+    const auto beforeKillNegative=packets.size();
+    Check(SendKillLocalParticles(player,true,0,{nullptr,PacketCurrent})==WeaponEffectStatus::MissingMessage);
+    Check(SendKillLocalParticles(player,true,256,{nullptr,PacketCurrent})==WeaponEffectStatus::MissingMessage);
+    Check(SendKillLocalParticles(player,true,particleMessage,{})==WeaponEffectStatus::InvalidInput);
+    valid=false;
+    Check(SendKillLocalParticles(player,true,particleMessage,{nullptr,PacketCurrent})==WeaponEffectStatus::Cancelled);
+    valid=true;Check(packets.size()==beforeKillNegative);
+    retireBegin=true;
+    Check(SendKillLocalParticles(player,true,particleMessage,{nullptr,PacketCurrent})==WeaponEffectStatus::Cancelled);
+    Check(packets.size()==beforeKillNegative+1&&packets.back().bytes.size()==ParticleBytes);
+    retireBegin=false;valid=true;
     GlockEvent glockAim{GlockEffect::Aim};glockAim.a=350;
     Check(effects.Dispatch(glock,runtimeView.binding,player,weapon,glockAim));const auto first=State();Check(first.originalWeapon==3);
 

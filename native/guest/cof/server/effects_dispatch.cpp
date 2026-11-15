@@ -105,8 +105,10 @@ WeaponEffectStatus PlayRevolverShellEvent(CBasePlayer& player, const RevolverShe
     return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
 }
 
-WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalWeapon,
-    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall& authority) noexcept
+namespace
+{
+WeaponEffectStatus SendParticle(CBasePlayer& player, ParticleMessageData value,
+    int destination, int preparedMessage, const PlaySfxCall& authority) noexcept
 {
     if (detail::messageOpen) return WeaponEffectStatus::Busy;
     const auto call = authority;
@@ -114,7 +116,7 @@ WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalW
     if (!call.current(call.context)) return WeaponEffectStatus::Cancelled;
     if (preparedMessage <= 0 || preparedMessage > 255) return WeaponEffectStatus::MissingMessage;
     ParticlePacket bytes{};
-    if (!EncodeParticle({ParticleOperation::Add, originalWeapon, false, weaponEntity}, bytes))
+    if (!EncodeParticle(value, bytes))
         return WeaponEffectStatus::InvalidInput;
     if (!g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte)
         return WeaponEffectStatus::MissingEngine;
@@ -122,13 +124,26 @@ WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalW
     if (!Current(call, lease, &player)) return WeaponEffectStatus::Cancelled;
     {
         detail::MessagePacket packet;
-        // Host CoFParticle v1 maps this local operation to the original script,
-        // model and attachment at the authenticated client resource consumer.
-        MESSAGE_BEGIN(MSG_ONE, preparedMessage, nullptr, player.edict());
+        // Complete the immutable stack packet even if a callback retires it.
+        MESSAGE_BEGIN(destination, preparedMessage, nullptr, player.edict());
         for (const auto byte : bytes) WRITE_BYTE(std::to_integer<unsigned char>(byte));
         MESSAGE_END();
     }
     return Current(call, lease, &player) ? WeaponEffectStatus::Issued : WeaponEffectStatus::Cancelled;
+}
+}
+WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalWeapon,
+    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall& authority) noexcept
+{
+    return SendParticle(player, {ParticleOperation::Add, originalWeapon, false, weaponEntity},
+        MSG_ONE, preparedMessage, authority);
+}
+WeaponEffectStatus SendKillLocalParticles(CBasePlayer& player, bool immediate,
+    int preparedMessage, const PlaySfxCall& authority) noexcept
+{
+    // Original1007F3C0 sends BYTE1 via MSG_ONE_UNRELIABLE before Particle.
+    return SendParticle(player, {ParticleOperation::KillLocal, 0, immediate, 0},
+        MSG_ONE_UNRELIABLE, preparedMessage, authority);
 }
 
 int RegisterPresentationMessage(const PlaySfxCall& authority) noexcept

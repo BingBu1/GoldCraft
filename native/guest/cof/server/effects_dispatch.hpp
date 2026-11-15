@@ -39,6 +39,9 @@ WeaponEffectStatus PlayRevolverShellEvent(CBasePlayer&, const RevolverShellEvent
     unsigned short preparedEvent, const PlaySfxCall&) noexcept;
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer&, std::uint8_t originalWeapon,
     std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall&) noexcept;
+// Original KillWpnPart is unreliable and does not perform Deploy's forward reset.
+WeaponEffectStatus SendKillLocalParticles(CBasePlayer&, bool immediate,
+    int preparedMessage, const PlaySfxCall&) noexcept;
 // Cold registration and actual owning-player transport for the authenticated
 // FOV/aim bridge. Key/revision management belongs to the authoritative owner.
 int RegisterPresentationMessage(const PlaySfxCall&) noexcept;
