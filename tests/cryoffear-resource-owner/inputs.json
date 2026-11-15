@@ -18,5 +18,10 @@
   "gfx/decals/shot2.tga": "ca19ecbc94ba986e4ad5c6fa1a40fe8d57591112a5de6211854aab3bfca835ed",
   "gfx/decals/shot3.tga": "d0ddd8c6f875d8f23e93a86d359ae435d0716f0bc4e12d11eadcf19093781aba",
   "gfx/decals/shot4.tga": "fe0c41d78383d4609697d960567ecdc2f13042c255d33a2ec2ab4b0df138856c",
-  "gfx/decals/shot5.tga": "1942371dee349f9d7468644a1ebc3c7f44d97b3f1d305f1af40d79b1e589e1ab"
+  "gfx/decals/shot5.tga": "1942371dee349f9d7468644a1ebc3c7f44d97b3f1d305f1af40d79b1e589e1ab",
+  "sound/weapons_new/tmp/tmp_charger_back.wav": "e5289f7ee065c2dbc01c8c0b312872c19aa9598a34ec9b202b358bc951ad7b0a",
+  "sound/weapons_new/tmp/tmp_charger_forward.wav": "cfa64cbacc520bb2c735e3c2d44a27258a9c5eee2bf445af49b8c2200272856c",
+  "sound/weapons_new/tmp/tmp_magin.wav": "f5eabdab0be2f39dbfa50191f790d75d21f7feafcedcdf8dc717c0f376a3751c",
+  "sound/weapons_new/tmp/tmp_magout.wav": "703d679b6bf1cb6dfde25c8bce3618c4edea1f0dcc8b29ae6d29feef4346e136",
+  "sound/weapons_new/tmp/tmp_stock.wav": "46d73bd1923a02fe9112e00c795c2c6ad581a0b716d4e5cf6d3917e8c8172ea7"
 }

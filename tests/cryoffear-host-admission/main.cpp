@@ -139,6 +139,8 @@ int main(int argc,char** argv)
     Press();CHECK(!(Input(1,false).buttons&IN_CANCEL));CHECK(!(Input().buttons&IN_CANCEL));
     Press();view.health=0;CHECK(!(Input().buttons&IN_CANCEL));view.health=100;CHECK(!(Input().buttons&IN_CANCEL));
     Press();view.spectator=1;CHECK(!(Input().buttons&IN_CANCEL));view.spectator=0;
+    current.id=900;Press();CHECK(Input().buttons&IN_CANCEL);Release();
+    current.id=896;
     Press();current.id=16;CHECK(!(Input().buttons&IN_CANCEL));current.id=896;CHECK(!(Input().buttons&IN_CANCEL));
     Press("bad");CHECK(!(Input().buttons&IN_CANCEL));Press("");CHECK(Input().buttons&IN_CANCEL);Release("");CHECK(!(Input().buttons&IN_CANCEL));
     ShutdownGuestCofInput();commands["+cof_aim"].function=NativeCommand;
@@ -215,6 +217,7 @@ int main(int argc,char** argv)
     CHECK(ParsePistolAdmission("1","").weapons==1&&ParsePistolAdmission("1","3").weapons==3);
     CHECK(ParsePistolAdmission("0","3").weapons==0&&ParsePistolAdmission("1","0").weapons==0);
     for(const char* invalid:{"-1","+3"," 3","3 ","3x","16","4294967296"})CHECK(ParsePistolAdmission("1",invalid).weapons==0);
+    CHECK(!GuestCofAdmitted(900)&&weaponMask.value==15); // No TMP HUD/admission contract enabled yet.
     generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     CHECK(mountMoves>0);

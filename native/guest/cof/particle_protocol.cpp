@@ -13,7 +13,7 @@ bool Valid(const ParticleMessageData& value) noexcept
     switch (value.operation)
     {
     case ParticleOperation::Add:
-        return OriginalPistolId(value.originalWeapon) && !value.immediate;
+        return OriginalFirearmId(value.originalWeapon) && !value.immediate;
     case ParticleOperation::DeleteOwner:
         return !value.originalWeapon && !value.immediate;
     case ParticleOperation::KillLocal:

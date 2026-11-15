@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import struct
 import importlib.util
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,7 @@ def main():
     parser.add_argument('--p345-model',type=Path)
     parser.add_argument('--revolver-model',type=Path)
     parser.add_argument('--vp70-model',type=Path)
+    parser.add_argument('--tmp-model',type=Path)
     parser.add_argument('--vp70-attachment-proof',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -35,6 +37,8 @@ def main():
         raise ValueError('Actual original P345 P model differs')
     if args.revolver_model and (not args.p345_model or sha(args.revolver_model)!='2a54b7b911ed2e5145947eed39779db5ec83b6707701eeaf9826cb73f8f69312'):
         raise ValueError('Use the actual Revolver P model together with the P345 model')
+    if args.tmp_model and (not args.vp70_model or sha(args.tmp_model)!='ad599b80f9e9d4e37cbb0f981d218a7741f414bfa7d3ddfd4be86368273da87f'):
+        raise ValueError('Use actual TMP P together with all four verified pistol models')
     vp70_inputs=[]
     if args.vp70_model:
         if not args.p345_model or not args.revolver_model:
@@ -45,8 +49,18 @@ def main():
             source=Path(proof['source']['path']);profile=Path(proof['profile']['path'])
             tool=ROOT/'tools/Author-MissingStudioAttachment.py';helper=ROOT/'tools/cryoffear_studio.py'
             raw=source.read_bytes();derived=args.vp70_model.read_bytes()
-            restored=bytearray(derived[:len(raw)])
-            restored[72:76]=raw[72:76];restored[212:220]=raw[212:220]
+            at=struct.unpack_from('<i',raw,188)[0]
+            textures,table=struct.unpack_from('<ii',raw,180)
+            if not (244<=at<=len(raw) and 0<textures<=1000 and 244<=table and table+80*textures<=at and
+                    len(derived)==len(raw)+88 and struct.unpack_from('<ii',derived,212)==(1,at)):
+                raise ValueError('VP70 attachment is not inside the resident prefix')
+            restored=bytearray(derived[:at]+derived[at+88:])
+            restored[72:76]=raw[72:76];restored[188:192]=raw[188:192];restored[212:220]=raw[212:220]
+            for i in range(textures):
+                offset=table+80*i+76
+                if struct.unpack_from('<i',derived,offset)[0]!=struct.unpack_from('<i',raw,offset)[0]+88:
+                    raise ValueError('VP70 texture relocation differs')
+                restored[offset:offset+4]=raw[offset:offset+4]
             if not (proof['success'] and proof['candidateOnly'] and proof['source']['sha256']==sha(source)==original_hash and
                     proof['artifact']['sha256']==sha(args.vp70_model) and Path(proof['artifact']['path']).resolve()==args.vp70_model.resolve() and
                     proof['profile']['sha256']==sha(profile) and proof['toolSha256']==sha(tool) and proof['studioHelperSha256']==sha(helper) and
@@ -80,6 +94,7 @@ def main():
     if args.p345_model:inputs.add(args.p345_model.resolve())
     if args.revolver_model:inputs.add(args.revolver_model.resolve())
     if args.vp70_model:inputs.add(args.vp70_model.resolve())
+    if args.tmp_model:inputs.add(args.tmp_model.resolve())
     inputs.update(vp70_inputs)
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
@@ -105,6 +120,7 @@ def main():
         if args.p345_model:arguments.append(str(args.p345_model.resolve()))
         if args.revolver_model:arguments.append(str(args.revolver_model.resolve()))
         if args.vp70_model:arguments.append(str(args.vp70_model.resolve()))
+        if args.tmp_model:arguments.append(str(args.tmp_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

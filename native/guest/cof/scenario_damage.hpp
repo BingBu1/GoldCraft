@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "firearm_identity.hpp"
 #include <array>
 #include <cstddef>
 #include <string>
@@ -30,10 +31,12 @@ class ScenarioDamageConfig
 public:
     bool Parse(std::string_view json, std::string& error);
     const ScenarioDamage* Find(Pistol weapon) const noexcept;
+    const ScenarioDamage* Find(Firearm weapon) const noexcept;
     bool Loaded() const noexcept { return loaded_; }
 
 private:
-    std::array<ScenarioDamage, PistolKeys.size()> values_{};
+    std::array<ScenarioDamage, FirearmKeys.size()> values_{};
+    std::uint32_t available_{};
     bool loaded_{};
 };
 }

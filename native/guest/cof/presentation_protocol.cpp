@@ -11,7 +11,7 @@ namespace
 bool ValidState(const PresentationState& value) noexcept
 {
     return Valid(value.key) && value.revision &&
-        (!value.originalWeapon || OriginalPistolId(value.originalWeapon)) &&
+        (!value.originalWeapon || OriginalFirearmId(value.originalWeapon)) &&
         (value.originalWeapon || !value.aimEnabled) &&
         (value.revolverAngle.has_value() == (value.originalWeapon == 21));
 }

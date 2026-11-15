@@ -345,6 +345,7 @@ constexpr std::string_view StudioLocalSoundResource(std::string_view model, int 
     if (model == P345Models[static_cast<unsigned>(P345Model::View)].host) return find(P345LocalWaves);
     if (model == RevolverModels[static_cast<unsigned>(RevolverModel::View)].host) return find(RevolverLocalWaves);
     if (model == VP70Models[static_cast<unsigned>(VP70Model::View)].host) return find(VP70LocalWaves);
+    if (model == TMPModels[static_cast<unsigned>(TMPModel::View)].host) return find(TMPLocalWaves);
     return {};
 }
 inline constexpr auto GlockEvents = P345Events;
@@ -389,6 +390,7 @@ inline constexpr auto P345AudioResources = AudioResources(P345LocalWaves, P345So
 inline constexpr auto GlockAudioResources = AudioResources(GlockLocalWaves, GlockSounds);
 inline constexpr auto RevolverAudioResources = AudioResources(RevolverLocalWaves, RevolverSounds);
 inline constexpr auto VP70AudioResources = AudioResources(VP70LocalWaves, VP70Sounds);
+inline constexpr auto TMPAudioResources = AudioResources(TMPLocalWaves, TMPSounds);
 // Actual engine resource_t/PF_precache_generic ABI includes the terminating NUL.
 template<std::size_t N>
 consteval bool ResourceNamesFit(const std::array<ResourcePath,N>& entries)
@@ -399,5 +401,6 @@ consteval bool ResourceNamesFit(const std::array<ResourcePath,N>& entries)
 static_assert(ResourceNamesFit(P345Models)&&ResourceNamesFit(P345Sounds)&&ResourceNamesFit(P345LocalWaves)&&ResourceNamesFit(P345Events));
 static_assert(ResourceNamesFit(GlockModels)&&ResourceNamesFit(GlockSounds)&&ResourceNamesFit(GlockLocalWaves)&&ResourceNamesFit(GlockEvents));
 static_assert(ResourceNamesFit(RevolverModels)&&ResourceNamesFit(RevolverSounds)&&ResourceNamesFit(RevolverLocalWaves)&&ResourceNamesFit(RevolverEvents));
+static_assert(ResourceNamesFit(TMPModels)&&ResourceNamesFit(TMPSounds)&&ResourceNamesFit(TMPLocalWaves)&&ResourceNamesFit(TMPEvents));
 static_assert(ResourceNamesFit(VP70Models)&&ResourceNamesFit(VP70Sounds)&&ResourceNamesFit(VP70LocalWaves)&&ResourceNamesFit(VP70Events));
 }

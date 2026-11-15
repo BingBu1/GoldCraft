@@ -36,7 +36,7 @@ int main(int argc,char** argv)
     while(std::fread(&input,sizeof(input),1,stdin)==1)
     {
         Output result;
-        if(guest::cof::client::PistolCrosshair({input.width,input.height,input.weapon,0,true,true,
+        if(guest::cof::client::FirearmCrosshair({input.width,input.height,input.weapon,0,true,true,
             input.aiming!=0,input.telescope!=0,input.enabled,std::uint8_t(input.scalar)},result.bars))result.count=3;
         if(std::fwrite(&result,sizeof(result),1,stdout)!=1)return 3;
     }

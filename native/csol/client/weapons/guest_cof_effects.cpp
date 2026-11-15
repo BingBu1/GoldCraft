@@ -26,11 +26,11 @@ const ref_params_s* currentRef{};
 ViewPunchState punch;
 ForwardDisplacementState forwardDisplacement;
 Weapon weapon{Weapon::None};
-std::size_t weaponViewIndex{guest::cof::Pistols.size()};
+std::size_t weaponViewIndex{guest::cof::Firearms.size()};
 bool attachedCamera{}, punchUsed{}, prepared{}, eventRegistered{};
 int cameraMode{}, shellIndex{}, flashIndex{}, cheapSmokeIndex{};
 model_t* flashModel{};
-std::array<model_t*,guest::cof::Pistols.size()> viewModels{};
+std::array<model_t*,guest::cof::Firearms.size()> viewModels{};
 cl_enginefunc_t effectsEngine;
 event_api_t effectsEvents;
 EffectResult lastStudio{EffectResult::Unhandled};
@@ -170,9 +170,9 @@ bool PrepareGuestCofEffects() noexcept
         !engine.pEfxAPI || !engine.pEfxAPI->R_TempModel || !engine.pfnServerCmd) return false;
     decltype(viewModels) cached{};
     bool anyWeapon{};
-    for(const auto& group:PistolResourceGroups)
+    for(const auto& group:FirearmResourceGroups)
     {
-        const auto* definition=guest::cof::FindPistol(group.identity);
+        const auto* definition=guest::cof::FindFirearm(group.identity);
         auto*& model=cached[static_cast<unsigned>(group.identity)];
         model=Model(definition->viewModel.data(),current,resources);
         if(!Synchronize()||generation!=current||resourceSerial!=resources)return false;
@@ -235,7 +235,7 @@ void SetGuestCofEffectsWeapon(Weapon value) noexcept
 {
     if(!Synchronize())return;
     weapon=value;
-    const auto* definition=guest::cof::FindOriginalPistol(static_cast<int>(value));
+    const auto* definition=guest::cof::FindOriginalFirearm(static_cast<int>(value));
     weaponViewIndex=definition?static_cast<unsigned>(definition->identity):viewModels.size();
 }
 void SetGuestCofEffectsCamera(bool attached,int mode) noexcept
@@ -248,10 +248,10 @@ bool GuestCofStudioEvent(const mstudioevent_s* event,const cl_entity_s* entity) 
         (event->event!=5004 && event->event!=5006 && event->event!=5080) ||
         !Synchronize() || !engine.GetViewModel || entity!=engine.GetViewModel()) return false;
     auto selected=viewModels.size();
-    for(const auto& group:PistolResourceGroups)
+    for(const auto& group:FirearmResourceGroups)
     {
         const auto index=static_cast<unsigned>(group.identity);
-        const auto* definition=guest::cof::FindPistol(group.identity);
+        const auto* definition=guest::cof::FindFirearm(group.identity);
         if((prepared&&entity->model==viewModels[index])||
             !std::strncmp(entity->model->name,definition->viewModel.data(),sizeof(entity->model->name)))
         {selected=index;break;}

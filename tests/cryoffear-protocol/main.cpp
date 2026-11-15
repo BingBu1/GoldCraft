@@ -74,6 +74,21 @@ void StateLifecycle()
     send(first, StateAcceptance::Accepted, "new server connection may restart counters");
 }
 
+void TmpTransport()
+{
+    const PresentationState value{{1,2,3},4,14,true,50,2800};
+    StatePacket packet{};PresentationState output{};
+    Check(EncodeState(value,packet)&&DecodeState(packet,output)&&output==value,"TMP aim transport uses original14 and common exact wire");
+    client::Presentation presentation({});presentation.BeginAuthority(value.key,{-1,0,0});
+    Check(presentation.Receive({value.key,client::Weapon::Tmp,true,50,350})==client::Result::Applied,"TMP is accepted by actual presentation service");
+    AimFovOutput fov{};
+    Check(presentation.UpdateClientData({90,12,350,3,1.2f,1},fov)&&fov.wholeFov==50,"TMP aim drives common FOV consumer");
+    auto stale=value.key;++stale.lifeEpoch;
+    Check(presentation.Receive({stale,client::Weapon::Tmp,false,90,350})==client::Result::StaleAuthority,"TMP cannot cross life ownership");
+    auto invalid=value;invalid.originalWeapon=15;const auto saved=packet;
+    Check(!EncodeState(invalid,packet)&&packet==saved,"unimplemented original gun remains rejected");
+}
+
 void InvalidPackets()
 {
     const PresentationState value{{1,2,3}, 4, 19, false, 65535,
@@ -221,6 +236,7 @@ void Particles()
         ParticleMessageData{ParticleOperation::Add, 3, false, 0},
         ParticleMessageData{ParticleOperation::Add, 19, false, 32767},
         ParticleMessageData{ParticleOperation::Add, 21, false, 1},
+        ParticleMessageData{ParticleOperation::Add, 14, false, 0},
         ParticleMessageData{ParticleOperation::DeleteOwner, 0, false, 0},
         ParticleMessageData{ParticleOperation::KillLocal, 0, false, 0},
         ParticleMessageData{ParticleOperation::KillLocal, 0, true, 0}})
@@ -400,7 +416,7 @@ void GlobalSound()
 
 int main()
 {
-    StateLifecycle(); InvalidPackets(); RevolverTransport(); Catalog(); GlobalSound(); Particles();
+    StateLifecycle();TmpTransport(); InvalidPackets(); RevolverTransport(); Catalog(); GlobalSound(); Particles();
     std::printf("%u checks, %u failures\n", checks, failures);
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

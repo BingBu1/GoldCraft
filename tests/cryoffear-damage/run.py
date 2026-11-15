@@ -22,7 +22,8 @@ def main():
     output.mkdir(parents=True)
     inputs = [Path(__file__).resolve(), ROOT / 'tests/cryoffear-damage/main.cpp',
               ROOT / 'native/guest/cof/scenario_damage.cpp', ROOT / 'native/guest/cof/scenario_damage.hpp',
-              ROOT / 'native/guest/cof/scenario_damage.json']
+              ROOT / 'native/guest/cof/scenario_damage.json',ROOT / 'native/guest/cof/firearm_identity.hpp',
+              ROOT / 'native/guest/cof/catalog.hpp',ROOT / 'native/guest/cof/admission.hpp']
 
     def identities():
         return [dict(path=p.relative_to(ROOT).as_posix(), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
@@ -34,7 +35,7 @@ def main():
     executable = output / 'cof-damage.exe'
     command = [str(args.compiler), '/nologo', '--target=i686-pc-windows-msvc', '/std:c++20',
                '/EHsc', '/MT', '/utf-8', '/O2', '/clang:-O3', '/clang:-flto=thin',
-               '/clang:-fuse-ld=lld', '/arch:AVX2', '/fp:precise', '/I' + str(ROOT),
+               '/clang:-fuse-ld=lld', '/arch:AVX2', '/fp:precise', '/clang:-ffp-contract=off', '/I' + str(ROOT),
                '/I' + str(rapidjson), str(inputs[1]), str(inputs[2]),
                '/Fe:' + str(executable), '/link', '/machine:x86', '/threads:1']
     compiled = subprocess.run(command, cwd=output, env=environment, capture_output=True,

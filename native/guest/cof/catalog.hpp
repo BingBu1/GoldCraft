@@ -16,9 +16,10 @@ inline constexpr int P345HudPosition = 1;
 
 // Host-only IDs, classnames, prices and shop placement. Original CoF IDs
 // collide with stock CS; never publish an original ID as its host identity.
-struct PistolDefinition
+template<class Identity>
+struct BasicWeaponDefinition
 {
-    Pistol identity;
+    Identity identity;
     int hostId;
     int originalId;
     int clip;
@@ -33,6 +34,9 @@ struct PistolDefinition
     std::string_view playerModel;
     std::string_view worldModel;
 };
+
+using PistolDefinition=BasicWeaponDefinition<Pistol>;
+using FirearmDefinition=BasicWeaponDefinition<Firearm>;
 
 inline constexpr std::array Pistols{
     PistolDefinition{Pistol::Glock, 896, 3, 15, 150, 650, 30, 15,
@@ -52,6 +56,51 @@ inline constexpr std::array Pistols{
         "models/guest/cof/vp70/v_vp70.mdl", "models/guest/cof/vp70/p_vp70.mdl",
         "models/guest/cof/vp70/w_vp70.mdl"}
 };
+
+// Compile-time common view; original pistol family APIs remain source-compatible.
+constexpr Firearm FirearmIdentity(Pistol identity) noexcept
+{
+    const auto index=static_cast<unsigned>(identity);
+    return index<Pistols.size()?static_cast<Firearm>(index):Firearm::Count;
+}
+inline constexpr std::array<FirearmDefinition,Pistols.size()+1> Firearms=[] {
+    std::array<FirearmDefinition,Pistols.size()+1> result{};
+    for(std::size_t i=0;i<Pistols.size();++i)
+    {
+        const auto& source=Pistols[i];
+        result[i]={FirearmIdentity(source.identity),source.hostId,source.originalId,source.clip,source.reserve,
+            source.price,source.ammunitionPrice,source.ammunitionCount,source.classname,source.ammunition,
+            source.displayName,source.viewModel,source.playerModel,source.worldModel};
+    }
+    result.back()={Firearm::TMP,900,14,30,300,2000,30,30,
+        "weapon_cof_tmp","cof_tmp","客串武器·MP9",
+        "models/guest/cof/tmp/v_tmp.mdl","models/guest/cof/tmp/p_tmp.mdl","models/guest/cof/tmp/w_tmp.mdl"};
+    return result;
+}();
+constexpr const FirearmDefinition* FindFirearm(Firearm identity) noexcept
+{
+    const auto index=static_cast<unsigned>(identity);
+    return index<Firearms.size()?&Firearms[index]:nullptr;
+}
+constexpr const FirearmDefinition* FindFirearm(int hostId) noexcept
+{
+    const unsigned index=static_cast<unsigned>(hostId)-Firearms.front().hostId;
+    return index<Firearms.size()?&Firearms[index]:nullptr;
+}
+constexpr const FirearmDefinition* FindOriginalFirearm(int originalId) noexcept
+{
+    switch(originalId)
+    {
+    case 3:return FindFirearm(Firearm::Glock);
+    case 7:return FindFirearm(Firearm::P345);
+    case 21:return FindFirearm(Firearm::Revolver);
+    case 19:return FindFirearm(Firearm::VP70);
+    case 14:return FindFirearm(Firearm::TMP);
+    default:return nullptr;
+    }
+}
+constexpr bool OriginalFirearmId(int id) noexcept {return FindOriginalFirearm(id)!=nullptr;}
+static_assert(Firearms.size()==FirearmKeys.size());
 
 constexpr const PistolDefinition* FindPistol(int hostId) noexcept
 {

@@ -95,6 +95,13 @@ int main()
     state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
     state.aimEnabled=false;++state.revision;Present();Draw(0);Send(snap);Draw(0);
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    current.id=900;current.clip=30;Draw(0);
+    state.originalWeapon=14;++state.revision;Present();Draw(0);
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
+    current.clip=150;Draw(3);
+    state.aimEnabled=true;++state.revision;Present();snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(0);
+    state.aimEnabled=false;++state.revision;Present();Draw(0);
+    snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);
     current.id=898;current.clip=5;Draw(0);
     state.originalWeapon=21;state.aimEnabled=false;state.revolverAngle=144;++state.revision;Present();
     snap.presentationRevision=state.revision;++snap.sequence;Send(snap);Draw(3);

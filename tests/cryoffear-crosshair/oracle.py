@@ -22,7 +22,7 @@ def cases():
     for width,height,scalar in itertools.product([99,100,320,640,801,1024,1280,1920,2560,3840,7680],
             [240,480,601,720,1080,1200,2160,4320],range(11)):
         yield (width,height,3,0,0,1.0,scalar)
-    for weapon,aiming,telescope,enabled,scalar in itertools.product([3,7,19,21],
+    for weapon,aiming,telescope,enabled,scalar in itertools.product([3,7,14,19,21],
             [0,1],[0,1],[0.0,-0.0,1.0,-1.0,float('nan'),float('inf')],[0,1,7,10]):
         yield (1920,1200,weapon,aiming,telescope,enabled,scalar)
 

@@ -19,6 +19,23 @@ inline constexpr std::array PistolResourceGroups{
     PistolResourceGroup{Pistol::Revolver,resources::RevolverAudioResources},
     PistolResourceGroup{Pistol::VP70,resources::VP70AudioResources}
 };
+struct FirearmResourceGroup
+{
+    Firearm identity;
+    std::span<const resources::LocalSoundResource> localSounds;
+};
+inline constexpr std::array FirearmResourceGroups{
+    FirearmResourceGroup{Firearm::P345,resources::P345AudioResources},
+    FirearmResourceGroup{Firearm::Glock,resources::GlockAudioResources},
+    FirearmResourceGroup{Firearm::Revolver,resources::RevolverAudioResources},
+    FirearmResourceGroup{Firearm::VP70,resources::VP70AudioResources},
+    FirearmResourceGroup{Firearm::TMP,resources::TMPAudioResources}
+};
+inline constexpr std::size_t FirearmLocalSampleCount=[] {
+    std::size_t count{};
+    for(const auto& group:FirearmResourceGroups)count+=group.localSounds.size();
+    return count;
+}();
 inline constexpr std::size_t PistolLocalSampleCount=[] {
     std::size_t count{};
     for(const auto& group:PistolResourceGroups)count+=group.localSounds.size();

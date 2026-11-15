@@ -32,7 +32,7 @@ GuestCofViewmodelScope::GuestCofViewmodelScope(const cl_entity_s* entity,int fla
 {
     if(!GuestCofViewmodelReady()||scopedEntity||!(flags&(STUDIO_RENDER|STUDIO_EVENTS))||!ResourceReadsAllowed()||
        !entity||!entity->model||!engine.GetViewModel||entity!=engine.GetViewModel())return;
-    bool supported=false;for(const auto& pistol:guest::cof::Pistols)
+    bool supported=false;for(const auto& pistol:guest::cof::Firearms)
         if(!std::strncmp(entity->model->name,pistol.viewModel.data(),sizeof(entity->model->name))){supported=true;break;}
     if(!supported||GuestCofResourcesState().status!=GuestCofResourceStatus::Prepared||!std::isfinite(handedness->value))return;
     // Native 10210 inverts only render calls while its previous knife/Elite

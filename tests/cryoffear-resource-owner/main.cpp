@@ -29,6 +29,7 @@ using guest::cof::client::AuroraResult;
 unsigned checks{}, failures{}, reads{}, loads{}, queries{}, sprites{}, volumeCalls{}, randomCalls{}, remoteCalls{};
 std::filesystem::path original;
 std::array<unsigned, 14> registrations{};
+std::array<unsigned,5> tmpRegistrations{};
 std::array<pfnUserMsgHook, 4> messages{};
 GoldCraftPrecacheReadyCallback ready{}, retired{};
 void* listener{};
@@ -42,7 +43,7 @@ GuestCofResourceBudget limits{4, 8u * 1024u * 1024u}; // Fixture policy, not an 
 GoldCraftConnectionAPI connection;
 GoldCraftSoundPrecacheAPI soundApi;
 GoldCraftPrecacheReadyAPI lifecycle;
-model_t sprite{}, glockModel{}, p345Model{}, shellModel{}, flashModel{}, cheapSmokeModel{}, ordinaryModel{};
+model_t tmpModel{}, sprite{}, glockModel{}, p345Model{}, shellModel{}, flashModel{}, cheapSmokeModel{}, ordinaryModel{};
 bool missingEffectModel{};
 unsigned effectModelQueries{}, effectShells{};
 void (*viewPunch)(event_args_s*){};
@@ -104,6 +105,10 @@ std::uint32_t Inspect(std::uint64_t expected, const char* name, std::uint32_t si
             if (asset.remoteAsset == std::string_view(name, size)) return registrations[index];
             ++index;
         }
+    for(unsigned i=0;i<TMPAudioResources.size();++i)
+        if(TMPAudioResources[i].remoteAsset==std::string_view(name,size))return tmpRegistrations[i];
+    for(const auto& group:{std::span<const LocalSoundResource>(RevolverAudioResources),std::span<const LocalSoundResource>(VP70AudioResources)})
+        for(const auto& asset:group)if(asset.remoteAsset==std::string_view(name,size))return 0;
     CHECK(false);
     return 0;
 }
@@ -181,13 +186,15 @@ int ModelIndex(const char* path)
 {
     ++effectModelQueries;EdgeAction(Edge::Model);
     if(missingEffectModel)return 0;
+    if(!std::strcmp(path,TMPModels[0].host))return tmpRegistrations[0]?22:0;
+    if(!std::strcmp(path,VP70Models[0].host)||!std::strcmp(path,RevolverModels[0].host))return 0;
     if(!std::strcmp(path,GlockModels[0].host))return 17;
     if(!std::strcmp(path,P345Models[0].host))return 18;
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::Flash)].host))return 20;
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::CheapSmoke)].host))return 21;
     CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Shell)].host));return 19;
 }
-model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:nullptr;}
+model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:index==22?&tmpModel:nullptr;}
 TEMPENTITY* Shell(float*,float*,float*,float,int index,int sound)
 {
     CHECK(index==19 && sound==1);++effectShells;static TEMPENTITY result;return &result;
@@ -198,7 +205,7 @@ void Begin()
     Disconnect();
     failRead = badWave = badScript = failLoad = failSprite = missingEffectModel = false;
     cancelAt = replaceAt = Edge::None; edgeSkip = 0; nestedReady = false;
-    registrations.fill(3);
+    registrations.fill(3);tmpRegistrations.fill(0);
     limits = {4, 8u * 1024u * 1024u};
 #if CSOL_RESOURCE_REFRESH
     resource_refresh_detail::readsAllowed = true;
@@ -227,6 +234,11 @@ bool PrepareGuestCofDecalResources(const std::array<std::span<const std::uint8_t
     return true;
 }
 void InvalidateGuestCofDecalResources() noexcept {}
+// Revolver shell-event availability is controlled as absent in this suite;
+// its native event/sign-on behavior has a separate real SDK suite.
+bool PrepareGuestCofRevolverEvents(const GoldCraftSoundPrecacheAPI*) noexcept {return false;}
+bool GuestCofRevolverEventsReady() noexcept {return false;}
+void InvalidateGuestCofRevolverEvents() noexcept {}
 // This fixture observes actual adapter installation; it never fakes effects readiness.
 hook_t* Hook(void* address,void*,void** original)
 {
@@ -246,6 +258,8 @@ std::vector<std::byte> ReadResource(const char* name)
                              std::span<const LocalSoundResource>(GlockAudioResources)})
         for (const auto& asset : group)
             if (asset.localFile == name) file = original / "sound" / asset.localKey;
+    for(const auto& asset:TMPAudioResources)
+        if(asset.localFile==name)file=original/"sound"/asset.localKey;
     CHECK(!file.empty());
     std::ifstream input(file, std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(input)), {});
@@ -381,6 +395,24 @@ int main(int argc, char** argv)
     ShutdownGuestCofResources(); ShutdownGuestCofEffects(); ShutdownGuestCofAudio(); ShutdownGuestCofParticles();
     CHECK(!token && !ready && !retired && !GuestCofAudioReady() && !GuestCofParticlesReady());
     CHECK(GuestCofResourcesState().status == GuestCofResourceStatus::Uninitialized);
-    std::printf("checks=%u failures=%u realWaves=14 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
+    InitializeGuestCofAudio(&connection);InitializeGuestCofParticles(&connection);
+    CHECK(InitializeGuestCofEffects(&connection));
+    Initialize();Begin();tmpRegistrations.fill(3);tmpRegistrations[2]=0;before=reads;Complete();
+    CHECK(GuestCofResourcesState().status==GuestCofResourceStatus::NativeSoundUnavailable&&reads==before);
+    Begin();tmpRegistrations.fill(3);tmpModel.type=mod_studio;std::strcpy(tmpModel.name,TMPModels[0].host);
+    before=reads;Complete();Prepared(19);CHECK(reads==before+25&&GuestCofResourcesState().weapons==19);
+    SetGuestCofEffectsWeapon(guest::cof::client::Weapon::Tmp);viewModel.model=&tmpModel;
+    CHECK(GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon::Tmp));
+    const auto tmpReads=reads,tmpQueries=queries,tmpEffectQueries=effectModelQueries;
+    for(const auto& sound:TMPAudioResources)
+    {
+        studioEvent.event=5004;std::strcpy(studioEvent.options,"weapons/");
+        std::strcat(studioEvent.options,sound.localKey.data()+12);
+        CHECK(GuestCofStudioEvent(&studioEvent,&viewModel)&&GuestCofLastStudioEffect()==guest::cof::client::EffectResult::Dispatched);
+    }
+    CHECK(reads==tmpReads&&queries==tmpQueries&&effectModelQueries==tmpEffectQueries);
+    Disconnect();CHECK(!GuestCofAudioReady()&&!GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon::Tmp));
+    ShutdownGuestCofResources();ShutdownGuestCofAudio();ShutdownGuestCofParticles();ShutdownGuestCofEffects();
+    std::printf("checks=%u failures=%u realWaves=19 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
     return failures ? 1 : 0;
 }

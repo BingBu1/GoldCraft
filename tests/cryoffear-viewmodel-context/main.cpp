@@ -31,7 +31,7 @@ int main(){
  engine.pfnGetCvarPointer=Cvar;engine.GetViewModel=View;viewmodel.model=&model;
  CHECK(InitializeGuestCofViewmodel()&&GuestCofViewmodelReady());
  const auto calls=resolves;
- for(const auto& pistol:guest::cof::Pistols)for(int flags:{0,1,2,3})for(float user:{0.f,1.f,-1.f,2.f,.5f})
+ for(const auto& pistol:guest::cof::Firearms)for(int flags:{0,1,2,3})for(float user:{0.f,1.f,-1.f,2.f,.5f})
   for(unsigned char k:{0,1})for(unsigned char e:{0,1}){
    std::strcpy(model.name,pistol.viewModel.data());hand.value=user;knife=k;elite=e;
    {GuestCofViewmodelScope scope(&viewmodel,flags);
@@ -51,7 +51,7 @@ int main(){
  resource_refresh_detail::readsAllowed=true;
  std::strcpy(model.name,"models/v_knife.mdl");hand.value=1;knife=1;elite=1;
  {GuestCofViewmodelScope native(&viewmodel,3);CHECK(hand.value==1&&knife==1&&elite==1);}
- std::strcpy(model.name,guest::cof::Pistols[0].viewModel.data());
+ std::strcpy(model.name,guest::cof::Firearms[0].viewModel.data());
  std::thread foreign([]{CHECK(!GuestCofViewmodelReady());GuestCofViewmodelScope scope(&viewmodel,3);CHECK(hand.value==1&&knife==1&&elite==1);});foreign.join();
  hand.value=std::numeric_limits<float>::quiet_NaN();{GuestCofViewmodelScope scope(&viewmodel,3);CHECK(std::isnan(hand.value)&&knife==1&&elite==1);}
  ShutdownGuestCofViewmodel();CHECK(!GuestCofViewmodelReady());missing=true;CHECK(!InitializeGuestCofViewmodel()&&!GuestCofViewmodelReady());

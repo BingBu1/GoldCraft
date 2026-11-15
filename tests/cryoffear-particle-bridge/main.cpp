@@ -237,6 +237,19 @@ int main(int argc, char** argv)
     CHECK(collision && handlers[0] == Other);
     ShutdownGuestCofParticles();
     CHECK(!GuestCofParticlesReady());
+    handlers[0]=nullptr;
+    // TMP normal-state particles use its own advertised view model; a
+    // mismatched old pistol model cannot receive the new local system.
+    InitializeGuestCofParticles(&provider);
+    CHECK(PrepareGuestCofParticles(plan)==AuroraResult::Applied);
+    cheap.value=0;hasView=hasLocal=true;limit.value=5;viewModel.index=5;
+    std::strcpy(model.name,FindFirearm(Firearm::TMP)->viewModel.data());
+    Deliver({ParticleOperation::Add,14,false,5});
+    CHECK(GuestCofParticleStatus()==AuroraResult::Applied);
+    const auto tmpQuads=quads,tmpLoads=loads;
+    Draw(now+.04F);Draw(now+.04F);CHECK(quads>tmpQuads&&loads==tmpLoads);
+    Deliver({ParticleOperation::KillLocal,0,true,0});
+    ShutdownGuestCofParticles();
     std::printf("checks=%u failures=%u actualSdk=yes gameplay=no\n", checks, failures);
     return failures ? 1 : 0;
 }

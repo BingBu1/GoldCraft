@@ -27,7 +27,7 @@ DWORD ownerThread{};
 std::uint64_t generation{},serial{1};
 bool initialized{};
 bool Owner() noexcept {return ownerThread&&ownerThread==GetCurrentThreadId();}
-bool CrosshairWeapon(unsigned id) noexcept {return guest::cof::OriginalPistolId(id);}
+bool CrosshairWeapon(unsigned id) noexcept {return guest::cof::OriginalFirearmId(id);}
 void Advance() noexcept
 {if(serial)serial=serial==std::numeric_limits<std::uint64_t>::max()?0:serial+1;}
 bool Synchronize() noexcept
@@ -106,12 +106,12 @@ void DrawGuestCofCrosshair(int hidden,int intermission,bool) noexcept
        view.spectator||view.paused||drawHud->value==0||BuyMenuVisible()||ScenarioMapVoteVisible())return;
     const auto& weapon=CurrentExtendedWeapon();
     const auto* snapshot=receiver.Current();
-    const auto* definition=guest::cof::FindPistol(weapon.id);
+    const auto* definition=guest::cof::FindFirearm(weapon.id);
     if((!snapshot&&!cylinderSpread)||!weapon.state||!definition||weapon.clip<0||
        !CrosshairWeapon(definition->originalId)||
        presentation.originalWeapon!=definition->originalId)return;
     std::array<guest::cof::client::CrosshairRect,3> bars;
-    if(!guest::cof::client::PistolCrosshair({screen.iWidth,screen.iHeight,definition->originalId,hidden,true,true,
+    if(!guest::cof::client::FirearmCrosshair({screen.iWidth,screen.iHeight,definition->originalId,hidden,true,true,
         presentation.aimEnabled,false,option->value,snapshot?snapshot->scalar:*cylinderSpread},bars))return;
     const auto revision=serial;
     for(const auto& bar:bars)

@@ -64,7 +64,7 @@ std::string_view ViewModel(std::uint8_t original) noexcept
 {
     // The codec has authenticated the original identity; placement and resource
     // namespaces are host adaptations, not original CS inventory IDs.
-    for (const auto& entry : guest::cof::Pistols)
+    for (const auto& entry : guest::cof::Firearms)
         if (entry.originalId == original) return entry.viewModel;
     return {};
 }

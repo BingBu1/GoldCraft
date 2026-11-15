@@ -12,7 +12,7 @@ bool Supported(Weapon weapon) noexcept
     switch (weapon)
     {
     case Weapon::None: case Weapon::Glock: case Weapon::P345:
-    case Weapon::Vp70: case Weapon::Revolver: return true;
+    case Weapon::Vp70: case Weapon::Revolver: case Weapon::Tmp: return true;
     }
     return false;
 }

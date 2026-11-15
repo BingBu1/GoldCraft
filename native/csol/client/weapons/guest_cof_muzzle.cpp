@@ -32,7 +32,7 @@ struct PreparedWeapon
     std::array<Attachment,2> attachments{};
     unsigned attachmentCount{};
 };
-std::array<PreparedWeapon,guest::cof::Pistols.size()> weapons{};
+std::array<PreparedWeapon,guest::cof::Firearms.size()> weapons{};
 cvar_t* cheapSmoke{};
 bool eventInstalled{},prepared{};
 void Clear() noexcept {
@@ -66,7 +66,7 @@ bool Ready() noexcept {
 void Event(event_args_s* event) {
     if(!event||!Ready()||event->entindex<=0||event->entindex>32||
        event->iparam2<=0||event->iparam2>32767||!engine.GetEntityByIndex)return;
-    const auto* definition=guest::cof::FindOriginalPistol(event->iparam1);
+    const auto* definition=guest::cof::FindOriginalFirearm(event->iparam1);
     if(!definition)return;
     const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     if(!weapon.view||!weapon.player||!weapon.header)return;
@@ -138,12 +138,12 @@ bool PrepareGuestCofMuzzle() noexcept {
        !studio.GetModelByIndex||!engine.pEventAPI||!engine.pEventAPI->EV_FindModelIndex)return false;
     decltype(weapons) cached{};
     bool anyWeapon{};
-    for(const auto& group:PistolResourceGroups)
+    for(const auto& group:FirearmResourceGroups)
     {
-        const auto* definition=guest::cof::FindPistol(group.identity);
+        const auto* definition=guest::cof::FindFirearm(group.identity);
         auto& slot=cached[static_cast<unsigned>(group.identity)];
         if(!PrepareWeapon(slot,definition->viewModel.data(),definition->playerModel.data(),revision,
-            group.identity==guest::cof::Pistol::Glock?2u:1u)||
+            group.identity==guest::cof::Firearm::Glock?2u:1u)||
             !Current()||generation!=active||serial!=revision||resources!=GuestCofEffectsResourceSerial())return false;
         anyWeapon|=slot.view!=nullptr;
     }
@@ -158,7 +158,7 @@ void ShutdownGuestCofMuzzle() noexcept {
 bool GuestCofMuzzleReady() noexcept {return Ready();}
 bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept
 {
-    const auto* definition=guest::cof::FindOriginalPistol(int(originalWeapon));
+    const auto* definition=guest::cof::FindOriginalFirearm(int(originalWeapon));
     if(!definition||!Ready())return false;
     const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     return weapon.view&&weapon.player&&weapon.header;
@@ -166,10 +166,10 @@ bool GuestCofMuzzleReady(unsigned originalWeapon) noexcept
 bool GuestCofMuzzleWorldPending() noexcept {return latch.pending&&Ready();}
 bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* entity) noexcept {
     if(!event||event->event!=5001||!entity||!entity->model)return false;
-    const guest::cof::PistolDefinition* definition{};
-    for(const auto& group:PistolResourceGroups)
+    const guest::cof::FirearmDefinition* definition{};
+    for(const auto& group:FirearmResourceGroups)
     {
-        const auto* candidate=guest::cof::FindPistol(group.identity);
+        const auto* candidate=guest::cof::FindFirearm(group.identity);
         if(!std::strncmp(entity->model->name,candidate->viewModel.data(),sizeof(entity->model->name)))
         {definition=candidate;break;}
     }
@@ -179,10 +179,12 @@ bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* en
     if(!GuestCofMuzzleReady(unsigned(definition->originalId))||!GuestCofEffectsOwnsWeapon(static_cast<Weapon>(definition->originalId))||
        !GuestCofMainStudioView()||entity->model!=weapons[index].view)return true;
     Lifetime lifetime{serial,generation,effectResources};const auto host=Host(lifetime);
-    if(definition->identity==guest::cof::Pistol::Revolver)
+    if(definition->identity==guest::cof::Firearm::Revolver)
         RevolverMuzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
-    else if(definition->identity==guest::cof::Pistol::Glock||definition->identity==guest::cof::Pistol::P345||
-            definition->identity==guest::cof::Pistol::VP70)
+    else if(definition->identity==guest::cof::Firearm::TMP)
+        TMPMuzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else if(definition->identity==guest::cof::Firearm::Glock||definition->identity==guest::cof::Firearm::P345||
+            definition->identity==guest::cof::Firearm::VP70)
         P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else return false;
     return true;
@@ -192,7 +194,7 @@ void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,co
     // Native CS retains the player render model while merging the active P
     // header/bones (1004D177..1004D19C). Both current identities are required.
     if(!Ready()||!latch.pending)return;
-    const auto* definition=guest::cof::FindOriginalPistol(latch.type);
+    const auto* definition=guest::cof::FindOriginalFirearm(latch.type);
     if(!definition)return;
     const int type=latch.type;const auto& weapon=weapons[static_cast<unsigned>(definition->identity)];
     if(!weapon.header||!GuestCofMainStudioView()||!entity||!entity->player||!model||
@@ -206,6 +208,7 @@ void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,co
     Lifetime lifetime{serial,generation,effectResources};
     if(type==3)GlockMuzzle(Host(lifetime)).World(world[0],world[1],latch.eventVector,1.0F);
     else if(type==21)RevolverMuzzle(Host(lifetime)).World(world[0],1.0F);
+    else if(type==14)TMPMuzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==7||type==19)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
 }
 }

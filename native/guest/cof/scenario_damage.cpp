@@ -29,47 +29,58 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
     rapidjson::Document document;
     document.Parse<rapidjson::kParseValidateEncodingFlag | rapidjson::kParseIterativeFlag>(json.data(), json.size());
     if (document.HasParseError() || !document.IsObject() || document.MemberCount() != 2 ||
-        !document.HasMember("version") || !document["version"].IsInt() || document["version"].GetInt() != 1 ||
-        !document.HasMember("pistols") || !document["pistols"].IsObject())
+        !document.HasMember("version") || !document["version"].IsInt() || (document["version"].GetInt() != 1 && document["version"].GetInt() != 2))
         return reject("Invalid CoF scenario damage envelope");
 
-    const auto& pistols = document["pistols"];
-    if (pistols.MemberCount() != PistolKeys.size())
-        return reject("CoF scenario damage requires every pistol exactly once");
-    std::array<ScenarioDamage, PistolKeys.size()> prepared{};
-    std::array<bool, PistolKeys.size()> seen{};
-    for (auto it = pistols.MemberBegin(); it != pistols.MemberEnd(); ++it)
+    const bool legacy=document["version"].GetInt()==1;
+    const char* group=legacy?"pistols":"firearms";
+    if(!document.HasMember(group)||!document[group].IsObject())
+        return reject("Missing explicit CoF damage group");
+    const auto& entries=document[group];
+    const std::size_t required=legacy?PistolKeys.size():FirearmKeys.size();
+    if(entries.MemberCount()!=required)
+        return reject("CoF damage requires every declared weapon exactly once");
+    std::array<ScenarioDamage,FirearmKeys.size()> prepared{};
+    std::uint32_t available{};
+    for(auto it=entries.MemberBegin();it!=entries.MemberEnd();++it)
     {
-        const std::string_view key(it->name.GetString(), it->name.GetStringLength());
-        const auto found = std::find(PistolKeys.begin(), PistolKeys.end(), key);
-        if (found == PistolKeys.end()) return reject("Unknown CoF pistol damage identity");
-        const auto index = static_cast<std::size_t>(found - PistolKeys.begin());
-        if (seen[index]) return reject("Duplicate CoF pistol damage identity");
-        seen[index] = true;
-        const auto& entry = it->value;
-        if (!entry.IsObject() || (entry.MemberCount() != 2 && entry.MemberCount() != 3) ||
-            !entry.HasMember("shot") || !entry.HasMember("melee") ||
-            !DamageValue(entry["shot"], prepared[index].shot) ||
-            !DamageValue(entry["melee"], prepared[index].melee))
-            return reject("Each CoF pistol requires finite shot and melee damage in 0..1000000");
-        if (entry.MemberCount() == 3)
+        const std::string_view key(it->name.GetString(),it->name.GetStringLength());
+        const auto end=FirearmKeys.begin()+required;
+        const auto found=std::find(FirearmKeys.begin(),end,key);
+        if(found==end)return reject("Unknown CoF firearm damage identity");
+        const auto index=static_cast<std::size_t>(found-FirearmKeys.begin());
+        const auto bit=1u<<index;
+        if(available&bit)return reject("Duplicate CoF firearm damage identity");
+        available|=bit;
+        const auto& entry=it->value;
+        if(!entry.IsObject()||(entry.MemberCount()!=2&&entry.MemberCount()!=3)||
+            !entry.HasMember("shot")||!entry.HasMember("melee")||
+            !DamageValue(entry["shot"],prepared[index].shot)||
+            !DamageValue(entry["melee"],prepared[index].melee))
+            return reject("Each CoF firearm requires finite shot and melee damage in 0..1000000");
+        if(entry.MemberCount()==3)
         {
-            if (index != static_cast<std::size_t>(Pistol::Revolver) || !entry.HasMember("penetration") ||
-                !entry["penetration"].IsInt() || entry["penetration"].GetInt() < 0 ||
-                entry["penetration"].GetInt() > 32)
+            if(index!=static_cast<std::size_t>(Firearm::Revolver)||!entry.HasMember("penetration")||
+                !entry["penetration"].IsInt()||entry["penetration"].GetInt()<0||entry["penetration"].GetInt()>32)
                 return reject("Only Revolver supports an explicit CS penetration count in 0..32");
-            prepared[index].penetration = entry["penetration"].GetInt();
+            prepared[index].penetration=entry["penetration"].GetInt();
         }
     }
 
     values_ = prepared;
+    available_ = available;
     loaded_ = true;
     return true;
 }
 
 const ScenarioDamage* ScenarioDamageConfig::Find(Pistol weapon) const noexcept
 {
-    const auto index = static_cast<std::size_t>(weapon);
-    return loaded_ && index < values_.size() ? &values_[index] : nullptr;
+    const auto index=static_cast<unsigned>(weapon);
+    return index<PistolKeys.size()?Find(static_cast<Firearm>(index)):nullptr;
+}
+const ScenarioDamage* ScenarioDamageConfig::Find(Firearm weapon) const noexcept
+{
+    const auto index=static_cast<unsigned>(weapon);
+    return loaded_&&index<values_.size()&&(available_&(1u<<index))?&values_[index]:nullptr;
 }
 }

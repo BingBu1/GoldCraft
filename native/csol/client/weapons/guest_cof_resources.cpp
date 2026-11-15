@@ -19,7 +19,7 @@ namespace
 using namespace guest::cof::resources;
 using guest::cof::client::AudioResult;
 using guest::cof::client::AuroraResult;
-constexpr auto maxSamples=guest::cof::client::PistolLocalSampleCount;
+constexpr auto maxSamples=guest::cof::client::FirearmLocalSampleCount;
 constexpr auto fog = P345Models[static_cast<unsigned>(P345Model::Fog)].host;
 const GoldCraftConnectionAPI* connection{};
 const GoldCraftSoundPrecacheAPI* sounds{};
@@ -105,7 +105,7 @@ void Ready(void*, std::uint64_t generation) noexcept
     // Registration discovery is a no-I/O query. Ordinary servers must never
     // open a CoF file, create an audio device, or load the guest sprite.
     std::array<const LocalSoundResource*, maxSamples> selected{};
-    for (const auto& definition : guest::cof::client::PistolResourceGroups)
+    for (const auto& definition : guest::cof::client::FirearmResourceGroups)
     {
         const auto group=definition.localSounds;
         unsigned registered{};
@@ -124,13 +124,13 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
-        if(definition.identity==guest::cof::Pistol::Revolver&&!GuestCofRevolverEventsReady())
+        if(definition.identity==guest::cof::Firearm::Revolver&&!GuestCofRevolverEventsReady())
         {
             candidate.status=GuestCofResourceStatus::NativeSoundUnavailable;
             candidate.resource=RevolverSounds[static_cast<unsigned>(RevolverSound::Shell)].host;
             Failed(lease,candidate);return;
         }
-        candidate.weapons|=guest::cof::PistolCapability(definition.identity);
+        candidate.weapons|=guest::cof::FirearmCapability(definition.identity);
         for (const auto& asset : group) selected[candidate.samples++] = &asset;
     }
     if (!candidate.samples)

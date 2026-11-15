@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native/guest/cof/scenario_damage.hpp"
+#include "native/guest/cof/catalog.hpp"
+#include "native/guest/cof/admission.hpp"
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -84,6 +86,53 @@ int main(int argc, char** argv)
     for(int count:{0,5,32})
         Check(config.Parse(Changed(json,"\"penetration\": 5","\"penetration\": "+std::to_string(count)),error)&&
             config.Find(Pistol::Revolver)->penetration==count,"Explicit host penetration boundary rejected");
+    Check(config.Parse(json,error)&&!config.Find(Firearm::TMP),"Legacy config invented TMP readiness");
+    auto version2=Changed(Changed(json,"\"version\": 1","\"version\": 2"),"\"pistols\"","\"firearms\"");
+    version2=Changed(version2,"\"vp70\": { \"shot\": 80, \"melee\": 120 }",
+        "\"vp70\": { \"shot\": 80, \"melee\": 120 },\n    \"tmp\": { \"shot\": 55, \"melee\": 120 }");
+    Check(config.Parse(version2,error)&&config.Find(Firearm::TMP)&&
+        *config.Find(Firearm::TMP)==ScenarioDamage{55,120},"Explicit TMP balance rejected");
+    for(const auto& pistol:Pistols)
+        Check(FindFirearm(FirearmIdentity(pistol.identity))&&
+            FindFirearm(pistol.hostId)->originalId==pistol.originalId&&
+            config.Find(FirearmIdentity(pistol.identity))&&
+            *config.Find(FirearmIdentity(pistol.identity))==*config.Find(pistol.identity),
+            "Common firearm view changed an existing pistol");
+    for(const auto& firearm:Firearms)
+    {
+        Check(FindFirearm(firearm.hostId)==&firearm&&FindOriginalFirearm(firearm.originalId)==&firearm&&
+            OriginalFirearmId(firearm.originalId),"Generic lookup identity mismatch");
+        Check(FirearmCapability(firearm.identity)==1u<<unsigned(firearm.identity),"Firearm bit mismatch");
+    }
+    const auto* tmp=FindFirearm(Firearm::TMP);
+    Check(tmp&&tmp->hostId==900&&tmp->originalId==14&&tmp->clip==30&&tmp->reserve==300&&
+        tmp->price==2000&&tmp->ammunitionPrice==30&&tmp->ammunitionCount==30&&
+        tmp->displayName=="客串武器·MP9"&&!FindPistol(900)&&!OriginalPistolId(14),
+        "TMP was misplaced in pistol family or lost authored metadata");
+    Check(!FindFirearm(-1)&&!FindFirearm(895)&&!FindFirearm(901)&&!FindFirearm(Firearm::Count)&&
+        !FindOriginalFirearm(0)&&!config.Find(Firearm::Count),"Invalid firearm identity accepted");
+    for(unsigned bits=0;bits<=31;++bits)
+        Check(ParseFirearmAdmission("1",std::to_string(bits)).weapons==bits,"Valid explicit firearm mask rejected");
+    for(const char* bad:{"-1","+1"," 1","1 ","32","16x","4294967296","2147483648"})
+        Check(ParseFirearmAdmission("1",bad).weapons==0,"Malformed firearm mask accepted");
+    Check(ParseFirearmAdmission("1","").weapons==1&&ParseFirearmAdmission("0","31").weapons==0&&
+        ParsePistolAdmission("1","16").weapons==0,"Legacy protocol semantics changed");
+    const std::string badV2[]{
+        Changed(version2,"\"firearms\"","\"pistols\""),Changed(version2,"\"tmp\"","\"vp70\""),
+        Changed(version2,"\"tmp\"","\"unknown\""),Changed(version2,"\"shot\": 55","\"shot\": -1"),
+        Changed(version2,"\"shot\": 55","\"shot\": 55, \"penetration\": 5"),
+        Changed(version2,"\"version\": 2","\"version\": 3"),
+        Changed(version2,"\"version\": 2","\"version\": 1"),version2+" trailing"};
+    for(const auto& bad:badV2)
+    {
+        Check(!config.Parse(bad,error)&&config.Find(Firearm::TMP)&&
+            *config.Find(Firearm::TMP)==ScenarioDamage{55,120},"Failed v2 reload partially committed");
+        for(unsigned i=0;i<std::size(expected);++i)
+            Check(config.Find(static_cast<Pistol>(i))&&*config.Find(static_cast<Pistol>(i))==expected[i],
+                "Failed v2 reload changed legacy pistol values");
+    }
+    Check(config.Parse(json,error)&&!config.Find(Firearm::TMP)&&config.Find(Pistol::VP70)->shot==80,
+        "Returning to v1 left stale TMP permission/data");
     std::cout << "checks=" << checks << " failures=" << failures << '\n';
     return failures ? 1 : 0;
 }
