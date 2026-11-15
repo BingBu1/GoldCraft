@@ -1,6 +1,8 @@
 #include <metahook.h>
 #include <com_model.h>
 #include "resource_model_cache.hpp"
+#include "resource_permanent_sprite.hpp"
+#include <unordered_map>
 
 #include <cstddef>
 #include <new>
@@ -17,6 +19,7 @@ static_assert(offsetof(model_t, cache) == 388);
 // HL10210 R_GetAnim 101F5C30 allocates 16 cache_user_t records separately from
 // the main Cache_Alloc block. The array stays owned by the native model object.
 constexpr std::size_t sequence_slots = 16;
+std::unordered_map<model_t*, std::unique_ptr<PermanentSprite>> permanent_storage;
 bool invalidating{}; // Main-thread API; also reject recursive owner callbacks.
 
 struct Guard {
@@ -25,6 +28,7 @@ struct Guard {
 };
 
 struct Plan {
+    std::vector<model_t*> permanent_sprites;
     std::vector<cache_user_t*> auxiliary;
     std::vector<cache_user_t*> main;
     std::vector<cache_user_t*> sounds;
@@ -70,6 +74,13 @@ Result Invalidate(std::span<const Model> models,
                 if (!engine.unload_sprite_textures)
                     return fail("sprite texture owner is unavailable");
                 if (!entry.skins.empty()) return fail("sprite cannot own studio skin caches");
+                // HL10210 CL_InitTEnts (101ADA80) retains these objects outside
+                // the SPR handle registry. ModelFrameCount dereferences their
+                // headers directly; they must be live before gameplay resumes.
+                if (model->needload == 3) {
+                    if (!engine.load_model) return fail("permanent sprite loader is unavailable");
+                    plan.permanent_sprites.push_back(model);
+                }
                 // Sprite headers are Hunk_AllocName blocks, not Cache_Alloc.
                 if (model->cache.data && !plan.blocks.insert(model->cache.data).second)
                     return fail("aliased sprite cache allocation");
@@ -124,6 +135,7 @@ Result Invalidate(std::span<const Model> models,
             // disconnect. The native unload entry dereferences that header.
             if (entry.value->cache.data) engine.unload_sprite_textures(entry.value);
             entry.value->cache.data = nullptr;
+            permanent_storage.erase(entry.value);
             ++result.sprites;
         }
     }
@@ -136,6 +148,24 @@ Result Invalidate(std::span<const Model> models,
         *entry.crc_checked = 0;
         *entry.crc_initial = 0;
         ++result.models;
+    }
+    // Retain permanent identity even if a reload fails, so rollback can retry
+    // from the previous VFS view. No consumer may resume on a failed Result.
+    for (auto* model : plan.permanent_sprites) model->needload = 3;
+    for (auto* model : plan.permanent_sprites) {
+        model->needload = 1; // Mod_LoadModel returns early for needload == 3.
+        auto* loaded = engine.load_model(model, 0, 0);
+        model->needload = 3; // Same mark as native Mod_MarkPermanent (10241610).
+        if (loaded != model || model->type != mod_sprite || !model->cache.data)
+            return fail("permanent engine sprite did not reload");
+        try {
+            auto owned = std::make_unique<PermanentSprite>(static_cast<const SpriteHeader*>(model->cache.data));
+            auto* header = owned->Header();
+            permanent_storage[model] = std::move(owned);
+            model->cache.data = header;
+        } catch (const std::exception&) {
+            return fail("cannot preserve permanent sprite across the native map hunk reset");
+        }
     }
     return result;
 }

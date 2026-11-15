@@ -22,6 +22,8 @@ struct Engine {
     void (*cache_free)(cache_user_s*){};
     // Call the resolved entry, including the Renderer hook, not its trampoline.
     void (*unload_sprite_textures)(model_s*){};
+    // Mod_LoadModel preserves the model object held by engine effect globals.
+    model_s* (*load_model)(model_s*, int crash, int track_crc){};
 };
 
 struct Owners {

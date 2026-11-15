@@ -99,6 +99,8 @@ def main():
     old, third = bytes(x ^ 0x5a for x in body), bytes(x ^ 0xc3 for x in body)
     sha, third_sha = hashlib.sha256(body).hexdigest(), hashlib.sha256(third).hexdigest()
     requests, lock = [], threading.Lock()
+    parallel = dict(active=0, peak=0)
+    parallel_ready = threading.Event()
     stop = threading.Event()
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
@@ -108,7 +110,13 @@ def main():
             case = parts[0]
             with lock: requests.append(dict(path=self.path, case=case, time=time.monotonic(), headers=dict(self.headers)))
             content = third if 'third' in parts or 'fresh' in parts else old if case == 'bad-sha' else body
+            if case == 'parallel':
+                with lock:
+                    parallel['active'] += 1
+                    parallel['peak'] = max(parallel['peak'], parallel['active'])
+                    if parallel['active'] >= 8: parallel_ready.set()
             try:
+                if case == 'parallel': parallel_ready.wait(4)
                 self.send_response(200); self.send_header('Content-Length', str(len(content)))
                 self.send_header('Connection', 'close'); self.end_headers()
                 if case == 'cancel' and 'fresh' not in parts:
@@ -119,6 +127,9 @@ def main():
                 else: self.wfile.write(content)
                 self.wfile.flush()
             except (OSError, ConnectionError): pass
+            finally:
+                if case == 'parallel':
+                    with lock: parallel['active'] -= 1
             self.close_connection = True
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     server.daemon_threads = True
@@ -137,7 +148,8 @@ def main():
              ('replace-source', 'replace-source', 'models/update.mdl', 1),
              ('rollback-failure', 'rollback-failure', 'models/update.mdl', 0),
              ('lease', 'lease', 'models/update.mdl', 0),
-             ('shadow', 'shadow', 'models/update.mdl', 0)]
+             ('shadow', 'shadow', 'models/update.mdl', 0),
+             ('parallel', 'batch', 'models/update.mdl', 16)]
     if args.case: cases = [case for case in cases if case[0] == args.case]; assert cases
     results = []
     try:
@@ -158,12 +170,26 @@ def main():
                 else: destination.write_bytes(initial)
             if label == 'corrupt-cache':
                 cached = base / 'cache/objects' / sha / name; cached.parent.mkdir(parents=True); cached.write_bytes(old)
+            if mode == 'batch':
+                manifest = []
+                for i in range(16):
+                    name = 'models/parallel_' + str(i) + '.mdl'
+                    target = game / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(old)
+                    manifest.append(json.dumps(name) + ' ' + str(len(body)) + ' ' + sha)
+                (base / 'manifest.txt').write_text('\n'.join(manifest) + '\n', 'utf-8')
             before = [identity(p) for p in game.rglob('*') if p.is_file()] + [identity(base / 'old-linked-source.bin')]
-            code = execute('case-' + label, [exe, fs_dll, base, address + '/' + label + '/', mode, name, len(body), sha, third_sha])
+            arguments = [exe, fs_dll, base, address + '/' + label + '/']
+            arguments += ['captured-corruption'] if mode == 'batch' else [mode, name, len(body), sha, third_sha]
+            code = execute('case-' + label, arguments)
             with lock: count = sum(x['case'] == label for x in requests)
+            if mode == 'batch' and parallel['peak'] < 8:
+                code = code or 1
             preserved = all(identity(x['path']) == x for x in before)
             temporary = list((base / 'cache').rglob('*.tmp-*')) if (base / 'cache').exists() else []
             result = dict(name=label, mode=mode, exit=code, expectedRequests=request_count, actualRequests=count,
+                          concurrentPeak=parallel['peak'] if mode == 'batch' else None,
                           originalsPreserved=preserved, temporaryFiles=[str(x) for x in temporary],
                           passed=code == 0 and count == request_count and preserved and not temporary)
             results.append(result); save('cases.json', results)

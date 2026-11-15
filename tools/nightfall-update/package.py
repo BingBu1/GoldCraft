@@ -119,6 +119,13 @@ def prepare(publication, evidence):
             rel = path.relative_to(game).as_posix()
             if resources.selected(rel) and rel != 'models/x_re/floating_damage.mdl':
                 add('cs/cstrike/'+rel, path)
+    # This table is read before GuestCof's first resource registration. An
+    # ordinary client-resource walk cannot discover a missing bootstrap file.
+    guest_config = game/'configs/guest/cof/scenario_damage.json'
+    document = json.loads(guest_config.read_text('utf-8-sig'))
+    if document.get('version') != 2 or not {'glock', 'p345', 'revolver', 'vp70', 'tmp'} <= document.get('firearms', {}).keys():
+        raise ValueError('Guest firearm server bootstrap table is missing or incomplete')
+    add('cs/cstrike/configs/guest/cof/scenario_damage.json', guest_config)
     for name, digest in PINS.items():
         add(name, server/name.removeprefix('cs/'))
         if files[name.lower()]['sha256'] != digest:

@@ -5,6 +5,7 @@
 
 cl_enginefunc_t gEngfuncs{};
 using namespace goldcraft::client_precache;
+namespace resource_model_cache = goldcraft::resource_model_cache;
 
 namespace {
 std::vector<byte> packet;
@@ -18,6 +19,7 @@ std::vector<goldcraft::resource_update::Resource> captured;
 std::uint64_t captured_generation{};
 std::vector<std::unique_ptr<resource_t>> allocated_resources;
 void __cdecl parse_error(const char*, ...) { throw std::runtime_error("malformed packet"); }
+void __cdecl diagnostic(const char*, ...) {}
 
 void __cdecl begin_bits(void*) { bit_cursor = size_t(cursor) * 8; }
 void __cdecl finish_bits(void*) { cursor = int((bit_cursor + 7) / 8); }
@@ -198,6 +200,37 @@ void model_terminator_tests(DWORD& model_operand, const std::array<DWORD, 5>& li
     check_sentinel(models.size() == 513 && models.back() == nullptr, "repeated teardown preserves the terminator");
 }
 
+void capability_readiness_tests() {
+    std::vector<float> advertised;
+    static std::vector<float>* writes;
+    writes = &advertised;
+    gEngfuncs.Cvar_SetValue = [](const char* name, float value) {
+        assert(std::string(name) == goldcraft::resource_sync::capability);
+        writes->push_back(value);
+    };
+    sync_registered = false;
+    sync_advertised = -1;
+    enabled = client_media_enabled = true;
+    sync_available = false;
+    set_resource_sync({[]() { return sync_available; }, nullptr, nullptr});
+    refresh_resource_capability();
+    assert(advertised.empty());
+    sync_registered = true;
+    refresh_resource_capability();
+    assert(advertised == std::vector<float>{0});
+    sync_available = true; // Renderer finishes only after downstream HUD_Init.
+    refresh_resource_capability();
+    refresh_resource_capability();
+    assert((advertised == std::vector<float>{0, 1}));
+    sync_available = false;
+    refresh_resource_capability();
+    assert((advertised == std::vector<float>{0, 1, 0}));
+    set_resource_sync({});
+    sync_registered = false;
+    sync_available = true;
+    std::cout << "Resource capability delayed readiness and revocation passed\n";
+}
+
 void resource_sync_tests() {
     using goldcraft::resource_sync::manifest_version;
     resource_t list{};
@@ -218,6 +251,8 @@ void resource_sync_tests() {
                           unsigned type=t_generic, unsigned flags=0) {
         packet.assign(1, 0xcc); std::size_t position=8;
         const auto put = [&](unsigned value, unsigned width) {
+            // ReHLDS MSG_WriteBits saturates narrow fields; it does not truncate.
+            if (width < 32) value = (std::min)(value, (1u << width) - 1);
             for(unsigned i=0;i<width;++i,++position) {
                 if(position/8>=packet.size())packet.push_back(0);
                 packet[position/8]|=byte(((value>>i)&1)<<(position%8));
@@ -247,9 +282,17 @@ void resource_sync_tests() {
     check(captured.size()==2 && captured_generation==0x1234567800000001ULL);
     check(captured[0].expected.size==22000000 && resources[0]->nDownloadSize==22000000);
     check(captured[1].expected.sha256[31]==32 && captured[0].name=="models/update.mdl");
-    check(resume_resource_sync() && downloads==before+1);
+    check(!sync_verified);
+    check(resume_resource_sync() && downloads==before+1 && sync_verified);
     check(!resume_resource_sync() && downloads==before+1);
-    clean();check(!sync_waiting && sync_resources.empty() && !resume_resource_sync());
+    clean();check(!sync_waiting && sync_resources.empty() && !resume_resource_sync() && !sync_verified);
+    for (unsigned size : {1u, 0xfffffeu, 0xffffffu, 0x1000000u,
+                          goldcraft::resource_sync::max_file_size}) {
+        make(1,0,1,1,manifest_version,true,size);parse_resources();
+        check(captured.size()==1 && captured[0].expected.size==size);
+        check(resources[0]->nDownloadSize==int(size));
+        clean();
+    }
     make(1,0,1,1,manifest_version,true,32,t_sound);parse_resources();
     check(captured.size()==1 && captured[0].name=="sound/effect.wav");
     clean();make(1,0,1,1,manifest_version,false,32,t_decal);parse_resources();
@@ -307,8 +350,152 @@ void model_owner_tests() {
     }
     model_t foreign{};
     check_sentinel(api->model_index(&foreign) == -1, "foreign owner rejected");
+    std::array<CRC, 2> crcs{};
+    original_crcs = crcs.data();
+    originals[0].type = mod_studio; originals[1].type = mod_sprite;
+    skin_caches[&extra_models[0]->model] = std::make_unique<std::array<cache_user_t, 32>>();
+    std::array<Sound, 2> native_sounds{};
+    Sound* native_sound_data = native_sounds.data();
+    int sound_count = int(native_sounds.size());
+    original_sounds = &native_sound_data; original_sound_count = &sound_count;
+    extra_sounds.push_back(std::make_unique<Sound>());
+    struct Observation { int validation{}, release{}; model_t* skinned{}; } observation{0, 0, &extra_models[0]->model};
+    resource_model_cache::Owners owners{&observation,
+        [](void* context, std::span<const resource_model_cache::Model> values) -> const char* {
+            auto& state = *static_cast<Observation*>(context); ++state.validation;
+            check_sentinel(values.size() == 4, "real owner collector includes original and disconnected extra models");
+            int skins{};
+            for (const auto& value : values) {
+                check_sentinel(value.crc_checked && value.crc_initial, "real owner collector includes version CRC slots");
+                if (value.value == state.skinned) {
+                    check_sentinel(value.skins.size() == 32, "real allocated skin slots forwarded"); ++skins;
+                } else check_sentinel(value.skins.empty(), "collector does not allocate missing skins");
+            }
+            check_sentinel(skins == 1, "one actual skin owner");
+            return nullptr;
+        }, [](void* context, std::span<const resource_model_cache::Model>) {
+            ++static_cast<Observation*>(context)->release; return true;
+        }};
+    const resource_model_cache::Engine cache_engine{
+        [](int clear) { check_sentinel(clear == 1, "collector retains original sound stop argument"); },
+        [](cache_user_t*) { check_sentinel(false, "empty caches are not freed"); },
+        [](model_t*) { check_sentinel(false, "disconnected sprite has no header to unload"); }};
+    check_sentinel(bool(retire_resource_caches(true, true, cache_engine, owners)), "real complete owner collection retired");
+    check_sentinel(observation.validation == 1 && observation.release == 1, "real owners retire once");
+    check_sentinel(originals[0].needload == 1 && extra_models[1]->model.needload == 1,
+                   "all retained native and extra models reload normally");
+    skin_caches.clear(); extra_sounds.clear();
+    original_crcs = nullptr; original_sounds = nullptr; original_sound_count = nullptr;
     extra_models.clear(); extra_model_indices.clear();
     original_models = nullptr; original_model_count = nullptr; enabled = false;
+}
+
+// The reviewed precache CALL keeps the engine's eager Mod_ForName(name, 0, 1)
+// unless this admission was SHA-verified and the name is a player model; then
+// it takes the engine's own lazy registration, Mod_FindName(1, name).
+void lazy_precache_tests() {
+    static int eager, found;
+    static model_t eager_model{}, lazy_model{};
+    static cvar_t toggle{};
+    const auto check = [&](bool value) { ++sentinel_checks; if (!value) { ++sentinel_failures; std::cerr << "lazy precache check " << sentinel_checks << '\n'; } };
+    reset_client();
+    precache_for_name = [](const char*, int crash, int crc) -> model_t* {
+        if (crash != 0 || crc != 1) throw std::runtime_error("changed eager precache arguments");
+        ++eager; return &eager_model;
+    };
+    find_model_original = [](int crc, const char*) -> model_t* {
+        if (crc != 1) throw std::runtime_error("changed lazy precache arguments");
+        ++found; return &lazy_model;
+    };
+    const char* player = "models/player/csol7/csol7.mdl";
+    lazy_players = &toggle; toggle.value = 1;
+    eager = found = 0;
+    // Ordinary server, or a manifest that was not verified: stock eager load.
+    check(precache_model(player, 0, 1) == &eager_model && eager == 1 && found == 0 && deferred_models == 0);
+    valid_manifest();
+    check(extended && !sync_verified);
+    check(precache_model(player, 0, 1) == &eager_model && eager == 2 && deferred_models == 0);
+    sync_verified = true;
+    models_by_name["models/player/csol7/csol7.mdl"] = &lazy_model;
+    check(precache_model(player, 0, 1) == &lazy_model && eager == 2 && deferred_models == 1);
+    check(precache_model("MODELS/PLAYER/CSOL7/CSOL7.MDL", 0, 1) == &lazy_model && eager == 2 && deferred_models == 2);
+    // Everything that is not a player model stays eager in the same admission.
+    for (const char* name : {"models/v_ak47.mdl", "models/player.mdl", "models/player/loose.mdl",
+                             "models/monster/boss/boss.mdl", "sprites/player/a/a.spr"})
+        check(precache_model(name, 0, 1) == &eager_model);
+    check(eager == 7 && deferred_models == 2);
+    toggle.value = 0;
+    check(precache_model(player, 0, 1) == &eager_model && eager == 8 && deferred_models == 2);
+    toggle.value = 1; lazy_players = nullptr;
+    check(precache_model(player, 0, 1) == &eager_model && eager == 9);
+    lazy_players = &toggle;
+    // A new connection starts unverified again and reports no stale count.
+    reset_client();
+    check(!sync_verified && deferred_models == 0 && !extended);
+    check(precache_model(player, 0, 1) == &eager_model && eager == 10 && found == 0);
+    models_by_name.clear();
+    lazy_players = nullptr; precache_for_name = nullptr; find_model_original = nullptr;
+}
+
+void native_download_gate_tests() {
+    static unsigned calls, gates;
+    static bool defer, clear_during_start, last_null;
+    static int last_upload;
+    static std::string last_message;
+    unsigned checks{};
+    const auto check = [&](bool value) { ++checks; assert(value); };
+    const auto original = start_download_original;
+    start_download_original = [](const char* message, int upload) {
+        ++calls; last_upload = upload; last_null = message == nullptr;
+        if (clear_during_start) reset_client();
+        // Read after reentrant cancellation, as the native downloader can
+        // disconnect while this call still borrows its argument.
+        last_message = message ? message : "";
+    };
+    reset_client();
+    check(!native_download_pending() && !resume_native_download());
+    start_download("native", 0);
+    check(calls == 1 && last_upload == 0 && last_message == "native");
+    set_native_download_gate([] { ++gates; return defer; });
+    start_download("not deferred", 0);
+    check(calls == 2 && gates == 1 && !native_download_pending());
+
+    defer = true;
+    std::string temporary = "download after frame";
+    start_download(temporary.c_str(), 0);
+    temporary.assign("caller buffer reused");
+    check(calls == 2 && gates == 2 && native_download_pending());
+    start_download("spray upload", 1);
+    check(calls == 3 && gates == 2 && last_upload == 1 && last_message == "spray upload");
+    check(native_download_pending());
+    // Changing the gate cannot let a second normal request overtake the first.
+    defer = false;
+    bool rejected{};
+    try { start_download("overlap", 0); }
+    catch (const std::runtime_error&) { rejected = true; }
+    check(rejected && calls == 3 && native_download_pending());
+    check(resume_native_download());
+    check(calls == 4 && gates == 2 && last_upload == 0 && last_message == "download after frame");
+    check(!native_download_pending() && !resume_native_download());
+
+    defer = true;
+    start_download(nullptr, 0);
+    check(calls == 4 && native_download_pending());
+    check(resume_native_download() && calls == 5 && last_null);
+    start_download("cancel", 0);
+    reset_client();
+    check(!native_download_pending() && !resume_native_download() && calls == 5);
+    start_download("reentrant disconnect", 0);
+    clear_during_start = true;
+    check(resume_native_download());
+    check(calls == 6 && last_message == "reentrant disconnect" && !native_download_pending());
+    check(!resume_native_download() && calls == 6);
+    clear_during_start = false;
+    set_native_download_gate(nullptr);
+    start_download("restored", 0);
+    check(calls == 7 && last_message == "restored" && !native_download_pending());
+    start_download_original = original;
+    std::cout << "native download gate: " << checks << " checks, 0 failures\n";
 }
 
 int main(int argc, char**) {
@@ -323,8 +510,9 @@ int main(int argc, char**) {
     start_bits = begin_bits; end_bits = finish_bits; read_bits = bits;
     parse_resources_original = legacy_resources;
     loading_text = [](const char*) {};
-    start_download = [](const char*, int) { ++downloads; };
+    start_download_original = [](const char*, int) { ++downloads; };
     host_error = parse_error;
+    gEngfuncs.Con_Printf = diagnostic;
     client_media_enabled = true;
 
     std::array<model_t*, 512> stock_models{};
@@ -408,8 +596,12 @@ int main(int argc, char**) {
     std::cout << "Production native/extended parser routing and byte-exact teardown passed\n";
     model_terminator_tests(model_operand, limits);
     std::cout << "model terminator: " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+    capability_readiness_tests();
     resource_sync_tests();
     model_owner_tests();
     std::cout << "model ownership: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+    native_download_gate_tests();
+    lazy_precache_tests();
+    std::cout << "lazy precache: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
     return sentinel_failures ? 1 : 0;
 }

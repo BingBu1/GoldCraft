@@ -2,6 +2,7 @@
 #include "goldcraft/async_download.hpp"
 #include <bcrypt.h>
 #include "resource_download.hpp"
+#include "resource_cache.hpp"
 
 #pragma comment(lib, "bcrypt.lib")
 namespace goldcraft::resource_download {
@@ -60,7 +61,27 @@ struct Policy {
     static asio::awaitable<void> Run(transport::Session& session, std::shared_ptr<Job> job) {
         for (unsigned attempt = 0; attempt != 3 && !job->cancelled; ++attempt) {
             const auto result = co_await Transfer(session, *job);
-            if (!result.code) { job->success = true; job->error.clear(); break; }
+            if (!result.code) {
+                if (!job->cacheRoot.empty()) {
+                    const auto stored = co_await transport::Blocking(session, [&job]() -> DWORD {
+                        const auto start = transport::Clock::now();
+                        try {
+                            resource_cache::Cache cache(job->cacheRoot);
+                            job->cacheStored = !job->cancelled &&
+                                cache.Store(job->cacheName, job->expected, job->bytes);
+                            if (!job->cacheStored) job->error = cache.Error();
+                        } catch (const std::exception& failure) { job->error = failure.what(); }
+                        job->cacheStoreMs = std::chrono::duration<double, std::milli>(
+                            transport::Clock::now() - start).count();
+                        return job->cacheStored ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+                    });
+                    if (stored) { job->bytes.clear(); break; }
+                    std::vector<std::uint8_t>().swap(job->bytes);
+                }
+                job->success = !job->cancelled;
+                job->error.clear();
+                break;
+            }
             job->error = result.message ? result.message : "Resource HTTP error " + std::to_string(result.code);
             job->bytes.clear();
             if (attempt != 2 && !job->cancelled) {
@@ -76,7 +97,7 @@ struct Policy {
     }
 };
 }
-struct Worker::Impl { transport::Queue<Job, Policy> queue{2, 4, 5000}; };
+struct Worker::Impl { transport::Queue<Job, Policy> queue{Concurrency, Concurrency, 5000}; };
 Worker::Worker() : impl(std::make_unique<Impl>()) {}
 Worker::~Worker() = default;
 bool Worker::Submit(std::shared_ptr<Job> job) {

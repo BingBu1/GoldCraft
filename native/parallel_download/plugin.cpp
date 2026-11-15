@@ -4,6 +4,7 @@
 #include <ISurface.h>
 #include <IVGUI2Extension.h>
 #include "transfer.hpp"
+#include "../include/goldcraft/resource_progress_api.hpp"
 #include <algorithm>
 #include <array>
 #include <cstdio>
@@ -42,6 +43,18 @@ vgui::IPanel* panel{};
 vgui::HFont font{};
 unsigned uiPaints{}, counterDraws{};
 bool uiReported{};
+const goldcraft::resource_progress::Api* repairProgress{};
+
+bool ReadRepairProgress(goldcraft::resource_progress::Snapshot& value){
+    if(!repairProgress && api && api->GetPluginModuleHandleByBaseFileName){
+        const auto module=api->GetPluginModuleHandleByBaseFileName("GoldCraft");
+        const auto factory=module?Sys_GetFactory(module):nullptr;
+        const auto* found=factory?reinterpret_cast<const goldcraft::resource_progress::Api*>(
+            factory(goldcraft::resource_progress::interface_name,nullptr)):nullptr;
+        if(found&&found->size==sizeof(*found)&&found->version==1&&found->read)repairProgress=found;
+    }
+    return repairProgress&&repairProgress->read(&value);
+}
 
 template<class F> auto FS(F f){
     if(interfaces->FileSystem_HL25)return f(interfaces->FileSystem_HL25);
@@ -166,13 +179,16 @@ public:
         }
     }
     void Start(cl_enginefuncs_s*,int)override{}
-    void Shutdown()override{surface=nullptr;panel=nullptr;font=0;Reset();}
+    void Shutdown()override{surface=nullptr;panel=nullptr;font=0;repairProgress=nullptr;Reset();}
     void Key_Event(int&,int&,const char*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
     void CallEngineSurfaceWndProc(void*&,unsigned int&,unsigned int&,long&,VGUI2Extension_CallbackContext*)override{}
     void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* c)override{
         ++uiPaints;
-        if(!c->IsPost||!running||!surface||!panel)return;
+        if(!c->IsPost||!surface||!panel)return;
+        goldcraft::resource_progress::Snapshot repair{};
+        const bool repairing=ReadRepairProgress(repair);
+        if(!running&&!repairing)return;
         vgui::VPANEL target{};
         for(int i=surface->GetPopupCount()-1;i>=0&&!target;--i)target=FindLoading(surface->GetPopup(i));
         if(!uiReported){
@@ -182,7 +198,13 @@ public:
         if(!target)return;
         if(!font){font=surface->CreateFont();surface->AddGlyphSetToFont(font,"Microsoft YaHei",13,400,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff);}
         wchar_t text[96]{};
-        std::swprintf(text,std::size(text),L"%u/%u  剩余 %u",completed,unsigned(jobs.size()),unsigned(jobs.size())-settled);
+        if(repairing){
+            using Phase=goldcraft::resource_progress::Phase;
+            const wchar_t* label=repair.phase==Phase::checking?L"校验":repair.phase==Phase::verifying?L"复核":
+                repair.phase==Phase::refreshing?L"加载":L"下载";
+            std::swprintf(text,std::size(text),L"%ls %u/%u  剩余 %u  已下载 %u",label,repair.completed,repair.total,
+                repair.total-std::min(repair.completed,repair.total),repair.downloaded);
+        }else std::swprintf(text,std::size(text),L"%u/%u  剩余 %u",completed,unsigned(jobs.size()),unsigned(jobs.size())-settled);
         int width{},height{},tw{},th{};panel->GetSize(target,width,height);surface->GetTextSize(font,text,tw,th);
         surface->PushMakeCurrent(target,false);
         surface->DrawSetTextFont(font);surface->DrawSetTextColor(220,225,215,255);

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstring>
 #include <new>
+#include <stdexcept>
 #include <vector>
 
 namespace goldcraft::hud_sprites {
@@ -12,6 +13,17 @@ std::vector<client_sprite_t> staged;
 SourceRelease source_release = nullptr;
 std::vector<client_sprite_t*> pending_sources;
 bool prepared{}, activated{};
+std::vector<hud_directory::Extension> extensions;
+
+void emit_extension(void* context, const client_sprite_t* icon) {
+    auto& target = *static_cast<std::vector<client_sprite_t>*>(context);
+    if (!icon || !std::memchr(icon->szName, 0, sizeof(icon->szName)) ||
+        !std::memchr(icon->szSprite, 0, sizeof(icon->szSprite)))
+        throw std::runtime_error("Invalid HUD directory extension entry");
+    if (std::ranges::none_of(target, [&](const auto& entry) {
+        return entry.iRes == icon->iRes && !std::strcmp(entry.szName, icon->szName);
+    })) target.push_back(*icon);
+}
 
 void append_infection(std::vector<client_sprite_t>& target) {
     for (int resolution : {320, 640}) {
@@ -24,6 +36,7 @@ void append_infection(std::vector<client_sprite_t>& target) {
         entry.iRes = resolution; entry.rc = {0, 20, 0, 20};
         target.push_back(entry);
     }
+    for (auto extension : extensions) extension(&target, emit_extension);
 }
 const char* prepare(void*, resource_native_hud::Catalog current,
                     resource_native_hud::Catalog& replacement) {
@@ -80,6 +93,13 @@ bool bind(Loader loader) {
     prepared = activated = false;
     return true;
 }
+bool add_extension(hud_directory::Extension extension) {
+    if (!extension) return false;
+    if (std::ranges::find(extensions, extension) != extensions.end()) return true;
+    if (prepared || !entries.empty()) return false;
+    extensions.push_back(extension);
+    return true;
+}
 bool bind_source_release(SourceRelease release) {
     if (!release || prepared || (source_release && source_release != release)) return false;
     source_release = release;
@@ -114,4 +134,13 @@ client_sprite_t* list(char* path, int* count) {
     *count = static_cast<int>(entries.size());
     return entries.data();
 }
+#if GOLDCRAFT_RESOURCE_SYNC
+namespace {
+const hud_directory::Api directory_api{sizeof(hud_directory::Api), 1, add_extension, list};
+IBaseInterface* DirectoryInterface() {
+    return reinterpret_cast<IBaseInterface*>(const_cast<hud_directory::Api*>(&directory_api));
+}
+InterfaceReg directory_registration(DirectoryInterface, hud_directory::interface_name);
+}
+#endif
 }

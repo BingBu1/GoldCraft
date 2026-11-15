@@ -3,3 +3,5 @@ EXPORTS
     GoldCraft_GetModelOwnersAPI
     GoldCraft_GetVisibleEntitiesAPI
     GoldCraft_GetConnectionAPI
+    GoldCraft_GetSoundPrecacheAPI
+    GoldCraft_GetPrecacheReadyAPI

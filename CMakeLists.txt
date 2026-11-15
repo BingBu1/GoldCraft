@@ -241,12 +241,18 @@ if(GOLDCRAFT_BUILD_CLIENT)
         native/client/precache_client.cpp native/client/visible_entities.cpp native/client/visible_entity_fixture.cpp native/client/packet_entities.cpp native/client/userinfo_client.cpp native/client/vitals.cpp native/client/status_motion.cpp native/client/input_audit.cpp native/client/map_collision.cpp native/client/map_edit_transaction.cpp native/client/GoldCraft.def
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
     target_link_libraries(GoldCraft PRIVATE goldcraft_common opengl32 libglew_static goldcraft_async_diagnostics)
-    include(cmake/goldcraft-asio.cmake)
-    target_link_libraries(GoldCraft PRIVATE goldcraft_asio)
     target_sources(GoldCraft PRIVATE native/client/spectator_menu.cpp)
     target_sources(GoldCraft PRIVATE native/client/hud_clock.cpp)
     target_sources(GoldCraft PRIVATE native/client/resource_native_hud.cpp
         native/client/resource_native_hud_host.cpp native/client/resource_lifecycle.cpp)
+    target_sources(GoldCraft PRIVATE native/client/resource_model_cache.cpp
+        native/client/resource_sprite_handles.cpp native/client/resource_cache.cpp
+        native/client/resource_download.cpp native/client/resource_overlay.cpp native/client/resource_update.cpp
+        native/client/resource_bridge.cpp)
+    option(GOLDCRAFT_RESOURCE_SYNC "Enable verified resource bridge integration" OFF)
+    target_compile_definitions(GoldCraft PRIVATE GOLDCRAFT_RESOURCE_SYNC=$<BOOL:${GOLDCRAFT_RESOURCE_SYNC}>)
+    include(cmake/goldcraft-asio.cmake)
+    target_link_libraries(GoldCraft PRIVATE goldcraft_asio bcrypt)
     target_include_directories(GoldCraft PRIVATE
         "${METAHOOK_SOURCE_PATH}/include" "${METAHOOK_SOURCE_PATH}/include/Interface"
         "${METAHOOK_SOURCE_PATH}/include/HLSDK/common" "${METAHOOK_SOURCE_PATH}/include/HLSDK/cl_dll"
@@ -267,8 +273,19 @@ if(GOLDCRAFT_BUILD_CLIENT)
         include(cmake/goldcraft-diagnostics-tests.cmake)
         # Compile the actual client parser/teardown with a bounded fake engine;
         # no loaded game process, hooks or desktop input are used by this test.
-        add_executable(goldcraft_precache_client_tests tests/native/precache_client_tests.cpp)
+        add_executable(goldcraft_precache_client_tests tests/native/precache_client_tests.cpp
+            native/client/resource_model_cache.cpp)
         get_target_property(GOLDCRAFT_CLIENT_INCLUDES GoldCraft INCLUDE_DIRECTORIES)
+        add_executable(goldcraft_resource_bridge_tests tests/native/resource_bridge_tests.cpp
+            "${METAHOOK_SOURCE_PATH}/include/HLSDK/common/interface.cpp")
+        target_include_directories(goldcraft_resource_bridge_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
+        target_link_libraries(goldcraft_resource_bridge_tests PRIVATE goldcraft_common)
+        target_compile_definitions(goldcraft_resource_bridge_tests PRIVATE NOMINMAX NO_MALLOC_OVERRIDE _CRT_SECURE_NO_WARNINGS)
+        foreach(resource_case not-ready active upload no-init callback-live normal unchanged cancel stale
+            before-failure after-failure native-failure native-unwind native-reset base base-failure disconnect-base)
+            add_test(NAME goldcraft_resource_bridge_${resource_case}
+                COMMAND goldcraft_resource_bridge_tests ${resource_case})
+        endforeach()
         add_executable(goldcraft_server_hud_tests tests/native/server_hud_tests.cpp native/client/server_hud.cpp native/client/hud_sprites.cpp)
         target_include_directories(goldcraft_server_hud_tests PRIVATE ${GOLDCRAFT_CLIENT_INCLUDES})
         target_link_libraries(goldcraft_server_hud_tests PRIVATE goldcraft_common)

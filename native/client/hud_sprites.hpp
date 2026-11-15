@@ -1,6 +1,7 @@
 #pragma once
 #include <metahook.h>
 #include "resource_native_hud.hpp"
+#include "goldcraft/hud_directory_api.hpp"
 
 namespace goldcraft::hud_sprites {
 using Loader = decltype(cl_enginefunc_t::pfnSPR_GetList);
@@ -9,6 +10,7 @@ using SourceRelease = void (*)(void*) noexcept;
 // Copied engine sources remain retained across client rebinds until the exact
 // engine allocator is bound; the old native HUD must already be retired.
 bool bind(Loader original);
+bool add_extension(hud_directory::Extension);
 client_sprite_t* list(char* path, int* count);
 // Bind the verified hw SPR_GetList calloc/free owner. Existing ordinary HUD
 // loading remains available before this binding, but updates fail preflight.

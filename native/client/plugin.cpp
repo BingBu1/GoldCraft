@@ -10,6 +10,7 @@
 #include "server_hud.hpp"
 #include "hud_sprites.hpp"
 #include "precache_client.hpp"
+#include "resource_bridge.hpp"
 #include "visible_entities.hpp"
 #include "packet_entities.hpp"
 #include "userinfo_client.hpp"
@@ -79,6 +80,8 @@ using namespace goldcraft;
 Endpoint link;
 local_discovery::Publisher discovery;
 metahook_api_t* api = nullptr;
+mh_interface_t* resource_interfaces = nullptr;
+mh_enginesave_t* resource_engine_save = nullptr;
 Bytes binding;
 status_motion::Receiver native_motion;
 native_water::Receiver water_state;
@@ -707,6 +710,7 @@ void WriteDiagnostics() {
         WriteWorkDiagnostics(out);out<<',';
         diagnostic_io.write_status(out);out<<',';
         client_precache::write_status(out); out<<',';
+        resource_bridge::write_status(out); out<<',';
         visible_entities::write_status(out); out<<',';
         packet_client::write_status(out); out<<',';
         client_userinfo::diagnostics(out); out<<',';
@@ -1250,6 +1254,7 @@ void CalcRefDef(ref_params_t* params) {
     have_view=true;
 }
 int UpdateClientData(client_data_t* data,float time){
+    if(resource_bridge::paused())return 0;
     const int result=gExportfuncs.HUD_UpdateClientData?gExportfuncs.HUD_UpdateClientData(data,time):1;
     if(!data||!CameraFresh())return result;
     const float vertical=camera_interpolator.at(Seconds()).vertical_fov;
@@ -2163,6 +2168,7 @@ void Draw(bool transparent,std::uint32_t flags) {
     if(section_logged&&!draw_logged){draw_logged=true;Log("Minecraft scene draw reached OpenGL, error="+std::to_string(last_gl_error));}
 }
 int Redraw(float time,int intermission) {
+    if(resource_bridge::paused())return 0;
     WorkScope timing(WorkStage::hud_redraw);
     const double began=Seconds();
     const bool visible=HudFresh();
@@ -2222,8 +2228,9 @@ void ShutdownClient() {
 }
 }
 
-void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t*,mh_enginesave_t*) {
+void IPluginsV4::Init(metahook_api_t* pApi,mh_interface_t* interfaces,mh_enginesave_t* saved) {
     api=pApi;
+    resource_interfaces=interfaces;resource_engine_save=saved;
     diagnostics::Config diagnostics_config;
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_LOG")) diagnostics_config.log_path=path;
     if(const char* path=std::getenv("GOLDCRAFT_CLIENT_STATUS")) diagnostics_config.status_path=path;
@@ -2256,6 +2263,11 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions) {
     functions->HUD_PlayerMoveInit=PlayerMoveInit;
     Log(client_precache::install_client() ? "client media v3 installed" :
         std::string("client media unavailable: ") + client_precache::install_error());
+#if GOLDCRAFT_RESOURCE_SYNC
+    if(const char* error=resource_bridge::install(api,resource_interfaces,resource_engine_save,&gEngfuncs))
+        Log(std::string("resource SHA bridge unavailable: ")+error);
+    else Log("resource SHA bridge installed; provider readiness gates advertisement");
+#endif
     functions->HUD_Init=InitHud; functions->HUD_VidInit=VidInit; functions->HUD_Frame=Frame;
     functions->HUD_Shutdown=ShutdownClient;
     functions->HUD_Redraw=Redraw;
@@ -2273,6 +2285,7 @@ void IPluginsV4::ExitGame(int) {
     goldcraft::client_precache::invalidate_connection_observer();
     // MetaHook unloads hw.dll between ExitGame and Shutdown. Restore engine
     // patches and release every engine/renderer callback while it is mapped.
+    resource_bridge::shutdown();
     goldcraft::steam_async::shutdown();
     client_motion::shutdown();
     spectator_menu::shutdown();

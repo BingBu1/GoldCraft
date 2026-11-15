@@ -7,8 +7,13 @@
 #include <vector>
 
 namespace goldcraft::resource_download {
+inline constexpr unsigned Concurrency = 8;
+inline constexpr std::size_t MemoryBudget = 128u * 1024u * 1024u;
 struct Job {
     std::string url;
+    std::string cacheRoot, cacheName;
+    double cacheStoreMs{};
+    bool cacheStored{};
     resource_sync::Entry expected;
     std::vector<std::uint8_t> bytes;
     std::atomic<std::uint32_t> transferred{};

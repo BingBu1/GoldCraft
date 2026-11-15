@@ -270,18 +270,24 @@ struct Session::Impl {
             const auto& resource = resources[item.index];
             if (!item.job->success)
                 throw std::runtime_error(resource.name + ": " + item.job->error);
-            if (!Measure(status.profile.cacheStore, [&] { return cache.Store(resource.name, resource.expected, item.job->bytes); }))
-                throw std::runtime_error(resource.name + ": " + cache.Error());
+            if (!item.job->cacheStored)
+                throw std::runtime_error(resource.name + ": verified cache publication was not completed");
+            status.profile.cacheStore.Add(item.job->cacheStoreMs);
             mounted[resource.name] = cache.Path(resource.name, resource.expected);
             ++status.downloaded; active.erase(active.begin() + i);
         }
-        while (active.size() < 2 && nextPending < pending.size()) {
+        std::size_t reserved{};
+        for (const auto& item : active) reserved += item.job->expected.size;
+        while (active.size() < resource_download::Concurrency && nextPending < pending.size()) {
             const auto index = pending[nextPending];
             const auto& resource = resources[index];
+            if (reserved + resource.expected.size > resource_download::MemoryBudget) break;
             auto job = std::make_shared<resource_download::Job>();
             job->url = url + UrlPath(resource.name); job->expected = resource.expected;
+            job->cacheRoot = cache.Root(); job->cacheName = resource.name;
             if (!worker.Submit(job)) break; // Cancelled work may still be draining.
             active.push_back({index, std::move(job)}); ++nextPending;
+            reserved += resource.expected.size;
         }
         if (!active.empty()) status.current = resources[active.front().index].name;
     }

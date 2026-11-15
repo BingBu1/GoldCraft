@@ -8,6 +8,8 @@
 #include "goldcraft/precache_protocol.hpp"
 #include "goldcraft/precache_api.h"
 #include "goldcraft/connection_api.h"
+#include "goldcraft/sound_precache_api.h"
+#include "goldcraft/precache_ready_api.h"
 #include "goldcraft/resource_sync.hpp"
 #include <algorithm>
 #include <array>
@@ -39,7 +41,8 @@ struct Consistency {
     int check_type = 0;
     float mins[3]{}, maxs[3]{};
 };
-static_assert(sizeof(Sound) == 72 && sizeof(Consistency) == 44);
+static_assert(sizeof(Sound) == 72 && offsetof(Sound, cache) == 64 && offsetof(Sound, servercount) == 68);
+static_assert(sizeof(Consistency) == 44);
 
 metahook_api_t* api = nullptr;
 void* engine = nullptr;
@@ -47,20 +50,41 @@ bool enabled = false, extended = false, receiving = false;
 std::uint64_t connection_generation_value = 1;
 bool connection_hooks_ready = false;
 DWORD connection_owner_thread = 0;
+// Close the new token too while an original cleanup can reenter before clearing
+// its old tables. A non-returning original leaves this query unavailable.
+bool sound_query_retiring = false;
+bool precache_ready_hook_installed = false;
+GoldCraftPrecacheReadyCallback precache_ready_callback = nullptr;
+GoldCraftPrecacheReadyCallback precache_retired_callback = nullptr;
+bool precache_retired_dispatching = false;
+void* precache_ready_context = nullptr;
+std::uint64_t precache_ready_subscription = 0, precache_ready_next = 1;
+std::uint64_t precache_ready_delivered = 0;
+void notify_precache_retired(std::uint64_t generation) noexcept;
 void retire_connection() noexcept {
+    const auto retired_generation = connection_generation_value;
+    sound_query_retiring = true;
+    precache_ready_delivered = 0;
     if (connection_generation_value)
         connection_generation_value = connection_generation_value == std::numeric_limits<std::uint64_t>::max() ?
             0 : connection_generation_value + 1;
+    notify_precache_retired(retired_generation);
 }
 void (*reset_observer)() = nullptr;
 void (*clear_state_observer)() = nullptr;
 bool legacy_manifest_received = false;
 bool client_media_enabled = false;
 ResourceSyncCallbacks sync_callbacks;
+bool sync_registered{};
+int sync_advertised = -1;
 std::vector<resource_update::Resource> sync_resources;
 std::uint64_t manifest_generation{};
 unsigned manifest_version{};
 bool sync_waiting{};
+bool (*native_download_gate)(){};
+bool native_download_waiting{};
+bool native_download_has_message{};
+std::string native_download_message;
 unsigned brass_reads = 0, high_brass_reads = 0, last_brass_model = 0;
 int (__cdecl* client_read_short)() = nullptr;
 int (__cdecl* client_read_long)() = nullptr;
@@ -103,6 +127,10 @@ int* original_sound_count = nullptr;
 // HL10210 reads this scalar directly (mov ecx,[cl.servercount]); it is not
 // another pointer. Keep the declaration tied to instructions, not IDA types.
 int* server_count = nullptr;
+// HL10210 101A13B0 activates state 5 only after signon 2. The same
+// pair guards CL_RegisterResources at 101A8580. These are scalar DWORDs.
+int* sound_connection_state = nullptr;
+int* sound_signon = nullptr;
 int* consistency_count = nullptr;
 int* force_consistency = nullptr;
 int* read_count = nullptr;
@@ -122,17 +150,45 @@ int (__cdecl* read_data)(void*, int) = nullptr;
 void* (__cdecl* zero_alloc)(unsigned) = nullptr;
 void (__cdecl* unmunge)(void*, int, int) = nullptr;
 void (__cdecl* loading_text)(const char*) = nullptr;
-void (__cdecl* start_download)(const char*, int) = nullptr;
+void (__cdecl* start_download_original)(const char*, int) = nullptr;
 void (__cdecl* host_error)(const char*, ...) = nullptr;
 void* (__cdecl* cache_check)(cache_user_t*) = nullptr;
 void (__cdecl* cache_free)(cache_user_t*) = nullptr;
 model_t* (__cdecl* load_model)(model_t*, int, int) = nullptr;
+struct ModelLoadTiming {
+    resource_timing::Counter calls;
+    std::array<char, 64> slowest{};
+};
+std::array<ModelLoadTiming, 4> model_load_timing;
+model_t* __cdecl timed_load_model(model_t* model, int crash, int crc) {
+    // Host_Error can longjmp: only trivial locals precede the native call.
+    const auto started = std::chrono::steady_clock::now();
+    auto* result = load_model(model, crash, crc);
+    const auto milliseconds = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - started).count();
+    const auto type = result ? static_cast<unsigned>(result->type) : 4u;
+    auto& timing = model_load_timing[type < 4 ? type : 3];
+    if (milliseconds > timing.calls.maxMs && model) {
+        std::memcpy(timing.slowest.data(), model->name, timing.slowest.size());
+        timing.slowest.back() = 0;
+    }
+    timing.calls.Add(milliseconds);
+    return result;
+}
+
+// Target of the reviewed precache CALL (the engine's Mod_ForName) and the
+// state of the selective lazy precache below.
+model_t* (__cdecl* precache_for_name)(const char*, int, int) = nullptr;
+cvar_t* lazy_players = nullptr;
+bool sync_verified = false;
+unsigned deferred_models = 0;
 model_t* (__cdecl* find_model_original)(int, const char*) = nullptr;
 Sound* (__cdecl* find_sound_original)(const char*, int*) = nullptr;
 void (__cdecl* clear_models_original)() = nullptr;
 int (__cdecl* clear_client_original)() = nullptr;
 void (__cdecl* parse_resources_original)() = nullptr;
 void (__cdecl* disconnect_original)() = nullptr;
+int (__cdecl* check_client_state_original)() = nullptr;
 model_t* (__cdecl* model_for_index_original)(int) = nullptr;
 void (__cdecl* need_crc_original)(const char*, int) = nullptr;
 int (__cdecl* validate_crc_original)(const char*, unsigned) = nullptr;
@@ -150,6 +206,87 @@ template<class T> void function(T& target, const char* name) {
 }
 template<class T> void global(T& target, const char* name) {
     target = reinterpret_cast<T>(resolve(name, MH_GAMESYMBOL_KIND_GLOBAL));
+}
+void resolve_sound_precache_query() noexcept {
+    // Optional independent query; failure must not disable existing precache.
+    // The containing install already verified this engine's exact CRC/catalog.
+    try {
+        global(sound_connection_state, "sound_query_cls_state");
+        global(sound_signon, "sound_query_cls_signon");
+    } catch (const std::exception&) {
+        sound_connection_state = sound_signon = nullptr;
+    }
+}
+bool precache_ready_available() noexcept {
+    return connection_owner_thread == GetCurrentThreadId() &&
+        enabled && connection_hooks_ready && precache_ready_hook_installed &&
+        sound_connection_state && sound_signon;
+}
+void notify_precache_retired(std::uint64_t generation) noexcept {
+    if (!precache_ready_available() || !generation || precache_retired_dispatching ||
+        !precache_ready_subscription || !precache_retired_callback) return;
+    const auto callback = precache_retired_callback;
+    void* const context = precache_ready_context;
+    // Nested cleanup must still advance authority, but cannot recurse through
+    // the same synchronous retirement observer. Registration survives both.
+    precache_retired_dispatching = true;
+    callback(context, generation);
+    precache_retired_dispatching = false;
+}
+std::uint64_t subscribe_precache_ready(GoldCraftPrecacheReadyCallback callback,
+    GoldCraftPrecacheReadyCallback retired, void* context) noexcept {
+    if (!precache_ready_available() || (!callback && !retired) || !precache_ready_next) return 0;
+    const auto token = precache_ready_next;
+    precache_ready_next = token == std::numeric_limits<std::uint64_t>::max() ? 0 : token + 1;
+    precache_ready_callback = callback;
+    precache_retired_callback = retired;
+    precache_ready_context = context;
+    precache_ready_subscription = token;
+    return token;
+}
+std::uint32_t unsubscribe_precache_ready(std::uint64_t token) noexcept {
+    if (!precache_ready_available() || !token || token != precache_ready_subscription) return 0;
+    precache_ready_subscription = 0;
+    precache_ready_callback = nullptr;
+    precache_retired_callback = nullptr;
+    precache_ready_context = nullptr;
+    return 1;
+}
+int __cdecl check_client_state() {
+    // Reject foreign threads before reading any mutable listener state.
+    if (!precache_ready_available()) return check_client_state_original();
+    // HL10210 101A13B0, called at 101D466D: only 3/4 + signon 2 writes state 5.
+    // Its GameUI tail can reenter cleanup/replacement. Snapshot only trivial
+    // scalars before the original; a Host_Error longjmp never reports ready.
+    const auto generation = connection_generation_value;
+    const auto subscription = precache_ready_subscription;
+    const auto callback = precache_ready_callback;
+    void* const context = precache_ready_context;
+    const bool transition = !sound_query_retiring &&
+        generation && subscription && callback && *sound_signon == 2 &&
+        (*sound_connection_state == 3 || *sound_connection_state == 4);
+    const int result = check_client_state_original();
+    if (transition && precache_ready_available() && !sound_query_retiring &&
+        generation == connection_generation_value && subscription == precache_ready_subscription &&
+        callback == precache_ready_callback && *sound_connection_state == 5 && *sound_signon == 2 &&
+        precache_ready_delivered != generation) {
+        // Consume before calling: recursive same-connection transitions cannot
+        // notify twice. Never touch the borrowed callback/context afterward.
+        precache_ready_delivered = generation;
+        callback(context, generation);
+    }
+    return result;
+}
+void install_precache_ready_hook() noexcept {
+    // Optional independent capability; a missing exact symbol keeps it absent.
+    try {
+        auto* target = resolve("CL_CheckClientState", MH_GAMESYMBOL_KIND_FUNCTION);
+        precache_ready_hook_installed = api->InlineHook(target,
+            reinterpret_cast<void*>(check_client_state),
+            reinterpret_cast<void**>(&check_client_state_original)) != nullptr;
+    } catch (const std::exception&) {
+        precache_ready_hook_installed = false;
+    }
 }
 template<class T> bool hook(const char* name, T replacement, T& original) {
     if (!api->InlineHook(resolve(name, MH_GAMESYMBOL_KIND_FUNCTION),
@@ -230,6 +367,21 @@ void set_extension(bool active) {
     std::terminate();
 }
 
+void __cdecl start_download(const char* message, int upload) {
+    // The lifecycle gate is explicitly for normal admission. Customization
+    // uploads have their own native state machine and never wait here.
+    if (upload == 0 && native_download_waiting)
+        malformed("overlapping native download requests");
+    if (upload == 0 && native_download_gate && native_download_gate()) {
+        try { native_download_message = message ? message : ""; }
+        catch (const std::bad_alloc&) { malformed("cannot retain native download request"); }
+        native_download_has_message = message != nullptr;
+        native_download_waiting = true;
+        return;
+    }
+    start_download_original(message, upload);
+}
+
 int model_count() { return *original_model_count + (extended ? int(extra_models.size()) : 0); }
 int owned_model_limit() { return extra_models.empty() ? *original_model_count : 1024 + int(extra_models.size()); }
 int model_index(const model_t* model) {
@@ -246,6 +398,30 @@ model_t* model_at(int index) {
         &extra_models[index - 1024]->model : nullptr;
 }
 int model_capacity() { return extended ? int(model_slots()) : 512; }
+
+uint32_t inspect_sound_precache(uint64_t expected_generation, const char* name, uint32_t length) noexcept {
+    // Check the owner before reading any engine or growable-table storage.
+    const auto generation = connection_generation();
+    if (!enabled || !generation || generation != expected_generation || sound_query_retiring || receiving ||
+        !sound_connection_state || !sound_signon || !server_count ||
+        *sound_connection_state != 5 || *sound_signon != 2 ||
+        !name || !length || length >= sizeof(Sound::name) || std::memchr(name, 0, length))
+        return 0;
+    const auto* table = extended ? sounds.data() : legacy_sound_precache;
+    const auto count = extended ? sounds.size() : size_t{512};
+    if (!table) return 0;
+    // Cold O(active sound slots), no persistent name cache or borrowed pointer.
+    // Known owners outside the current signon table cannot satisfy this query.
+    for (size_t i = 0; i < count; ++i) {
+        const auto* sound = table[i];
+        if (!sound || sound->servercount != *server_count || sound->name[length] != 0 ||
+            std::memcmp(sound->name, name, length)) continue;
+        const uint32_t result = GoldCraftSoundSignonRegistered |
+            (sound->cache.data ? uint32_t{GoldCraftSoundPcmResident} : uint32_t{0});
+        return connection_generation() == generation ? result : 0;
+    }
+    return 0;
+}
 
 CRC* model_crc(model_t* model) {
     const int index = model_index(model);
@@ -436,6 +612,23 @@ Sound* __cdecl find_sound(const char* name, int* cached) {
     return sounds_by_name[name] = spare;
 }
 
+// Host hw.dll 10210 (identity in precache_10210.json), precache loop at RVA
+// 0x1a462b: when fs_lazy_precache is set, a non-map model is only registered
+// with Mod_FindName(1, name) instead of Mod_ForName(name, 0, 1), and
+// CL_GetModelByIndex (RVA 0x1a2fa0) loads an entry whose needload is 1 or 2
+// on its first use. This replaces that one CALL and takes the same native
+// lazy branch per name. It is a host loading policy, not CSOL behaviour.
+// Only an admission whose whole manifest was SHA-verified defers: the model
+// CRC that the eager branch records for Mod_ValidateCRC is not taken here.
+model_t* __cdecl precache_model(const char* name, int crash, int crc) {
+    if (extended && sync_verified && lazy_players && lazy_players->value != 0.f &&
+        name && deferred_precache_name(name)) {
+        ++deferred_models;
+        return find_model(1, name);
+    }
+    return precache_for_name(name, crash, crc);
+}
+
 model_t* __cdecl model_for_index(int index) {
     if (!extended) return model_for_index_original(index);
     if (index < 0 || size_t(index) >= model_slots()) return nullptr;
@@ -539,8 +732,11 @@ void __cdecl parse_static_entity() {
 
 void reset_client(bool retire = true) {
     if (retire) retire_connection();
+    native_download_waiting = native_download_has_message = false;
+    native_download_message.clear();
     if (sync_callbacks.cancel) sync_callbacks.cancel();
     sync_resources.clear(); manifest_generation = 0; manifest_version = 0; sync_waiting = false;
+    sync_verified = false; deferred_models = 0;
     if (reset_observer) reset_observer();
     set_extension(false);
     resources.clear(); checks.clear();
@@ -555,8 +751,13 @@ void reset_client(bool retire = true) {
     sounds.assign(512, nullptr);
     *consistency_count = *force_consistency = 0;
     ++resets;
+    // A nested clear inside the pre-original retirement observer must not
+    // reopen admission while the outer original still owns its old tables.
+    sound_query_retiring = precache_retired_dispatching;
 }
 int __cdecl clear_client() {
+    // Authority retires before an original callback can reenter or longjmp.
+    // Resource tables still remain valid until the original has released them.
     retire_connection();
     // The engine must release the old connection while its tables are valid.
     const int result = clear_client_original();
@@ -677,11 +878,15 @@ void __cdecl parse_resources() {
                 expected.size = read_bits(32);
                 read_data(expected.sha256.data(), int(expected.sha256.size()));
                 if (!expected.size || expected.size > resource_sync::max_file_size ||
-                    (expected.size & 0xffffffu) != unsigned(record.nDownloadSize) ||
+                    (std::min)(expected.size, 0xffffffu) != unsigned(record.nDownloadSize) ||
                     (record.ucFlags & RES_CUSTOM) || record.szFileName[0] == '*' || record.szFileName[0] == '!' ||
-                    !(record.type == t_sound || record.type == t_model || record.type == t_generic || record.type == t_eventscript))
+                    !(record.type == t_sound || record.type == t_model || record.type == t_generic || record.type == t_eventscript)) {
+                    gEngfuncs.Con_Printf("GoldCraft resource entry rejected: ordinal=%u name=%s type=%d flags=%u wire=%u full=%u\n",
+                        first+i, record.szFileName, int(record.type), unsigned(record.ucFlags),
+                        unsigned(record.nDownloadSize), expected.size);
                     malformed("invalid resource update entry");
-                // The ordinary wire length is only24 bits. v4's checked full
+                }
+                // MSG_WriteBits saturates the ordinary 24-bit length. v4's full
                 // length also feeds the original downloader's progress input.
                 record.nDownloadSize = int(expected.size);
                 sync_resources.push_back({std::string(record.type == t_sound ? "sound/" : "") + record.szFileName, expected});
@@ -780,7 +985,7 @@ bool install(metahook_api_t* value) {
         function(read_byte, "MSG_ReadByte"); function(read_coord, "MSG_ReadCoord");
         function(read_data, "MSG_ReadBitData"); function(zero_alloc, "Mem_ZeroMalloc");
         function(unmunge, "COM_UnMunge"); function(loading_text, "LoadingText");
-        function(start_download, "CL_StartResourceDownloading"); function(host_error, "Host_Error");
+        function(start_download_original, "CL_StartResourceDownloading"); function(host_error, "Host_Error");
         function(cache_check, "Cache_Check"); function(cache_free, "Cache_Free");
         function(load_model, "Mod_LoadModel");
         const auto old_models = resolve("model_precache", MH_GAMESYMBOL_KIND_GLOBAL);
@@ -827,6 +1032,17 @@ bool install(metahook_api_t* value) {
                 throw std::runtime_error(std::string("changed media reader: ") + call.name);
             wire_calls.emplace_back(address, call.replacement);
         }
+        // push 1; push 0; push esi; call Mod_ForName, fifteen bytes after the
+        // sibling lazy branch's call Mod_FindName. Check both before patching.
+        auto* precache_call = static_cast<byte*>(resolve("precache_model_call", MH_GAMESYMBOL_KIND_PATCH));
+        const byte precache_arguments[] = {0x6a, 0x01, 0x6a, 0x00, 0x56};
+        if (*precache_call != 0xe8 || std::memcmp(precache_call - 5, precache_arguments, 5) != 0 ||
+            precache_call[-15] != 0xe8 || precache_call - 10 + *reinterpret_cast<int*>(precache_call - 14) !=
+                resolve("Mod_FindName", MH_GAMESYMBOL_KIND_FUNCTION))
+            throw std::runtime_error("changed precache model CALL");
+        precache_for_name = reinterpret_cast<decltype(precache_for_name)>(
+            precache_call + 5 + *reinterpret_cast<int*>(precache_call + 1));
+        wire_calls.emplace_back(precache_call, reinterpret_cast<void*>(precache_model));
         static_parser_slot = resolve("static_parser_slot", MH_GAMESYMBOL_KIND_PATCH);
         if (*static_cast<void**>(static_parser_slot) != resolve("CL_ParseStatic", MH_GAMESYMBOL_KIND_FUNCTION))
             throw std::runtime_error("changed static entity parser");
@@ -849,6 +1065,8 @@ bool install(metahook_api_t* value) {
     jump_patch("studio_skin_operand", skin_thunk, 52, skin_resume);
     hook("Mod_FindName", find_model, find_model_original);
     hook("Mod_ClearAll", clear_models, clear_models_original);
+    hook("Mod_LoadModel", timed_load_model, load_model);
+    hook("CL_StartResourceDownloading", start_download, start_download_original);
     hook("S_FindName", find_sound, find_sound_original);
     if (!hook("CL_ClearState", clear_client, clear_client_original) ||
         !hook("CL_Disconnect", disconnect, disconnect_original)) {
@@ -862,6 +1080,8 @@ bool install(metahook_api_t* value) {
     enabled = true;
     connection_owner_thread = GetCurrentThreadId();
     connection_hooks_ready = true;
+    resolve_sound_precache_query();
+    install_precache_ready_hook();
     install_failure.clear();
     return true;
 }
@@ -908,18 +1128,77 @@ void register_commands() {
     // Registration only stores the cvar. A real set populates GoldSrc's
     // connection userinfo, including when the value equals its default.
     gEngfuncs.Cvar_SetValue(precache::capability, client_media_enabled ? float(precache::version) : 0.f);
-    const bool can_update = client_media_enabled && sync_callbacks.available && sync_callbacks.available();
-    gEngfuncs.pfnRegisterVariable(resource_sync::capability, can_update ? resource_sync::capability_value : "0", FCVAR_USERINFO);
-    gEngfuncs.Cvar_SetValue(resource_sync::capability, can_update ? 1.f : 0.f);
+    gEngfuncs.pfnRegisterVariable(resource_sync::capability, "0", FCVAR_USERINFO);
+    sync_registered = true;
+    sync_advertised = -1;
+    refresh_resource_capability();
+    // 1: player models load on first use instead of during admission.
+    lazy_players = gEngfuncs.pfnRegisterVariable("gc_precache_lazy_players", "1", FCVAR_ARCHIVE);
     gEngfuncs.pfnAddCommand("gc_precache_stats", stats);
 }
 
+void refresh_resource_capability() {
+    if (!sync_registered) return;
+    const int ready = enabled && client_media_enabled && sync_callbacks.available && sync_callbacks.available();
+    if (ready == sync_advertised) return;
+    gEngfuncs.Cvar_SetValue(resource_sync::capability, float(ready));
+    sync_advertised = ready;
+}
+
 void set_resource_sync(ResourceSyncCallbacks callbacks) { sync_callbacks = callbacks; }
+void set_native_download_gate(bool (*callback)()) { native_download_gate = callback; }
+bool native_download_pending() { return native_download_waiting; }
+bool resume_native_download() {
+    if (!native_download_waiting || !start_download_original) return false;
+    // The original HTTP path may disconnect synchronously. Keep its text alive
+    // locally and remove this request before entering native callbacks.
+    auto message = std::move(native_download_message);
+    const bool has_message = native_download_has_message;
+    native_download_waiting = native_download_has_message = false;
+    start_download_original(has_message ? message.c_str() : nullptr, 0);
+    return true;
+}
 bool resume_resource_sync() {
     if (!sync_waiting || receiving || !extended || manifest_version != resource_sync::manifest_version) return false;
     sync_waiting = false;
+    // The bridge resumes only after every manifest file passed SHA-256.
+    sync_verified = true;
+    model_load_timing = {};
     start_download("Verifying and downloading resources...\n", 0);
     return true;
+}
+
+resource_model_cache::Result retire_resource_caches(bool retire_models, bool retire_sounds,
+    const resource_model_cache::Engine& engine_cache, const resource_model_cache::Owners& owners) {
+    if (!enabled || !original_model_count || !original_sound_count ||
+        *original_model_count < 0 || *original_model_count > 1024 || *original_sound_count < 0)
+        return {"Native resource cache owners are unavailable"};
+    if (retire_models && *original_model_count && (!original_models || !original_crcs))
+        return {"Native model cache owners are unavailable"};
+    std::vector<resource_model_cache::Model> model_owners;
+    std::vector<cache_user_t*> sound_owners;
+    try {
+        if (retire_models) {
+            for (int i = 0, limit = owned_model_limit(); i < limit; ++i) {
+                auto* model = model_at(i);
+                if (!model || (model->type != mod_studio && model->type != mod_sprite)) continue;
+                auto* crc = i < 1024 ? original_crcs + i : &extra_models[i - 1024]->crc;
+                std::span<cache_user_t> skins;
+                const auto found = skin_caches.find(model);
+                if (found != skin_caches.end() && found->second) skins = *found->second;
+                model_owners.push_back({model, &crc->checked, &crc->initial, skins});
+            }
+        }
+        if (retire_sounds) {
+            if (!original_sounds || (*original_sound_count && !*original_sounds))
+                return {"Native sound cache owners are unavailable"};
+            for (int i = 0; i < *original_sound_count; ++i) sound_owners.push_back(&(*original_sounds)[i].cache);
+            for (const auto& sound : extra_sounds) sound_owners.push_back(&sound->cache);
+        }
+    } catch (const std::bad_alloc&) { return {"Cannot collect native resource cache owners"}; }
+    auto bound_cache = engine_cache;
+    bound_cache.load_model = load_model;
+    return resource_model_cache::Invalidate(model_owners, sound_owners, bound_cache, owners);
 }
 
 void create_entities() {
@@ -927,10 +1206,20 @@ void create_entities() {
 }
 
 void write_status(std::ostream& out) {
+    out << "\"modelLoadProfile\":[";
+    for (std::size_t i = 0; i < model_load_timing.size(); ++i) {
+        if (i) out << ',';
+        const auto& t = model_load_timing[i];
+        out << "{\"type\":" << i << ",\"calls\":" << t.calls.calls
+            << ",\"totalMs\":" << t.calls.totalMs << ",\"maxMs\":" << t.calls.maxMs
+            << ",\"slowest\":" << std::quoted(t.slowest.data()) << '}';
+    }
+    out << "],";
     const auto shadow_index = client_shadow_index ? *client_shadow_index : 0;
     const auto* shadow = enabled && shadow_index >= 0 && shadow_index < model_capacity() ?
         (extended ? models[shadow_index] : legacy_model_precache[shadow_index]) : nullptr;
     out << "\"precache\":{\"version\":" << precache::version << ",\"enabled\":" << enabled
+        << ",\"manifestVersion\":" << manifest_version << ",\"manifestGeneration\":" << manifest_generation
         << ",\"clientMedia\":" << client_media_enabled << ",\"brassReads\":" << brass_reads
         << ",\"highBrassReads\":" << high_brass_reads << ",\"lastBrassModel\":" << last_brass_model
         << ",\"lastBrassName\":" << std::quoted(last_brass_model < model_slots() && models[last_brass_model] ? models[last_brass_model]->name : "")
@@ -942,6 +1231,7 @@ void write_status(std::ostream& out) {
         << ",\"cachedModels\":" << (enabled ? model_count() : 0)
         << ",\"cachedSounds\":" << (enabled ? *original_sound_count + (extended ? extra_sounds.size() : 0) : 0)
         << ",\"checks\":" << (enabled ? *consistency_count : 0) << ",\"manifests\":" << manifests << ",\"resets\":" << resets
+        << ",\"lazyPlayers\":" << (lazy_players ? lazy_players->value : 0.f) << ",\"deferredModels\":" << deferred_models
         << ",\"highModelReads\":" << high_model_reads << ",\"highSoundReads\":" << high_sound_reads
         << ",\"highModelLookups\":" << high_model_lookups << ",\"lastModelRead\":" << last_model_read
         << ",\"lastSoundRead\":" << last_sound_read << ",\"lastModelLookup\":" << last_model_lookup
@@ -982,6 +1272,13 @@ extern "C" const GoldCraftPrecacheAPI* GoldCraft_GetPrecacheAPI() {
     return enabled ? &result : nullptr;
 }
 
+
+extern "C" const GoldCraftSoundPrecacheAPI* GoldCraft_GetSoundPrecacheAPI() {
+    using namespace goldcraft::client_precache;
+    static const GoldCraftSoundPrecacheAPI result{sizeof(GoldCraftSoundPrecacheAPI), 1, inspect_sound_precache};
+    return enabled && connection_hooks_ready && sound_connection_state && sound_signon ? &result : nullptr;
+}
+
 extern "C" const GoldCraftConnectionAPI* GoldCraft_GetConnectionAPI() {
     using namespace goldcraft::client_precache;
     static const GoldCraftConnectionAPI result{sizeof(GoldCraftConnectionAPI), 1, connection_generation};
@@ -995,4 +1292,11 @@ extern "C" const GoldCraftModelOwnersAPI* GoldCraft_GetModelOwnersAPI() {
     static const GoldCraftModelOwnersAPI result{sizeof(GoldCraftModelOwnersAPI), 1,
         owned_model_limit, model_index, model_at};
     return enabled ? &result : nullptr;
+}
+
+extern "C" const GoldCraftPrecacheReadyAPI* GoldCraft_GetPrecacheReadyAPI() {
+    using namespace goldcraft::client_precache;
+    static const GoldCraftPrecacheReadyAPI result{sizeof(GoldCraftPrecacheReadyAPI), 1,
+        subscribe_precache_ready, unsubscribe_precache_ready};
+    return precache_ready_available() ? &result : nullptr;
 }

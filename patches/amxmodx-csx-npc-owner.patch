@@ -1,0 +1,21 @@
+diff --git a/modules/cstrike/csx/meta_api.cpp b/modules/cstrike/csx/meta_api.cpp
+index ca0ff231..b95907a0 100644
+--- a/modules/cstrike/csx/meta_api.cpp
++++ b/modules/cstrike/csx/meta_api.cpp
+@@ -345,7 +345,15 @@ void SetModel_Post(edict_t *e, const char *m){
+ 
+ 	if ( e->v.owner && m[7]=='w' && m[8]=='_' ){
+ 		int w_id = 0;
+-		CPlayer *pPlayer = GET_PLAYER_POINTER(e->v.owner);
++		// Scenario projectiles can be owned by an NPC outside the client slots.
++		// Validate before forming a pointer into the fixed player statistics table.
++		const int ownerIndex = ENTINDEX(e->v.owner);
++		if (ownerIndex < 1 || ownerIndex > gpGlobals->maxClients ||
++			ownerIndex >= static_cast<int>(sizeof(players) / sizeof(players[0])))
++		{
++			RETURN_META(MRES_IGNORED);
++		}
++		CPlayer *pPlayer = GET_PLAYER_POINTER_I(ownerIndex);
+ 		switch(m[9]){
+ 		case 'h':
+ 			w_id = CSW_HEGRENADE;

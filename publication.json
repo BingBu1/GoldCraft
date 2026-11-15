@@ -2576,7 +2576,16 @@
     "tests/cryoffear-m16-weapon/run.py",
     "tests/cryoffear-m16-weapon/README.md",
     "tests/cryoffear-vp70-weapon/main.cpp",
-    "docs/2026-11-15_实现-M16实际SDK生命周期与部分弹药修复-report.md"
+    "docs/2026-11-15_实现-M16实际SDK生命周期与部分弹药修复-report.md",
+    "docs/2026-11-15_修复-CSX怪物拥有者与永夜紧急补丁-report.md",
+    "patches/amxmodx-csx-npc-owner.patch",
+    "tests/csx-npc-owner/README.md",
+    "tools/Build-CSX.py",
+    "tools/nightfall-hotfix/package.py",
+    "tools/Observe-CSOLAdmission.py",
+    "tools/Observe-NativeMovement.py",
+    "tools/nightfall-hotfix/Inspect-Runtime.ps1",
+    "tests/native-jump-prediction/README.md"
   ],
   "trees": {
     "native": [
