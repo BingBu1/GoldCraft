@@ -23,6 +23,7 @@
 #include "scenario/core/challenge_phase.hpp"
 #include "scenario/core/challenge_environment.hpp"
 #include "scenario/core/cof_movement_input.hpp"
+#include "scenario/core/standalone_movement_input.hpp"
 #include "scenario/core/stamina_audio.hpp"
 #include "scenario/core/stamina_hud.hpp"
 #include "scenario/bosses/boss_health.hpp"
@@ -68,6 +69,7 @@ void ResetSession()
     ResetChallengePhase();
     ResetChallengeEnvironment();
     ResetCofMovementInput();
+    ResetStandaloneMovementInput();
     ResetStaminaAudio();
     ResetStaminaHud();
     ResetBossHealth();

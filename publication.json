@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-15_接入-绝命档案原版疾跑输入-report.md",
+    "tests/csol-standalone-input/README.md",
     "tests/cryoffear-automatic-sound/README.md",
     "docs/2026-11-14_实现-自动武器原版枪声状态与SDK发送-report.md",
     "docs/2026-11-14_实现-TMP与MP5原版弹匣装填-report.md",
