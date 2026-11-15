@@ -157,6 +157,48 @@ MagazineActionResult StartPistolMelee(Pistol pistol, MagazineActionState& state,
     return MagazineActionResult::Applied;
 }
 
+MagazineActionResult StartMP5WeaponMelee(MagazineActionState& state, float now,
+    const MagazineActionHost& host) noexcept
+{
+    const float deadline = static_cast<float>(double(now) + 1.25);
+    if (!std::isfinite(now) || !std::isfinite(state.primary) ||
+        !std::isfinite(state.secondary) || !std::isfinite(deadline))
+        return MagazineActionResult::InvalidInput;
+    const auto ready = CheckHost(host);
+    if (ready != MagazineActionResult::Applied) return ready;
+    if (state.primary > now || state.secondary > now || state.action || state.special || state.aiming)
+        return MagazineActionResult::Ineligible;
+    if (!Emit(host, {MagazineEventKind::SchedulePlayerMelee, 27, .3F}) ||
+        !Emit(host, {MagazineEventKind::PlayerMelee, 27}) ||
+        !Emit(host, {MagazineEventKind::ViewAnimation, 18}))
+        return MagazineActionResult::Cancelled;
+    state.primary = state.secondary = state.idle = deadline;
+    return MagazineActionResult::Applied;
+}
+
+MagazineActionResult MP5MagazineIdle(MagazineActionState& state, float now,
+    int currentSequence, unsigned sequenceCount, const MagazineSequenceTimes& times,
+    const MagazineActionHost& host) noexcept
+{
+    if (!std::isfinite(now) || !std::isfinite(state.idle)) return MagazineActionResult::InvalidInput;
+    const auto ready = CheckHost(host);
+    if (ready != MagazineActionResult::Applied) return ready;
+    // Original autoaim100DFEA0 only copies forward to an unused local vector.
+    // Its call has no observable state effect; no host aim/trace is substituted.
+    if (state.idle > now || state.action) return MagazineActionResult::Ineligible;
+    const int sequence = state.aiming ? currentSequence : 1;
+    if (sequence < 0 || !sequenceCount || sequenceCount > times.duration.size())
+        return MagazineActionResult::InvalidInput;
+    const bool inside = static_cast<unsigned>(sequence) < sequenceCount;
+    if (inside && !HasSequence(times, sequence)) return MagazineActionResult::MissingSequence;
+    const float deadline = now + (inside ? times.duration[sequence] : 0.F);
+    if (!std::isfinite(deadline)) return MagazineActionResult::InvalidInput;
+    if (!state.aiming && !Emit(host, {MagazineEventKind::ViewAnimation, sequence}))
+        return MagazineActionResult::Cancelled;
+    state.idle = deadline;
+    return MagazineActionResult::Applied;
+}
+
 MagazineActionResult MagazineIdle(Pistol pistol, MagazineActionState& state,
     float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept
 {

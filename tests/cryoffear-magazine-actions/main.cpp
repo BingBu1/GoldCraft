@@ -143,15 +143,47 @@ void Safety()
             MagazineActionResult::UnsupportedWeapon);
         require(Save(state) == Save(initial));
     }
+    for (unsigned stop = 1; stop <= 3; ++stop)
+    {
+        auto state = initial; state.clip = 10000;
+        Context context{&state}; context.cancelAt = stop;
+        const auto before = Save(state);
+        require(StartMP5WeaponMelee(state, 10, context.Host()) == MagazineActionResult::Cancelled);
+        require(context.count == stop && Save(state) == before);
+    }
+    {
+        auto state = initial; state.clip = 10000;
+        Context context{&state};
+        require(StartMP5WeaponMelee(state, 10, context.Host()) == MagazineActionResult::Applied);
+        require(state.clip == 10000 && state.primary == 11.25F && context.count == 3);
+        state = initial; state.aiming = true; state.special = 1; state.primary = 100;
+        context = Context{&state};
+        require(MP5MagazineIdle(state, 10, 20, 20, times, context.Host()) == MagazineActionResult::Applied);
+        require(state.idle == 10 && context.count == 0);
+        state.idle = 0;
+        require(MP5MagazineIdle(state, 10, 19, 20, times, context.Host()) == MagazineActionResult::Applied);
+        require(state.idle == 12.5F && context.count == 0);
+        state.idle = 0;
+        require(MP5MagazineIdle(state, 10, -1, 20, times, context.Host()) == MagazineActionResult::InvalidInput);
+        require(state.idle == 0);
+        require(MP5MagazineIdle(state, 10, 9, 20, {}, context.Host()) == MagazineActionResult::MissingSequence);
+        require(state.idle == 0);
+        state.aiming = false; context.cancelAt = 1;
+        require(MP5MagazineIdle(state, 10, 9, 20, times, context.Host()) == MagazineActionResult::Cancelled);
+        require(state.idle == 0 && context.count == 1);
+        require(StartMP5WeaponMelee(state, 10, {}) == MagazineActionResult::MissingHost);
+    }
     std::cout << "safety=" << checks << '\n';
 }
 
 int main(int argc, char** argv)
 {
     const bool automatic = argc == 2 && std::string_view(argv[1]) == "--automatic";
-    if (argc != 1 && !automatic) { Safety(); return 0; }
+    const bool mp5 = argc == 2 && std::string_view(argv[1]) == "--mp5-actions";
+    if (argc != 1 && !automatic && !mp5) { Safety(); return 0; }
     std::array<MagazineSequenceTimes, 6> times{};
-    const auto identities = automatic ? std::initializer_list<unsigned>{4u, 5u} :
+    const auto identities = mp5 ? std::initializer_list<unsigned>{5u} :
+        automatic ? std::initializer_list<unsigned>{4u, 5u} :
                                        std::initializer_list<unsigned>{0u, 1u, 3u};
     for (unsigned id : identities)
     {
@@ -167,14 +199,19 @@ int main(int argc, char** argv)
     while (std::cin >> row[0])
     {
         for (unsigned i = 1; i < row.size(); ++i) if (!(std::cin >> row[i])) return 5;
-        if (automatic ? row[0] != 0 || row[1] < 4 || row[1] > 5 : row[1] > 3 || row[0] > 2) return 6;
+        if (mp5 ? row[0] < 1 || row[0] > 2 || row[1] != 5 :
+            automatic ? row[0] != 0 || row[1] < 4 || row[1] > 5 : row[1] > 3 || row[0] > 2) return 6;
+        int currentSequence{};
+        if (mp5 && !(std::cin >> currentSequence)) return 5;
         auto f = [&](unsigned i) { return std::bit_cast<float>(row[i]); };
         MagazineActionState state{int(row[2]), int(row[3]), int(row[4]), int(row[5]), int(row[6]), int(row[7]),
             row[8] != 0, row[9] != 0, row[10] != 0, f(11), f(12), f(13), f(14), f(15)};
         Context context{&state}; const auto host = context.Host();
         const auto pistol = static_cast<Pistol>(row[1]);
         MagazineActionResult result;
-        if (automatic) result = StartAutomaticMagazineReload(row[1] == 4 ? server::LongGun::TMP : server::LongGun::MP5,
+        if (mp5) result = row[0] == 1 ? StartMP5WeaponMelee(state, f(16), host) :
+            MP5MagazineIdle(state, f(16), currentSequence, 20, times[5], host);
+        else if (automatic) result = StartAutomaticMagazineReload(row[1] == 4 ? server::LongGun::TMP : server::LongGun::MP5,
             state, f(16), times[row[1]], host);
         else if (row[0] == 0) result = StartMagazineReload(pistol, state, f(16), times[row[1]], host);
         else if (row[0] == 1) result = StartPistolMelee(pistol, state, f(16), host);

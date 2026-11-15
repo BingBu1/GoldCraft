@@ -69,6 +69,17 @@ MagazineActionResult StartMagazineReload(Pistol pistol, MagazineActionState& sta
 MagazineActionResult StartAutomaticMagazineReload(server::LongGun weapon, MagazineActionState& state,
     float now, const MagazineSequenceTimes& times, const MagazineActionHost& host) noexcept;
 
+// MP5 1005BC60: original WeaponMelee, not the other long guns' pushback path.
+MagazineActionResult StartMP5WeaponMelee(MagazineActionState& state, float now,
+    const MagazineActionHost& host) noexcept;
+
+// MP5 1005C300 uses owner weaponanim while aimed. The original duration helper
+// returns zero for sequence>=model.numseq; it does not invent an idle animation.
+// sequenceCount is the actual prepared model count, not the storage capacity.
+MagazineActionResult MP5MagazineIdle(MagazineActionState& state, float now,
+    int currentSequence, unsigned sequenceCount, const MagazineSequenceTimes& times,
+    const MagazineActionHost& host) noexcept;
+
 // Original pistol-whip scheduling; not CoF's separate long-gun pushback path.
 MagazineActionResult StartPistolMelee(Pistol pistol, MagazineActionState& state,
     float now, const MagazineActionHost& host) noexcept;

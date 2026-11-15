@@ -140,6 +140,8 @@ class Original:
                 raise ValueError(f"Unexpected player action {text}")
             self.ret(8)
         elif address == 0x100DFEA0:
+            if getattr(self, "execute_autoaim", False):
+                return
             # This helper only returns gpGlobals.forward in a hidden Vector.
             # Its ignored result has no animation/timer effects in idle.
             self.ret(8)
@@ -148,6 +150,8 @@ class Original:
 
     def run(self, row):
         op, self.pistol = row[:2]
+        if len(row) == 18:
+            self.write(OPEV + 0x21C, row[17])
         self.events = []
         s = row[2:16]
         for offset, value in zip((0x1E4, 0x128, 0x140, 0x138, 0x1F8), (s[0], *s[2:6])):
@@ -179,13 +183,22 @@ def main():
     parser.add_argument("--environment", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--automatic", action="store_true", help="Replay original TMP/MP5 magazine reload starts")
+    parser.add_argument("--mp5-actions", action="store_true", help="Replay original MP5 melee and idle, including actual autoaim")
     args = parser.parse_args()
+    if args.automatic and args.mp5_actions:
+        parser.error("Choose one action family")
     if args.automatic:
         FUNCS.clear()
         FUNCS.update({(0, 4): 0x1007F8D0, (0, 5): 0x1005BB60})
         ORIGINAL_ID.update({4: 14, 5: 27})
         NAMES.clear()
         NAMES.update({4: "tmp", 5: "mp5"})
+    elif args.mp5_actions:
+        FUNCS.clear()
+        FUNCS.update({(1, 5): 0x1005BC60, (2, 5): 0x1005C300})
+        ORIGINAL_ID.update({5: 27})
+        NAMES.clear()
+        NAMES.update({5: "mp5"})
     out = args.output.resolve()
     if out.exists() or not out.is_relative_to(ROOT/"build"):
         parser.error("Use a new dedicated build directory")
@@ -204,6 +217,8 @@ def main():
     if proof["sampleSha256"] != SHA:
         raise ValueError("IDA sample identity mismatch")
     required = {*FUNCS.values(), 0x1011C560, 0x10120210, 0x1000F390, 0x1001F050, 0x1011AB20, 0x100DFEA0}
+    if args.mp5_actions:
+        required = {*FUNCS.values(), 0x1000F390, 0x100DFEA0}
     for address in required:
         item = next(item for item in proof["regions"] if int(item["va"], 16) == address)
         data = bytes.fromhex(item["hex"])
@@ -212,6 +227,7 @@ def main():
     models = {key: (args.models/name/("v_"+name+".mdl")).read_bytes() for key, name in NAMES.items()}
     times = {key: model_times(data) for key, data in models.items()}
     oracle = Original(image, models)
+    oracle.execute_autoaim = args.mp5_actions
     env = os.environ.copy()
     env.update({k: v for k, v in json.loads(args.environment.read_text("utf-8-sig")).items()
                 if k in ("INCLUDE", "LIB", "LIBPATH", "PATH")})
@@ -233,21 +249,26 @@ def main():
     for operation, pistol in FUNCS:
         cap = {0: 15, 1: 8, 3: 18, 4: 30, 5: 30}[pistol]
         for clip, reserve, action, special, aimed, pending, locked in itertools.product(
-                (0, 1, cap-1, cap), (0, 1, cap+1), (0, 1, 2, 5), (0, 1), (0, 1), (0, 1), (0, 1, 2, 3, 4)):
+                ((0, 1, cap-1, cap, 75, 10000) if args.mp5_actions else (0, 1, cap-1, cap)),
+                (0, 1, cap+1), (0, 1, 2, 5), (0, 1), (0, 1), (0, 1), (0, 1, 2, 3, 4)):
             now = bits(10.25)
             clocks = [now-1]*5
             if locked: clocks[locked-1] = now+1
             row = [operation, pistol, clip, reserve, action, special, 3, 2,
                    aimed, pending, 0, *clocks, now]
+            if args.mp5_actions:
+                row.append((0, 1, 2, 3, 9, 18, 19, 20, 43)[len(cases) % 9])
             cases.append(row); expected.append(oracle.run(row))
         # Exact equality and large-time rounding are distinct from early/late.
         for when in (.10506151616573334, 0, 10.25, 8192, 1000000, 16777216):
             now = bits(when)
             row = [operation, pistol, 1, cap, 0, 0, 3, 2, 0, 0, 0, *([now]*5), now]
+            if args.mp5_actions:
+                row.append(20)
             cases.append(row); expected.append(oracle.run(row))
     inputs = "".join(" ".join(map(str, times[key]))+"\n" for key in NAMES)
     inputs += "".join(" ".join(map(str, row))+"\n" for row in cases)
-    run = subprocess.run([str(exe), *(["--automatic"] if args.automatic else [])], cwd=out,
+    run = subprocess.run([str(exe), *(["--automatic"] if args.automatic else ["--mp5-actions"] if args.mp5_actions else [])], cwd=out,
                          input=inputs, capture_output=True, text=True, timeout=40)
     actual = [list(map(int, line.split())) for line in run.stdout.splitlines()]
     failures = [dict(case=case, expected=wanted, actual=got) for case, wanted, got in zip(cases, expected, actual) if wanted != got]

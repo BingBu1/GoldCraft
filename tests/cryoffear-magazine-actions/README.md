@@ -18,7 +18,7 @@ Requires the user's authorized original DLL/models and private IDA-byte receipt;
 none are embedded in this repository. The sample SHA, IDA windows, model hashes,
 compiler and production inputs are checked and recorded. The pistol suite
 contains 17,334 original-function cases. The shared safety checks also cover
-the automatic reload API; the current run has 94 checks. Compilation disables
+the automatic reload and MP5 action APIs; the current run has 113 checks. Compilation disables
 floating-point contraction, and compiler temporaries stay inside the selected
 build directory.
 
@@ -30,6 +30,18 @@ callbacks, aimed deferral, all input gates, equality and large-time rounding.
 It does not emulate automatic fire or its sound latch. Skill-expanded magazines
 are separate host safety checks: physical reload must preserve granted rounds
 instead of discarding an overfilled magazine.
+
+Add `--mp5-actions` instead to execute complete MP5 `1005BC60` melee and
+`1005C300` idle, including the real forward-copy helper and model-duration
+function. Supply the private MP5 pre-edit IDA proof for those four functions.
+This mode compares 5,772 scenarios, with callback-visible state snapshots,
+legal clips up to 10,000, independent action gates, equality and large clocks.
+Current weapon-animation inputs include both valid sequences and sequence20
+outside the supplied model: the original server duration is zero there. Aimed
+idle retains the sequence; it must not manufacture a new idle animation.
+The independently examined original client clamps sequence>=numseq to zero
+before bone descriptor evaluation. That renderer finding does not register
+MP5 or replace its remaining SDK/client integration.
 
 The revolver and special-state paths are outside this module. This does not
 register a weapon, apply actual melee damage, run a full server or establish

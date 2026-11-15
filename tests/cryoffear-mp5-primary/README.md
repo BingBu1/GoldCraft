@@ -35,6 +35,7 @@ input, corrupt expected output and excess output must fail the harness.
 Direction construction, native animation, ballistic damage, effect transport
 and sound emission are explicit controlled ABI edges. This is not complete
 SDK integration, a registered MP5, gameplay acceptance or live CPU/GPU
-performance evidence. In particular the original aimed-empty request for
-sequence 20 still needs its native renderer boundary checked against the
-supplied 20-sequence model before whole-weapon activation.
+performance evidence. The original aimed-empty request for sequence20 has
+since been traced through the actual original renderer (clamp to0 before bone
+evaluation) and server duration helper (return0). Its full SDK/client consumer
+still has to be integrated before whole-weapon activation.
