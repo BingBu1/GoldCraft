@@ -152,6 +152,7 @@ bool resource_name(const std::string& name) {
                                   lower(name).compare(0, 14, "resource/csol/") == 0)))) ||
            lower(name) == "resource/csol/hud/v1/csolhudscheme.res" ||
            lower(name) == "resource/csol/wall/v1/wallupgradescheme.res" ||
+           lower(name) == "resource/csol/zecounter/v1/zecounterscheme.res" ||
            lower(name) == "resource/cso_chn.txt" ||
            (root == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||
            (root == "gfx" && (ext == ".tga" || ext == ".bmp")) ||

@@ -5,6 +5,7 @@ import re
 import struct
 import zlib
 from ServerPackageResources import resource_path, resource_roots, resolve_resource
+from csol_map_entity_resources import precache_resources
 
 
 def select_maps(game: Path, selected: list[str], default: str) -> list[Path]:
@@ -27,7 +28,7 @@ def select_maps(game: Path, selected: list[str], default: str) -> list[Path]:
     return [available[default.lower()], *(available[k] for k in keys if k != default.lower())]
 
 
-def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
+def map_resources(bsp: Path, game: Path, valve: Path, safe_file, *, entity_source=None):
     """Return resources and diagnostics; never follow absolute compiler WAD paths."""
     data = safe_file(bsp).read_bytes()
     if len(data) < 124 or struct.unpack_from('<i', data)[0] != 30:
@@ -105,10 +106,54 @@ def map_resources(bsp: Path, game: Path, valve: Path, safe_file):
             target, source = resolve_resource(name, game, valve, safe_file)
             resources[target] = source
 
+    # Original overview descriptions may reference another map's image
+    # (zs_decoy uses zs_trace.bmp). Preserve that actual consumer dependency.
+    # ReHLDS PrecacheMapSpecifiedResources also advertises <map>.bmp whenever
+    # <map>.txt exists; bind its legacy alias to the single declared BMP.
+    overview = None
+    try:
+        target, overview = resolve_resource('overviews/' + bsp.stem + '.txt', game, valve, safe_file)
+        resources[target] = overview
+    except FileNotFoundError:
+        pass
+    overview_images, overview_alias = {}, None
+    if overview is not None:
+        lines = '\n'.join(line.split('//', 1)[0] for line in safe_file(overview).read_text('latin1').splitlines())
+        tokens = re.findall(r'"[^"\r\n]*"|[{}]|[^\s{}]+', lines)
+        for index, token in enumerate(tokens):
+            if token.strip('"').lower() != 'image':
+                continue
+            if index + 1 >= len(tokens):
+                raise ValueError(f'{bsp.name}: missing overview image')
+            name = tokens[index + 1].strip('"')
+            resource_path(name)
+            target, source = resolve_resource(name, game, valve, safe_file)
+            resources[target] = source
+            overview_images[name] = source
+        conventional = 'overviews/' + bsp.stem + '.bmp'
+        try:
+            target, source = resolve_resource(conventional, game, valve, safe_file)
+        except FileNotFoundError:
+            if len(overview_images) != 1 or not next(iter(overview_images)).lower().endswith('.bmp'):
+                raise ValueError(f'{bsp.name}: cannot resolve ReHLDS overview bitmap alias')
+            overview_alias, source = next(iter(overview_images.items()))
+            target = 'cs/cstrike/' + conventional
+        resources[target] = source
+
+    if entity_source is not None:
+        classes = re.findall(r'"classname"\s*"([^"\r\n]+)"', entities)
+        indirect, _ = precache_resources(entity_source, classes)
+        for name in sorted(indirect):
+            target, source = resolve_resource(name, game, valve, safe_file)
+            if not source.stat().st_size:
+                raise ValueError(f'{bsp.name}: empty map entity resource: {name}')
+            resources[target] = source
+
     waypoint = game / 'addons/sypb/wptdefault' / (bsp.stem + '.pwf')
     if waypoint.exists():
         resources[f'cs/cstrike/addons/sypb/wptdefault/{waypoint.name}'] = safe_file(waypoint)
     crc = zlib.crc32(data)
     return resources, {'map': bsp.stem, 'crc32': f'{crc:08x}', 'bspSha256': hashlib.sha256(data).hexdigest(),
                        'dimension': f'goldcraft:{bsp.stem.lower()}_{crc:08x}',
+                       'overviewImages': sorted(overview_images), 'overviewBitmapAlias': overview_alias,
                        'botWaypoints': waypoint.exists()}

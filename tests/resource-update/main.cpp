@@ -432,6 +432,9 @@ int main(int argc,char** argv){
         }else if(mode=="invalid"){
             Check(overlay::SafeName("resource/csol/wall/v1/WallUpgradeScheme.res"),"published wall scheme accepted");
             Check(overlay::SafeName("resource/csol/hud/v1/CsolHudScheme.res"),"published HUD scheme accepted");
+            Check(overlay::SafeName("resource/csol/zecounter/v1/ZeCounterScheme.res"),"published counter scheme accepted");
+            Check(!overlay::SafeName("resource/csol/zecounter/v2/ZeCounterScheme.res"),"unpublished counter revision rejected");
+            Check(!overlay::SafeName("resource/csol/zecounter/v1/Other.res"),"arbitrary counter schemes rejected");
             Check(!overlay::SafeName("resource/csol/wall/v1/OtherScheme.res"),"arbitrary schemes remain rejected");
             for(const std::string bad:std::vector<std::string>{"../x.mdl","models/CON.mdl","models/x.mdl:ads","models/x.mdl.","models//x.mdl","models/.x.mdl","models/x.dll","resource/x.cfg","C:/x.mdl",std::string("models/")+std::string(260,'x')+".mdl"}){
                 Check(!session.Begin(1,url,{{bad,next}}),"invalid manifest path rejected");

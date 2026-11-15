@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
         const std::string wall = "resource/csol/wall/v1/WallUpgradeScheme.res";
         const std::string upper = "RESOURCE/CSOL/WALL/V1/WALLUPGRADESCHEME.RES";
         const std::string oldHud = "resource/csol/hud/v1/CSOLHudScheme.res";
+        const std::string counter = "resource/csol/zecounter/v1/ZeCounterScheme.res";
         const std::vector<std::string> denied{
             "resource/csol/wall/v1/Other.res",
             "resource/csol/wall/v1/WallUpgradeScheme.res.bak",
@@ -81,6 +82,9 @@ int main(int argc, char** argv) {
             "resource/csol/wall/WallUpgradeScheme.res",
             "resource/csol/hud/v1/WallUpgradeScheme.res",
             "resource/ClientScheme.res",
+            "resource/csol/zecounter/v1/Other.res",
+            "resource/csol/zecounter/v2/ZeCounterScheme.res",
+            "resource/csol/zecounter/v1/../ZeCounterScheme.res",
             "resource/csol/wall/v1/../WallUpgradeScheme.res",
             "resource/csol/wall/v1//WallUpgradeScheme.res",
             "resource/csol/wall/v1/WallUpgradeScheme.res ",
@@ -94,8 +98,10 @@ int main(int argc, char** argv) {
         Check(resource_name(wall), "canonical wall path allowed");
         Check(resource_name(upper), "case-insensitive wall policy");
         Check(resource_name(oldHud), "existing HUD scheme retained");
+        Check(resource_name(counter), "published counter scheme accepted");
         for (const auto& name : denied) Check(!resource_name(name), "similar or unsafe path denied");
-        std::map<std::string, Bytes> files{{wall, scheme}, {upper, scheme}, {oldHud, Bytes{'o','l','d','-','h','u','d'}}};
+        std::map<std::string, Bytes> files{{wall, scheme}, {upper, scheme}, {oldHud, Bytes{'o','l','d','-','h','u','d'}},
+                                           {counter, Bytes{'c','o','u','n','t','e','r'}}};
         Store store;
         std::atomic<unsigned> providerCalls{};
         Server server;
@@ -119,10 +125,11 @@ int main(int argc, char** argv) {
             return future.get();
         };
         Check(request(wall).status == 404, "not advertised remains 404");
-        std::vector<Resource> resources{{wall, scheme.size()}, {upper, scheme.size()}, {oldHud, files.at(oldHud).size()}};
+        std::vector<Resource> resources{{wall, scheme.size()}, {upper, scheme.size()}, {oldHud, files.at(oldHud).size()},
+                                        {counter, files.at(counter).size()}};
         for (const auto& name : denied) resources.push_back({name, scheme.size()});
         store.publish(resources);
-        Check(store.stats().files == 3, "Store retains only three exact advertised paths");
+        Check(store.stats().files == 4, "Store retains only exact advertised paths");
         const auto full = request(wall);
         std::cout << "wall status=" << full.status << " bytes=" << full.body.size() << '\n';
         Check(full.status == 200 && full.body == scheme, "GET transports exact prepared scheme bytes");
@@ -136,6 +143,8 @@ int main(int argc, char** argv) {
         Check(request(upper).body == scheme, "advertised uppercase path accepted");
         const auto existing = request(oldHud);
         Check(existing.status == 200 && existing.body == files.at(oldHud), "existing HUD path still works");
+        const auto countdown = request(counter);
+        Check(countdown.status == 200 && countdown.body == files.at(counter), "counter scheme uses the same HTTP transport");
         for (const auto& name : denied) {
             const auto calls = providerCalls.load();
             Check(request(name).status == 404, "HTTP rejects lookalike path");

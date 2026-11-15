@@ -5,14 +5,18 @@ import importlib.util
 import json
 import struct
 import tempfile
+import sys
 import unittest
 from unittest.mock import patch
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'tools'))
 spec = importlib.util.spec_from_file_location('server_closure', ROOT / 'tools/csol_server_table_closure.py')
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+from csol_map_entity_resources import precache_resources
+from ServerPackageMaps import map_resources
 
 
 def row(name, data):
@@ -119,7 +123,7 @@ class ClosureTests(unittest.TestCase):
         for name, content in {
                 'server/scenario/core/scenario_music.cpp': 'PrecacheFile("Scenario_Ready.mp3"',
                 'server/scenario/core/scenario_bgm_trigger.cpp': 'music->PrecacheFile(m_filename',
-                'scenario_music.cpp': 'ResourcePath', 'music_resources.cpp': 'ResourcePath',
+                'scenario/core/scenario_music.cpp': 'ResourcePath', 'scenario/core/music_resources.cpp': 'ResourcePath',
                 'scenario/core/round_settings.cpp': 'namespace', 'scenario/core/config.cpp': 'namespace'}.items():
             file = source / 'native/csol' / name
             file.parent.mkdir(parents=True, exist_ok=True)
@@ -136,12 +140,15 @@ class ClosureTests(unittest.TestCase):
 
         def run(argv, **kwargs):
             calls.append((argv[1], kwargs['input']))
-            output = b'bgm/Scenario_Ready.mp3\nbgm/Scenario_Rush.mp3\n' if argv[1] == 'round' else b'bgm/special/boss.mp3\n'
+            output = {'round': b'bgm/Scenario_Ready.mp3\nbgm/Scenario_Rush.mp3\n',
+                      'recovery': b'sound/vox/man/sprint_end_default.wav\nsound/vox/woman/sprint_end_default.wav\n',
+                      'path': b'bgm/special/boss.mp3\n'}[argv[1]]
             return type('Output', (), {'stdout': output})()
         with patch.object(module.subprocess, 'run', run):
             paths = module.music_paths(source, self.root, 'test', reader, {})
-        self.assertEqual(paths, {'bgm/Scenario_Ready.mp3', 'bgm/Scenario_Rush.mp3', 'bgm/special/boss.mp3'})
-        self.assertEqual(calls, [('round', b'round-data'), ('path', b'special/boss.mp3')])
+        self.assertEqual(paths, {'bgm/Scenario_Ready.mp3', 'bgm/Scenario_Rush.mp3', 'bgm/special/boss.mp3',
+                                 'sound/vox/man/sprint_end_default.wav', 'sound/vox/woman/sprint_end_default.wav'})
+        self.assertEqual(calls, [('round', b'round-data'), ('recovery', b''), ('path', b'special/boss.mp3')])
 
     def test_generated_plan_retains_identity(self):
         asset = self.root / 'generated.tga'
@@ -180,10 +187,80 @@ class ClosureTests(unittest.TestCase):
         text = '1. 3 : ambience/room wind.wav 1.23K 00000000 -\n1 Total sound\'s\n'
         self.assertEqual(module.runtime_resource_paths(text, 'sound'), {'sound/ambience/room wind.wav'})
 
+    def test_reslist_keeps_missing_resources_with_negative_printed_size(self):
+        text = ('1. 1838 : resource/csol/zecounter/v1/ZeCounterScheme.res -0.00K 00000000 FATALIFMISSING\n'
+                '2. 2159 : overviews/zs_decoy.bmp -0.00K 00000000 FATALIFMISSING\n'
+                '2 Total generic\'s\n')
+        self.assertEqual(module.runtime_resource_paths(text, 'generic'), {
+            'resource/csol/zecounter/v1/ZeCounterScheme.res', 'overviews/zs_decoy.bmp'})
+
     def test_truncated_reslist_is_not_complete_coverage(self):
         text = '1. 3 : models/a.mdl 1.23K abcdef01 -\n2 Total model\'s\n'
         with self.assertRaisesRegex(ValueError, 'Incomplete'):
             module.runtime_resource_paths(text, 'model')
+
+    def test_mountgun_indirect_precaches_follow_the_actual_consumer(self):
+        paths, inputs = precache_resources(ROOT, ['worldspawn', 'mount_weapon', 'mount_weapon'])
+        self.assertTrue({'models/shell762.mdl', 'models/shell_svdex.mdl',
+                         'models/mountgun.mdl', 'models/v_mountgun.mdl', 'models/p_mountgun.mdl',
+                         'events/mountgun.sc', 'sound/weapons/Mountgun_1.wav',
+                         'sprites/weapon_mountgun.txt', 'sprites/640hud72.spr',
+                         'sprites/csol/640hud7_v2.spr'}.issubset(paths))
+        self.assertNotIn('models/p_mountgun2.mdl', paths)  # Declared, never precached by this implementation.
+        self.assertEqual(len(inputs), 2)
+
+    def test_zecounter_includes_generated_scheme_and_font(self):
+        paths, _ = precache_resources(ROOT, ['ze_counter'])
+        self.assertEqual(paths, {'resource/Fun/ZBEscape/countdownbg.tga',
+                                'resource/csol/zecounter/v1/ZeCounterScheme.res',
+                                'resource/font/df_gb_y9.ttf'})
+
+    def test_no_indirect_resources_on_ordinary_map(self):
+        self.assertEqual(precache_resources(self.root / 'no-source', ['worldspawn']), (set(), []))
+
+    def test_unresolved_precache_expression_is_not_silently_omitted(self):
+        cpp = self.root / 'native/csol/server/weapons/wpn_mountgun.cpp'
+        cpp.parent.mkdir(parents=True)
+        cpp.write_text('void CMountgun::Precache() { PRECACHE_MODEL(ChooseModel()); }')
+        header = self.root / 'native/csol/weapons/mountgun.hpp'
+        header.parent.mkdir(parents=True)
+        header.write_text('inline constexpr const char* ServerShellModel = "models/shell762.mdl";')
+        with self.assertRaisesRegex(ValueError, 'Unresolved'):
+            precache_resources(self.root, ['mount_weapon'])
+
+    def make_map(self, name, entities=b'{"classname" "worldspawn"}\0'):
+        game = self.root / 'game'
+        bsp = game / 'maps' / (name + '.bsp')
+        bsp.parent.mkdir(parents=True, exist_ok=True)
+        data = bytearray(124)
+        struct.pack_into('<iii', data, 0, 30, 124, len(entities))
+        bsp.write_bytes(data + entities)
+        return game, bsp
+
+    def test_cross_map_overview_keeps_image_and_engine_alias(self):
+        game, bsp = self.make_map('decoy')
+        overview = game / 'overviews'
+        overview.mkdir()
+        (overview / 'decoy.txt').write_text('layer { IMAGE "overviews/trace.bmp" HEIGHT 0 }')
+        image = overview / 'trace.bmp'
+        image.write_bytes(b'original-overview')
+        paths, record = map_resources(bsp, game, self.root / 'valve', lambda p: p)
+        self.assertEqual(paths['cs/cstrike/overviews/trace.bmp'], image)
+        self.assertEqual(paths['cs/cstrike/overviews/decoy.bmp'], image)
+        self.assertEqual(record['overviewBitmapAlias'], 'overviews/trace.bmp')
+
+    def test_missing_overview_image_fails_package_preflight(self):
+        game, bsp = self.make_map('decoy')
+        overview = game / 'overviews'
+        overview.mkdir()
+        (overview / 'decoy.txt').write_text('layer { IMAGE "overviews/missing.bmp" }')
+        with self.assertRaises(FileNotFoundError):
+            map_resources(bsp, game, self.root / 'valve', lambda p: p)
+
+    def test_package_rejects_missing_indirect_mountgun_resource(self):
+        game, bsp = self.make_map('decoy', b'{"classname" "mount_weapon"}\0')
+        with self.assertRaises(FileNotFoundError):
+            map_resources(bsp, game, self.root / 'valve', lambda p: p, entity_source=ROOT)
 
     def test_missing_bgm_and_upgrade_are_not_hidden_by_prior_table_fix(self):
         old = self.archive('tables.zip', {self.table: b'catalog'})

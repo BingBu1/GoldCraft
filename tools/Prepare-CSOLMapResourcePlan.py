@@ -12,6 +12,7 @@ import subprocess
 from csol_material_stage import prepare_materials, resource_name
 from ServerPackageMaps import map_resources
 import csol_scenario_resources as contracts
+from csol_map_entity_resources import precache_resources
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -63,9 +64,13 @@ def main():
     bsp = common / 'maps' / (args.map + '.bsp')
     entities = music.entities(read(bsp))
     base, bsp_info = map_resources(bsp, common, common, plain)
+    base_sources = {name.removeprefix('cs/cstrike/'): path for name, path in base.items()}
     roots = set(inventory['models'])
     required = set(inventory['resources']) | set(inventory['bgm'])
-    required.update(p.relative_to(common).as_posix() for p in base.values())
+    required.update(base_sources)
+    indirect, indirect_inputs = precache_resources(ROOT, (e.get('classname') for e in entities))
+    required.update(indirect)
+    inputs.update((row['path'], row) for row in indirect_inputs)
     required.update(p for p in inventory['tableReads'] if (common / p).is_file())
     required.update('maps/' + args.map + suffix for suffix in ('.nav', '_detail.txt'))
     # These optional original table companions are opened by the host map/skills loaders.
@@ -123,7 +128,7 @@ def main():
     for name in sorted(required):
         resource_name(name)
         destination = server / name
-        source = common / name
+        source = base_sources.get(name, common / name)
         proposed = payloads.get(name)
         if proposed is None and source.is_file(): proposed = read(source)
         if destination.is_file():
@@ -157,6 +162,7 @@ def main():
     result['changedInputs'] = [item['path'] for item in inputs.values() if identity(item['path']) != item]
     result['toolSources'] = [identity(Path(__file__)), identity(ROOT / 'tools/csol_material_stage.py'),
                              identity(ROOT / 'tools/csol_scenario_resources.py'), identity(ROOT / 'tools/ServerPackageMaps.py'),
+                             identity(ROOT / 'tools/csol_map_entity_resources.py'),
                              identity(ROOT / 'tools/Prepare-CSOLScenarioMusic.py')]
     if result['changedInputs']: raise ValueError('resource inputs changed during planning')
     save('resource-plan.json', result)

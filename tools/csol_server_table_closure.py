@@ -13,6 +13,7 @@ import re
 import stat
 import subprocess
 import zipfile
+from csol_map_entity_resources import precache_resources
 
 
 def digest(path):
@@ -141,7 +142,7 @@ def runtime_resource_paths(text, kind):
     """Parse a complete ReHLDS reslist capture, not an arbitrary path grep."""
     if kind not in ('model', 'sound', 'generic', 'event'):
         raise ValueError('Unknown reslist kind')
-    records = re.findall(r'^\s*(\d+)\.\s+\d+\s+:\s+(.+?)\s+\d+(?:\.\d+)?[KMG]?\s+[0-9a-fA-F]{8}\s', text, re.M)
+    records = re.findall(r'^\s*(\d+)\.\s+\d+\s+:\s+(.+?)\s+-?\d+(?:\.\d+)?[KMG]?\s+[0-9a-fA-F]{8}\s', text, re.M)
     totals = re.findall(r'^(\d+) Total ' + kind + r"'s\s*$", text, re.M)
     if len(totals) != 1 or int(totals[0]) != len(records) or [int(r[0]) for r in records] != list(range(1, len(records) + 1)):
         raise ValueError('Incomplete ReHLDS reslist capture: ' + kind)
@@ -242,6 +243,16 @@ def collect(source, deployed, common, map_name, dependency_lists=(), resource_pl
     for name in sorted(music_paths(source, common, map_name, music_reader, sources,
                                   deployed / 'addons/goldcraft/config/gameplay.json')):
         add(name, 'map-bgm')
+    bsp_reader = Path(__file__).with_name('Prepare-CSOLScenarioMusic.py')
+    spec = importlib.util.spec_from_file_location('entity_closure_bsp', bsp_reader)
+    bsp_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bsp_module)
+    entities = bsp_module.entities((common / ('maps/' + map_name + '.bsp')).read_bytes())
+    indirect, indirect_inputs = precache_resources(source, (e.get('classname') for e in entities))
+    for row in indirect_inputs:
+        sources[row['path']] = row
+    for name in sorted(indirect):
+        add(name, 'map-entity-precache')
     if not resource_plans:
         raise ValueError('Scenario closure requires --resource-plan for dynamic HUD/model/voice dependencies')
     for path in resource_plans:

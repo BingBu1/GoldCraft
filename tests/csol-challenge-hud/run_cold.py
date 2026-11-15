@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Cold-check authored HUD resources on the unused isolated scenario server."""
+"""Cold-check a scenario map and its HTTP resources on the isolated server."""
 import argparse
 import csv
 import hashlib
@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import shutil
 import socket
@@ -16,11 +17,13 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.parse
 
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'tools'))
 from win32_processes import processes
 import csol_hud_resources
+from csol_server_table_closure import runtime_resource_paths
 
 
 def sha(path):
@@ -35,8 +38,14 @@ def main():
                         help='Optional existing workspace gameplay JSON for the isolated test; original runtime file is restored')
     parser.add_argument('--challenge-environment',action='store_true',
                         help='Read the actual environment service/profile through its matching PDB')
+    parser.add_argument('--map',default='zs_deadend')
+    parser.add_argument('--map-id',type=int,
+                        help='Explicit current catalog id when multiple rows share one filename')
+    parser.add_argument('--http-resource',action='append',default=[],
+                        help='Additional map resource whose actual HTTP bytes must match the server')
     args=parser.parse_args();out=args.output.resolve();game=ROOT/'sandbox/cs-dione-probe/Half-Life';cstrike=game/'cstrike'
     if args.challenge_environment and not args.pdb:raise ValueError('Environment inspection requires the exact candidate PDB')
+    if not re.fullmatch(r'[a-z0-9_]{1,63}',args.map):raise ValueError('Invalid scenario map basename')
     if out.exists()or not out.is_relative_to(ROOT/'build'):raise ValueError('fresh workspace receipt required')
     if any(p.get('image')and str(game).casefold()in p['image'].casefold()for p in processes(('hlds.exe',))):
         raise ValueError('isolated server is in use')
@@ -49,7 +58,10 @@ def main():
     catalog=cstrike/'resource/maplist.csv'
     rows=list(csv.reader(io.StringIO(catalog.read_bytes().removeprefix(b'\xef\xbb\xbf').decode('latin1'),newline='')))
     assert rows[0][0].strip()==';map_id'and rows[0][2].strip()=='map_filename'and rows[0][58].strip()=='SubType'
-    map_ids={int(row[0])for row in rows[1:]if len(row)>58 and row[2].strip()=='zs_deadend'and row[58].strip()=='1'}
+    map_ids={int(row[0])for row in rows[1:]if len(row)>58 and row[2].strip()==args.map and row[58].strip()=='1'}
+    if args.map_id is not None:
+        if args.map_id not in map_ids:raise ValueError('Selected id does not describe the requested scenario map')
+        map_ids={args.map_id}
     assert len(map_ids)==1;map_id=map_ids.pop();receipt['mapId']=map_id;receipt['catalogSha256']=sha(catalog)
     console=game/'qconsole.log';old_console=rollback/'qconsole-before.log';console_moved=console_owned=False
 
@@ -93,13 +105,13 @@ def main():
         startup=subprocess.STARTUPINFO();startup.dwFlags|=subprocess.STARTF_USESHOWWINDOW;startup.wShowWindow=0
         env={k:v for k,v in os.environ.items()if not k.startswith(('GOLDCRAFT_','METAHOOK_'))}
         env.update(GOLDCRAFT_HTTP_ENABLED='1',GOLDCRAFT_HTTP_BIND='127.0.0.1',GOLDCRAFT_HTTP_PORT=str(http_port),GOLDCRAFT_HTTP_PUBLIC_URL=f'http://127.0.0.1:{http_port}/goldcraft/')
-        child=subprocess.Popen([str(game/'hlds.exe'),'-game','cstrike','-insecure','-nomaster','-console','-condebug','+ip','127.0.0.1','-port',str(cs_port),'-maxplayers','32','-csol_game_mode','2','-csol_scenario_map_id',str(map_id),'+map','zs_deadend'],cwd=game,env=env,startupinfo=startup,creationflags=subprocess.CREATE_NEW_CONSOLE)
+        child=subprocess.Popen([str(game/'hlds.exe'),'-game','cstrike','-insecure','-nomaster','-console','-condebug','+ip','127.0.0.1','-port',str(cs_port),'-maxplayers','32','-csol_game_mode','2','-csol_scenario_map_id',str(map_id),'+map',args.map],cwd=game,env=env,startupinfo=startup,creationflags=subprocess.CREATE_NEW_CONSOLE)
         receipt['pid']=child.pid;deadline=time.monotonic()+45
         while time.monotonic()<deadline:
             if child.poll()is not None:raise RuntimeError('isolated server exited before ready')
             try:
                 status=rcon.command('status',config_path=private)
-                if 'zs_deadend'in status and '0 active'in status:break
+                if args.map in status and '0 active'in status:break
             except (TimeoutError,ConnectionResetError,ConnectionRefusedError):pass
             time.sleep(.25)
         else:raise TimeoutError('isolated server did not finish cold startup')
@@ -119,7 +131,7 @@ def main():
                 globals_address=u32(module['base']+symbols.global_rva('gpGlobals'))
                 vtable=u32(rules)if rules else 0
                 native=dict(moduleSha256=pe.sha256,rules=rules,vtableRva=vtable-module['base'],globals=globals_address)
-                import re,struct
+                import struct
                 matches=re.findall(r'S_PUB32[^\n]*`([^`]+)`\s*\n[^\n]*addr = (\d+):(\d+)',symbols.dump('-publics'))
                 native['vtableNames']=[name for name,section,offset in matches if name.startswith('??_7')and pe.sections[int(section)-1]['rva']+int(offset)==native['vtableRva']]
                 layout=symbols.layout('globalvars_t')
@@ -166,13 +178,33 @@ def main():
                 receipt['nativeRules']=native
             finally:process.close()
         receipt['checks'].update(mode2='"2"'in receipt['responses']['mode'],timeEnabled='"1"'in receipt['responses']['time'],slots32='32 max'in receipt['responses']['status'],noPlayers='0 active'in receipt['responses']['status'],difficultyReady='1..6'in receipt['responses']['difficulty'])
+        advertised={}
+        if args.http_resource:
+            for kind in ('model','sound','generic','event'):
+                listing=rcon.command('reslist '+kind,config_path=private)
+                receipt['responses']['reslist-'+kind]=listing
+                for name in runtime_resource_paths(listing,kind):advertised[name.casefold()]=name
+            missing=[name for name in sorted(advertised.values())if not any(
+                (folder/name).is_file()and(folder/name).stat().st_size>0
+                for folder in (cstrike,game/'cstrike_downloads',game/'valve'))]
+            receipt['resourceAudit']=dict(advertised=len(advertised),missing=missing)
+            if missing:raise ValueError('Advertised resources are missing or empty: '+', '.join(missing))
+            receipt['checks']['allAdvertisedFilesPresent']=True
         receipt['http']=[]
-        for name in ('resource/goldcraft/challenge/night_blood_v1.tga','sound/vox/man/sprint_end_default.wav','sound/vox/woman/sprint_end_default.wav'):
-            data=urllib.request.urlopen(f'http://127.0.0.1:{http_port}/goldcraft/'+name,timeout=10).read()
+        names=list(dict.fromkeys(['resource/goldcraft/challenge/night_blood_v1.tga','sound/vox/man/sprint_end_default.wav','sound/vox/woman/sprint_end_default.wav',*args.http_resource]))
+        for name in names:
+            if name.startswith('/')or'..'in Path(name).parts or any(c in name for c in '\\:'):
+                raise ValueError('Unsafe HTTP resource path')
+            if args.http_resource:
+                if name.casefold() not in advertised:raise ValueError('Map did not advertise required resource: '+name)
+                advertised_name=advertised[name.casefold()]
+            else:advertised_name=name
+            receipt['lastHttpRequest']=dict(requested=name,advertised=advertised_name)
+            data=urllib.request.urlopen(f'http://127.0.0.1:{http_port}/goldcraft/'+urllib.parse.quote(advertised_name,safe='/'),timeout=10).read()
             expected=cstrike/name
             assert hashlib.sha256(data).hexdigest()==sha(expected)
-            receipt['http'].append(dict(path=name,bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
-        receipt['checks']['threeActualHttpHashes']=len(receipt['http'])==3
+            receipt['http'].append(dict(path=name,advertised=advertised_name,bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
+        receipt['checks']['actualHttpHashes']=len(receipt['http'])==len(names)
         receipt['success']=all(receipt['checks'].values())
     except BaseException as error:
         receipt['error']=type(error).__name__+': '+str(error).replace(token,'[redacted]')

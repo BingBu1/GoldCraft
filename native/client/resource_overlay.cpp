@@ -207,7 +207,8 @@ bool SafeName(const std::string& name) {
         (top == "bgm" && ext == ".mp3") ||
         (top == "resource" && (ext == ".tga" || (ext == ".ttf" && (lower.starts_with("resource/font/") || lower.starts_with("resource/csol/"))))) ||
         lower == "resource/csol/hud/v1/csolhudscheme.res" ||
-        lower == "resource/csol/wall/v1/wallupgradescheme.res" || lower == "resource/cso_chn.txt" ||
+        lower == "resource/csol/wall/v1/wallupgradescheme.res" ||
+        lower == "resource/csol/zecounter/v1/zecounterscheme.res" || lower == "resource/cso_chn.txt" ||
         (top == "sprites" && (ext == ".spr" || ext == ".txt" || ext == ".tga" || ext == ".webm")) ||
         (top == "gfx" && (ext == ".tga" || ext == ".bmp")) || lower == "gfx/tattoo/tattoo.cso" ||
         (top == "materials" && (ext == ".json" || ext == ".tga" || ext == ".bmp")) ||

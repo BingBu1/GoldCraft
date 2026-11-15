@@ -116,7 +116,7 @@ def build_plan(steam: Path, native_crt: Path, core_jar: Path,
     add(CS / 'cstrike/dlls/mp.dll', 'cs/cstrike/dlls/mp.dll')
     map_records = []
     for bsp in select_maps(CS / 'cstrike', ['cs_assault'] if maps is None else maps, default_map):
-        resources, record = map_resources(bsp, CS / 'cstrike', CS / 'valve', safe_file)
+        resources, record = map_resources(bsp, CS / 'cstrike', CS / 'valve', safe_file, entity_source=ROOT)
         for name, source in resources.items():
             if name not in files:
                 add(source, name)
