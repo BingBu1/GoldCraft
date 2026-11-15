@@ -558,6 +558,9 @@ bool M16Weapon::Animate(PlayerAction action) noexcept
 }
 bool M16Weapon::View(int sequence) noexcept
 {
+    Lease lease = lease_; lease.active = selected_;
+    if (!Current(&lease)) return false;
+    m_pPlayer->pev->weaponanim = sequence; // original1011F5D0, before transport
     M16Event event{M16Effect::ViewAnimation}; event.value = sequence;
     return Emit(event);
 }
@@ -689,6 +692,7 @@ void M16Weapon::SetResult(M16ControlResult result) noexcept
     status_ = result == M16ControlResult::Applied || result == M16ControlResult::Deferred ?
         M16Status::Applied : result == M16ControlResult::Ineligible ? M16Status::Ineligible :
         result == M16ControlResult::Cancelled ? M16Status::Cancelled :
+        result == M16ControlResult::UnsupportedState ? M16Status::UnsupportedState :
         result == M16ControlResult::MissingHost || result == M16ControlResult::ConsumerRejected ?
         M16Status::MissingBackend : M16Status::InvalidInput;
 }
@@ -935,60 +939,51 @@ void M16Weapon::ItemPostFrame()
 {
     M16OwnerFrame frame{}; if (!Check(frame)) return;
     Lease l = lease_; l.active = true;
-    const float now = gpGlobals->time;
-    if (now < action_.ownerAttack) { status_ = M16Status::Ineligible; return; }
-    if (action_.action == 2 && !action_.loading) action_.action = 0;
-    if (!action_.action && now > action_.primary && now > action_.secondary && now > action_.extra &&
-        !frame.toggleAim && action_.aiming &&
-        !((m_pPlayer->pev->button | frame.pressed | frame.released) & 0x40u))
-        if (!SetAim(false)) return;
-    if (action_.pendingReload && !frame.pendingGate && frame.pendingGateTime <= now &&
-        action_.primary <= now && action_.secondary <= now && action_.extra <= now && !action_.action)
-    {
-        if (action_.aiming) { if (!SetAim(false)) return; }
-        else { action_.pendingReload = false; Reload(); if (!Current(&l)) return; }
-    }
-    const float speedSquared = m_pPlayer->pev->velocity.x*m_pPlayer->pev->velocity.x +
-                               m_pPlayer->pev->velocity.y*m_pPlayer->pev->velocity.y;
-    const float speed = static_cast<float>(std::sqrt(double(speedSquared)));
-    if (!action_.loading && action_.action != 2 && now > action_.primary)
-    {
-        if (frame.condition3AA && !action_.aiming && now > action_.extra)
+    if (gpGlobals->time < action_.ownerAttack) { status_ = M16Status::Ineligible; return; }
+    struct Bridge { M16Weapon& item; Lease lease; } bridge{*this, l};
+    const M16FrameHost host{&bridge,
+        [](void* p) noexcept { return Current(&static_cast<Bridge*>(p)->lease); },
+        [](void*) noexcept { return gpGlobals->time; },
+        [](void* p, M16FrameOwner& out) noexcept
         {
-            if (!action_.action)
+            auto& b = *static_cast<Bridge*>(p);
+            M16OwnerFrame owner;
+            if (!b.item.backends_.ownerFrame(b.item.backends_.context, owner) || !Current(&b.lease)) return false;
+            const auto& velocity = b.item.m_pPlayer->pev->velocity;
+            out = {velocity.x, velocity.y, owner.pendingGateTime, owner.originalFlags,
+                owner.condition3AA, owner.pendingGate};
+            return true;
+        },
+        [](void* p, M16FrameEvent event, int sequence) noexcept
+        {
+            auto& b = *static_cast<Bridge*>(p);
+            switch (event)
             {
-                action_.action = 5; const int seq = 14;
-                if (!View(seq)) return;
-                const float duration = prepared_.sequences.duration[seq];
-                action_.primary = static_cast<float>(double(now) + double(duration)*.5);
-                actionDeadline_ = now + duration;
+            case M16FrameEvent::ViewAnimation: return b.item.View(sequence);
+            case M16FrameEvent::ExitAim: return b.item.SetAim(false);
+            case M16FrameEvent::Reload:
+                b.item.Reload();
+                return Current(&b.lease) && (b.item.status_ == M16Status::Applied ||
+                    b.item.status_ == M16Status::Ineligible);
             }
-        }
-        else if (action_.action == 5)
+            return false;
+        },
+        [](void* p, float& duration) noexcept
         {
-            const int seq = 16; if (!View(seq)) return;
-            action_.primary = action_.idle = now + prepared_.sequences.duration[seq]; action_.action = 0;
-        }
-        const bool sprint = (frame.originalFlags & 0x40000u) && speed > 0;
-        if (sprint && action_.action != 5 && action_.action != 1)
-        {
-            action_.action = 1; const int seq = 14; if (!View(seq)) return;
-            const float duration = prepared_.sequences.duration[seq];
-            action_.primary = action_.secondary = static_cast<float>(double(now) + double(duration)*.5);
-            actionDeadline_ = now + duration;
-            action_.idle = now + duration*.5f;
-        }
-        if (sprint && action_.action == 1 && now > actionDeadline_)
-        {
-            const int seq = 15; if (!View(seq)) return;
-            actionDeadline_ = now + prepared_.sequences.duration[seq];
-        }
-        if (!sprint && action_.action == 1 && now > actionDeadline_)
-        {
-            const int seq = 16; if (!View(seq)) return;
-            action_.primary = action_.secondary = action_.idle = now + prepared_.sequences.duration[seq]; action_.action = 0;
-        }
-    }
+            auto& item = static_cast<Bridge*>(p)->item;
+            const int sequence = item.m_pPlayer->pev->weaponanim;
+            // Original1000F390 returns zero beyond the actual model's38 sequences.
+            if (sequence >= 38) { duration = 0; return true; }
+            if (sequence < 0 || !(item.prepared_.sequences.present & (std::uint64_t{1} << sequence))) return false;
+            duration = item.prepared_.sequences.duration[sequence];
+            return true;
+        }};
+    const auto derived = AdvanceM16DerivedFrame(action_, actionDeadline_, host);
+    if (!Current(&l)) return;
+    if (derived != M16ControlResult::Applied) { SetResult(derived); return; }
+    // Original common1011D560 starts with empty-sound reset and fidget.
+    if (!Check(frame)) return;
+    const float now = gpGlobals->time;
     if (action_.clip > 0) m_iPlayEmptySound = 1;
     // Original10050D10 consumes the chance RNG even while aiming; only
     // a50 result tests aiming before the second RNG. Both modes allow empty.

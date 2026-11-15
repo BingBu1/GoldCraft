@@ -30,7 +30,7 @@ M16OwnerFrame frame{};
 bool current=true;
 int cancel=-1, checks{}, meleeCalls{};
 bool failEffect{}, observeReload{};
-bool traceDeploy{};
+bool traceDeploy{}, mutateMovement{};
 std::vector<unsigned> deployOrder;
 std::vector<std::pair<int,int>> deployRandom;
 bool fidgetMode{};
@@ -61,7 +61,14 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const M16Event& e) noexce
     case M16Effect::FireEvent:Event(kind,a[0],a[1],a[2],b[0],b[1],b[2],e.value,e.other);break;
     case M16Effect::Recoil:Event(kind,a[0],a[1],a[2]);break;
     case M16Effect::Shake:Event(kind,Bits(e.a),Bits(e.b),Bits(e.c),Bits(float(e.value)));break;
-    case M16Effect::ViewAnimation:Event(kind,e.value);break;
+    case M16Effect::ViewAnimation:
+        Check(item.m_pPlayer->pev->weaponanim==e.value);
+        Event(kind,e.value);
+        if(mutateMovement&&e.value==14)
+        {
+            globals.time+=.375F;frame.originalFlags=0;item.m_pPlayer->pev->weaponanim=17;
+        }
+        break;
     case M16Effect::ShotState:Event(kind,Bits(e.a));break;
     case M16Effect::ShotLatch:shotLatch=e.value;shotLatchDeadline=e.a;break;
     case M16Effect::Aim:Event(21,e.enabled);break;
@@ -113,7 +120,7 @@ bool extendedAllowed=true;
 
 void Initialize()
 {
-    events.clear();current=true;cancel=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=0;frame={};frame.bulletDamage=37;
+    events.clear();current=true;mutateMovement=false;cancel=-1;failEffect=observeReload=fidgetMode=false;shotLatch=0;shotLatchDeadline=0;frame={};frame.bulletDamage=37;
     frame.randomSeed=17;frame.sourceMode=PistolSource::NormalMuzzle;
     frame.reserveLimit=200;frame.stamina=100;
     globals={};globals.maxClients=2;globals.time=0;
@@ -250,6 +257,21 @@ int main(int argc,char** argv)
             !std::strcmp(info.pszAmmo1,"cof_m16")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT&&!fresh.IsPistol());
         Check(!fresh.ResourcesReady()&&!fresh.GetItemInfo(nullptr));
     }
+    // Actual SDK callback changes clock, sprint flag and current sequence.
+    // The derived frame must use the post-consumer sequence duration and time.
+    Initialize();prepared.sequences.duration[17]=1.75F;
+    Check(weapon.Bind(player,prepared,backends)==M16Status::Ready);Check(weapon.Deploy());Ready();
+    frame.originalFlags=0x40000;player.pev->velocity={3,4,0};mutateMovement=true;
+    events.clear();weapon.ItemPostFrame();
+    Check(SawView(14)&&player.pev->weaponanim==17&&State().action==1);
+    Check(Bits(State().primary)==Bits(float(10.375+1.75*.5))&&State().secondary==State().primary);
+    Check(State().idle==10.375F+1.75F*.5F);
+    globals.time=12.126F;events.clear();weapon.ItemPostFrame();
+    Check(SawView(16)&&State().action==0&&Bits(State().primary)==Bits(13.126F));
+    // Pending aim exit cannot be delayed behind the ordinary hold-release lock.
+    Initialize();Ready();State().aiming=State().pendingReload=true;frame.toggleAim=false;
+    events.clear();weapon.ItemPostFrame();
+    Check(!State().aiming&&State().pendingReload&&SawView(20));
     // M16 requires an attack edge to start its group; scheduled shots ignore
     // the long group deadline and remain tied to this inventory/life.
     Initialize();Ready();frame.pressed=0;events.clear();weapon.PrimaryAttack();

@@ -2601,7 +2601,12 @@
     "docs/2026-11-15_接入-M16原生工厂与枪械资源-report.md",
     "tools/nightfall-hotfix/Inspect-ScenarioState.ps1",
     "tools/guest-bootstrap-hotfix/package.py",
-    "docs/2026-11-15_修复-客串脚本漏包与满体力预测诊断-report.md"
+    "docs/2026-11-15_修复-客串脚本漏包与满体力预测诊断-report.md",
+    "tests/cryoffear-m16-frame/README.md",
+    "tests/cryoffear-m16-frame/main.cpp",
+    "tests/cryoffear-m16-frame/oracle.py",
+    "tests/cryoffear-m16-frame/run.py",
+    "docs/2026-11-15_修复-M16原版派生帧时序-report.md"
   ],
   "trees": {
     "native": [

@@ -31,7 +31,7 @@ struct M16ControlHost
 enum class M16ControlResult : unsigned char
 {
     Applied, Deferred, Ineligible, MissingHost, MissingSequence, InvalidInput,
-    ConsumerRejected, Cancelled
+    ConsumerRejected, Cancelled, UnsupportedState
 };
 
 // Matched hl.dll10051D50. Shoot is the complete per-shot consumer, including
@@ -44,4 +44,28 @@ M16ControlResult M16ToggleFireMode(M16ControlState&, const M16ControlHost&) noex
 // retained until spent; requesting reload must not discard their extra ammo.
 M16ControlResult StartM16MagazineReload(M16ControlState&, const MagazineSequenceTimes&,
     const M16ControlHost&) noexcept;
+
+struct M16FrameOwner
+{
+    float velocityX{}, velocityY{}, pendingGateTime{};
+    std::uint32_t flags{};
+    bool condition3AA{}, pendingGate{};
+};
+enum class M16FrameEvent : unsigned char { ViewAnimation, ExitAim, Reload };
+struct M16FrameHost
+{
+    void* context{};
+    bool (*current)(void*) noexcept {};
+    float (*time)(void*) noexcept {};
+    // Pure authoritative reads, refreshed at the original instruction boundaries.
+    bool (*owner)(void*, M16FrameOwner&) noexcept {};
+    bool (*event)(void*, M16FrameEvent, int sequence) noexcept {};
+    // Resolve the current owner weaponanim after ViewAnimation, rather than
+    // assuming its requested sequence survived the transport callback.
+    bool (*duration)(void*, float&) noexcept {};
+};
+// Original10051540 ordinary derived frame. The caller runs common1011D560
+// afterwards. Special1/2 lifecycle is not admitted.
+M16ControlResult AdvanceM16DerivedFrame(MagazineActionState&, float& actionDeadline,
+    const M16FrameHost&) noexcept;
 }
