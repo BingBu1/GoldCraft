@@ -71,6 +71,7 @@
 #include "scenario/core/playerclip.hpp"
 #include <pm_defs.h>
 #include "../player_collision.hpp"
+#include "../scenario/custom/jump_prediction.hpp"
 
 namespace csol::client
 {
@@ -570,6 +571,9 @@ static void Transparent()
 static void PlayerMove(playermove_t* move, int server)
 {
     if (!server && !InjectPlayerClips(*move)) return;
+    if (!server && move->PM_Info_ValueForKey)
+        scenario::custom::ApplyJumpPredictionGate(*move, scenario::custom::JumpDenied(
+            move->PM_Info_ValueForKey(move->physinfo, scenario::custom::JumpDeniedKey)));
     // Read only the server's current prediction data, never a local CVAR or
     // cached scoreboard team. Disconnect/map/slot changes therefore cannot
     // retain a previous server's pass-through permission.

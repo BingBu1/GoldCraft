@@ -13,11 +13,14 @@ struct CSOLActionStaminaJump
 {
     std::uint64_t owner{},request{};
     unsigned slot{};
+    bool denied{};
 };
 // Trusted native PM only: capture before callbacks, commit at the original
 // successful jump epilogue. Failed/swimming/client-predicted calls never commit.
 CSOLActionStaminaJump CSOL_PrepareActionStaminaJump(const playermove_s& movement);
+bool CSOL_ActionStaminaJumpAllowed(CSOLActionStaminaJump jump);
 bool CSOL_CommitActionStaminaJump(CSOLActionStaminaJump jump);
+bool CSOL_ActionStaminaJumpBlocked(CBasePlayer& player);
 bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAccess>& access,
     csol::scenario::ConfigError& error);
 

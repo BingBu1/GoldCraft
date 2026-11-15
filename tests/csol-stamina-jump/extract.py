@@ -17,7 +17,13 @@ body=text[start:end].replace('void EXT_FUNC __API_HOOK(PM_Jump)()','void Scenari
 if body.count('CSOL_CommitActionStaminaJump')!=1 or body.count('CSOL_PrepareActionStaminaJump')!=1:
     raise ValueError('Production accepted-jump hook contract changed')
 out.mkdir(parents=True);target=out/'stamina_pm_jump.inc';target.write_text(body+'\n','utf8')
+plugin=ROOT/'native/csol/client/plugin.cpp';plugin_text=plugin.read_text('utf-8-sig')
+start=plugin_text.index('static void PlayerMove(playermove_t* move, int server)\n{')
+end=plugin_text.index('\n}',start)+2
+client=out/'stamina_client_move.inc';client.write_text(plugin_text[start:end]+'\n','utf8')
 (out/'receipt.json').write_text(json.dumps(dict(success=True,source=str(source),sourceSha256=hashlib.sha256(source.read_bytes()).hexdigest(),
     adapter=str(target),adapterSha256=hashlib.sha256(target.read_bytes()).hexdigest(),
+    clientSource=str(plugin),clientSourceSha256=hashlib.sha256(plugin.read_bytes()).hexdigest(),
+    clientAdapter=str(client),clientAdapterSha256=hashlib.sha256(client.read_bytes()).hexdigest(),
     boundary='Verbatim actual PM_Jump body with function name changed only; helper/engine boundaries supplied by SDK fixture'),indent=2)+'\n','utf8')
 print('Actual PM_Jump adapter prepared')

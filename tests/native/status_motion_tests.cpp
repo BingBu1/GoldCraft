@@ -19,6 +19,7 @@ using int32=std::int32_t;
 #include "in_buttons.h"
 #include "../../native/csol/server/custom/action_stamina.h"
 CSOLActionStaminaJump CSOL_PrepareActionStaminaJump(const playermove_s&){return {};}
+bool CSOL_ActionStaminaJumpAllowed(CSOLActionStaminaJump jump){return !jump.denied;}
 bool CSOL_CommitActionStaminaJump(CSOLActionStaminaJump){return false;}
 #define PLAY_GAMEDLL
 #include "bspfile.h"

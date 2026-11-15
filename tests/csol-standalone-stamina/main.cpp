@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/scenario/custom/standalone_stamina.hpp"
+#include "../../native/csol/scenario/custom/standalone_stamina_state.hpp"
+#include "../../native/csol/scenario/custom/jump_prediction.hpp"
 #include <Windows.h>
 #include <array>
 #include <bit>
@@ -149,5 +151,49 @@ int main()
         "human cost threshold rejects insufficient balance and accepts exact fee");
     Check(custom::CanAffordStandaloneJump(0, 15, true) && !custom::CanAffordStandaloneJump(0, 15, false),
         "human unlimited noon exception does not grant finite zero-stamina jumping");
+    const custom::LifeKey life{{1, 1}, 1};
+    custom::StandaloneStaminaState state;
+    Check(state.Begin(life, custom::Phase::Night, 100), "current owner begins a finite life");
+    for (unsigned i = 0; i != 9; ++i) Check(state.DebitKick(life), "accepted kicks deplete actual profile");
+    Check(!state.CanJump(life) && !state.DebitJump(life) && state.View(life)->amount == 10,
+        "insufficient balance cannot accept or debit jump");
+    Check(state.DebitKick(life) && state.View(life)->amount == 0, "finite depletion reaches zero");
+    Check(state.Step(life, 1, 100, .1f)->amount == 0 && !state.RecoveryVoice(), "debit observation starts original wait");
+    Check(state.Step(life, 2, 103, .1f)->amount == 0, "exact original deadline cannot recover");
+    const auto recoveredView = state.Step(life, 3, 103.1f, .1f);
+    Check(recoveredView && recoveredView->amount > 0 && state.RecoveryVoice(), "first real recovery emits depleted voice once");
+    const auto sameFrame = state.Step(life, 4, 103.1f, .1f);
+    Check(sameFrame->amount == recoveredView->amount && !state.RecoveryVoice(), "same native frame cannot repeat recovery or voice");
+    Check(state.Configure(life, {}, custom::Phase::Noon) && state.CanJump(life) && state.DebitJump(life) &&
+        state.View(life)->amount == sameFrame->amount, "authoritative noon allows jumps without refill or debit");
+    Check(state.Retire(life) && !state.CanJump(life) && !state.Begin(life, custom::Phase::Night, 200),
+        "retired life cannot jump or rebind full");
+    custom::StandaloneStaminaConfig stopped;
+    stopped.recoveryPerSecond=0;
+    custom::StandaloneStaminaState disabledRecovery;
+    Check(disabledRecovery.Begin(life,custom::Phase::Night,100,stopped),"explicit zero recovery override is accepted");
+    for(unsigned i=0;i<10;++i)Check(disabledRecovery.DebitKick(life),"zero-recovery life reaches actual depletion");
+    Check(bool(disabledRecovery.Step(life,1,100,.1f)),"zero-recovery debit observation retains original wait");
+    const auto noRecovery=disabledRecovery.Step(life,2,104,.1f);
+    Check(noRecovery&&noRecovery->amount==0&&noRecovery->exhausted&&!disabledRecovery.RecoveryVoice(),
+        "explicit zero rate cannot manufacture actual recovery or recovery voice");
+    custom::StandaloneStaminaConfig lowConfig;
+    lowConfig.recovery.maximum=5;lowConfig.kickCost=5;lowConfig.jumpCost=5;
+    custom::StandaloneStaminaState lowCapacity;
+    Check(lowCapacity.Begin(life,custom::Phase::Night,100,lowConfig)&&lowCapacity.DebitJump(life)&&!lowCapacity.CanJump(life),
+        "configured small capacity retains user fee gate without rejecting original low-sound threshold");
+    struct Movement
+    {
+        int dead{}, spectator{}, movetype{3}, oldbuttons{};
+        struct { int buttons{2}; } cmd;
+    } movement;
+    Check(custom::ApplyJumpPredictionGate(movement, custom::JumpDenied("1")) && movement.oldbuttons == 2,
+        "actual outgoing denial selects native oldbuttons latch");
+    movement.oldbuttons = 0;
+    Check(!custom::ApplyJumpPredictionGate(movement, custom::JumpDenied("10")) && movement.oldbuttons == 0,
+        "malformed or absent server key cannot block ordinary prediction");
+    movement.movetype = 5;
+    Check(!custom::ApplyJumpPredictionGate(movement, true) && movement.oldbuttons == 0,
+        "native ladder movement does not receive ground jump latch");
     std::printf("CSOL StandAlone original recovery: cases=%u checks=%u failures=0\n", cases, checks);
 }

@@ -154,6 +154,7 @@ void BudgetAndLife()
 }
 void ConfigurationScope()
 {
+    {
     kick_test::Case c; csol::scenario::ConfigError error;
     Require(CSOL_TryDebitKickStamina(c.f.runtime, c.player, 1) == CSOLKickStaminaDebit::Applied,
         "default finite kick cost applied before edit");
@@ -184,12 +185,15 @@ void ConfigurationScope()
         "new-life token in same map");
     Expect(CSOL_ActionStaminaView(c.f.runtime, c.player)->amount == 90,
         "respawn does not apply a policy promised for the next map");
-    CSOL_ResetActionStamina(); // Explicit controlled map-policy retirement boundary.
-    Require(CSOL_TickActionStamina(c.f.runtime, c.player, gpGlobals->time, error), "new policy epoch after cold reset");
-    Require(CSOL_TryDebitKickStamina(c.f.runtime, c.player, 1) == CSOLKickStaminaDebit::Applied,
+    }
+    {
+    kick_test::Case next;csol::scenario::ConfigError error;
+    Require(CSOL_TickActionStamina(next.f.runtime, next.player, gpGlobals->time, error), "next real world prepares saved policy with its cold transport");
+    Require(CSOL_TryDebitKickStamina(next.f.runtime, next.player, 1) == CSOLKickStaminaDebit::Applied,
         "new policy action");
-    Expect(CSOL_ActionStaminaView(c.f.runtime, c.player)->amount == 70,
-        "retired map policy now consumes actually saved thirty-point cost");
+    Expect(CSOL_ActionStaminaView(next.f.runtime, next.player)->amount == 70,
+        "next registered map now consumes actually saved thirty-point cost");
+    }
 }
 CoF* swapCase{};
 bool SwapOnReload(void* context, CBasePlayer& player, CBasePlayerWeapon& item,

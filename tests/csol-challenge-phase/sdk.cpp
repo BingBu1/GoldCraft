@@ -12,6 +12,7 @@
 #include "../../native/csol/scenario/custom/phase_art.hpp"
 #include "../../native/csol/scenario/core/scenario_music.hpp"
 #include "goldcraft/csol_scenario_admin_api.hpp"
+#include "../csol-challenge-environment/provider_loader.hpp"
 #include <filesystem>
 #include <fstream>
 
@@ -38,6 +39,7 @@ void Playback(int flags,const edict_t* invoker,unsigned short event,float delay,
 }
 void Settings(bool enabled)
 {
+    if(enabled)environment_test::LoadProvider();
     custom::Draft draft; custom::Error error; custom::SnapshotPtr snapshot;
     Require(draft.Set(custom::Feature::TimeCycle,enabled,error) &&
         draft.Set(custom::Setting::MiddaySeconds,2,error) &&
@@ -293,8 +295,13 @@ void Breath(bool male,bool cancel=false)
     Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"same-frame amount0 remains valid");
     Expect(hudCount()==2&&latestHud().amount==0,"accepted kick debit reaches HUD without inventing recovery");
     Expect(count()==0,"same time before the recovery edge sends no sound");
+    c.f.engine.globals.frametime=.01f;
+    for(const float time:{100.01f,101.f,102.f,103.f})
+        Require(CSOL_TickActionStamina(c.f.runtime,c.player,time,error),"original strict three-second recovery wait");
+    Expect(count()==0&&hudCount()==2&&latestHud().amount==0,
+        "original CSOL wait does not emit a premature recovery cue or refill");
     if(cancel)c.callback=[&](std::string_view edge){if(edge=="message"&&c.packets.back().id==id)c.f.runtime->RequestClose();};
-    const bool stepped=CSOL_TickActionStamina(c.f.runtime,c.player,100.01f,error);
+    const bool stepped=CSOL_TickActionStamina(c.f.runtime,c.player,103.01f,error);
     Require(cancel?!stepped:stepped,"real audio-send callback preserves or retires the exact stamina owner");
     Require(count()==1,"real exhausted recovery edge sends exactly one voice message");
     const auto packet=std::find_if(c.packets.rbegin(),c.packets.rend(),[&](const auto& p){return p.id==id;});
@@ -303,17 +310,17 @@ void Breath(bool male,bool cancel=false)
         "actual transport publishes one matched gender/life/event only to its owner");
     if(cancel)
     {
-        Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,101,error)&&count()==1,
+        Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,104,error)&&count()==1,
             "retired map cannot publish later breathing");
         return;
     }
-    Expect(hudCount()==3&&latestHud().exhausted&&latestHud().amount==.1f,"exhaustion HUD carries exact authoritative wait state");
-    for(int i=0;i<100;++i)Require(CSOL_TickActionStamina(c.f.runtime,c.player,100.02f+i*.001f,error),"accepted recovery wait tick");
-    Expect(hudCount()==3,"100 identical recovery-wait frames do not flood the reliable channel");
+    Expect(hudCount()==3&&!latestHud().exhausted&&latestHud().amount==.001f,"HUD carries original accumulator recovery at the real recovery edge");
+    for(int i=0;i<100;++i)Require(CSOL_TickActionStamina(c.f.runtime,c.player,103.01f,error),"same engine frame remains idempotent");
+    Expect(hudCount()==3,"100 same-frame queries do not repeat recovery or flood the reliable channel");
     Expect(count()==1,"100 frames in the same exhausted episode never repeat the sound");
     Require(CSOL_TickActionStamina(c.f.runtime,c.player,105.02f,error),"actual original recovery delay finishes");
     Expect(!CSOL_ActionStaminaView(c.f.runtime,c.player)->exhausted&&count()==1,"recovery completion does not replay the start cue");
-    Expect(hudCount()==4&&!latestHud().exhausted&&latestHud().amount>1,"actual recovery amount reaches HUD");
+    Expect(hudCount()==4&&!latestHud().exhausted&&latestHud().amount>.001f,"actual accelerating recovery amount reaches HUD");
     CSOL_RetireActionStamina(c.player);
     Expect(hudCount()==5&&!latestHud().visible,"retirement clears only this owner's stamina HUD");
     Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,106,error)&&count()==1,"native life retirement cannot resurrect old sound");

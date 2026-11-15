@@ -19,6 +19,7 @@ using int32=std::int32_t;
 // This fluid fixture has no scenario owner. Actual stamina/PM ownership is
 // exercised by csol-stamina-jump's real GameDLL integration separately.
 CSOLActionStaminaJump CSOL_PrepareActionStaminaJump(const playermove_s&){return {};}
+bool CSOL_ActionStaminaJumpAllowed(CSOLActionStaminaJump jump){return !jump.denied;}
 bool CSOL_CommitActionStaminaJump(CSOLActionStaminaJump){return false;}
 #define PLAY_GAMEDLL
 #include "bspfile.h"

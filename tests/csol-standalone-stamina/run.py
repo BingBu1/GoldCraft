@@ -106,6 +106,9 @@ def main():
         '{' + ','.join(map(str, fix)) + '}' for fix in fixups) + '};\n'
     source = Path(__file__).with_name('main.cpp')
     paths = [Path(__file__), source, ROOT / 'native/csol/scenario/custom/standalone_stamina.hpp',
+             ROOT / 'native/csol/scenario/custom/standalone_stamina_state.hpp',
+             ROOT / 'native/csol/scenario/custom/jump_prediction.hpp',
+             ROOT / 'native/csol/scenario/custom/stamina.hpp', ROOT / 'native/csol/scenario/custom/phase.hpp',
              args.original, evidence, args.compiler, args.environment]
     before = [identity(path) for path in paths]
     env = dict(os.environ)
