@@ -19,7 +19,7 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "正午与黄昏按秒推进，之后保持永夜；BGM资源由服务端另验。", false, Scope::NextMapSession},
     {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "三档盲盒使用本局CS金钱；奖池和真实发奖能力另验。", false, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
-    {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "CoF体力跑；原消耗恢复及动作消费者先取证，正午无限不能用NaN表示。", false, Scope::NextMapSession},
+    {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "CSOL绝命档案体力/疾跑；cof_sprint为历史配置键，须完成正确模式消费者与双端移动后启用。", false, Scope::NextMapSession},
     {Feature::Blood, "blood", "csol_custom_blood", "血迹效果；最大数量与寿命有界，关闭只清理本功能拥有的实例。", false, Scope::Immediate},
     {Feature::DuskBuff, "dusk_buff", "csol_custom_dusk_buff", "黄昏独立移速和回血参数；关闭保留参数。", false, Scope::NextMapSession},
     {Feature::NightBuff, "night_buff", "csol_custom_night_buff", "永夜独立伤害、移速和回血参数；不开启不要求未定参数。", false, Scope::NextMapSession},
