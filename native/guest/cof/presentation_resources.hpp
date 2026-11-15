@@ -17,6 +17,8 @@ inline constexpr std::array<const char*,3> VP70PresentationResources{
     "sprites/weapon_cof_vp70.txt","sprites/guest/cof/cvp70.spr","sprites/guest/cof/vp70_ammo.spr"};
 inline constexpr std::array<const char*,3> TMPPresentationResources{
     "sprites/weapon_cof_tmp.txt","sprites/guest/cof/ctmp.spr","sprites/guest/cof/tmp_ammo.spr"};
+inline constexpr std::array<const char*,3> MP5PresentationResources{
+    "sprites/weapon_cof_mp5.txt","sprites/guest/cof/cmp5.spr","sprites/guest/cof/mp5_ammo.spr"};
 constexpr unsigned FirearmHudAmmoFrames(Firearm weapon) noexcept
 { return weapon==Firearm::Revolver?6u:weapon<Firearm::Count?1u:0u; }
 constexpr unsigned PistolHudAmmoFrames(Pistol weapon) noexcept
@@ -36,6 +38,8 @@ constexpr std::span<const char* const> FirearmPresentationResources(Firearm weap
 {
     const auto index=static_cast<unsigned>(weapon);
     if(index<PistolKeys.size())return PistolPresentationResources(static_cast<Pistol>(index));
-    return weapon==Firearm::TMP?std::span<const char* const>{TMPPresentationResources}:std::span<const char* const>{};
+    if(weapon==Firearm::TMP)return TMPPresentationResources;
+    if(weapon==Firearm::MP5)return MP5PresentationResources;
+    return {};
 }
 }

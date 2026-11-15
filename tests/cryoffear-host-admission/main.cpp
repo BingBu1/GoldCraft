@@ -36,6 +36,7 @@ cvar_t protocol{};
 cvar_t weaponMask{};
 bool p345Hud{true},p345Muzzle{true},revolverHud{true},revolverMuzzle{true};
 bool vp70Hud{true},vp70Muzzle{true},tmpHud{true},tmpMuzzle{true};
+bool mp5Hud{};
 GuestCofResourceState resources;
 csol::WeaponCurrent current;
 std::map<std::string, cmd_function_t> commands;
@@ -98,8 +99,8 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900||id==901)&&frames==1)||(id==898&&frames==6));return hud&&id!=901&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
-bool PrepareBuyMenuItem(int id){CHECK(id==896||id==897||id==898||id==899||id==900);++menuLoads;if(retireInMenu)++generation;return menu;}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900||id==901)&&frames==1)||(id==898&&frames==6));return hud&&(id!=901||mp5Hud)&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
+bool PrepareBuyMenuItem(int id){CHECK(id>=896&&id<=901);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
 int main(int argc,char** argv)
@@ -238,6 +239,17 @@ int main(int argc,char** argv)
     const auto beforeMP5Menu=menuLoads;GuestCofAdmissionFrame();
     CHECK(!GuestCofAdmitted(901)&&GuestCofAdmitted(900)&&weaponMask.value==31&&menuLoads==beforeMP5Menu);
     current.id=901;Press();CreateMove(.01F,&chain,1);CHECK(!(chain.buttons&IN_CANCEL));Release();
+    if(catalog.weapons.contains("weapon_cof_mp5"))
+    {
+        const auto& mp5=catalog.weapons.at("weapon_cof_mp5");
+        CHECK(mp5.title=="客串武器·MP5A3"&&mp5.ammoFrames[0].empty()&&!mp5.ammo.empty());
+        CHECK(buy.images.at(901).width==170&&buy.images.at(901).height==80&&
+            buy.weaponInfo.items.at(901).description.find("冲锋枪")!=std::string::npos);
+        const auto* item=csol::buy::Find(901);CHECK(item&&item->category==3&&item->extendedPrice==2400);
+        mp5Hud=true;GuestCofAdmissionFrame();CHECK(GuestCofAdmitted(901)&&weaponMask.value==63);
+        current.id=901;Press();CreateMove(.01F,&chain,1);CHECK(chain.buttons&IN_CANCEL);Release();
+        mp5Hud=false;GuestCofAdmissionFrame();CHECK(!GuestCofAdmitted(901)&&GuestCofAdmitted(900)&&weaponMask.value==31);
+    }
     generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     CHECK(mountMoves>0);

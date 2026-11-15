@@ -48,5 +48,12 @@ constinit const WeaponModule tmpModule{
     .ammoSprite="sprites/guest/cof/tmp_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false};
 const WeaponModuleRegistration tmpRegistration{tmpModule};
+constexpr int mp5Ids[]{guest::cof::FindFirearm(guest::cof::Firearm::MP5)->hostId};
+constinit const WeaponModule mp5Module{
+    .ids=mp5Ids,.order=95,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/mp5_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false};
+const WeaponModuleRegistration mp5Registration{mp5Module};
 }
 }

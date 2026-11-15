@@ -17,6 +17,7 @@ import re
 import shutil
 import struct
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('csol_hud_export', ROOT/'tools/Prepare-CSOLHud.py')
@@ -46,6 +47,11 @@ TMP_PINS={
     'inventoryitems/weapons/weapon_tmp.txt':'f39a3846ec28effe200a231e63d133ba06c59f73d756006dcb0a086614719002',
     'gfx/vgui/weapons/mp9/640_mp9_slot.tga':'f84f2d152c3992e10dc28d7836df837c4a0ab344ea53524c63b33a5266d62055',
     'sprites/cof_tmp_mag_icon.spr':'227060ee05aab117e57e94bb14c72235e19c1852c9942e195ca7b5d5c0a9613b',
+}
+MP5_PINS={
+    'inventoryitems/weapons/weapon_mp5.txt':'917fd1e6fa3eda9a94de9ad80561680502ce70abd6623d5dedaabe2ce2fb578d',
+    'gfx/vgui/weapons/mp5/640_mp5_slot.tga':'38be4519bf820f931ac7b75a201e5740fbd3521b766fc4ff36208b0b8090994f',
+    'sprites/cof_mp5_mag_icon.spr':'babb08a0c8dc182c6b2b306aa74194eb6873b8e9895d9650612b058b296a2662',
 }
 REVOLVER_AMMO_SHA = '1abc649e0684796805236ebd0442db4e518cfa3c400a710db27a6e09906693a0'
 
@@ -129,10 +135,27 @@ def native_sprite(width,height,rgba):
     return struct.pack('<4siiifiiifi',b'IDSP',2,2,3,float(max(width,height)),width,height,1,0.,0)+\
         struct.pack('<H',256)+palette+struct.pack('<5i',0,-width//2,height//2,width,height)+pixels
 
+
+def commit_output(stage, output):
+    # Newly written files can briefly lack delete sharing on Windows.
+    # Preserve atomic publication and never replace an existing candidate.
+    for attempt in range(6):
+        if output.exists():
+            raise FileExistsError('Candidate appeared during publication')
+        try:
+            stage.rename(output)
+            return
+        except PermissionError as error:
+            if os.name != 'nt' or error.winerror not in (5, 32, 33) or attempt == 5:
+                raise
+            time.sleep(.05 * 2 ** attempt)
+
+
 def prepare(original_root, baseline_root, output, weapon='glock'):
-    if weapon not in ('glock','p345','revolver','vp70','tmp'):raise ValueError('Unreviewed guest presentation weapon')
-    p345=weapon=='p345';revolver=weapon=='revolver';vp70=weapon=='vp70';tmp=weapon=='tmp'
-    kind={'glock':'Glock','p345':'P345','revolver':'Revolver','vp70':'VP70','tmp':'TMP'}[weapon];key='cof_'+weapon
+    if weapon not in ('glock','p345','revolver','vp70','tmp','mp5'):raise ValueError('Unreviewed guest presentation weapon')
+    p345=weapon=='p345';revolver=weapon=='revolver';vp70=weapon=='vp70';tmp=weapon=='tmp';mp5=weapon=='mp5'
+    automatic=tmp or mp5
+    kind={'glock':'Glock','p345':'P345','revolver':'Revolver','vp70':'VP70','tmp':'TMP','mp5':'MP5'}[weapon];key='cof_'+weapon
     original_root, baseline_root, output = map(Path, (original_root, baseline_root, output))
     for path in (original_root, baseline_root, output):
         hud.no_reparse(path.absolute())
@@ -157,16 +180,16 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         return data
 
     definition = read(ROOT/'native/guest/cof/catalog.hpp').decode('utf8')
-    category=3 if tmp else 1
-    pattern=(r'result.back\(\)=\{Firearm::' if tmp else r'PistolDefinition\{Pistol::')
+    category=3 if automatic else 1
+    pattern=(r'result(?:\.back\(\)|\[[^\]]+\])=\{Firearm::' if automatic else r'PistolDefinition\{Pistol::')
     match = re.search(pattern+kind+r',\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"', definition)
     if not match:
-        raise ValueError('Glock author definition is missing or unsupported')
+        raise ValueError('Guest author definition is missing or unsupported')
     ident, original_id, clip, reserve, price, ammo_price, ammo_count = map(int, match.groups()[:7])
     classname, ammunition, title = match.groups()[7:]
-    expected=(900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
+    expected=(901,27,'weapon_cof_mp5','cof_mp5',30) if mp5 else (900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
     if (ident, original_id, classname, ammunition, clip) != expected:
-        raise ValueError('Unreviewed host/original Glock identity')
+        raise ValueError('Unreviewed host/original guest identity')
     shop = read(ROOT/'native/csol/buy_menu.cpp').decode('utf8')
     if not re.search(r'\{'+str(ident)+r','+str(category)+r',"'+key+r'","'+re.escape(title)+r'","'+key+r'",'+str(price)+r'\}', shop):
         raise ValueError('Host shop and guest author definition disagree')
@@ -185,8 +208,8 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
     info = result_menu['weaponInfo']['items']
     if any(r['name'] == classname for r in rows) or any(r['id'] == ident for r in images+info):
         raise ValueError('Guest presentation already exists; supply the unmodified baseline')
-    assets = {name: read(original_root/name, pin) for name, pin in (TMP_PINS if tmp else VP70_PINS if vp70 else REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
-    if p345 or revolver or vp70 or tmp:
+    assets = {name: read(original_root/name, pin) for name, pin in (MP5_PINS if mp5 else TMP_PINS if tmp else VP70_PINS if vp70 else REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
+    if p345 or revolver or vp70 or automatic:
         text=assets['inventoryitems/weapons/weapon_'+weapon+'.txt'].decode('utf8')
         art='mp9' if tmp else weapon
         picture='gfx/vgui/weapons/'+art+'/640_'+art+'_slot.tga'
@@ -212,8 +235,8 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         aw, ah, ammo, _ = hud.decode_sprite(ammo_asset)
         if (aw, ah) != (32, 32):
             raise ValueError('Original magazine icon dimensions differ')
-    hud.validate_weapon_pixels(pixels, 'guest/cof/glock weapon')
-    hud.validate_weapon_pixels(ammo, 'guest/cof/glock ammo')
+    hud.validate_weapon_pixels(pixels, 'guest/cof/'+weapon+' weapon')
+    hud.validate_weapon_pixels(ammo, 'guest/cof/'+weapon+' ammo')
     weapon_path = hud.RESOURCE+key+'_weapon.tga'
     ammo_path = hud.RESOURCE+key+'_ammo.tga'
     purchase_path = 'gfx/csol/buy/'+key+'.tga'
@@ -228,13 +251,13 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
     info.append(dict(id=ident, itemId=ident, name=title,
         description=f'Cry of Fear 客串手枪。{clip} 发弹匣，支持机瞄与枪托推击。',
         table=False, values=['']*10, grade=[-1]*3))
-    if tmp:info[-1]['description']=f'Cry of Fear 客串冲锋枪。{clip} 发弹匣，全自动，支持机瞄与枪托推击。'
+    if automatic:info[-1]['description']=f'Cry of Fear 客串冲锋枪。{clip} 发弹匣，全自动，支持机瞄与枪托推击。'
     if vp70:info[-1]['description']=f'Cry of Fear 客串手枪。{clip} 发弹匣，三连发，支持机瞄与枪托推击。'
     native_list = ('6\n'
         'weapon 320 guest/cof/cglock 0 0 170 80\nweapon_s 320 guest/cof/cglock 0 0 170 80\n'
         'weapon 640 guest/cof/cglock 0 0 170 80\nweapon_s 640 guest/cof/cglock 0 0 170 80\n'
         'ammo 320 guest/cof/glock_ammo 0 0 32 32\nammo 640 guest/cof/glock_ammo 0 0 32 32\n').encode('ascii')
-    if p345 or vp70 or tmp:native_list=native_list.replace(b'cglock',('c'+weapon).encode()).replace(b'glock_ammo',(weapon+'_ammo').encode())
+    if p345 or vp70 or automatic:native_list=native_list.replace(b'cglock',('c'+weapon).encode()).replace(b'glock_ammo',(weapon+'_ammo').encode())
     if revolver:native_list=native_list.replace(b'cglock',b'crever').replace(b'glock_ammo',b'revolver_ammo')
     selection_name='crever' if revolver else 'c'+weapon
     generated = {
@@ -266,7 +289,7 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
             clip=clip, reserve=reserve, price=price, ammunitionPrice=ammo_price, ammunitionCount=ammo_count,
             baselineOtherRowsUnchanged=True, deployed=False, gameplay=False, performance=False)
         (stage/'presentation-receipt.json').write_text(json.dumps(receipt, indent=2), 'utf8')
-        os.replace(stage, output)
+        commit_output(stage, output)
         return receipt
     except BaseException:
         shutil.rmtree(stage)
@@ -277,7 +300,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('original-game-root', 'baseline', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
-    parser.add_argument('--weapon',choices=('glock','p345','revolver','vp70','tmp'),default='glock')
+    parser.add_argument('--weapon',choices=('glock','p345','revolver','vp70','tmp','mp5'),default='glock')
     args = parser.parse_args()
     receipt = prepare(args.original_game_root, args.baseline, args.output,args.weapon)
     print(json.dumps(dict(success=True, files=len(receipt['files']), bytes=sum(r['bytes'] for r in receipt['files']))))
