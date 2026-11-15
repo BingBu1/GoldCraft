@@ -78,6 +78,9 @@ target_include_directories(CSOLSupport PRIVATE "${SDK}" "${SDK}/Interface"
 target_compile_definitions(CSOLSupport PRIVATE WIN32 _WINDOWS _USRDLL _MBCS NO_MALLOC_OVERRIDE
     NOMINMAX GLEW_STATIC GLEW_NO_GLU _CRT_SECURE_NO_WARNINGS)
 target_compile_options(CSOLSupport PRIVATE /utf-8 /W3 /Zi)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND MSVC)
+    target_compile_options(CSOLSupport PRIVATE /clang:-ffp-contract=off)
+endif()
 target_sources(CSOLSupport PRIVATE "${METAHOOK_ROOT}/thirdparty/glew_fork/src/glew.c")
 target_link_libraries(CSOLSupport PRIVATE opengl32 gdi32 bcrypt)
 include(damage_vgui.cmake)

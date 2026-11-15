@@ -55,7 +55,41 @@ struct RuntimeAdapter
     {return context.runtime&&context.runtime->MP5Backend(player,output);}
 };
 struct {RuntimeAdapter runtime;} host;
+// Only the configured field is consumed by the real negotiation function.
+struct Map { std::uint32_t configuredWeapons; };
+using guest::cof::FirearmAdmission;
+using guest::cof::ParseFirearmAdmission;
 #include "sdk-player-authority.inc"
+
+const char* clientProtocol="1";
+const char* clientWeapons="63";
+void CheckConfiguredCapabilities()
+{
+    const auto oldBuffer=g_engfuncs.pfnGetInfoKeyBuffer;
+    const auto oldValue=g_engfuncs.pfnInfoKeyValue;
+    const bool oldAllowed=extendedAllowed;
+    g_engfuncs.pfnGetInfoKeyBuffer=[](edict_t* actor)->char* {
+        Check(actor==player.edict());static char info[]="controlled userinfo";return info;
+    };
+    g_engfuncs.pfnInfoKeyValue=[](char*,const char* key)->char* {
+        return const_cast<char*>(!std::strcmp(key,"cof_protocol")?clientProtocol:clientWeapons);
+    };
+    extendedAllowed=true;
+    for(unsigned configured:{15u,31u,63u})
+    {
+        Map map{configured};clientWeapons="63";clientProtocol="1";
+        Check(Capability(player,map).weapons==configured);
+        clientWeapons="31";Check(Capability(player,map).weapons==(configured&31u));
+        clientWeapons="1";Check(Capability(player,map).weapons==1);
+        clientWeapons="0";Check(!Capability(player,map).weapons);
+        clientWeapons="64";Check(!Capability(player,map).weapons);
+        clientWeapons="63";clientProtocol="0";Check(!Capability(player,map).weapons);
+        clientProtocol="1";extendedAllowed=false;Check(!Capability(player,map).weapons);
+        extendedAllowed=true;
+    }
+    extendedAllowed=oldAllowed;
+    g_engfuncs.pfnGetInfoKeyBuffer=oldBuffer;g_engfuncs.pfnInfoKeyValue=oldValue;
+}
 
 struct ModelRetireProbe final:CBasePlayerWeapon,OwnerFrameWeapon
 {
@@ -356,7 +390,7 @@ int main(int argc,char** argv)
     std::ifstream input(argv[1],std::ios::binary);Check(input.good());
     const std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
     model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
-    Configure();Engine();Resources(argv[2],argv[3],argv[4]);
+    Configure();Engine();CheckConfiguredCapabilities();Resources(argv[2],argv[3],argv[4]);
     GlockRuntime runtime{{2,64}};context.runtime=&runtime;context.epoch=1;
     Check(bool(runtime.BeginMap(Callbacks(false)))&&runtime.Resources()&&!runtime.PreparedP345Resources());
     std::string error;Check(runtime.PlayerSpawned(player,PlayerPreparation(false),error));

@@ -2,10 +2,12 @@
 // Inspect static registration in the exact linked DLL after normal CRT loading.
 // RVAs and private Registry offsets come from its matching PDB, never fixed game offsets.
 #include "../../native/csol/client/weapons/weapon_module.hpp"
+#include "../../native/guest/cof/catalog.hpp"
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 namespace {
 using namespace csol::client;int checks{},failures{};
 void Check(bool value,const char* label){++checks;if(!value){++failures;std::fprintf(stderr,"FAIL %s\n",label);}}
@@ -44,6 +46,19 @@ int main(int argc,char** argv){
     Check(!expected[id],"each weapon ID has one descriptor");expected[id]=descriptor;}
   }
   for(unsigned id=0;id<1024;++id)Check(Read<const WeaponModule*>(registry+id*4)==expected[id],"full DLL by-ID table exact and unused cells empty");
+  unsigned guestCrosshairs{};
+  for(const auto& firearm:guest::cof::Firearms){
+   const auto* descriptor=expected[firearm.hostId];
+   Check(descriptor&&descriptor->ammoKind==csol::hud_style::AmmoKind::Magazine&&!descriptor->dynamicCrosshair,
+         "every current guest firearm has its actual independent HUD descriptor");
+   if(descriptor){
+    const std::string sprite="sprites/guest/cof/"+std::string(guest::cof::FirearmKeys[static_cast<unsigned>(firearm.identity)])+"_ammo.spr";
+    Check(descriptor->ammoSprite&&!std::strcmp(descriptor->ammoSprite,sprite.c_str())&&descriptor->ammoRect.right==32&&descriptor->ammoRect.bottom==32,
+          "linked guest descriptor owns its correct original ammunition icon");
+    if(descriptor->drawHud)++guestCrosshairs;
+   }
+  }
+  Check(guestCrosshairs==1,"full DLL dispatches one shared guest crosshair");
   Check(FreeLibrary(module)!=0,"full DLL unload succeeds without engine initialization");
  }
  std::printf("DLL registry checks=%d failures=%d\n",checks,failures);return failures?1:0;

@@ -2553,7 +2553,9 @@
     "docs/2026-11-15_接入-MP5客户端路由与全局模型登记-report.md",
     "docs/2026-11-15_接入-MP5原图HUD与购买资源-report.md",
     "tests/cryoffear-mp5-presentation/README.md",
-    "docs/2026-11-15_接入-MP5生产Host与效果分发-report.md"
+    "docs/2026-11-15_接入-MP5生产Host与效果分发-report.md",
+    "docs/2026-11-15_构建-MP5整枪与配套冷服-report.md",
+    "docs/2026-11-15_分析-M16原版工厂与火控入口-report.md"
   ],
   "trees": {
     "native": [

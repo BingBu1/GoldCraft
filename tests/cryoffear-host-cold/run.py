@@ -57,8 +57,12 @@ def main():
         parser.add_argument('--' + key, type=Path, required=True)
     parser.add_argument('--include-tmp', action='store_true',
                         help='Require all five firearm definitions; otherwise require TMP to remain absent')
+    parser.add_argument('--include-mp5', action='store_true',
+                        help='Require all six firearm definitions, including the independently typed MP5')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
     args = parser.parse_args()
+    if args.include_mp5 and not args.include_tmp:
+        parser.error('--include-mp5 requires --include-tmp for the six-firearm profile')
     out = checked(args.output)
     if out.exists() or not out.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh build receipt directory')
@@ -72,6 +76,13 @@ def main():
     resources = json.loads(args.resources.read_text('utf8'))['files']
     if not resources or len(resources) > 1024:
         raise ValueError('Bounded explicit resource closure required')
+    damage = [row for row in resources if row['destination'] == 'configs/guest/cof/scenario_damage.json']
+    if len(damage) != 1:
+        raise ValueError('Expected one explicit damage profile in the cold resource set')
+    profile = json.loads(checked(damage[0]['source']).read_text('utf-8-sig'))
+    expected_version = 3 if args.include_mp5 else 2 if args.include_tmp else 1
+    if profile.get('version') != expected_version:
+        raise ValueError('Cold-test expectations do not match the supplied damage profile version')
     out.mkdir()
     rollback = out / 'rollback'
     rollback.mkdir()
@@ -221,6 +232,8 @@ def main():
             expected = [(896, 'glock', 15), (897, 'p345', 8), (898, 'revolver', 5), (899, 'vp70', 18)]
             if args.include_tmp:
                 expected.append((900, 'tmp', 30))
+            if args.include_mp5:
+                expected.append((901, 'mp5', 30))
             for ident, name, clip in expected:
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])
                 get = lambda field: struct.unpack_from('<i', raw, layout['members'][field])[0]
@@ -238,9 +251,11 @@ def main():
                 assert (get('iId'), get('iMaxClip'), actual.decode('ascii')) == (ident, clip, 'weapon_cof_' + name)
                 result['registration'].append(dict(id=ident, name=actual.decode('ascii'), clip=clip))
             result['checks']['actualItemDefinitions'] = len(result['registration']) == len(expected)
-            if not args.include_tmp:
-                raw = process.read(table + (900 - 32) * layout['size'], layout['size'])
-                result['checks']['optionalTMPAbsent'] = (
+            for ident, enabled, label in ((900, args.include_tmp, 'TMP'), (901, args.include_mp5, 'MP5')):
+                if enabled:
+                    continue
+                raw = process.read(table + (ident - 32) * layout['size'], layout['size'])
+                result['checks']['optional' + label + 'Absent'] = (
                     struct.unpack_from('<i', raw, layout['members']['iId'])[0] == 0 and
                     struct.unpack_from('<I', raw, layout['members']['pszName'])[0] == 0)
         finally:
@@ -259,7 +274,8 @@ def main():
             return dict(path=name, bytes=len(data), sha256=row['sha256'])
         guest_roots = ('models/guest/cof/', 'sound/guest/cof/', 'sprites/guest/cof/',
                        'gfx/guest/cof/', 'events/guest/cof/', 'inventoryitems/guest/cof/',
-                       'aurora/guest/cof/', 'sprites/weapon_cof_')
+                       'aurora/guest/cof/', 'sprites/weapon_cof_', 'gfx/csol/buy/cof_',
+                       'resource/csol/hud/v1/cof_')
         guest = [row for row in resources if row['destination'].startswith(guest_roots)]
         with ThreadPoolExecutor(max_workers=4) as pool:
             result['http'] = list(pool.map(download, guest))

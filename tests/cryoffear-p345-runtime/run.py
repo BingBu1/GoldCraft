@@ -45,7 +45,8 @@ def main():
     prefix=prefix.replace('../cryoffear-glock-weapon/main.cpp','tests/cryoffear-glock-weapon/main.cpp')
     (output/'shared-factory-sdk.inc').write_text(prefix,'utf-8')
     host_source=ROOT/'native/csol/server/weapons/guest_cof_host.cpp'
-    (output/'sdk-player-authority.inc').write_text(body(host_source,'bool PlayerAuthority('),'utf8')
+    (output/'sdk-player-authority.inc').write_text(
+        body(host_source,'bool PlayerAuthority(')+'\n'+body(host_source,'FirearmAdmission Capability('),'utf8')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     host=ROOT/'native/csol/server/weapons/guest_cof_host.cpp' if a.compile_host else None

@@ -9,7 +9,7 @@
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <FloatingPointModel>Precise</FloatingPointModel>
       <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
-      <AdditionalOptions>%(AdditionalOptions) --target=i686-pc-windows-msvc -Wno-unused-command-line-argument /arch:AVX2</AdditionalOptions>
+      <AdditionalOptions>%(AdditionalOptions) --target=i686-pc-windows-msvc -Wno-unused-command-line-argument /arch:AVX2 /clang:-ffp-contract=off</AdditionalOptions>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release' Or '$(GoldCraftOptimizedTests)' == 'true'">
