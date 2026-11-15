@@ -94,6 +94,12 @@ struct Player final:CBasePlayer
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
 #if defined(COF_RUNTIME_P345_FIXTURE)
+        if(!std::strcmp(name,"cof_mp5"))
+        {
+            Check(amount>=0&&(maximum==90||maximum==300));
+            const int add=std::min(amount,maximum-m_rgAmmo[6]);if(add<0)return -1;
+            m_rgAmmo[6]+=add;Event(104,amount,maximum);return 6;
+        }
         if(!std::strcmp(name,"cof_tmp"))
         {
             Check(amount>=0&&(maximum==90||maximum==300));
@@ -242,7 +248,7 @@ int gmsgWeapPickup{};
 constexpr bool FixtureGuestId(int id) noexcept
 {
 #if defined(COF_RUNTIME_P345_FIXTURE)
-    return id==896||id==897||id==898||id==899||id==900;
+    return id==896||id==897||id==898||id==899||id==900||id==901;
 #else
     return id==896;
 #endif

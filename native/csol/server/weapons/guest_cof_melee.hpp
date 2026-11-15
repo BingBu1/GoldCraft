@@ -6,6 +6,16 @@
 
 namespace csol::server::cof
 {
+inline constexpr guest::cof::PistolMeleeSamples MP5MeleeSamples{
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing1)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing2)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing3)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing4)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing5)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::Swing6)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::PunchSwing)].host,
+    MP5Sounds[static_cast<unsigned>(MP5Sound::PunchSmack)].host
+};
 inline constexpr guest::cof::PistolMeleeSamples TMPMeleeSamples{
     TMPSounds[static_cast<unsigned>(TMPSound::Swing1)].host,
     TMPSounds[static_cast<unsigned>(TMPSound::Swing2)].host,

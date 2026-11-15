@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5"),default="p345")
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
@@ -58,6 +58,7 @@ def main():
         ROOT / 'native/guest/cof/magazine_reload.cpp', ROOT / 'native/guest/cof/spread.cpp',
         ROOT / 'native/guest/cof/server/player_animation.cpp', ROOT / 'native/guest/cof/player_actions.cpp']
     if args.weapon=='revolver':sources.append(ROOT/'native/guest/cof/server/revolver_weapon.cpp')
+    if args.weapon=='mp5':sources.append(ROOT/'native/csol/server/weapons/guest_cof_tmp_owner.cpp')
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
     for name, path, sig, only in (

@@ -7,6 +7,7 @@
 #include "guest_cof_revolver_owner.hpp"
 #include "guest_cof_vp70_owner.hpp"
 #include "guest_cof_tmp_owner.hpp"
+#include "guest_cof_mp5_owner.hpp"
 #include <memory>
 #include <optional>
 
@@ -37,13 +38,15 @@ struct VP70RuntimeHost
     std::uint32_t effects{};
 };
 
-struct TMPRuntimeHost
+template<class Resources> struct AutomaticRuntimeHost
 {
-    bool (*prepare)(void*,const TMPResources&,guest::cof::server::TMPPrepared&) noexcept {};
-    bool (*effect)(void*,const TMPResources&,const OwnerBinding&,
+    bool (*prepare)(void*,const Resources&,guest::cof::server::TMPPrepared&) noexcept {};
+    bool (*effect)(void*,const Resources&,const OwnerBinding&,
         CBasePlayer&,CBasePlayerWeapon&,const guest::cof::server::TMPEvent&) noexcept {};
     std::uint32_t effects{};
 };
+using TMPRuntimeHost = AutomaticRuntimeHost<TMPResources>;
+using MP5RuntimeHost = AutomaticRuntimeHost<MP5Resources>;
 
 // Only the genuinely external consumers remain here. The runtime itself owns
 // native sounds, resources, factory, player generations and owner frame stages.
@@ -67,6 +70,7 @@ struct GlockRuntimeHost
     RevolverRuntimeHost revolver{};
     VP70RuntimeHost vp70{};
     TMPRuntimeHost tmp{};
+    MP5RuntimeHost mp5{};
 };
 
 struct GlockPlayerPreparation
@@ -85,6 +89,7 @@ struct GlockPlayerPreparation
     std::optional<VP70Preparation> vp70;
     struct TMPPreparation { NativeOwnerRules rules; bool firstDrawn; };
     std::optional<TMPPreparation> tmp;
+    std::optional<NativeOwnerRules> mp5Rules;
 };
 
 class GlockRuntime final
@@ -115,6 +120,7 @@ public:
     const RevolverResources* PreparedRevolverResources() const noexcept;
     const VP70Resources* PreparedVP70Resources() const noexcept;
     const TMPResources* PreparedTMPResources() const noexcept;
+    const MP5Resources* PreparedMP5Resources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -128,6 +134,7 @@ public:
     bool Backend(CBasePlayer&, guest::cof::server::RevolverBackends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::VP70Backends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
+    bool MP5Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;

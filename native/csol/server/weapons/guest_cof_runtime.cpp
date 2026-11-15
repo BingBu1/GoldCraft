@@ -11,6 +11,9 @@
 #include "guest_cof_vp70_factory.hpp"
 #include "guest_cof_tmp_factory.hpp"
 #include "guest_cof_tmp_native_effects.hpp"
+#include "guest_cof_mp5_factory.hpp"
+#include "guest_cof_mp5_native_effects.hpp"
+#include <type_traits>
 #include "guest_cof_melee.hpp"
 #include "native/guest/cof/catalog.hpp"
 #include <limits>
@@ -36,6 +39,8 @@ struct GlockRuntime::State
         VP70OwnerBackendView vp70View{};
         std::unique_ptr<TMPOwnerView> tmp;
         TMPOwnerBackendView tmpView{};
+        std::unique_ptr<MP5OwnerView> mp5;
+        MP5OwnerBackendView mp5View{};
     };
     struct Player
     {
@@ -55,11 +60,12 @@ struct GlockRuntime::State
         RevolverResources revolverResources{};
         VP70Resources vp70Resources{};
         TMPResources tmpResources{};
+        MP5Resources mp5Resources{};
         GlockOwnerRuntime owners;
         std::array<Player, GlockOwnerRuntime::SlotCount> players{};
         std::vector<std::unique_ptr<Owner>> bindings;
         unsigned calls{};
-        bool active{}, prepared{}, p345Prepared{}, revolverPrepared{}, vp70Prepared{}, tmpPrepared{};
+        bool active{}, prepared{}, p345Prepared{}, revolverPrepared{}, vp70Prepared{}, tmpPrepared{}, mp5Prepared{};
     };
     struct Call
     {
@@ -139,13 +145,25 @@ struct GlockRuntime::State
         return WeaponCurrent(owner,guest::cof::Pistols[3].hostId)&&owner.vp70&&
             owner.vp70->Current(owner.vp70View.binding)&&OwnerCurrent(&owner);
     }
-    static bool TMPCurrent(void* opaque) noexcept
+    template<LongGun Weapon> static auto& AutomaticResources(Map& map) noexcept
+    { if constexpr(Weapon==LongGun::TMP)return map.tmpResources;else return map.mp5Resources; }
+    template<LongGun Weapon> static auto& AutomaticHost(Map& map) noexcept
+    { if constexpr(Weapon==LongGun::TMP)return map.host.tmp;else return map.host.mp5; }
+    template<LongGun Weapon> static auto& AutomaticOwner(Owner& owner) noexcept
+    { if constexpr(Weapon==LongGun::TMP)return owner.tmp;else return owner.mp5; }
+    template<LongGun Weapon> static auto& AutomaticView(Owner& owner) noexcept
+    { if constexpr(Weapon==LongGun::TMP)return owner.tmpView;else return owner.mp5View; }
+    template<LongGun Weapon> static bool AutomaticPrepared(const Map& map) noexcept
+    { if constexpr(Weapon==LongGun::TMP)return map.tmpPrepared;else return map.mp5Prepared; }
+    template<LongGun Weapon> static bool AutomaticCurrent(void* opaque) noexcept
     {
-        auto& owner=*static_cast<Owner*>(opaque);
-        Call call(*owner.map);
-        return WeaponCurrent(owner,TMPHostId)&&owner.tmp&&
-            owner.tmp->Current(owner.tmpView.binding)&&OwnerCurrent(&owner);
+        auto& owner=*static_cast<Owner*>(opaque);Call call(*owner.map);
+        auto& weaponOwner=AutomaticOwner<Weapon>(owner);
+        return WeaponCurrent(owner,Weapon==LongGun::TMP?TMPHostId:MP5HostId)&&weaponOwner&&
+            weaponOwner->Current(AutomaticView<Weapon>(owner).binding)&&OwnerCurrent(&owner);
     }
+    static bool TMPCurrent(void* opaque) noexcept { return AutomaticCurrent<LongGun::TMP>(opaque); }
+    static bool MP5Current(void* opaque) noexcept { return AutomaticCurrent<LongGun::MP5>(opaque); }
 
     static bool P345Frame(void* opaque,P345OwnerFrame& output) noexcept
     {
@@ -159,11 +177,11 @@ struct GlockRuntime::State
         Call call(*owner.map);
         return VP70Current(&owner)&&owner.vp70->Read(owner.vp70View.binding,output)&&VP70Current(&owner);
     }
-    static bool TMPFrame(void* opaque,TMPOwnerFrame& output) noexcept
+    template<LongGun Weapon> static bool AutomaticFrame(void* opaque,TMPOwnerFrame& output) noexcept
     {
-        auto& owner=*static_cast<Owner*>(opaque);
-        Call call(*owner.map);
-        return TMPCurrent(&owner)&&owner.tmp->Read(owner.tmpView.binding,output)&&TMPCurrent(&owner);
+        auto& owner=*static_cast<Owner*>(opaque);Call call(*owner.map);
+        return AutomaticCurrent<Weapon>(&owner)&&AutomaticOwner<Weapon>(owner)->Read(
+            AutomaticView<Weapon>(owner).binding,output)&&AutomaticCurrent<Weapon>(&owner);
     }
 
     static bool RevolverCurrent(void* opaque) noexcept
@@ -177,7 +195,7 @@ struct GlockRuntime::State
         auto& owner=*static_cast<Owner*>(opaque);Call call(*owner.map);
         return RevolverCurrent(&owner)&&owner.revolver->Read(owner.revolverView.binding,output)&&RevolverCurrent(&owner);
     }
-    enum class EffectWeapon : unsigned char { Glock, P345, Revolver, VP70, TMP };
+    enum class EffectWeapon : unsigned char { Glock, P345, Revolver, VP70, TMP, MP5 };
     struct EffectLease
     {
         Owner& owner;
@@ -193,6 +211,7 @@ struct GlockRuntime::State
             lease.kind==EffectWeapon::P345?P345Current(&lease.owner):
             lease.kind==EffectWeapon::VP70?VP70Current(&lease.owner):
             lease.kind==EffectWeapon::TMP?TMPCurrent(&lease.owner):
+            lease.kind==EffectWeapon::MP5?MP5Current(&lease.owner):
             lease.kind==EffectWeapon::Glock&&GlockCurrent(&lease.owner);
         return current && lease.entity && !lease.entity->free &&
             lease.entity->serialnumber == lease.serial && lease.entity->pvPrivateData == &lease.weapon &&
@@ -237,25 +256,33 @@ struct GlockRuntime::State
         return map.host.vp70.effect&&(bit&map.host.vp70.effects)&&map.host.vp70.effect(map.host.context,
             map.vp70Resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
     }
-    static bool TMPEffect(void* opaque,CBasePlayer& player,CBasePlayerWeapon& weapon,
+    template<LongGun Weapon> static bool AutomaticEffect(void* opaque,CBasePlayer& player,CBasePlayerWeapon& weapon,
         const TMPEvent& event) noexcept
     {
         auto& owner=*static_cast<Owner*>(opaque);auto& map=*owner.map;Call call(map);
         if(owner.player!=&player||!weapon.pev)return false;
         auto* entity=weapon.edict();if(!entity)return false;
-        EffectLease lease{owner,weapon,entity,entity->serialnumber,EffectWeapon::TMP};
-        if(!EffectCurrent(&lease)||static_cast<unsigned>(event.kind)>=static_cast<unsigned>(guest::cof::server::TMPEffect::Count))return false;
+        constexpr auto kind=Weapon==LongGun::TMP?EffectWeapon::TMP:EffectWeapon::MP5;
+        EffectLease lease{owner,weapon,entity,entity->serialnumber,kind};
+        if(!EffectCurrent(&lease)||static_cast<unsigned>(event.kind)>=static_cast<unsigned>(TMPEffect::Count))return false;
         const auto bit=1u<<static_cast<unsigned>(event.kind);
-        if(event.kind==TMPEffect::FirstDraw&&!owner.tmp->FirstDraw(owner.tmpView.binding))return false;
+        if constexpr(Weapon==LongGun::TMP)
+            if(event.kind==TMPEffect::FirstDraw&&!owner.tmp->FirstDraw(owner.tmpView.binding))return false;
+        const auto& resources=AutomaticResources<Weapon>(map);
         if(bit&TMPNativeSoundEffects)
         {
-            TMPOwnerFrame frame{};if(!TMPFrame(&owner,frame))return false;
-            const NativeSoundAuthority authority{&lease,EffectCurrent,map.tmpResources.generation,
+            TMPOwnerFrame frame{};if(!AutomaticFrame<Weapon>(&owner,frame))return false;
+            const NativeSoundAuthority authority{&lease,EffectCurrent,resources.generation,
                 frame.quietAudio,map.host.pickupSuppressed};
-            return NativeSoundSucceeded(EmitTMPNativeSound(authority,map.tmpResources,player,weapon,event))&&EffectCurrent(&lease);
+            const auto emitted=[&] {
+                if constexpr(Weapon==LongGun::TMP)return EmitTMPNativeSound(authority,resources,player,weapon,event);
+                else return EmitMP5NativeSound(authority,resources,player,weapon,event);
+            }();
+            return NativeSoundSucceeded(emitted)&&EffectCurrent(&lease);
         }
-        return map.host.tmp.effect&&(bit&map.host.tmp.effects)&&map.host.tmp.effect(map.host.context,
-            map.tmpResources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
+        const auto& host=AutomaticHost<Weapon>(map);
+        return host.effect&&(bit&host.effects)&&host.effect(map.host.context,
+            resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
     }
 
     static bool RevolverEffectBoundary(void* opaque,CBasePlayer& player,CBasePlayerWeapon& weapon,
@@ -387,23 +414,28 @@ struct GlockRuntime::State
         prepared.hostSlot=VP70HudSlot;prepared.hostPosition=VP70HudPosition;
         output=prepared;return true;
     }
-    static bool PrepareTMP(void* opaque,TMPWeapon&,TMPPrepared& output) noexcept
+    template<LongGun Weapon> static bool PrepareAutomatic(void* opaque,AutomaticWeapon<Weapon>&,TMPPrepared& output) noexcept
     {
         auto& map=*static_cast<Map*>(opaque);Call call(map);
-        if(!Current(&map)||!map.tmpPrepared||!map.host.tmp.prepare)return false;
-        TMPPrepared prepared{};
-        if(!map.host.tmp.prepare(map.host.context,map.tmpResources,prepared)||!Current(&map))return false;
-        const auto& resources=map.tmpResources;
+        const auto& host=AutomaticHost<Weapon>(map);
+        if(!Current(&map)||!AutomaticPrepared<Weapon>(map)||!host.prepare)return false;
+        TMPPrepared prepared{};const auto& resources=AutomaticResources<Weapon>(map);
+        if(!host.prepare(map.host.context,resources,prepared)||!Current(&map))return false;
+        using Model=std::conditional_t<Weapon==LongGun::TMP,TMPModel,MP5Model>;
+        using Sound=std::conditional_t<Weapon==LongGun::TMP,TMPSound,MP5Sound>;
         prepared.sequences=resources.sequences;prepared.aimOffset=resources.aimOffset;prepared.aimZoom=resources.aimZoom;
         prepared.viewModelString=resources.viewModelString;prepared.playerModelString=resources.playerModelString;
         prepared.worldModelString=resources.worldModelString;prepared.inventoryItemString=resources.inventoryItemString;
-        prepared.shellModel=resources.models[static_cast<unsigned>(TMPModel::Shell)];
-        prepared.ballistics.bubbleModel=resources.models[static_cast<unsigned>(TMPModel::Bubble)];
+        prepared.shellModel=resources.models[static_cast<unsigned>(Model::Shell)];
+        prepared.ballistics.bubbleModel=resources.models[static_cast<unsigned>(Model::Bubble)];
         prepared.modelsReady=prepared.soundsReady=prepared.aimMetadataReady=prepared.pickupSoundReady=prepared.inventoryReady=true;
-        prepared.automaticFireReady=resources.sounds[static_cast<unsigned>(TMPSound::Fire)]>0;
-        prepared.automaticTailReady=resources.sounds[static_cast<unsigned>(TMPSound::Tail)]>0;
-        prepared.melee.soundsReady=true;prepared.melee.samples=TMPMeleeSamples;
-        prepared.hostSlot=TMPHudSlot;prepared.hostPosition=TMPHudPosition;
+        prepared.automaticFireReady=resources.sounds[static_cast<unsigned>(Sound::Fire)]>0;
+        prepared.automaticTailReady=resources.sounds[static_cast<unsigned>(Sound::Tail)]>0;
+        prepared.melee.soundsReady=true;
+        if constexpr(Weapon==LongGun::TMP)prepared.melee.samples=TMPMeleeSamples;
+        else prepared.melee.samples=MP5MeleeSamples;
+        prepared.hostSlot=Weapon==LongGun::TMP?TMPHudSlot:MP5HudSlot;
+        prepared.hostPosition=Weapon==LongGun::TMP?TMPHudPosition:MP5HudPosition;
         output=prepared;return true;
     }
 
@@ -427,14 +459,15 @@ struct GlockRuntime::State
             owner->vp70View.animation,owner->vp70View.animationGeneration,owner->view.binding.life};
         return true;
     }
-    static bool TMPBackendsFor(void* opaque,CBasePlayer& player,TMPBackends& output) noexcept
+    template<LongGun Weapon> static bool AutomaticBackendsFor(void* opaque,CBasePlayer& player,TMPBackends& output) noexcept
     {
         auto& map=*static_cast<Map*>(opaque);Call call(map);
-        const auto index=Slot(player);if(!index||!Current(&map)||!map.tmpPrepared)return false;
+        const auto index=Slot(player);if(!index||!Current(&map)||!AutomaticPrepared<Weapon>(map))return false;
         auto* owner=map.players[index].backend;
-        if(!owner||owner->player!=&player||!TMPCurrent(owner))return false;
-        output={owner,TMPCurrent,TMPFrame,TMPEffect,map.host.tmp.effects|TMPNativeSoundEffects,
-            owner->tmpView.animation,owner->tmpView.animationGeneration,owner->view.binding.life};
+        if(!owner||owner->player!=&player||!AutomaticCurrent<Weapon>(owner))return false;
+        const auto& view=AutomaticView<Weapon>(*owner);
+        output={owner,AutomaticCurrent<Weapon>,AutomaticFrame<Weapon>,AutomaticEffect<Weapon>,
+            AutomaticHost<Weapon>(map).effects|TMPNativeSoundEffects,view.animation,view.animationGeneration,owner->view.binding.life};
         return true;
     }
 
@@ -454,13 +487,12 @@ struct GlockRuntime::State
         return itemString>0&&itemString==map.vp70Resources.inventoryItemString&&weapon.ResourcesReady()&&
             VP70BackendsFor(&map,player,backend)&&Current(&map);
     }
-    static bool TMPInventoryPickup(void* opaque,CBasePlayer& player,TMPWeapon& weapon,int itemString) noexcept
+    template<LongGun Weapon> static bool AutomaticInventoryPickup(void* opaque,CBasePlayer& player,AutomaticWeapon<Weapon>& weapon,int itemString) noexcept
     {
         auto& map=*static_cast<Map*>(opaque);Call call(map);TMPBackends backend{};
-        // Same explicit NativeCSInventory policy as Glock: real CanHave already
-        // ran in WorldTouch; actual AddPlayerItem performs the insertion next.
-        return itemString>0&&itemString==map.tmpResources.inventoryItemString&&weapon.ResourcesReady()&&
-            TMPBackendsFor(&map,player,backend)&&Current(&map);
+        // WorldTouch already ran CanHavePlayerItem; native AddPlayerItem inserts once.
+        return itemString>0&&itemString==AutomaticResources<Weapon>(map).inventoryItemString&&weapon.ResourcesReady()&&
+            AutomaticBackendsFor<Weapon>(&map,player,backend)&&Current(&map);
     }
 
     static bool InventoryPickup(void* opaque, CBasePlayer& player, GlockWeapon& weapon,
@@ -528,6 +560,7 @@ struct GlockRuntime::State
             if(owner->revolver)owner->revolver->Invalidate();
             if(owner->vp70)owner->vp70->Invalidate();
             if(owner->tmp)owner->tmp->Invalidate();
+            if(owner->mp5)owner->mp5->Invalidate();
         }
         map->players[index].ready = false;
         map->players[index].backend = nullptr;
@@ -587,6 +620,14 @@ struct GlockRuntime::State
                     request.compare,owner->tmpView,error,request.extent)||!Current(map))
                 {p.ready=false;map->owners.Invalidate(index,&player);return false;}
             }
+            if(request.mp5Rules)
+            {
+                if(!map->mp5Prepared){p.ready=false;map->owners.Invalidate(index,&player);error="MP5 map resources were not opted in";return false;}
+                owner->mp5=std::make_unique<MP5OwnerView>();
+                if(!owner->mp5->Prepare(player,view,*request.mp5Rules,false,request.rig,request.validatedModel,
+                    request.compare,owner->mp5View,error,request.extent)||!Current(map))
+                {p.ready=false;map->owners.Invalidate(index,&player);return false;}
+            }
             if(request.revolver)
             {
                 if(!map->revolverPrepared){p.ready=false;map->owners.Invalidate(index,&player);error="Revolver map resources were not opted in";return false;}
@@ -618,6 +659,7 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
     const bool revolverRequested=host.revolver.prepare||host.revolver.effect||host.revolver.effects;
     const bool vp70Requested=host.vp70.prepare||host.vp70.effect||host.vp70.effects;
     const bool tmpRequested=host.tmp.prepare||host.tmp.effect||host.tmp.effects;
+    const bool mp5Requested=host.mp5.prepare||host.mp5.effect||host.mp5.effects;
     if (!host.current || !host.ownerCurrent || !host.prepare || !host.effect ||
         (host.effects & ~GlockRequiredEffects) ||
         !state.limits.ownerBindingsPerMap || state.maps.size() >= state.limits.retainedMaps ||
@@ -633,7 +675,10 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             ((host.vp70.effects|VP70NativeSoundEffects)&VP70RequiredEffects)!=VP70RequiredEffects))||
         (tmpRequested&&(!host.tmp.prepare||!host.tmp.effect||
             (host.tmp.effects&~TMPRequiredEffects)||
-            ((host.tmp.effects|TMPNativeSoundEffects)&TMPRequiredEffects)!=TMPRequiredEffects)))
+            ((host.tmp.effects|TMPNativeSoundEffects)&TMPRequiredEffects)!=TMPRequiredEffects))||
+        (mp5Requested&&(!host.mp5.prepare||!host.mp5.effect||
+            (host.mp5.effects&~MP5RequiredEffects)||
+            ((host.mp5.effects|MP5NativeSoundEffects)&MP5RequiredEffects)!=MP5RequiredEffects)))
         return {ResourceStatus::InvalidAuthority};
     try
     {
@@ -674,7 +719,17 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             if(!tmp||!State::Current(&current))
             {EndMap();return tmp?ResourceResult{ResourceStatus::Cancelled}:tmp;}
             current.tmpPrepared=true;
-            if(!InstallTMPFactory({&current,State::Current,State::PrepareTMP,State::TMPBackendsFor,State::TMPInventoryPickup}))
+            if(!InstallTMPFactory({&current,State::Current,State::PrepareAutomatic<LongGun::TMP>,State::AutomaticBackendsFor<LongGun::TMP>,State::AutomaticInventoryPickup<LongGun::TMP>}))
+            {EndMap();return {ResourceStatus::InvalidAuthority};}
+        }
+        if(mp5Requested)
+        {
+            const auto mp5=PrepareMP5Resources({&current,State::Current,current.epoch},current.mp5Resources);
+            if(!mp5||!State::Current(&current))
+            {EndMap();return mp5?ResourceResult{ResourceStatus::Cancelled}:mp5;}
+            current.mp5Prepared=true;
+            if(!InstallMP5Factory({&current,State::Current,State::PrepareAutomatic<LongGun::MP5>,
+                State::AutomaticBackendsFor<LongGun::MP5>,State::AutomaticInventoryPickup<LongGun::MP5>}))
             {EndMap();return {ResourceStatus::InvalidAuthority};}
         }
         if(revolverRequested)
@@ -695,18 +750,20 @@ void GlockRuntime::EndMap() noexcept
     auto& state = *state_;
     if (!state.active) return;
     auto* map = state.active;
-    state.active = nullptr; map->active = map->prepared = map->p345Prepared = map->revolverPrepared = map->vp70Prepared = map->tmpPrepared = false;
+    state.active = nullptr; map->active = map->prepared = map->p345Prepared = map->revolverPrepared = map->vp70Prepared = map->tmpPrepared = map->mp5Prepared = false;
     ResetGlockFactory();
     ResetP345Factory();
     ResetRevolverFactory();
     ResetVP70Factory();
     ResetTMPFactory();
+    ResetMP5Factory();
     for(auto& owner:map->bindings)
     {
         if(owner->p345)owner->p345->Invalidate();
         if(owner->revolver)owner->revolver->Invalidate();
         if(owner->vp70)owner->vp70->Invalidate();
-            if(owner->tmp)owner->tmp->Invalidate();
+        if(owner->tmp)owner->tmp->Invalidate();
+        if(owner->mp5)owner->mp5->Invalidate();
     }
     map->owners.EndMap();
     for (auto& player : map->players) { player.ready = false; player.backend = nullptr; }
@@ -734,6 +791,9 @@ const VP70Resources* GlockRuntime::PreparedVP70Resources() const noexcept
 const TMPResources* GlockRuntime::PreparedTMPResources() const noexcept
 {return state_->active&&state_->active->tmpPrepared?&state_->active->tmpResources:nullptr;}
 
+const MP5Resources* GlockRuntime::PreparedMP5Resources() const noexcept
+{return state_->active&&state_->active->mp5Prepared?&state_->active->mp5Resources:nullptr;}
+
 const RevolverResources* GlockRuntime::PreparedRevolverResources() const noexcept
 {return state_->active&&state_->active->revolverPrepared?&state_->active->revolverResources:nullptr;}
 bool GlockRuntime::PlayerSpawned(CBasePlayer& player, const GlockPlayerPreparation& request, std::string& error)
@@ -750,7 +810,10 @@ bool GlockRuntime::Backend(CBasePlayer& player,P345Backends& output) noexcept
 bool GlockRuntime::Backend(CBasePlayer& player,VP70Backends& output) noexcept
 {return state_->active&&State::VP70BackendsFor(state_->active,player,output);}
 bool GlockRuntime::Backend(CBasePlayer& player,TMPBackends& output) noexcept
-{return state_->active&&State::TMPBackendsFor(state_->active,player,output);}
+{return state_->active&&State::AutomaticBackendsFor<LongGun::TMP>(state_->active,player,output);}
+
+bool GlockRuntime::MP5Backend(CBasePlayer& player,TMPBackends& output) noexcept
+{return state_->active&&State::AutomaticBackendsFor<LongGun::MP5>(state_->active,player,output);}
 
 bool GlockRuntime::Backend(CBasePlayer& player,RevolverBackends& output) noexcept
 {return state_->active&&State::RevolverBackendsFor(state_->active,player,output);}
