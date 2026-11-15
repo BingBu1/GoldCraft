@@ -122,7 +122,7 @@ bool Bullet(void* p, const M16Bullet& b) noexcept
 }
 bool SoundPosition(void* p, M16Vector& out) noexcept
 {
-    auto& c = *static_cast<Context*>(p); c.Event(41); out = {11,12,13}; return c.Step();
+    auto& c = *static_cast<Context*>(p); c.Event(41); out = {12,14,16}; return c.Step();
 }
 bool Sound(void* p, const M16Vector& v) noexcept
 {

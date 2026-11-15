@@ -1,7 +1,7 @@
 # M16 per-shot instruction comparison
 
 Execute the entire original `CM16::Shoot` at `10052120`, including the actual
-forward-copy autoaim and `.05F` scheduler helpers. Engine, animation, bullet
+forward-copy autoaim, `.05F` scheduler and CBasePlayer eye-position helpers. Engine, animation, bullet
 and cooperative sound consumers are controlled at their ABI boundaries.
 State is compared at each callback, including ammo, spread and pending burst.
 
@@ -12,14 +12,14 @@ original evidence available:
 ```bash
 python -B tests/cryoffear-m16-shot/run.py \
   --sample analysis/cof-weapons-20261111/m16-integration-20261115/cof-mp.dll \
-  --proof analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-shot.json \
+  --proof analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-shot-eye.json \
   --compiler "$COF_CLANG_CL" \
   --environment "$COF_COMPILER_ENV" \
   --output build/cof-m16-shot-new
 ```
 
 The output directory must be fresh. Original bytes are neither embedded nor
-published. The private proof pins the sample, five IDA instruction windows and
+published. The private proof pins the sample, seven IDA instruction/vtable windows and
 archived analysis before implementation. Python Unicorn and the matched x86
 compiler environment are required.
 

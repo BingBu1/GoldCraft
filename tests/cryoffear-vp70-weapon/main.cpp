@@ -489,6 +489,18 @@ int main(int argc,char** argv)
             weapon.pev->aiment==player.edict()&&weapon.pev->owner==player.edict()&&weapon.pev->modelindex==0&&int(weapon.pev->model)==0&&
             weapon.m_pfnThink==nullptr&&weapon.m_pfnTouch==nullptr&&weapon.m_pfnUse==nullptr&&!(weapon.ObjectCaps()&FCAP_IMPULSE_USE));
     }
+    // Original1011B6A0 uses min(world ammo, ItemInfo clip18), including
+    // partial magazines between the previous P345 threshold8 and VP70 cap18.
+    for(int limit:{54,180})for(int amount=1;amount<=37;++amount)
+    {
+        Initialize();weapon.m_pEntity=&itemWrapper;extendedAllowed=true;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+        g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};
+        g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
+        weapon.pev->health=float(amount);weapon.Spawn();player.m_rgAmmo[1]=0;frame.reserveLimit=limit;
+        Check(weapon.AddToPlayer(&player));
+        Check(weapon.m_iClip==std::min(amount,18)&&player.m_rgAmmo[1]==std::max(amount-18,0)&&weapon.m_iDefaultAmmo==0);
+    }
     // Both first-draw states and armor-controlled sleeve RNG retain original order.
     for(int first:{0,1})for(int armor:{0,1})for(int clip:{0,18})
     {

@@ -453,7 +453,7 @@ int VP70Weapon::ExtractAmmo(CBasePlayerWeapon* weapon)
     int amount = m_iDefaultAmmo;
     if (target->m_iClip == 0)
     {
-        const int ready = amount < 8 ? amount : 18;
+        const int ready = amount < 18 ? amount : 18;
         target->m_iClip = ready;
         amount -= ready;
     }

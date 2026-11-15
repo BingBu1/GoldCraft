@@ -30,6 +30,7 @@ class M16(mp5.MP5):
         self.write(self.weapon + 0x168, 9)
         self.write(self.weapon + 0x1FC, 31)
         self.write(WORK + 0xA0000 + 8, 0x1011F680)
+        self.write(self.read(self.obj(1)) + 0x104, 0x1000D5A0)
 
     def event(self, kind, *values):
         snapshot = [self.read(self.weapon + at) for at in (0x1E4, 0x19C, 0x1A0, 0x1D8, 0x1B0)]
@@ -49,9 +50,8 @@ class M16(mp5.MP5):
             assert label == b'm16_shoot', label
             self.event(34)
             self.ret(8)
-        elif address == EDGE + 0x6104:
-            self.event(41)
-            super().hook(uc, address, size, user)
+        elif address == 0x1000D5A0:
+            self.event(41)  # Execute the actual CBasePlayer EyePosition consumer.
         elif address == 0x10116A40:
             label = bytes(uc.mem_read(arg(0), 64)).split(b'\0', 1)[0]
             assert label == b'weapons_new/m16/m16_fire.wav', label
@@ -152,6 +152,6 @@ def generate(sample, proof, cases, expected):
         cases.write(' '.join(f'{v:08x}' for v in row) + '\n')
         expected.write(' '.join(f'{v:08x}' for v in machine.run(row)) + '\n')
     return dict(sampleSha256=SHA, proofSha256=sha(proof), cases=count, originalFunction='10052120',
-        originalBytes=1720, actualHelpers=['100DFEA0', '1011F680', '1011AB20'],
+        originalBytes=1720, actualHelpers=['100DFEA0', '1011F680', '1011AB20', '1000D5A0'],
         visitedInstructions=len(machine.visited),
-        boundary='Complete original Shoot, real .05F scheduling and forward-copy autoaim. Controlled engine, animation, bullet and sound ABI; no actual owned-think dispatch, SDK admission, deployment, gameplay or performance acceptance.')
+        boundary='Complete original Shoot, real .05F scheduling, forward-copy autoaim and original eye-position consumer. Controlled engine, animation, bullet and sound ABI; no actual owned-think dispatch, SDK admission, deployment, gameplay or performance acceptance.')

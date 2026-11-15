@@ -2568,7 +2568,15 @@
     "tests/cryoffear-m16-shot/main.cpp",
     "tests/cryoffear-m16-shot/oracle.py",
     "tests/cryoffear-m16-shot/run.py",
-    "docs/2026-11-15_实现-M16原版火控装填与发射组件-report.md"
+    "docs/2026-11-15_实现-M16原版火控装填与发射组件-report.md",
+    "native/guest/cof/server/m16_weapon.cpp",
+    "native/guest/cof/server/m16_weapon.hpp",
+    "native/guest/cof/server/vp70_weapon.cpp",
+    "tests/cryoffear-m16-weapon/main.cpp",
+    "tests/cryoffear-m16-weapon/run.py",
+    "tests/cryoffear-m16-weapon/README.md",
+    "tests/cryoffear-vp70-weapon/main.cpp",
+    "docs/2026-11-15_实现-M16实际SDK生命周期与部分弹药修复-report.md"
   ],
   "trees": {
     "native": [
