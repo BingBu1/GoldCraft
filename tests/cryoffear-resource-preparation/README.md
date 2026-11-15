@@ -71,3 +71,20 @@ Revolver is included with its actual 22-sequence view model, four local Studio/f
 ## TMP checkpoint (2026-11-15)
 
 TMP now participates in the real resource suite. Its exact original16 sequences, aim0/-4.75/3 with FOV50, five local Studio samples and distinct native loop/end resources are checked. Cold preparation passes653 TMP checks (3463 across five guns); the resource author passes351 checks /27 CLI cases and creates47 TMP assets with original bytes preserved. These are cold/parser/candidate checks, without registry, deployment, rendered/audio or live performance acceptance. See docs/2026-11-15_接入-TMP冷资源与原生工厂-report.md.
+
+## MP5 cold preparation
+
+Pass `--mp5-player` with the explicitly reviewed authored MP5 P candidate to
+exercise the sixth resource type. The test requires its private pre-edit
+resource proof, the complete original MP5 Precache/Spawn/Deploy windows and
+the original client's id27 Studio5004 local-sound consumer. It checks all20
+real sequence timings, exact0/-4.25/2/FOV50 metadata, four local sound files,
+separate native loop/tail handles and every missing-file, failed-engine and
+generation-cancellation boundary.
+
+The catalogue explicitly names the original W as the authored P's geometry
+input; the fixture supplies the actual generated P, checks that it differs
+from W and never substitutes the original borrowed TMP P. That does not
+accept its grip or currently missing muzzle attachment. The resource author,
+full client/weapon registry, map-owner lifecycle and gameplay remain pending.
+The five existing families remain in this same SDK run.

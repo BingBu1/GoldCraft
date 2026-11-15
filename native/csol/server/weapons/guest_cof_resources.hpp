@@ -57,6 +57,15 @@ using guest::cof::resources::TMPEvents;
 using guest::cof::resources::TMPInventory;
 using guest::cof::resources::TMPParticle;
 using guest::cof::resources::TMPClipTexture;
+using guest::cof::resources::MP5Model;
+using guest::cof::resources::MP5Models;
+using guest::cof::resources::MP5Sound;
+using guest::cof::resources::MP5Sounds;
+using guest::cof::resources::MP5LocalWaves;
+using guest::cof::resources::MP5Events;
+using guest::cof::resources::MP5Inventory;
+using guest::cof::resources::MP5Particle;
+using guest::cof::resources::MP5ClipTexture;
 using guest::cof::resources::ShotDecals;
 struct ResourceAuthority
 {
@@ -135,6 +144,20 @@ struct GlockResources
     int inventoryDownload{}, particleDownload{};
     std::array<int, ShotDecals.size()> decalDownloads{};
 };
+struct MP5Resources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, MP5Models.size()> models{};
+    std::array<int, MP5Sounds.size()> sounds{};
+    std::array<int, MP5LocalWaves.size()> localWaveDownloads{};
+    std::array<unsigned short, MP5Events.size()> events{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{};
+    int inventoryDownload{}, particleDownload{};
+};
 enum class ResourceStatus : unsigned char
 { Prepared, InvalidAuthority, MissingEngine, MissingFile, InvalidMetadata, InvalidModel, EngineRejected, Cancelled };
 struct ResourceResult
@@ -155,6 +178,9 @@ ResourceResult PrepareP345Resources(const ResourceAuthority&, P345Resources&) no
 ResourceResult PrepareRevolverResources(const ResourceAuthority&, RevolverResources&) noexcept;
 ResourceResult PrepareVP70Resources(const ResourceAuthority&, VP70Resources&) noexcept;
 ResourceResult PrepareTMPResources(const ResourceAuthority&, TMPResources&) noexcept;
+// The authored P must already be present in the authoritative VFS. Preparation
+// does not certify its grip, attachments, client effects or firearm admission.
+ResourceResult PrepareMP5Resources(const ResourceAuthority&, MP5Resources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }

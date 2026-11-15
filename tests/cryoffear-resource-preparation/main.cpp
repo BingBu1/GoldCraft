@@ -136,7 +136,7 @@ bool Unchanged(const Resources& a, const Resources& b)
 
 int main(int argc, char** argv)
 {
-    if (argc != 4 && argc != 5) return 2;
+    if (argc != 4 && argc != 5 && argc != 6) return 2;
     g_engfuncs.pfnGetFileSize = FileSize;
     g_engfuncs.pfnLoadFileForMe = Load; g_engfuncs.pfnFreeFile = Free;
     g_engfuncs.pfnPrecacheModel = Model; g_engfuncs.pfnPrecacheSound = Sound;
@@ -248,6 +248,28 @@ int main(int argc, char** argv)
             Check(prepared.sounds[unsigned(TMPSound::Fire)] != prepared.sounds[unsigned(TMPSound::Tail)],
                 "automatic fire/tail retain distinct engine handles");
         }
+        if constexpr (std::is_same_v<Resources, MP5Resources>)
+        {
+            Check(std::string_view(models[2].original) == "models/weapons/mp5/w_mp5.mdl" &&
+                std::string_view(models[2].host) == "models/guest/cof/mp5/p_mp5.mdl" &&
+                fixture.files.at(models[2].host) != fixture.files.at(models[1].host),
+                "MP5 uses an explicitly authored P candidate, not copied W or borrowed TMP");
+            Check(std::string_view(sounds[unsigned(MP5Sound::Fire)].original) == "weapons/mp5/mp5_shoot_loop.wav" &&
+                std::string_view(sounds[unsigned(MP5Sound::Tail)].original) == "weapons/mp5/mp5_shoot_end.wav" &&
+                sounds.size() == 21 && waves.size() == 4 && events.size() == 2,
+                "MP5 native loop/end and four local Studio samples stay distinct");
+            Check(prepared.sounds[unsigned(MP5Sound::Fire)] != prepared.sounds[unsigned(MP5Sound::Tail)],
+                "MP5 automatic native loop and tail have distinct handles");
+            for (const auto& wave : waves)
+            {
+                const std::string_view original = wave.original;
+                const std::string sample = "weapons/" + std::string(original.substr(12));
+                Check(guest::cof::resources::StudioLocalSoundResource(models[0].host, 5004, sample) == wave.host,
+                    "MP5 actual Studio5004 key reaches its complete local download path");
+            }
+            Check(guest::cof::resources::StudioLocalSoundResource(models[0].host, 5001, "weapons/mp5/mp5_magout.wav").empty(),
+                "MP5 muzzle event is not a local audio event");
+        }
         for (std::size_t i = 0; i < events.size(); ++i)
             Check(fixture.events.at(events[i].host) == prepared.events[i], "actual event IDs preserved");
         Check(fixture.generics.at(inventory.host) == prepared.inventoryDownload &&
@@ -301,7 +323,8 @@ int main(int argc, char** argv)
         const std::string valid(metadata.begin(), metadata.end());
         const auto replace = [&](const char* from, const char* to) {
             auto text = valid; const auto at = text.find(from);
-            if (at == text.npos) std::abort(); text.replace(at, std::strlen(from), to); return text;
+            if (at == text.npos) throw std::runtime_error("fixture metadata literal missing: " + std::string(from));
+            text.replace(at, std::strlen(from), to); return text;
         };
         const std::vector<std::string> bad{
             "", valid + "\"unfinished", valid + "\n\"ironsight_zoom\"{data \"50\"}",
@@ -428,7 +451,17 @@ int main(int argc, char** argv)
         exercise.template operator()<TMPResources>(TMPModels, TMPSounds, TMPLocalWaves, TMPEvents,
             TMPInventory, TMPParticle, TMPClipTexture, PrepareTMPResources, 16, -4.75f, 3.f,
             "weapon_tmp", "\"3\"", "TMP", "\"0\"", 0);
-        if(argc==5)for(const auto& definition:guest::cof::Firearms)
+        if(argc==6)
+        {
+            fixture = Fixture{};
+            Inputs(argv[1], argv[2], argv[3], MP5Models, MP5Sounds, MP5LocalWaves, MP5Events,
+                MP5Inventory, MP5Particle, MP5ClipTexture);
+            fixture.files[MP5Models[unsigned(MP5Model::Player)].host] = Read(argv[5]);
+            exercise.template operator()<MP5Resources>(MP5Models, MP5Sounds, MP5LocalWaves, MP5Events,
+                MP5Inventory, MP5Particle, MP5ClipTexture, PrepareMP5Resources, 20, -4.25F, 2.F,
+                "weapon_mp5", "\"2.00\"", "MP5", "\"0.00\"", 0);
+        }
+        if(argc>=5 && *argv[4])for(const auto& definition:guest::cof::Firearms)
         {
             fixture=Fixture{};
             const auto firearm=definition.identity;
