@@ -34,6 +34,8 @@ class ClientObservation:
                 raise ValueError('Loaded client differs from its matching file and PDB')
             units = re.findall(r'Mod (\d+) \| `([^`]+)`', symbols.dump('-modules'))
             self.addresses = {}
+            self.readiness = {}
+            unavailable_readiness = []
             for unit, names in [('guest_cof_admission', ('admittedWeapons', 'generation', 'resources')),
                                 ('guest_cof_crosshair', ('receiver', 'presentation'))]:
                 matches = [int(i) for i, name in units if name.lower().endswith(unit + '.cpp.obj')]
@@ -45,13 +47,30 @@ class ClientObservation:
                     if not match or not 0 < int(match[1]) <= len(pe.sections):
                         raise ValueError('Missing live client symbol: ' + name)
                     self.addresses[name] = module['base'] + pe.sections[int(match[1]) - 1]['rva'] + int(match[2])
+            for unit, fields in (
+                    ('guest_cof_scene', {'pointPrepared': 1, 'pointSceneReady': 1, 'pointSceneValidated': 1, 'pointContext': 4}),
+                    ('guest_cof_muzzle', {'prepared': 1, 'eventInstalled': 1}),
+                    ('guest_cof_effects', {'prepared': 1}),
+                    ('guest_cof_particles', {'ready': 1})):
+                matches = [int(i) for i, name in units if name.lower().endswith(unit + '.cpp.obj')]
+                if len(matches) != 1:
+                    raise ValueError('Expected one client readiness unit: ' + unit)
+                data = symbols.dump('-symbols', '-modi=' + str(matches[0]))
+                for name, size in fields.items():
+                    match = re.search(r'S_LDATA32[^\n]*::' + re.escape(name) + r'`\s*\n[^\n]*addr = (\d+):(\d+)', data)
+                    if not match:
+                        unavailable_readiness.append(unit + '::' + name)
+                        continue
+                    address = module['base'] + pe.sections[int(match[1]) - 1]['rva'] + int(match[2])
+                    self.readiness[unit + '::' + name] = (address, size)
             self.receiver = symbols.layout('guest::cof::CrosshairReceiver')
             self.presentation = symbols.layout('guest::cof::PresentationState')
             self.snapshot = symbols.layout('guest::cof::CrosshairSnapshot')
             self.image = expected
             self.identity = dict(pid=pid, imageSha256=pe.sha256, pdb=symbols.identity,
                                  addresses=self.addresses, receiver=self.receiver,
-                                 presentation=self.presentation, snapshot=self.snapshot)
+                                 presentation=self.presentation, snapshot=self.snapshot, readiness=self.readiness,
+                                 unavailableReadiness=unavailable_readiness)
         except BaseException:
             self.process.close()
             raise
@@ -77,6 +96,8 @@ class ClientObservation:
         current['presentationKey'] = presentation[p['key']:p['key'] + key_bytes].hex()
         current['crosshairKey'] = receiver[r['key_']:r['key_'] + key_bytes].hex()
         current['admissionStableDuringRead'] = process.read(addresses['generation'], 8) == admission
+        current['readiness'] = {name: int.from_bytes(process.read(address, size), 'little')
+                                for name, (address, size) in self.readiness.items()}
         return current
 
     def close(self):
@@ -121,6 +142,9 @@ def main():
         layout = {name: symbols.layout(name) for name in names}
         E, V, B, P, I, W, R, A, D = [layout[name] for name in names]
         F = symbols.layout('guest::cof::server::RevolverFailure') if 'failure_' in R['members'] else None
+        firearm_layouts = {ident: symbols.layout('guest::cof::server::' + name) for ident, name in (
+            (896, 'GlockWeapon'), (897, 'P345Weapon'), (898, 'RevolverWeapon'),
+            (899, 'VP70Weapon'), (900, 'TMPWeapon'))}
         edicts_address = module['base'] + symbols.global_rva('g_pEdicts')
         globals_address = module['base'] + symbols.global_rva('gpGlobals')
         if args.client_pid is not None:
@@ -128,6 +152,7 @@ def main():
         out.mkdir(parents=True)
         identity = dict(pid=args.pid, imageSha256=pe.sha256, pdb=symbols.identity,
                         moduleBase=module['base'], layouts=layout, failureLayout=F,
+                        firearmLayouts=firearm_layouts,
                         readOnly=True, noThreadSuspension=True, hz=args.hz, seconds=args.seconds)
         if client:
             identity['client'] = client.identity
@@ -179,6 +204,21 @@ def main():
                         raise ValueError('Inventory owner changed while reading')
                     weapon_id = integer(common, I['members']['m_iId'])
                     row = dict(slot=slot, item=item, id=weapon_id, selected=item == active)
+                    if weapon_id in firearm_layouts:
+                        typed = firearm_layouts[weapon_id]
+                        data = process.read(item, typed['size'])
+                        fields = typed['members']
+                        row.update(clip=integer(data, W['members']['m_iClip']),
+                                   inReload=integer(data, W['members']['m_fInReload']),
+                                   nextPrimary=number(data, W['members']['m_flNextPrimaryAttack']),
+                                   nextSecondary=number(data, W['members']['m_flNextSecondaryAttack']),
+                                   idle=number(data, W['members']['m_flTimeWeaponIdle']))
+                        row.update({name: data[fields[name]] for name in
+                            ('preparedReady_', 'bound_', 'selected_', 'status_', 'meleePending_') if name in fields})
+                        if 'action_' in fields:
+                            row['actionState'] = {name: integer(data, fields['action_'] + A['members'][name])
+                                                  for name in ('clip', 'reserve', 'action')}
+                            row['aiming'] = bool(data[fields['action_'] + A['members']['aiming']])
                     if weapon_id == 898:
                         data = process.read(item, R['size'])
                         weapon_variables = pointer(data, B['members']['pev'])

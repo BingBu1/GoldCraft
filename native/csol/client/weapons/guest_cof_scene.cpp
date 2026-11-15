@@ -22,13 +22,13 @@ PointLightState pointLights;
 PointLightGamma pointGamma{};
 std::array<PointLightBrush,4096> brushSnapshots{};
 cvar_t *gamma{},*brightness{},*contrast{},*dynamic{},*brushLights{},*twoPass{},*noCombiners{};
-bool pointPrepared{},pointSceneReady{};
+bool pointPrepared{},pointSceneValidated{};
 DWORD pointThread{};
 HGLRC pointContext{};
 void ClearPoints() noexcept {
     if(opaque)opaque->SetBrushSnapshotCapture(false);
     InvalidateGuestCofMuzzle();
-    pointSceneReady=pointPrepared=false;ClearPointLights(pointLights);
+    pointSceneValidated=pointPrepared=false;ClearPointLights(pointLights);
     if(pointRenderer) {
         pointRenderer->ClearMap();
         // A foreign context is not proof that the owning context was destroyed.
@@ -108,7 +108,6 @@ void GuestCofSceneFrame() noexcept {
     catch(...) {ClearPoints();}
 }
 void DrawGuestCofOpaqueScene() noexcept {
-    pointSceneReady=false;
     const auto state=GuestCofDecalsState();
     if(!opaque || !state.resourcesPrepared || !state.mapPrepared)return;
     MetaRendererOpaqueFrame actual{};actual.struct_size=sizeof(actual);
@@ -138,11 +137,15 @@ void DrawGuestCofOpaqueScene() noexcept {
         lights.authenticatedMatrices=true;lights.worldMatrix=frame.worldMatrix;lights.projectionMatrix=frame.projectionMatrix;
         lights.time=engine.GetClientTime();lights.gamma=pointGamma;lights.glBmodels=brushLights->value;
         lights.forceTwoPass=twoPass->value;lights.disableNvCombiners=noCombiners->value;
-        pointSceneReady=pointRenderer->Ready(lights);
-        if(pointSceneReady&&dynamic->value!=0.0F) {
+        bool frameReady=pointRenderer->Ready(lights);
+        if(frameReady&&dynamic->value!=0.0F) {
             const auto result=pointRenderer->Draw(lights,pointLights);
-            pointSceneReady=result==PointLightDrawResult::Drawn||result==PointLightDrawResult::NoLights;
+            frameReady=result==PointLightDrawResult::Drawn||result==PointLightDrawResult::NoLights;
         }
+        // QueryFrame describes this borrowed draw only. A rejected auxiliary
+        // frame does not retire the map backend or the server's inventory.
+        // ClearPoints owns retirement; every draw retains its own validation.
+        if(frameReady)pointSceneValidated=true;
         AdvancePointLights(pointLights,engine.GetClientTime());
     }
 }
@@ -150,10 +153,11 @@ void ClearGuestCofScene() noexcept {
     ClearPoints();ClearGuestCofDecalMap();preparedWorld=nullptr;preparedGeneration=preparedEffectResources=0;preparedHl25=false;opaque=nullptr;
 }
 bool GuestCofPointLightsReady() noexcept {
-    if(!pointPrepared||!pointSceneReady)return false;
+    if(!pointPrepared||!pointSceneValidated)return false;
     const auto state=GuestCofDecalsState();
-    return pointPrepared&&pointSceneReady&&GuestCofEffectsReady()&&state.resourcesPrepared&&state.mapPrepared&&
-        preparedGeneration==state.generation&&pointThread==GetCurrentThreadId()&&pointContext==wglGetCurrentContext();
+    return GuestCofEffectsReady()&&state.resourcesPrepared&&state.mapPrepared&&
+        preparedEffectResources==GuestCofEffectsResourceSerial()&&preparedGeneration==state.generation&&
+        pointThread==GetCurrentThreadId()&&pointContext==wglGetCurrentContext();
 }
 PointLight* AllocateGuestCofPointLight(int key) noexcept {
     return GuestCofPointLightsReady()?&AllocatePointLight(pointLights,key,engine.GetClientTime()):nullptr;

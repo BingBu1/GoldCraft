@@ -2523,7 +2523,9 @@
     "tests/csol-standalone-stamina/README.md",
     "docs/2026-11-15_纠正-绝命档案模式体力来源与原函数-report.md",
     "docs/2026-11-15_部署-MP9整枪与模型更新保留-report.md",
-    "docs/2026-11-15_修复-绝命档案活动体力与不足费用禁跳-report.md"
+    "docs/2026-11-15_修复-绝命档案活动体力与不足费用禁跳-report.md",
+    "tests/cryoffear-scene-admission/README.md",
+    "docs/2026-11-15_修复-CoF场景波动撤销武器权限-report.md"
   ],
   "trees": {
     "native": [

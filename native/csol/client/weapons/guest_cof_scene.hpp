@@ -7,7 +7,8 @@ void GuestCofSceneFrame() noexcept;
 void DrawGuestCofOpaqueScene() noexcept;
 void ClearGuestCofScene() noexcept;
 // This reports an initialized map backend that has passed a real host opaque
-// frame. It does not admit an entire weapon or promise unsupported portal views.
+// frame in its current resource lifetime. A refused individual draw does not
+// retire that backend. It does not admit an entire weapon or portal views.
 bool GuestCofPointLightsReady() noexcept;
 bool GuestCofMainStudioView() noexcept;
 guest::cof::client::PointLight* AllocateGuestCofPointLight(int key) noexcept;
