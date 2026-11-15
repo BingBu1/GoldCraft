@@ -20,6 +20,8 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','proof','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--player-think-engine',type=Path)
+    p.add_argument('--player-think-proof',type=Path)
     a=p.parse_args();output=a.output.absolute()
     gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     for path in (output,*output.parents):
@@ -30,9 +32,23 @@ def main():
              ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/m16_shot.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
+    scheduler=None
+    if a.player_think_engine is not None or a.player_think_proof is not None:
+        if a.player_think_engine is None or a.player_think_proof is None:p.error('Both player-think inputs are required')
+        sources[0]=ROOT/'tests/cryoffear-player-think/main.cpp'
+        path=ROOT/'tests/cryoffear-player-think/oracle.py'
+        spec=importlib.util.spec_from_file_location('cof_player_think_oracle',path)
+        oracle=importlib.util.module_from_spec(spec);spec.loader.exec_module(oracle)
+        with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:
+            scheduler=oracle.generate(a.sample,a.player_think_engine,a.player_think_proof,cases,expected)
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),a.proof.resolve(),a.sample.resolve()}
+    if scheduler is not None:
+        inputs.update((a.player_think_engine.resolve(),a.player_think_proof.resolve(),path.resolve(),
+                       a.player_think_proof.parent/'FP-PRECISION-SUPPLEMENT.json',output/'cases.txt',output/'expected.txt'))
+        taskProof=json.loads(a.player_think_proof.read_text('utf-8-sig'))
+        inputs.update(a.player_think_proof.parent/name for name in taskProof['archives'])
     proof=json.loads(a.proof.read_text('utf-8-sig'))
     if sha(a.sample)!=proof['sampleSha256'] or not proof['beforeImplementation']:raise ValueError('Original identity/pre-edit proof mismatch')
     pe=a.sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');count=int.from_bytes(pe[nt+6:nt+8],'little')
@@ -109,15 +125,25 @@ def main():
     compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=120)
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:
-        tested=subprocess.run([str(exe),str(model)],cwd=output,capture_output=True,text=True,timeout=30)
+        testArgs=[str(exe),str(model)]
+        if scheduler is not None:testArgs.extend((str(output/'cases.txt'),str(output/'expected.txt')))
+        tested=subprocess.run(testArgs,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     negative=[]
+    if scheduler is not None and tested is not None and not tested.returncode:
+        text=(output/'expected.txt').read_text();lines=text.splitlines(keepends=True)
+        wrong=lines.copy();parts=wrong[0].split();parts[0]=format(int(parts[0],16)^1,'x');wrong[0]=' '.join(parts)+chr(10)
+        for name,value in (('empty',''),('truncated',''.join(lines[:-1])),('extra',text+'0'+chr(10)),('wrong',''.join(wrong))):
+            path=output/('bad-'+name+'.txt');path.write_text(value)
+            run=subprocess.run([str(exe),str(model),str(output/'cases.txt'),str(path)],cwd=output,capture_output=True,text=True,timeout=30)
+            (output/('bad-'+name+'.log')).write_text(run.stdout+run.stderr,'utf-8')
+            negative.append(dict(name=name,exit=run.returncode,passed=run.returncode==2))
     after={str(v):sha(v) for v in sorted(deps)}
     success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
     gitAfter=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     receipt=dict(success=success,gitBefore=gitBefore,gitAfter=gitAfter,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
-                 negative=negative,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
+                 negative=negative,scheduler=scheduler,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')
     print((tested.stdout+tested.stderr) if tested else compiled.stdout+compiled.stderr)
     raise SystemExit(0 if success else 1)

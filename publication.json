@@ -2610,7 +2610,12 @@
     "tests/cryoffear-m16-input/README.md",
     "tests/cryoffear-m16-input/main.cpp",
     "tests/cryoffear-m16-input/oracle.py",
-    "tests/cryoffear-m16-input/run.py"
+    "tests/cryoffear-m16-input/run.py",
+    "native/guest/cof/server/player_think.hpp",
+    "tests/cryoffear-player-think/main.cpp",
+    "tests/cryoffear-player-think/oracle.py",
+    "tests/cryoffear-player-think/README.md",
+    "docs/2026-11-15_实现-CoF玩家独立Think调度-report.md"
   ],
   "trees": {
     "native": [

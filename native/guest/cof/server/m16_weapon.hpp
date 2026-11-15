@@ -18,6 +18,7 @@
 
 namespace guest::cof::server
 {
+class PlayerThinkSlot;
 inline constexpr int M16HostId = 902;
 inline constexpr int M16HudSlot = 0;
 inline constexpr int M16HudPosition = 2;
@@ -32,7 +33,7 @@ enum class M16Effect : unsigned char
 {
     DeployPrelude, ReserveHud, InventoryChanged, ViewAnimation, EmptyClick,
     Shell, Gunsmoke, FireEvent, Recoil, Shake, Aim, FireSound, ShotState, ShotLatch,
-    PickupSound, DeployReset, Sleeve, AmmoPickupSound, LongGunPushback, Count
+    PickupSound, DeployReset, Sleeve, AmmoPickupSound, Count
 };
 struct M16Event
 {
@@ -103,6 +104,7 @@ struct M16Backends
     const PlayerAnimationAdapter* playerAnimation{};
     PlayerModelGeneration playerModelGeneration{};
     std::uint64_t ownerLife{};
+    PlayerThinkSlot* playerThink{};
 };
 
 // Actual ReGameDLL weapon class. Registry/ammo/transport hookup is deliberately
@@ -157,7 +159,6 @@ public:
     // weapon input path, even while ownerAttack locks ItemPostFrame. Per-player
     // spread transitions are an explicit host multiplayer isolation adaptation.
     void AdvanceOwnerFrame() noexcept override;
-    void EXPORT DelayedMelee();
     void Shoot();
     void ToggleFireMode();
     bool BurstMode() const noexcept { return burst_; }
@@ -222,9 +223,9 @@ private:
     float actionDeadline_{}, emptyDeadline_{};
     int reserveHud_{}, wearMaximum_{}, wear_{};
     float wearDeadline_{};
-    bool preparedReady_{}, bound_{}, selected_{}, meleePending_{}, worldUse_{};
+    bool preparedReady_{}, bound_{}, selected_{}, worldUse_{};
     bool burstPending_{}, burstDispatch_{}, burst_{true};
-    float meleeDeadline_{}, burstDeadline_{}, spreadIncrement_{.75F};
+    float burstDeadline_{}, spreadIncrement_{.75F};
     struct InventoryState;
     struct ModelRebind
     {
@@ -232,8 +233,8 @@ private:
         void* map{};
         std::uint64_t life{};
         int ownerSerial{},weaponSerial{},spawn{};
-        float burstDeadline{},meleeDeadline{};
-        bool selected{},burstPending{},meleePending{};
+        float burstDeadline{};
+        bool selected{},burstPending{};
     };
     std::optional<ModelRebind> modelRebind_;
     M16Status status_{M16Status::MissingBackend};

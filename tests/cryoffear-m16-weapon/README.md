@@ -32,3 +32,5 @@ it does not establish target damage, stamina mutation, owner-global replacement
 across different weapons, or complete original PostFrame equivalence. Those
 remain necessary before factory registration, purchase admission and gameplay.
 The original control/shot instruction comparisons are separate tests.
+
+Player pushback now uses an independent authenticated owner slot. The weapon owns only its burst Think. Holster/drop/model rebinding retain the owner task; death/connection/map/life retirement cancels it permanently. Player scheduling and full original engine due-window comparison have a separate [oracle](../cryoffear-player-think/README.md). Exact engine-stage installation is still required before M16 map admission.

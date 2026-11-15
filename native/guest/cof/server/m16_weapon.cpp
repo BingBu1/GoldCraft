@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "m16_weapon.hpp"
+#include "player_think.hpp"
 #include "../magazine_reload.hpp"
 #include "../catalog.hpp"
 
@@ -29,7 +30,7 @@ bool Finite(const Vector& v) noexcept
 }
 float AddDouble(float now, double delay) noexcept { return static_cast<float>(double(now) + delay); }
 constexpr unsigned OriginalId = 9;
-constexpr std::uint64_t InventoryKind = 0x434f464d31360000ULL;
+constexpr std::uint64_t InventoryKind = 0x434f464d31360001ULL;
 }
 
 
@@ -39,7 +40,7 @@ struct M16Weapon::InventoryState
     SpreadState spread;
     SpreadTransitions transitions;
     float actionDeadline{},emptyDeadline{},wearDeadline{},nextThink{};
-    float burstDeadline{},meleeDeadline{},armor{},spreadIncrement{};
+    float burstDeadline{},armor{},spreadIncrement{};
     bool burst{};
     int body{};
     float primary{},secondary{},idle{},ownerAttack{};
@@ -47,7 +48,7 @@ struct M16Weapon::InventoryState
     int ownerSerial{},weaponSerial{},modelIndex{},ownerSpawn{};
     std::uintptr_t map{},ownerContext{};
     decltype(CBaseEntity::m_pfnThink) think{};
-    bool selected{},meleePending{},burstPending{},burstDispatch{};
+    bool selected{},burstPending{},burstDispatch{};
     M16Status status{};
 };
 bool M16Weapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output) const noexcept
@@ -58,7 +59,7 @@ bool M16Weapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output) co
     InventoryState saved{};
     saved.action=action_;saved.spread=spread_;saved.transitions=transitions_;
     saved.actionDeadline=actionDeadline_;saved.emptyDeadline=emptyDeadline_;saved.wearDeadline=wearDeadline_;
-    saved.burstDeadline=burstDeadline_;saved.meleeDeadline=meleeDeadline_;
+    saved.burstDeadline=burstDeadline_;
     saved.burst=burst_;saved.spreadIncrement=spreadIncrement_;
     saved.body=pev->body;saved.armor=pev->armorvalue;
     saved.nextThink=pev->nextthink;saved.think=m_pfnThink;
@@ -69,7 +70,7 @@ bool M16Weapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output) co
     saved.ownerSerial=lease.ownerSerial;saved.weaponSerial=lease.weaponSerial;saved.modelIndex=lease.modelIndex;
     saved.ownerSpawn=m_pPlayer->m_iNumSpawns;saved.map=reinterpret_cast<std::uintptr_t>(worldLease_.context);
     saved.ownerContext=reinterpret_cast<std::uintptr_t>(lease.context);
-    saved.selected=selected_;saved.meleePending=meleePending_;saved.burstPending=burstPending_;
+    saved.selected=selected_;saved.burstPending=burstPending_;
     saved.burstDispatch=burstDispatch_;saved.status=status_;
     output.kind=InventoryKind;output.bytes=sizeof(saved);
     std::memcpy(output.data.data(),&saved,sizeof(saved));return true;
@@ -104,7 +105,6 @@ bool M16Weapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
     if(pending)
     {
         burstPending_=pending->burstPending;burstDeadline_=pending->burstDeadline;
-        meleePending_=pending->meleePending;meleeDeadline_=pending->meleeDeadline;
         ScheduleThink();
     }
     return true;
@@ -121,7 +121,7 @@ bool M16Weapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapshot& i
         (saved.selected&&m_pPlayer->m_pActiveItem!=this))return false;
     action_=saved.action;spread_=saved.spread;transitions_=saved.transitions;
     actionDeadline_=saved.actionDeadline;emptyDeadline_=saved.emptyDeadline;wearDeadline_=saved.wearDeadline;
-    burstDeadline_=saved.burstDeadline;meleeDeadline_=saved.meleeDeadline;
+    burstDeadline_=saved.burstDeadline;
     burst_=saved.burst;spreadIncrement_=saved.spreadIncrement;
     pev->body=saved.body;pev->armorvalue=saved.armor;
     m_pfnThink=saved.think;pev->nextthink=saved.nextThink;
@@ -129,7 +129,7 @@ bool M16Weapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapshot& i
     if(saved.selected)m_pPlayer->m_flNextAttack=saved.ownerAttack;
     m_iClip=saved.clip;m_fInReload=saved.inReload;m_fFireOnEmpty=saved.fireOnEmpty;
     reserveHud_=saved.reserveHud;wearMaximum_=saved.wearMaximum;wear_=saved.wear;
-    selected_=saved.selected;meleePending_=saved.meleePending;burstPending_=saved.burstPending;
+    selected_=saved.selected;burstPending_=saved.burstPending;
     burstDispatch_=saved.burstDispatch;status_=saved.status;
     return !selected_||PublishOwnerState();
 }
@@ -152,12 +152,12 @@ void M16Weapon::OwnerModelChanging() noexcept
     const auto dispatch=static_cast<decltype(m_pfnThink)>(&M16Weapon::DispatchThink);
     if(!Check(frame,false)||!ResourcesReady()||!backends_.ownerLife||
         selected_!=(m_pPlayer->m_pActiveItem==this)||
-        ((burstPending_||meleePending_)&&m_pfnThink!=dispatch)||
-        !std::isfinite(burstDeadline_)||!std::isfinite(meleeDeadline_))
+        (burstPending_&&m_pfnThink!=dispatch)||
+        !std::isfinite(burstDeadline_))
     {Invalidate();return;}
     const ModelRebind pending{lease_.owner,worldLease_.context,backends_.ownerLife,
         lease_.ownerSerial,lease_.weaponSerial,m_pPlayer->m_iNumSpawns,
-        burstDeadline_,meleeDeadline_,selected_,burstPending_,meleePending_};
+        burstDeadline_,selected_,burstPending_};
     Invalidate();modelRebind_=pending;
 }
 
@@ -233,11 +233,13 @@ void M16Weapon::Precache()
 M16Status M16Weapon::Bind(CBasePlayer& owner, const M16Prepared& p,
                           const M16Backends& backends) noexcept
 {
-    bound_ = selected_ = meleePending_ = burstPending_ = burstDispatch_ = false;
+    bound_ = selected_ = burstPending_ = burstDispatch_ = false;
     modelRebind_.reset();
     status_ = M16Status::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
-        backends.preparedEffects != M16RequiredEffects || !backends.playerAnimation)
+        backends.preparedEffects != M16RequiredEffects || !backends.playerAnimation ||
+        !backends.playerThink || !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
+            backends.playerModelGeneration.mapEpoch, backends.ownerLife))
         return status_;
     if (Prepare(p) != M16Status::Ready) return status_;
     if (m_iPrimaryAmmoType < 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
@@ -269,14 +271,14 @@ void M16Weapon::Spawn()
     action_ = {};
     spread_ = {};
     transitions_ = {};
-    actionDeadline_ = emptyDeadline_ = wearDeadline_ = meleeDeadline_ = burstDeadline_ = 0;
+    actionDeadline_ = emptyDeadline_ = wearDeadline_ = burstDeadline_ = 0;
     reserveHud_ = wearMaximum_ = wear_ = 0;
     m_iDefaultAmmo = 20;
     burst_ = true; spreadIncrement_ = .75F;
     m_iSecondaryAmmoType = -1;
     m_iClip = 0;
     m_fInReload = m_fFireOnEmpty = 0;
-    bound_ = selected_ = meleePending_ = burstPending_ = burstDispatch_ = false;
+    bound_ = selected_ = burstPending_ = burstDispatch_ = false;
     worldUse_ = false;
     if (!pev) return;
     SetThink(nullptr); SetTouch(nullptr); SetUse(nullptr);
@@ -713,42 +715,27 @@ void M16Weapon::SecondaryAttack()
     if (action_.primary > now || action_.secondary > now || action_.action ||
         action_.special || action_.aiming || frame.stamina <= 0)
     { status_ = M16Status::Ineligible; return; }
-    // Original100520BD schedules the owner's MeleePushBack at0.23F. The SDK
-    // multiplexes that task with the weapon's independent burst think.
-    meleePending_ = true; meleeDeadline_ = now + .23F; ScheduleThink();
+    // Original100520BD/100520CE: the player owns this task. Dropping or
+    // replacing the weapon must not cancel it or restore an older player task.
+    Lease lease = lease_; lease.active = true;
+    const bool scheduled = backends_.playerThink->Schedule(*m_pPlayer, PlayerThinkKind::Pushback, .23F,
+        backends_.playerModelGeneration.mapEpoch, backends_.ownerLife);
+    if (!Current(&lease)) return;
+    if (!scheduled) { status_ = M16Status::MissingBackend; return; }
     if (!View(22) || !Animate(PlayerAction::WeaponMelee)) return;
     action_.primary = action_.secondary = action_.idle = gpGlobals->time + 1.F;
     MirrorTimers(true); status_ = M16Status::Applied;
 }
-void M16Weapon::DelayedMelee()
-{
-    M16OwnerFrame frame{}; if (!Check(frame, false) || !meleePending_) return;
-    if (gpGlobals->time < meleeDeadline_) { status_ = M16Status::Ineligible; return; }
-    meleePending_ = false; ScheduleThink();
-    if (frame.stamina <= 0) { status_ = M16Status::Ineligible; return; }
-    // The mandatory original pushback consumer owns current stamina, sphere
-    // targets and original damage semantics. Never call pistol WeaponMelee.
-    if (Emit({M16Effect::LongGunPushback})) status_ = M16Status::Applied;
-}
-
 void M16Weapon::ScheduleThink() noexcept
 {
-    // Host adaptation: preserve the original independent player-melee and
-    // weapon-burst deadlines through the single SDK weapon callback slot.
-    if (!meleePending_ && !burstPending_)
+    if (!burstPending_)
     { SetThink(nullptr); pev->nextthink = 0; return; }
     SetThink(&M16Weapon::DispatchThink);
-    pev->nextthink = !meleePending_ ? burstDeadline_ : !burstPending_ ? meleeDeadline_ :
-        (meleeDeadline_ < burstDeadline_ ? meleeDeadline_ : burstDeadline_);
+    pev->nextthink = burstDeadline_;
 }
 void M16Weapon::DispatchThink()
 {
-    M16OwnerFrame frame{}; if (!Check(frame, false)) return;
-    const bool burstFirst = burstPending_ && (!meleePending_ || burstDeadline_ <= meleeDeadline_);
-    if (burstFirst) ScheduledBurst(); else DelayedMelee();
-    const auto l = lease_;
-    if (!Current(const_cast<Lease*>(&l))) return;
-    if (burstFirst) DelayedMelee(); else ScheduledBurst();
+    ScheduledBurst();
 }
 void M16Weapon::ScheduledBurst()
 {
@@ -761,7 +748,7 @@ void M16Weapon::ScheduledBurst()
 
 bool M16Weapon::SetAim(bool enabled) noexcept
 {
-    // Original10052C50 toggle, pending reload and hold-aim release set the bit
+    // Original10052C50 toggle and pending reload set the bit
     // before entering the original aim entry/exit consumer.
     action_.aiming = enabled;
     M16Event e{M16Effect::Aim}; e.enabled = enabled;
@@ -1068,7 +1055,7 @@ void M16Weapon::WeaponIdle()
 void M16Weapon::Invalidate() noexcept
 {
     modelRebind_.reset();
-    bound_ = selected_ = meleePending_ = burstPending_ = burstDispatch_ = false;
+    bound_ = selected_ = burstPending_ = burstDispatch_ = false;
     SetThink(nullptr); if (pev) pev->nextthink = 0;
     status_ = M16Status::Cancelled;
 }

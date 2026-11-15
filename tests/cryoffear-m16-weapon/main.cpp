@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "native/guest/cof/server/m16_weapon.hpp"
+#include "native/guest/cof/server/player_think.hpp"
 #include "native/guest/cof/catalog.hpp"
 #include <array>
 #include <bit>
@@ -72,7 +73,6 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const M16Event& e) noexce
     case M16Effect::ShotState:Event(kind,Bits(e.a));break;
     case M16Effect::ShotLatch:shotLatch=e.value;shotLatchDeadline=e.a;break;
     case M16Effect::Aim:Event(21,e.enabled);break;
-    case M16Effect::LongGunPushback:Check(frame.stamina>0);++meleeCalls;Event(kind);break;
     case M16Effect::InventoryChanged:
         if(observeReload)Check(item.m_iClip==20&&item.m_fInReload&&item.m_pPlayer->m_rgAmmo[item.m_iPrimaryAmmoType]==20);
         if(fidgetMode)Event(kind);
@@ -113,6 +113,17 @@ struct Player final:CBasePlayer
 edict_t ownerEdict{},weaponEdict{};
 Player player;
 M16Weapon weapon;
+PlayerThinkSlot playerThink;
+PlayerThinkKind lastPlayerThinkKind{};
+bool TaskCurrent(void*,CBasePlayer& owner,std::uint64_t map,std::uint64_t life) noexcept
+{return current&&&owner==&player&&map==1&&life==17;}
+// Controlled target/damage boundary, separate from the player scheduler.
+bool TaskDispatch(void*,CBasePlayer& owner,PlayerThinkKind kind) noexcept
+{
+    Check(&owner==&player);lastPlayerThinkKind=kind;
+    if(frame.stamina>0){++meleeCalls;Event(110,unsigned(kind));}
+    return true;
+}
 PlayerAnimationAdapter animations;
 M16Prepared prepared;
 M16Backends backends;
@@ -138,6 +149,7 @@ void Initialize()
     weapon.ConfigureColdHost({});
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
     CBasePlayerItem::m_AmmoInfoArray[1].pszName="cof_m16";
+    player.has_disconnected=false;player.m_iNumSpawns=0;
     player.pev->health=100;player.pev->modelindex=1;player.m_Activity=ACT_WALK;player.m_IdealActivity=ACT_WALK;
     player.m_fSequenceFinished=true;player.m_flFlinchTime=0;
     player.m_pActiveItem=&weapon;
@@ -168,7 +180,8 @@ void Initialize()
     prepared.inventoryItemString=prepared.worldModelString+int(std::strlen(strings+prepared.worldModelString))+1;
     weapon.pev->classname=prepared.inventoryItemString+int(std::strlen(strings+prepared.inventoryItemString))+1;
     prepared.world=MeleeWorld::Multiplayer;
-    backends={nullptr,Current,OwnerFrame,Effect,M16RequiredEffects,&animations,{1,1}};
+    Check(playerThink.Bind(player,{nullptr,TaskCurrent,TaskDispatch,1,17,3}));
+    backends={nullptr,Current,OwnerFrame,Effect,M16RequiredEffects,&animations,{1,1},17,&playerThink};
     weapon.Spawn();weapon.m_iPrimaryAmmoType=1;player.m_rgAmmo[1]=40;weapon.m_iClip=20;
     Check(weapon.Bind(player,prepared,backends)==M16Status::Ready);
     Check(weapon.Deploy());events.clear();live=&weapon;
@@ -326,28 +339,43 @@ int main(int argc,char** argv)
     Ready(14);State().aiming=true;events.clear();weapon.ToggleFireMode();
     Check(weapon.BurstMode()&&SawView(32));
     Ready(16);events.clear();weapon.ToggleFireMode();Check(!weapon.BurstMode()&&SawView(33));
-    // Long-gun pushback is a dedicated required consumer, scheduled on the
-    // original .23F deadline. The boundary below does not simulate targets.
-    for(int beforeSwitch:{0,1})
+    // Original owner task survives holster/drop; native CS Think is untouched.
+    for(int beforeSwitch:{0,1,2})
     {
-        Initialize();Ready();const int before=meleeCalls;events.clear();weapon.SecondaryAttack();
-        Check(SawView(22)&&Bits(weapon.pev->nextthink)==Bits(10+.23F));
-        const float due=weapon.pev->nextthink;
-        globals.time=std::nextafter(due,-INFINITY);weapon.DelayedMelee();Check(meleeCalls==before);
+        Initialize();Ready();const int before=meleeCalls;events.clear();
+        player.pev->nextthink=61;weapon.SecondaryAttack();
+        const float due=playerThink.Deadline();
+        Check(SawView(22)&&Bits(due)==Bits(10+.23F)&&!weapon.m_pfnThink&&player.pev->nextthink==61);
+        Check(playerThink.Run(0,std::nextafter(due,-INFINITY))==PlayerThinkResult::Deferred&&meleeCalls==before);
         if(beforeSwitch){weapon.Holster();player.m_pActiveItem=nullptr;}
-        globals.time=due;weapon.DispatchThink();Check(meleeCalls==before+1&&!weapon.m_pfnThink);
+        if(beforeSwitch==2)weapon.BeforeWeaponDrop();
+        Check(playerThink.Run(0,due)==PlayerThinkResult::Dispatched&&meleeCalls==before+1);
+        Check(!playerThink.Deadline()&&playerThink.InternalDeadline()==due&&lastPlayerThinkKind==PlayerThinkKind::Pushback);
+        Check(playerThink.Run(0,due)==PlayerThinkResult::Deferred&&meleeCalls==before+1&&player.pev->nextthink==61);
     }
     for(float stamina:{0.F,-1.F})
     {
         Initialize();Ready();frame.stamina=stamina;events.clear();weapon.SecondaryAttack();
-        Check(events.empty()&&!weapon.m_pfnThink&&weapon.Status()==M16Status::Ineligible);
+        Check(events.empty()&&!playerThink.Deadline()&&!weapon.m_pfnThink&&weapon.Status()==M16Status::Ineligible);
     }
     for(int order:{0,1})
     {
         Initialize();Ready();frame.pressed=1;const int before=meleeCalls;
         if(order==0){weapon.PrimaryAttack();Ready(11);weapon.SecondaryAttack();}
         else {weapon.SecondaryAttack();Ready(11);weapon.PrimaryAttack();}
-        Drain();Check(weapon.m_iClip==17&&State().burstShots==3&&meleeCalls==before+1);
+        const float due=playerThink.Deadline();Drain();
+        Check(weapon.m_iClip==17&&State().burstShots==3&&meleeCalls==before);
+        Check(playerThink.Run(0,due)==PlayerThinkResult::Dispatched&&meleeCalls==before+1);
+    }
+    for(int mutation=0;mutation<6;++mutation)
+    {
+        Initialize();Ready();weapon.SecondaryAttack();const float due=playerThink.Deadline();const int before=meleeCalls;
+        if(mutation==0)++ownerEdict.serialnumber;else if(mutation==1)++player.m_iNumSpawns;
+        else if(mutation==2)player.pev->deadflag=DEAD_DEAD;else if(mutation==3)player.has_disconnected=true;
+        else if(mutation==4)current=false;else player.pev->health=0;
+        Check(playerThink.Run(0,due)==PlayerThinkResult::Cancelled&&meleeCalls==before&&playerThink.Deadline()==0);
+        current=true;player.pev->deadflag=DEAD_NO;player.pev->health=100;player.has_disconnected=false;
+        Check(playerThink.Run(0,due)==PlayerThinkResult::Cancelled&&meleeCalls==before);
     }
     for(bool burst:{false,true})for(int clip:{0,4})
     {
@@ -383,7 +411,8 @@ int main(int argc,char** argv)
     for(bool active:{false,true})
     {
         Prime();frame.pressed=1;weapon.m_iClip=75;weapon.PrimaryAttack();
-        const float due=weapon.BurstDeadline();
+        const float due=weapon.BurstDeadline();Ready(11);weapon.SecondaryAttack();
+        const float playerDue=playerThink.Deadline();const int before=meleeCalls;
         if(!active){weapon.Holster();player.m_pActiveItem=nullptr;}
         weapon.OwnerModelChanging();player.pev->modelindex=2;
         std::string error;const auto plan=RecommendedLongGunAnimationPlan(LongGun::M16,PistolAnimationRig::Stock);
@@ -391,11 +420,16 @@ int main(int argc,char** argv)
         Check(animations.Prepare(player,model,{1,2},LongGun::M16,*plan,_stricmp,error));
         Check(weapon.RestoreInventoryBinding(player)&&weapon.BurstPending()&&weapon.BurstDeadline()==due&&weapon.m_iClip==74);
         Drain();Check(weapon.m_iClip==72&&!weapon.BurstPending());
+        Check(playerThink.Deadline()==playerDue&&playerThink.Run(0,playerDue)==PlayerThinkResult::Dispatched&&meleeCalls==before+1);
     }
     Prime();Ready();weapon.ToggleFireMode();Ready(12);weapon.m_iClip=75;
     goldcraft::inventory::Snapshot saved;
     Check(weapon.SaveInventorySnapshot(saved));weapon.m_iClip=5;
     Check(weapon.RestoreInventorySnapshot(saved)&&weapon.m_iClip==75&&!weapon.BurstMode());
+    Check(playerThink.Schedule(player,PlayerThinkKind::WeaponMelee,.5F,1,17));
+    const float replacement=playerThink.Deadline();
+    Check(weapon.RestoreInventorySnapshot(saved)&&playerThink.Deadline()==replacement);
+    Check(playerThink.Run(0,replacement)==PlayerThinkResult::Dispatched&&lastPlayerThinkKind==PlayerThinkKind::WeaponMelee);
     ++ownerEdict.serialnumber;Check(!weapon.RestoreInventorySnapshot(saved));
     for(bool burst:{false,true})for(bool aimed:{false,true})for(int choice=0;choice<3;++choice)
     {
@@ -412,10 +446,17 @@ int main(int argc,char** argv)
     failEffect=false;Ready(12);weapon.PrimaryAttack();Drain();Check(weapon.m_iClip==17);
     Initialize();auto bad=prepared;bad.pushbackReady=false;
     Check(weapon.Bind(player,bad,backends)==M16Status::MissingBackend);
+    Initialize();auto noTask=backends;noTask.playerThink=nullptr;
+    Check(weapon.Bind(player,prepared,noTask)==M16Status::MissingBackend);
+    Initialize();auto wrongLife=backends;++wrongLife.ownerLife;
+    Check(weapon.Bind(player,prepared,wrongLife)==M16Status::MissingBackend);
+    auto wrongMap=backends;++wrongMap.playerModelGeneration.mapEpoch;
+    Check(weapon.Bind(player,prepared,wrongMap)==M16Status::MissingBackend);
     for(int kind=0;kind<static_cast<int>(M16Effect::Count);++kind)
     {
         Initialize();auto b=backends;b.preparedEffects&=~(1U<<kind);
         Check(weapon.Bind(player,prepared,b)==M16Status::MissingBackend);
     }
     std::cout<<checks<<" actual M16 SDK checks; 0 failures; pushback target/audio and transport are controlled boundaries\n";
+    return 0;
 }
