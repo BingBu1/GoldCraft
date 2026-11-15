@@ -2627,7 +2627,14 @@
     "tests/cryoffear-player-think-stage/dll.cpp",
     "tests/cryoffear-player-think-stage/run_dll.py",
     "tests/cryoffear-player-think-stage/README.md",
-    "docs/2026-11-15_接入-CoF原生玩家Think引擎阶段-report.md"
+    "docs/2026-11-15_接入-CoF原生玩家Think引擎阶段-report.md",
+    "native/guest/cof/stamina_cycle.hpp",
+    "native/guest/cof/stamina_cycle.cpp",
+    "tests/cryoffear-stamina-cycle/main.cpp",
+    "tests/cryoffear-stamina-cycle/oracle.py",
+    "tests/cryoffear-stamina-cycle/run.py",
+    "tests/cryoffear-stamina-cycle/README.md",
+    "docs/2026-11-15_实现-CoF体力周期与耗尽提示-report.md"
   ],
   "trees": {
     "native": [
