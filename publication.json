@@ -2598,7 +2598,10 @@
     "tests/cryoffear-m16-factory/main.cpp",
     "tests/cryoffear-m16-factory/README.md",
     "tests/cryoffear-p345-factory/run.py",
-    "docs/2026-11-15_接入-M16原生工厂与枪械资源-report.md"
+    "docs/2026-11-15_接入-M16原生工厂与枪械资源-report.md",
+    "tools/nightfall-hotfix/Inspect-ScenarioState.ps1",
+    "tools/guest-bootstrap-hotfix/package.py",
+    "docs/2026-11-15_修复-客串脚本漏包与满体力预测诊断-report.md"
   ],
   "trees": {
     "native": [

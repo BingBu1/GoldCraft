@@ -60,6 +60,8 @@ def main():
     parser.add_argument('--include-mp5', action='store_true',
                         help='Require all six firearm definitions, including the independently typed MP5')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
+    parser.add_argument('--runtime-audit', type=Path,
+                        help='Optional read-only exact-version PowerShell audit of the live isolated process')
     args = parser.parse_args()
     if args.include_mp5 and not args.include_tmp:
         parser.error('--include-mp5 requires --include-tmp for the six-firearm profile')
@@ -260,6 +262,23 @@ def main():
                     struct.unpack_from('<I', raw, layout['members']['pszName'])[0] == 0)
         finally:
             process.close()
+
+        if args.runtime_audit:
+            audit = checked(args.runtime_audit).resolve(strict=True)
+            completed = subprocess.run(['powershell.exe', '-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', str(audit), '-TargetDirectory', str(game.parent), '-ProcessId', str(targets[0]['pid'])],
+                capture_output=True, timeout=30, creationflags=subprocess.CREATE_NO_WINDOW)
+            (out / 'runtime-audit.log').write_bytes(completed.stdout + completed.stderr)
+            if completed.returncode:
+                raise RuntimeError('Read-only runtime audit failed')
+            observed = json.loads(completed.stdout.decode('utf-8-sig'))
+            result['runtimeAudit'] = observed
+            result['checks']['runtimeAudit'] = observed['readOnly'] and len(observed['processes']) == 1 and all(
+                row.get('matches') and not row.get('error') and row.get('identityStable') and
+                row.get('guest', {}).get('active') and row.get('guest', {}).get('ready')
+                for row in observed['processes'])
+            if not result['checks']['runtimeAudit']:
+                raise RuntimeError('Runtime audit differs from actual ready guest registration')
 
         def download(row):
             name = row['destination']

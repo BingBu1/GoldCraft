@@ -1,5 +1,6 @@
 param([string]$TargetDirectory='E:\cs_MineCraft\GoldCraft-Servers', [int]$ProcessId=0)
 $ErrorActionPreference='Stop'
+[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
 # Queries and ReadProcessMemory only: no commands, process stops or file writes.
 Add-Type -TypeDefinition @'
 using System;

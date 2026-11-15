@@ -126,6 +126,15 @@ def prepare(publication, evidence):
     if document.get('version') != 2 or not {'glock', 'p345', 'revolver', 'vp70', 'tmp'} <= document.get('firearms', {}).keys():
         raise ValueError('Guest firearm server bootstrap table is missing or incomplete')
     add('cs/cstrike/configs/guest/cof/scenario_damage.json', guest_config)
+    guest_scripts = ['aurora/guest/cof/gunsmoke.aur'] + [
+        'inventoryitems/guest/cof/weapons/weapon_'+name+'.txt'
+        for name in ('glock', 'p345', 'revolver', 'vp70', 'tmp')]
+    for relative in guest_scripts:
+        source = game/relative
+        if not source.is_file() or not resources.selected(relative):
+            raise ValueError('Guest firearm bootstrap script excluded or missing: '+relative)
+        if 'cs/cstrike/'+relative not in files:
+            raise ValueError('Guest firearm bootstrap script was not inventoried: '+relative)
     for name, digest in PINS.items():
         add(name, server/name.removeprefix('cs/'))
         if files[name.lower()]['sha256'] != digest:

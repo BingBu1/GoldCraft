@@ -18,6 +18,7 @@ function Config-Path([string]$Name){
 }
 function Payload-Path([string]$Name){
     if($Name -ceq 'cs/cstrike/configs/guest/cof/scenario_damage.json'){return $true}
+    if($Name -cmatch '^cs/cstrike/(?:aurora/guest/cof/[A-Za-z0-9_/-]+\.aur|inventoryitems/guest/cof/[A-Za-z0-9_/-]+\.txt)$'){return $true}
     if($Name -cin @('scripts/Start-Scenario.ps1','cs/swds.dll','cs/filesystem_stdio.dll','cs/cstrike/dlls/mp.dll','cs/launcher-public/manifest.json',
         'cs/cstrike/delta.lst','cs/cstrike/addons/sypb/sypb.dll','cs/cstrike/bingsang_scenario_cycle.txt')){return $true}
     if($Name -cmatch '^cs/launcher-public/blobs/[0-9a-f]{64}/[A-Za-z0-9_]+\.dll$'){return $true}

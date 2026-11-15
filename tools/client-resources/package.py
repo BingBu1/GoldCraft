@@ -13,7 +13,7 @@ import zipfile
 
 
 DIRECTORIES = {'bgm', 'events', 'gfx', 'maps', 'materials', 'models', 'overviews',
-               'resource', 'shader', 'sound', 'sprites'}
+               'resource', 'shader', 'sound', 'sprites', 'aurora', 'inventoryitems'}
 EXTENSIONS = {'.bsp', '.wad', '.mdl', '.seq', '.spr', '.wav', '.mp3', '.ogg',
               '.tga', '.bmp', '.dds', '.png', '.jpg', '.jpeg', '.pcx', '.lmp',
               '.ttf', '.otf', '.webm', '.res', '.txt', '.json', '.cso', '.csv',
@@ -35,6 +35,12 @@ def sha(path):
 
 def selected(name):
     path = PurePosixPath(name)
+    if path.parts and path.parts[0].lower() in {'aurora', 'inventoryitems'}:
+        # Guest consumers read these scripts before any engine registration.
+        # Keep this authored namespace narrow; unrelated mod scripts are not
+        # part of a CSOL resources update.
+        return (len(path.parts) > 3 and path.parts[1:3] == ('guest', 'cof') and
+                path.suffix.lower() == ('.aur' if path.parts[0].lower() == 'aurora' else '.txt'))
     if len(path.parts) == 1 and path.name.lower() in {'cached.wad', 'tempdecal.wad', 'spraypaint.wad'}:
         return False
     return (path.suffix.lower() in EXTENSIONS and
