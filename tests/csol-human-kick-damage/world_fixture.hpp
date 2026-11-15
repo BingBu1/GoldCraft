@@ -65,7 +65,10 @@ struct WorldFixture
         e.onTrace=[](edict_t*,TraceResult& trace){trace.flFraction=.5f;trace.vecEndPos=Vector(0,0,0);};
         gmsgCurWeapon=0;
         auto* world=e.Reserve(0,"worldspawn");worldspawn(&world->v);
-        Require(e.api.pfnSpawn(world)==0&&!CSOL_RulesRejected(),"actual world installs and precaches Combat rules");
+        const int spawnResult=e.api.pfnSpawn(world);
+        if(spawnResult!=0||CSOL_RulesRejected())
+            std::cerr<<"world rejection: "<<CSOL_RulesRejectionReason()<<'\n';
+        Require(spawnResult==0&&!CSOL_RulesRejected(),"actual world installs and precaches Combat rules");
         for(const char* name:{"playerspawn","zombiespawn","zbstrigger"})for(int id:{1,2,30})
         {
             if(std::strcmp(name,"zbstrigger")&&id!=1)continue;

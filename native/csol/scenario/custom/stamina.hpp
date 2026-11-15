@@ -33,6 +33,7 @@ struct StaminaInput
     bool wantsSprint{}, moving{}, backward{}, reloading{}, aiming{}, ladder{}, ducked{}, slow{};
     int waterLevel{};
     bool dead{}, acceptedJump{}, acceptedKick{};
+    bool onStairs{}, weaponAction{};
 };
 struct StaminaView
 {

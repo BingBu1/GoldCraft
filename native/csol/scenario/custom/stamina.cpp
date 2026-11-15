@@ -97,14 +97,22 @@ std::optional<StaminaView> StaminaState::Step(const StaminaInput& input) noexcep
         if (input.acceptedJump) amount_ -= config_.jumpCost;
         if (input.acceptedKick) amount_ -= config_.kickCost;
     }
-    const bool eligible = input.wantsSprint && input.moving && !input.backward &&
-        !input.reloading && !input.aiming && !input.ladder && !input.ducked && input.waterLevel != 2;
-    if (!sprinting_ && eligible && amount_ >= 1 && !exhausted_)
+    // Original100F4E9F..5148 stops these actions before considering a new
+    // entry. OnStairs and waterlevel2 only prevent entry at this boundary.
+    const bool blocked = input.backward || input.reloading || input.ladder ||
+        input.ducked || input.weaponAction;
+    if (blocked) sprinting_ = false;
+    const bool eligible = input.wantsSprint && input.moving && !blocked &&
+        !input.aiming && !input.onStairs && input.waterLevel != 2;
+    if (!sprinting_ && eligible && amount_ >= 1)
     {
         sprinting_ = true;
         if (!infinite) amount_ -= config_.sprintEntry;
     }
-    if (sprinting_ && (!eligible || amount_ == 0 || exhausted_)) sprinting_ = false;
+    // Original100F530E..539B has a separate retained-sprint stop predicate.
+    // Stationary input does not stop it or cause a second entry debit.
+    if (sprinting_ && (!input.wantsSprint || input.aiming || input.backward ||
+        amount_ == 0 || exhausted_ || input.weaponAction)) sprinting_ = false;
     // Exactly one original cycle per accepted command, even after a long gap.
     if (input.now > cycle_ && amount_ > 0)
     {

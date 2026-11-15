@@ -2515,7 +2515,10 @@
     "tests/cryoffear-tmp-native-effects/README.md",
     "docs/2026-11-15_接入-TMP地图运行时与原生音效-report.md",
     "docs/2026-11-15_接入-TMP原客户端枪口与装填音效-report.md",
-    "docs/2026-11-15_接入-TMP通用枪械目录与客户端路由-report.md"
+    "docs/2026-11-15_接入-TMP通用枪械目录与客户端路由-report.md",
+    "tests/cof-sprint-transition/README.md",
+    "tests/csol-action-stamina/README.md",
+    "docs/2026-11-15_修复-CoF奔跑转换与实际体力夹具-report.md"
   ],
   "trees": {
     "native": [
