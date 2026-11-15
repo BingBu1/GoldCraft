@@ -17,7 +17,7 @@ SAMPLES={
 class Original(shared.Original):
     def __init__(self,sample,weapon="p345"):
         super().__init__(sample)
-        slot={'p345':0x101b55f4,'revolver':0x101b71cc,'vp70':0x101be334}[weapon]
+        slot={'p345':0x101b55f4,'revolver':0x101b71cc,'vp70':0x101be334,'tmp':0x101bcb7c+0x190}[weapon]
         if self.read(slot)!=0x1011e4a0:
             raise ValueError('Original '+weapon+' EmptyPlay virtual target differs')
         self.write(self.weapon+4,self.pev(4));self.write(self.weapon+0x160,self.obj(1))

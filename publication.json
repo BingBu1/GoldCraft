@@ -2511,7 +2511,9 @@
     "tools/Build-GoldCraftCheckpoint.py",
     "tools/Deploy-ClientTransport.py",
     "docs/2026-11-15_实现-Asio协程下载与完整VFS复核-report.md",
-    "native/parallel_download/plugin.cpp"
+    "native/parallel_download/plugin.cpp",
+    "tests/cryoffear-tmp-native-effects/README.md",
+    "docs/2026-11-15_接入-TMP地图运行时与原生音效-report.md"
   ],
   "trees": {
     "native": [

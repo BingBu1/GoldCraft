@@ -8,6 +8,8 @@
 #include "native/csol/server/weapons/guest_cof_revolver_native_effects.hpp"
 #include "native/csol/server/weapons/guest_cof_vp70_factory.hpp"
 #include "native/csol/server/weapons/guest_cof_vp70_native_effects.hpp"
+#include "native/csol/server/weapons/guest_cof_tmp_factory.hpp"
+#include "native/csol/server/weapons/guest_cof_tmp_native_effects.hpp"
 #include "native/guest/cof/sound_protocol.hpp"
 #include "native/guest/cof/server/sound_dispatch.hpp"
 #include "native/guest/cof/admission.hpp"
@@ -29,6 +31,9 @@ struct Context
     unsigned loads{},frees{},sounds{},p345Effects{},glockEffects{};
     unsigned revolverEffects{};
     unsigned vp70Effects{},vp70NativeShots{},vp70FireEvents{};
+    unsigned tmpEffects{},tmpFires{},tmpStops{},tmpTails{},tmpFireEvents{};
+    bool tmpEnabled{true},retireTMP{};
+    std::vector<TMPEffect> tmpOrder;
     std::vector<RevolverEffect> revolverOrder;
     bool retireRevolver{};
     std::vector<P345Effect> order;
@@ -81,6 +86,7 @@ void Resources(const fs::path& candidate,const fs::path& deployed)
     family(P345Models,P345Sounds,P345LocalWaves,P345Events,P345Inventory,P345Particle,P345ClipTexture);
     family(RevolverModels,RevolverSounds,RevolverLocalWaves,RevolverEvents,RevolverInventory,RevolverParticle,RevolverClipTexture);
     family(VP70Models,VP70Sounds,VP70LocalWaves,VP70Events,VP70Inventory,VP70Particle,VP70ClipTexture);
+    family(TMPModels,TMPSounds,TMPLocalWaves,TMPEvents,TMPInventory,TMPParticle,TMPClipTexture);
     for(const auto& p:ShotDecals)put(p.host);
 }
 int String(const char* text)
@@ -119,6 +125,11 @@ bool PrepareRevolver(void*,const RevolverResources&,RevolverPrepared& value) noe
     value.cylinderReady=value.ejectEventReady=value.reloadStagesReady=value.ammoXReady=true;return true;
 }
 bool PrepareVP70(void*,const VP70Resources&,VP70Prepared& value) noexcept
+{
+    value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
+    value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
+}
+bool PrepareTMP(void*,const TMPResources&,TMPPrepared& value) noexcept
 {
     value.ballistics.customDecalMessage=77;value.melee.shakeMessage=78;value.melee.recoil=Recoil;
     value.world=MeleeWorld::Multiplayer;value.particleReady=value.deployPreludeReady=true;return true;
@@ -174,32 +185,53 @@ bool VP70EffectBoundary(void*,const VP70Resources&,const OwnerBinding& binding,C
     {Check(event.value==19&&event.other==1);++context.vp70FireEvents;}
     return true;
 }
-GlockRuntimeHost Callbacks(bool p345,bool revolver=false,bool vp70=false)
+bool TMPEffectBoundary(void*,const TMPResources&,const OwnerBinding& binding,CBasePlayer& actor,
+    CBasePlayerWeapon& item,const TMPEvent& event) noexcept
+{
+    Check(binding.runtime&&binding.runtime->Current(binding)&&&actor==&player&&item.m_pPlayer==&player&&item.m_iId==900);
+    ++context.tmpEffects;context.tmpOrder.push_back(event.kind);
+    Check(!(TMPNativeSoundEffects&(1u<<unsigned(event.kind))));
+    if(event.kind==TMPEffect::FirstDraw)
+    {bool first=false;Check(context.runtime->PersistentTMPFirstDraw(actor,first)&&first);}
+    if(event.kind==TMPEffect::FireEvent)
+    {Check(event.value==14&&event.other==1);++context.tmpFireEvents;}
+    if(event.kind==TMPEffect::KillLocalParticles)Check(event.enabled);
+    if(event.kind==TMPEffect::Recoil&&context.retireTMP)
+    {
+        context.runtime->EndMap();
+        context.releaseWhileBorrowed=context.runtime->EngineEntitiesReleased(context.epoch);
+    }
+    return true;
+}
+GlockRuntimeHost Callbacks(bool p345,bool revolver=false,bool vp70=false,bool tmp=false)
 {
     GlockRuntimeHost host{nullptr,CurrentMap,CurrentOwner,PrepareGlock,GlockEffectBoundary,
         GlockRequiredEffects&~GlockNativeSoundEffects,false};
     if(p345)host.p345={PrepareP345,P345EffectBoundary,P345RequiredEffects&~P345NativeSoundEffects};
     if(revolver)host.revolver={PrepareRevolver,RevolverEffectBoundary,RevolverRequiredEffects&~RevolverNativeSoundEffects};
     if(vp70)host.vp70={PrepareVP70,VP70EffectBoundary,VP70RequiredEffects&~VP70NativeSoundEffects};
+    if(tmp)host.tmp={PrepareTMP,TMPEffectBoundary,TMPRequiredEffects&~TMPNativeSoundEffects};
     host.weaponCurrent=[](void*,CBasePlayer&,int id) noexcept {
+        if(id==TMPHostId)return context.tmpEnabled;
         const auto* definition=guest::cof::FindPistol(id);
         return definition&&(context.enabledWeapons&guest::cof::PistolCapability(definition->identity));
     };
     return host;
 }
-GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false,bool vp70=false)
+GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false,bool vp70=false,bool tmp=false)
 {
     GlockPlayerPreparation request{{OwnerMovement::NativeCounterStrike,true,true,true,true,true},
         {true,37,11,45},{true,false},PistolAnimationRig::Stock,model,_stricmp};
     if(p345)request.p345Rules=NativeOwnerRules{true,61,11,24};
     if(revolver)request.revolver=GlockPlayerPreparation::RevolverPreparation{{true,89,13,15},{false,144,12.5F}};
     if(vp70)request.vp70=GlockPlayerPreparation::VP70Preparation{{true,45,11,54},false};
+    if(tmp)request.tmp=GlockPlayerPreparation::TMPPreparation{{true,48,11,90},false};
     return request;
 }
 void Engine()
 {
     g_engfuncs.pfnPvAllocEntPrivateData=[](edict_t* entity,int32 amount)->void* {
-        Check(amount==int(sizeof(P345Weapon))||amount==int(sizeof(RevolverWeapon))||amount==int(sizeof(VP70Weapon)));
+        Check(amount==int(sizeof(P345Weapon))||amount==int(sizeof(RevolverWeapon))||amount==int(sizeof(VP70Weapon))||amount==int(sizeof(TMPWeapon)));
         auto* memory=std::calloc(1,std::size_t(amount));Check(memory!=nullptr);
         privateAllocations.push_back(memory);entity->pvPrivateData=memory;++allocated;return memory;
     };
@@ -224,6 +256,19 @@ void Engine()
     g_engfuncs.pfnSetModel=[](edict_t* e,const char* path){e->v.modelindex=Cache(path,context.models);e->v.model=String(path);};
     g_engfuncs.pfnSetOrigin=[](edict_t*,const float*){};g_engfuncs.pfnSetSize=[](edict_t*,const float*,const float*){};
     g_engfuncs.pfnEmitSound=[](edict_t* e,int channel,const char* sample,float volume,float attenuation,int flags,int pitch){
+        if(channel==CHAN_WEAPON&&(!std::strcmp(sample,TMPSounds[unsigned(TMPSound::Fire)].host)||
+            !std::strcmp(sample,TMPSounds[unsigned(TMPSound::Tail)].host)))
+        {
+            Check(e==player.edict()&&pitch==PITCH_NORM);
+            if(flags==SND_STOP){Check(volume==0&&attenuation==0);++context.tmpStops;}
+            else
+            {
+                Check(flags==0&&volume==1&&attenuation==.8F);
+                if(!std::strcmp(sample,TMPSounds[unsigned(TMPSound::Fire)].host))++context.tmpFires;
+                else ++context.tmpTails;
+            }
+            return;
+        }
         if(channel==CHAN_WEAPON)
         {
             Check(e==player.edict()&&volume==1&&attenuation==.8F&&flags==0&&pitch==PITCH_NORM&&
@@ -236,6 +281,7 @@ void Engine()
     CBasePlayerItem::m_AmmoInfoArray[2].pszName="cof_p345";
     CBasePlayerItem::m_AmmoInfoArray[3].pszName="cof_revolver";
     CBasePlayerItem::m_AmmoInfoArray[4].pszName="cof_vp70";
+    CBasePlayerItem::m_AmmoInfoArray[5].pszName="cof_tmp";
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
 }
 void DestroyP345()
@@ -245,6 +291,7 @@ void DestroyP345()
         auto* p=static_cast<CBasePlayerWeapon*>(memory);delete p->m_pEntity;
         if(auto* revolver=dynamic_cast<RevolverWeapon*>(p))revolver->~RevolverWeapon();
         else if(auto* vp70=dynamic_cast<VP70Weapon*>(p))vp70->~VP70Weapon();
+        else if(auto* tmp=dynamic_cast<TMPWeapon*>(p))tmp->~TMPWeapon();
         else static_cast<P345Weapon*>(p)->~P345Weapon();
         std::free(memory);
     }
@@ -481,9 +528,72 @@ int main(int argc,char** argv)
     player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;player.m_pActiveItem=nullptr;
     DestroyP345();vp70Entity.pvPrivateData=nullptr;runtime.EndMap();Check(runtime.EngineEntitiesReleased(6));
     player.pev->health=100;
-    context.epoch=7;auto incomplete=Callbacks(true,true,true);incomplete.vp70.effect=nullptr;
+    context.epoch=7;Check(bool(runtime.BeginMap(Callbacks(true,true,true,true)))&&runtime.PreparedTMPResources());
+    auto tmpRequest=PlayerPreparation(true,true,true,true);Check(runtime.PlayerSpawned(player,tmpRequest,error));
+    TMPBackends tmpBackend{};Check(runtime.Backend(player,tmpBackend));
+    TMPOwnerFrame tmpFrame{};Check(tmpBackend.ownerFrame(tmpBackend.context,tmpFrame)&&
+        tmpFrame.reserveLimit==90&&tmpFrame.bulletDamage==48&&!tmpFrame.firstDrawn);
+    context.tmpEnabled=false;TMPBackends rejectedTMP{};Check(!runtime.Backend(player,rejectedTMP));context.tmpEnabled=true;
+    edict_t tmpEntity{};InitEdict(tmpEntity);auto* tmp=CreateTMP(tmpEntity.v);Check(tmp);
+    tmp->Spawn();Check(tmp->ResourcesReady()&&tmp->m_iId==900&&tmp->m_iDefaultAmmo==30);
+    Check(tmp->AddToPlayer(&player)&&tmp->m_iClip==30&&tmp->m_iPrimaryAmmoType==5);
+    tmp->AttachToPlayer(&player);player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]=tmp;player.m_pActiveItem=tmp;
+    globals.time=300;player.pev->button=0;Check(tmp->Deploy());
+    bool tmpFirst=false;Check(runtime.PersistentTMPFirstDraw(player,tmpFirst)&&tmpFirst);
+    const auto tmpLoads=context.loads;
+    globals.time=310;player.pev->button=IN_ATTACK;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+    context.tmpOrder.clear();tmp->PrimaryAttack();
+    Check(tmp->m_iClip==29&&context.tmpFires==1&&context.tmpFireEvents==1);
+    Check(context.tmpOrder.size()>4&&context.tmpOrder[0]==TMPEffect::Shell&&
+        context.tmpOrder[1]==TMPEffect::KillLocalParticles&&context.tmpOrder[2]==TMPEffect::Gunsmoke&&
+        context.tmpOrder[3]==TMPEffect::FireEvent);
+    Check(runtime.EndPostThink(player));
+    globals.time=311.1F;player.pev->button=0;
+    Check(runtime.BeginPreThink(player)&&runtime.BeginInput(player)&&runtime.AfterMovement(player));
+    tmp->ItemPostFrame();Check(runtime.EndPostThink(player));
+    Check(context.tmpFires==1&&context.tmpStops==1&&context.tmpTails==1);
+    globals.time=320;tmp->m_iClip=2;player.m_rgAmmo[5]=1000;tmp->Reload();
+    Check(tmp->ActionState().loading&&tmp->m_iClip==0);
+    const auto tmpReload=tmp->ActionState().ownerAttack,tmpPrimary=tmp->m_flNextPrimaryAttack;
+    const auto tmpLife=tmpBackend.ownerLife;tmpRequest.tmp->firstDrawn=tmpFirst;
+    runtime.PlayerModelChanging(player);Check(!tmpBackend.current(tmpBackend.context));
+    Check(runtime.PlayerModelChanged(player,tmpRequest,error)&&runtime.Backend(player,tmpBackend)&&
+        tmpBackend.ownerLife==tmpLife&&tmp->RestoreInventoryBinding(player));
+    Check(tmp->ActionState().loading&&tmp->ActionState().ownerAttack==tmpReload&&tmp->m_flNextPrimaryAttack==tmpPrimary&&
+        context.tmpFires==1&&context.tmpTails==1);
+    globals.time=std::nextafter(tmpReload,std::numeric_limits<float>::infinity());tmp->ItemPostFrame();
+    Check(!tmp->ActionState().loading&&tmp->m_iClip==30&&player.m_rgAmmo[5]==970&&context.loads==tmpLoads);
+    globals.time+=.01F;tmp->ItemPostFrame();
+    goldcraft::inventory::Snapshot tmpSnapshot;Check(tmp->SaveInventorySnapshot(tmpSnapshot));
+    tmp->Holster();tmp->m_iClip=75;
+    Check(tmp->RestoreInventoryBinding(player)&&tmp->RestoreInventorySnapshot(tmpSnapshot)&&tmp->m_iClip==30);
+    globals.time=340;tmp->SecondaryAttack();const auto tmpThink=tmp->pev->nextthink;Check(tmp->m_pfnThink&&tmpThink>340);
+    runtime.PlayerModelChanging(player);Check(!tmp->m_pfnThink);
+    Check(runtime.PlayerModelChanged(player,tmpRequest,error)&&tmp->RestoreInventoryBinding(player)&&
+        tmp->m_pfnThink&&tmp->pev->nextthink==tmpThink);
+    const auto tmpFiresBeforeDeath=context.tmpFires;player.pev->health=0;runtime.PlayerDied(player);
+    Check(!tmpBackend.current(tmpBackend.context)&&!tmp->m_pfnThink);tmp->Think();
+    Check(context.tmpFires==tmpFiresBeforeDeath);
+    player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]=nullptr;player.m_pActiveItem=nullptr;
+    DestroyP345();tmpEntity.pvPrivateData=nullptr;runtime.EndMap();Check(runtime.EngineEntitiesReleased(7));
+    player.pev->health=100;
+    context.epoch=8;
+    for(int field=0;field<3;++field)
+    {
+        auto absent=Callbacks(true,true,true,true);
+        if(field==0)absent.tmp.prepare=nullptr;else if(field==1)absent.tmp.effect=nullptr;
+        else absent.tmp.effects&=~(1u<<unsigned(TMPEffect::KillLocalParticles));
+        Check(!runtime.BeginMap(absent)&&!runtime.PreparedTMPResources());
+    }
+    const auto savedTMPInventory=context.files.at(TMPInventory.host);context.files.erase(TMPInventory.host);
+    Check(!runtime.BeginMap(Callbacks(true,true,true,true))&&!runtime.PreparedTMPResources());
+    Check(runtime.EngineEntitiesReleased(runtime.LastIssuedMapEpoch()));
+    edict_t refusedTMP{};InitEdict(refusedTMP);Check(!CreateTMP(refusedTMP.v));
+    context.files.emplace(TMPInventory.host,savedTMPInventory);context.epoch=9;
+    auto incomplete=Callbacks(true,true,true);incomplete.vp70.effect=nullptr;
     Check(!runtime.BeginMap(incomplete));
     context.files.erase(VP70Inventory.host);Check(!runtime.BeginMap(Callbacks(true,true,true))&&!runtime.PreparedVP70Resources());
     Check(runtime.EngineEntitiesReleased(runtime.LastIssuedMapEpoch()));
-    std::cout<<"P345/Revolver/VP70 actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
+    std::cout<<"P345/Revolver/VP70/TMP actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
 }

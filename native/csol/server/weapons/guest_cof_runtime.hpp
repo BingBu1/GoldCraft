@@ -6,6 +6,7 @@
 #include "guest_cof_p345_owner.hpp"
 #include "guest_cof_revolver_owner.hpp"
 #include "guest_cof_vp70_owner.hpp"
+#include "guest_cof_tmp_owner.hpp"
 #include <memory>
 #include <optional>
 
@@ -36,6 +37,14 @@ struct VP70RuntimeHost
     std::uint32_t effects{};
 };
 
+struct TMPRuntimeHost
+{
+    bool (*prepare)(void*,const TMPResources&,guest::cof::server::TMPPrepared&) noexcept {};
+    bool (*effect)(void*,const TMPResources&,const OwnerBinding&,
+        CBasePlayer&,CBasePlayerWeapon&,const guest::cof::server::TMPEvent&) noexcept {};
+    std::uint32_t effects{};
+};
+
 // Only the genuinely external consumers remain here. The runtime itself owns
 // native sounds, resources, factory, player generations and owner frame stages.
 // Storage and callbacks must survive EngineEntitiesReleased for their map.
@@ -57,6 +66,7 @@ struct GlockRuntimeHost
     bool (*weaponCurrent)(void*,CBasePlayer&,int hostId) noexcept {};
     RevolverRuntimeHost revolver{};
     VP70RuntimeHost vp70{};
+    TMPRuntimeHost tmp{};
 };
 
 struct GlockPlayerPreparation
@@ -73,6 +83,8 @@ struct GlockPlayerPreparation
     std::optional<RevolverPreparation> revolver;
     struct VP70Preparation { NativeOwnerRules rules; bool firstDrawn; };
     std::optional<VP70Preparation> vp70;
+    struct TMPPreparation { NativeOwnerRules rules; bool firstDrawn; };
+    std::optional<TMPPreparation> tmp;
 };
 
 class GlockRuntime final
@@ -102,6 +114,7 @@ public:
     const P345Resources* PreparedP345Resources() const noexcept;
     const RevolverResources* PreparedRevolverResources() const noexcept;
     const VP70Resources* PreparedVP70Resources() const noexcept;
+    const TMPResources* PreparedTMPResources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -114,11 +127,13 @@ public:
     bool Backend(CBasePlayer&, guest::cof::server::P345Backends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::RevolverBackends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::VP70Backends&) noexcept;
+    bool Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;
     bool PersistentState(CBasePlayer&, RevolverOwnerState&) noexcept;
     bool PersistentVP70FirstDraw(CBasePlayer&, bool&) noexcept;
+    bool PersistentTMPFirstDraw(CBasePlayer&, bool&) noexcept;
     bool PreserveRevolverReload(CBasePlayer&,int playerAnimation,int& desiredSequence) noexcept;
     bool BeginPreThink(CBasePlayer&) noexcept;
     bool BeginInput(CBasePlayer&) noexcept;
