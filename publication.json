@@ -2585,7 +2585,14 @@
     "tools/Observe-CSOLAdmission.py",
     "tools/Observe-NativeMovement.py",
     "tools/nightfall-hotfix/Inspect-Runtime.ps1",
-    "tests/native-jump-prediction/README.md"
+    "tests/native-jump-prediction/README.md",
+    "native/guest/cof/pushback.hpp",
+    "native/guest/cof/pushback.cpp",
+    "tests/cryoffear-pushback/main.cpp",
+    "tests/cryoffear-pushback/oracle.py",
+    "tests/cryoffear-pushback/run.py",
+    "tests/cryoffear-pushback/README.md",
+    "docs/2026-11-15_实现-CoF长枪原版推搡回调-report.md"
   ],
   "trees": {
     "native": [
