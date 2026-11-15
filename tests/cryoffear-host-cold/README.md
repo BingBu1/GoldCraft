@@ -1,9 +1,9 @@
-# Actual guest-pistol cold startup
+# Actual guest-firearm cold startup
 
 `run.py` temporarily installs a reviewed DLL and explicit resource closure in
 the unused `cs-dione-probe` server. It leaves the main server and graphical
 client running, uses a separate loopback UDP/HTTP pair, starts Scenario with
-32 slots, and verifies the actual four registered `ItemInfo` records using the
+32 slots, and verifies the actual registered `ItemInfo` records using the
 loaded module's matching PDB. It does not create players or inject gameplay.
 
 Supply `--mp`, `--pdb`, `--client`, `--engine`, `--resources` and a fresh
@@ -14,7 +14,14 @@ copying a `_hands.json` without its donor is an incomplete test deployment.
 
 The checker compares compiled client/server menu revisions, verifies the
 complete server HUD, reads actual registered IDs 896–899 and their clip
-capacities, and downloads all listed public guest assets through the real
+capacities, and requires optional TMP ID 900 to remain absent by default.
+Use `--include-tmp` with an explicit complete v2 balance/resource closure to
+require the fifth definition with a 30-round clip instead. This expectation
+is selected independently of the supplied damage JSON so a configuration
+mistake cannot silently narrow the registration check.
+The isolated process enables the engine's developer output before loading the
+map so `ALERT(at_error)` initialization failures are retained in its receipt log.
+The checker downloads all listed public guest assets through the real
 built-in HTTP service. Server-only damage configuration must return 404.
 Non-guest prerequisite resources are checked by the HUD/menu preflight; their
 inclusion alone does not claim that every engine resource was downloaded.

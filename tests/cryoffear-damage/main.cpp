@@ -27,7 +27,7 @@ std::string Changed(std::string value, const std::string& from, const std::strin
 int main(int argc, char** argv)
 {
     using namespace guest::cof;
-    if (argc != 2) return 2;
+    if (argc != 3) return 2;
     std::ifstream file(argv[1], std::ios::binary);
     if (!file) return 3;
     const std::string json{std::istreambuf_iterator<char>(file), {}};
@@ -92,6 +92,15 @@ int main(int argc, char** argv)
         "\"vp70\": { \"shot\": 80, \"melee\": 120 },\n    \"tmp\": { \"shot\": 55, \"melee\": 120 }");
     Check(config.Parse(version2,error)&&config.Find(Firearm::TMP)&&
         *config.Find(Firearm::TMP)==ScenarioDamage{55,120},"Explicit TMP balance rejected");
+    std::ifstream shippedV2(argv[2], std::ios::binary);
+    if (!shippedV2) return 3;
+    const std::string v2Json{std::istreambuf_iterator<char>(shippedV2), {}};
+    Check(config.Parse(v2Json,error)&&error.empty(),"Shipped five-firearm configuration rejected");
+    for(unsigned i=0;i<std::size(expected);++i)
+        Check(config.Find(static_cast<Pistol>(i))&&*config.Find(static_cast<Pistol>(i))==expected[i],
+            "Shipped v2 changed the four accepted balances");
+    Check(config.Find(Firearm::TMP)&&*config.Find(Firearm::TMP)==ScenarioDamage{55,120},
+        "Shipped v2 lost explicit TMP balance");
     for(const auto& pistol:Pistols)
         Check(FindFirearm(FirearmIdentity(pistol.identity))&&
             FindFirearm(pistol.hostId)->originalId==pistol.originalId&&
@@ -121,6 +130,7 @@ int main(int argc, char** argv)
         Changed(version2,"\"firearms\"","\"pistols\""),Changed(version2,"\"tmp\"","\"vp70\""),
         Changed(version2,"\"tmp\"","\"unknown\""),Changed(version2,"\"shot\": 55","\"shot\": -1"),
         Changed(version2,"\"shot\": 55","\"shot\": 55, \"penetration\": 5"),
+        Changed(version2,"\"shot\": 55","\"shot\": 55, \"penetration\": 0"),
         Changed(version2,"\"version\": 2","\"version\": 3"),
         Changed(version2,"\"version\": 2","\"version\": 1"),version2+" trailing"};
     for(const auto& bad:badV2)

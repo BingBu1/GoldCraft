@@ -2521,7 +2521,8 @@
     "docs/2026-11-15_修复-CoF奔跑转换与实际体力夹具-report.md",
     "docs/2026-11-15_接入-TMP生产Host与原图HUD-report.md",
     "tests/csol-standalone-stamina/README.md",
-    "docs/2026-11-15_纠正-绝命档案模式体力来源与原函数-report.md"
+    "docs/2026-11-15_纠正-绝命档案模式体力来源与原函数-report.md",
+    "docs/2026-11-15_部署-MP9整枪与模型更新保留-report.md"
   ],
   "trees": {
     "native": [

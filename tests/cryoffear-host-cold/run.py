@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Cold-start the complete guest pistol closure in the unused isolated server.
+"""Cold-start the complete guest firearm closure in the unused isolated server.
 
 No graphical client, fake player, gameplay injection or main-server changes.
 Every installed file is restored, including pre-existing hard-linked resources.
@@ -20,6 +20,7 @@ import struct
 import subprocess
 import sys
 import time
+import traceback
 import urllib.parse
 import urllib.error
 import urllib.request
@@ -54,6 +55,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('mp', 'pdb', 'client', 'engine', 'resources', 'output'):
         parser.add_argument('--' + key, type=Path, required=True)
+    parser.add_argument('--include-tmp', action='store_true',
+                        help='Require all five firearm definitions; otherwise require TMP to remain absent')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
     args = parser.parse_args()
     out = checked(args.output)
@@ -152,7 +155,7 @@ def main():
                    GOLDCRAFT_HTTP_PORT=str(http_port), GOLDCRAFT_HTTP_PUBLIC_URL=f'http://127.0.0.1:{http_port}/goldcraft/')
         command = [str(game / 'hlds.exe'), '-game', 'cstrike', '-insecure', '-nomaster',
             '-console', '-condebug', '+ip', '127.0.0.1', '-port', str(cs_port), '-maxplayers', '32',
-            '-csol_game_mode', '2', '+map', 'zs_deadend']
+            '-csol_game_mode', '2', '+developer', '1', '+map', 'zs_deadend']
         if args.debugger:
             debugger = args.debugger.resolve(strict=True)
             if debugger.name.casefold() != 'cdb.exe':
@@ -163,7 +166,7 @@ def main():
                 f'bu swds!Sys_Error "da poi(@esp+4); da poi(@esp+8); kp 30; .dump /m /o {dump}; q"\n'
                 f'sxe -c ".exr -1; .ecxr; kp 30; .dump /m /o {dump}; q" av\ng\n', 'ascii')
             command = [str(debugger), '-G', '-logo', str(out / 'debugger.log'),
-                       '-y', str(args.pdb.parent), '-cf', str(commands), *command]
+                       '-y', str(args.pdb.resolve(strict=True).parent), '-cf', str(commands), *command]
         child = subprocess.Popen(command, cwd=game, env=env,
             startupinfo=startup, creationflags=subprocess.CREATE_NEW_CONSOLE)
         result['pid'] = child.pid
@@ -201,10 +204,31 @@ def main():
                 raise ValueError('Matching PDB lacks actual extended item table')
             table = loaded['base'] + pe.sections[int(match[1]) - 1]['rva'] + int(match[2])
             layout = symbols.layout('ItemInfo')
-            for ident, name, clip in ((896, 'glock', 15), (897, 'p345', 8), (898, 'revolver', 5), (899, 'vp70', 18)):
+            result['loaded'] = dict(sha256=pe.sha256, pdb=symbols.identity)
+            def global_address(pattern):
+                match = re.search(pattern, symbols.globals)
+                if not match:
+                    raise ValueError('Missing cold diagnostic global')
+                return loaded['base'] + pe.sections[int(match[1]) - 1]['rva'] + int(match[2])
+            cvar = global_address(r'S_LDATA32[^\n]*::csol_weapons`\s*\n[^\n]*addr = (\d+):(\d+)')
+            cvar_layout = symbols.layout('cvar_s')
+            rule_var = global_address(r'S_GDATA32[^\n]*`g_pGameRules`\s*\n[^\n]*addr = (\d+):(\d+)')
+            rules = struct.unpack('<I', process.read(rule_var, 4))[0]
+            result['precacheState'] = dict(weaponsEnabled=struct.unpack('<f', process.read(
+                cvar + cvar_layout['members']['value'], 4))[0], rulesPointer=rules,
+                rulesVtable=struct.unpack('<I', process.read(rules, 4))[0] if rules else None)
+            result['registrationProbes'] = []
+            expected = [(896, 'glock', 15), (897, 'p345', 8), (898, 'revolver', 5), (899, 'vp70', 18)]
+            if args.include_tmp:
+                expected.append((900, 'tmp', 30))
+            for ident, name, clip in expected:
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])
                 get = lambda field: struct.unpack_from('<i', raw, layout['members'][field])[0]
                 pointer = struct.unpack_from('<I', raw, layout['members']['pszName'])[0]
+                result['registrationProbes'].append(dict(expectedId=ident, id=get('iId'),
+                                                        clip=get('iMaxClip'), namePointer=pointer))
+                if pointer < 0x10000:
+                    raise ValueError('Expected actual guest registration is missing: ' + name)
                 actual = bytearray()
                 for offset in range(64):
                     value = process.read(pointer + offset, 1)
@@ -213,8 +237,12 @@ def main():
                     actual.extend(value)
                 assert (get('iId'), get('iMaxClip'), actual.decode('ascii')) == (ident, clip, 'weapon_cof_' + name)
                 result['registration'].append(dict(id=ident, name=actual.decode('ascii'), clip=clip))
-            result['checks']['fourActualItemDefinitions'] = len(result['registration']) == 4
-            result['loaded'] = dict(sha256=pe.sha256, pdb=symbols.identity)
+            result['checks']['actualItemDefinitions'] = len(result['registration']) == len(expected)
+            if not args.include_tmp:
+                raw = process.read(table + (900 - 32) * layout['size'], layout['size'])
+                result['checks']['optionalTMPAbsent'] = (
+                    struct.unpack_from('<i', raw, layout['members']['iId'])[0] == 0 and
+                    struct.unpack_from('<I', raw, layout['members']['pszName'])[0] == 0)
         finally:
             process.close()
 
@@ -248,6 +276,7 @@ def main():
         result['success'] = all(result['checks'].values())
     except BaseException as error:
         result['error'] = (type(error).__name__ + ': ' + str(error)).replace(token, '[redacted]')
+        (out / 'traceback.txt').write_text(traceback.format_exc().replace(token, '[redacted]'), 'utf8')
     finally:
         if child and child.poll() is None:
             try:
