@@ -2675,7 +2675,9 @@
     "docs/2026-11-16_接入-M16实际效果与模式发送恢复-report.md",
     "docs/2026-11-16_实现-CoF推搡受击动作选择-report.md",
     "tests/cryoffear-flinch-activity/README.md",
-    "docs/2026-11-16_接入-CoF死亡体力快照与生命退休-report.md"
+    "docs/2026-11-16_接入-CoF死亡体力快照与生命退休-report.md",
+    "docs/2026-11-16_实现-CoF小受击任务原始生命周期-report.md",
+    "tests/cryoffear-flinch-task/README.md"
   ],
   "trees": {
     "native": [
