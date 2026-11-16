@@ -42,7 +42,7 @@ public:
     void Invalidate() noexcept
     {
         ++binding_; player_ = nullptr; entity_ = nullptr; backend_ = {};
-        deadline_ = internalDeadline_ = 0; installed_ = false;
+        deadline_ = internalDeadline_ = 0; installed_ = false; sourceHostId_ = 0;
     }
     bool Current() const noexcept
     {
@@ -61,7 +61,7 @@ public:
             (backend_.prepared & PlayerThinkBit(kind)) && Current();
     }
     bool Schedule(CBasePlayer& player, PlayerThinkKind kind, float delay,
-                  std::uint64_t map, std::uint64_t life) noexcept
+                  std::uint64_t map, std::uint64_t life, int sourceHostId = 0) noexcept
     {
         if (!PreparedFor(player, kind, map, life) || !gpGlobals || !std::isfinite(gpGlobals->time) || !std::isfinite(delay))
             return false;
@@ -70,7 +70,7 @@ public:
         const float next = static_cast<float>(double(gpGlobals->time) + double(delay));
         if (!std::isfinite(next)) return false;
         internalDeadline_ = deadline_ = next;
-        kind_ = kind; installed_ = true;
+        kind_ = kind; sourceHostId_ = sourceHostId; installed_ = true;
         return true;
     }
     PlayerThinkResult Run(float frameTime, double clientTimebase) noexcept
@@ -105,6 +105,8 @@ public:
     }
     float Deadline() const noexcept { return deadline_; }
     float InternalDeadline() const noexcept { return internalDeadline_; }
+    // Host provenance for authored damage/resources; it never owns this task.
+    int SourceHostId() const noexcept { return sourceHostId_; }
 
 private:
     bool LocalCurrent() const noexcept
@@ -118,7 +120,7 @@ private:
     edict_t* entity_{};
     PlayerThinkBackend backend_{};
     std::uint64_t binding_{};
-    int serial_{}, spawn_{};
+    int serial_{}, spawn_{}, sourceHostId_{};
     float deadline_{}, internalDeadline_{};
     PlayerThinkKind kind_{};
     bool installed_{};

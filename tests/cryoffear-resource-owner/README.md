@@ -47,3 +47,5 @@ rejection after retirement, and cancellation at the flash2 cold lookup.
 Missing flash2 prevents MP5 muzzle readiness while existing Glock/P345
 remain ready. This is actual SDK/audio/cold lifetime evidence; no game,
 P grip, performance or whole-weapon admission is claimed.
+
+G43扩展使用匹配原图的四份真实PCM和实际Studio5004路径，合计34份波形。验证G43独立声音/视模准备、缺flash2、部分注册与连接退休，并断言效果期间没有新增资源读取或冷查询；不替代游戏画面/听感和网络验收。

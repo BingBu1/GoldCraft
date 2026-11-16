@@ -69,5 +69,12 @@ constinit const WeaponModule m16Module{
     .ammoSprite="sprites/guest/cof/m16_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false,.hudState=M16HudState};
 const WeaponModuleRegistration m16Registration{m16Module};
+constexpr int g43Ids[]{guest::cof::FindFirearm(guest::cof::Firearm::G43)->hostId};
+constinit const WeaponModule g43Module{
+    .ids=g43Ids,.order=97,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/g43_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false};
+const WeaponModuleRegistration g43Registration{g43Module};
 }
 }

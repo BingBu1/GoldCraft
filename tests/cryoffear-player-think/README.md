@@ -19,3 +19,5 @@ Set COF_CLANG_CL to the configured x86 clang-cl and COF_COMPILER_ENV to its save
 The original CRT initializes 53-bit x87 precision. The oracle explicitly uses CW027F and MXCSR1F80; externally changed FP controls are outside this result. Cases cover near-equality with double clienttimebase, overdue clamping, external deadline clearing before callback, replacement/rescheduling, dormant/kill flags, holster/drop/model changes and native Think preservation. Original target damage and native entity freeing are controlled boundaries.
 
 The slot still requires an exact host call after PlayerPreThink and before PM_Move. StartFrame or PostThink is not equivalent. Compilation/oracle success establishes neither map admission nor live gameplay/performance.
+
+宿主新增SourceHostId仅用于记录已接受任务的发起武器，选择其地图资源和显式JSON伤害；它不是原CoF字段，也不创建第二个任务。新增断言覆盖无效请求保留旧来源、成功替换、换模型/收枪保留与退休清零。原截止时间、调用顺序和调度对照不变。

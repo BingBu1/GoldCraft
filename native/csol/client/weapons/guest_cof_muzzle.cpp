@@ -187,6 +187,8 @@ bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* en
         MP5Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else if(definition->identity==guest::cof::Firearm::M16)
         M16Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else if(definition->identity==guest::cof::Firearm::G43)
+        G43Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else if(definition->identity==guest::cof::Firearm::Glock||definition->identity==guest::cof::Firearm::P345||
             definition->identity==guest::cof::Firearm::VP70)
         P345Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
@@ -215,6 +217,7 @@ void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,co
     else if(type==14)TMPMuzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==27)MP5Muzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==9)M16Muzzle(Host(lifetime)).World(world[0],1.0F);
+    else if(type==26)G43Muzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==7||type==19)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
 }
 }

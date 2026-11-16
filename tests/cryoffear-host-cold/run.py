@@ -62,6 +62,8 @@ def main():
                         help='Require all six firearm definitions, including the independently typed MP5')
     parser.add_argument('--include-m16', action='store_true',
                         help='Require all seven firearms and the real M16 player-task engine service')
+    parser.add_argument('--include-g43', action='store_true',
+                        help='Require all eight firearms, including G43 with the shared player-task service')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
     parser.add_argument('--debugger-extra', type=Path,
                         help='Optional bounded workspace CDB commands; attach after cold preparation')
@@ -84,6 +86,8 @@ def main():
         parser.error('--include-mp5 requires --include-tmp for the six-firearm profile')
     if args.include_m16 and not args.include_mp5:
         parser.error('--include-m16 requires --include-mp5 for the seven-firearm profile')
+    if args.include_g43 and not args.include_m16:
+        parser.error('--include-g43 requires --include-m16 for the eight-firearm profile')
     out = checked(args.output)
     if out.exists() or not out.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh build receipt directory')
@@ -114,7 +118,7 @@ def main():
     if len(damage) != 1:
         raise ValueError('Expected one explicit damage profile in the cold resource set')
     profile = json.loads(checked(damage[0]['source']).read_text('utf-8-sig'))
-    expected_version = 4 if args.include_m16 else 3 if args.include_mp5 else 2 if args.include_tmp else 1
+    expected_version = 5 if args.include_g43 else 4 if args.include_m16 else 3 if args.include_mp5 else 2 if args.include_tmp else 1
     if profile.get('version') != expected_version:
         raise ValueError('Cold-test expectations do not match the supplied damage profile version')
     out.mkdir()
@@ -284,6 +288,8 @@ def main():
                 expected.append((901, 'mp5', 30))
             if args.include_m16:
                 expected.append((902, 'm16', 20))
+            if args.include_g43:
+                expected.append((903, 'g43', 10))
             for ident, name, clip in expected:
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])
                 get = lambda field: struct.unpack_from('<i', raw, layout['members'][field])[0]
@@ -302,7 +308,7 @@ def main():
                 result['registration'].append(dict(id=ident, name=actual.decode('ascii'), clip=clip))
             result['checks']['actualItemDefinitions'] = len(result['registration']) == len(expected)
             for ident, enabled, label in ((900, args.include_tmp, 'TMP'), (901, args.include_mp5, 'MP5'),
-                                           (902, args.include_m16, 'M16')):
+                                           (902, args.include_m16, 'M16'), (903, args.include_g43, 'G43')):
                 if enabled:
                     continue
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])

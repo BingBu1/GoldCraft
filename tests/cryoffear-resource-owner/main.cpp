@@ -32,6 +32,7 @@ std::array<unsigned, 14> registrations{};
 std::array<unsigned,5> tmpRegistrations{};
 std::array<unsigned,4> mp5Registrations{};
 std::array<unsigned,7> m16Registrations{};
+std::array<unsigned,4> g43Registrations{};
 std::array<pfnUserMsgHook, 4> messages{};
 GoldCraftPrecacheReadyCallback ready{}, retired{};
 void* listener{};
@@ -45,7 +46,7 @@ GuestCofResourceBudget limits{4, 8u * 1024u * 1024u}; // Fixture policy, not an 
 GoldCraftConnectionAPI connection;
 GoldCraftSoundPrecacheAPI soundApi;
 GoldCraftPrecacheReadyAPI lifecycle;
-model_t m16Model{}, mp5Model{}, mp5FlashModel{}, tmpModel{}, sprite{}, glockModel{}, p345Model{}, shellModel{}, flashModel{}, cheapSmokeModel{}, ordinaryModel{};
+model_t g43Model{}, m16Model{}, mp5Model{}, mp5FlashModel{}, tmpModel{}, sprite{}, glockModel{}, p345Model{}, shellModel{}, flashModel{}, cheapSmokeModel{}, ordinaryModel{};
 bool missingEffectModel{},missingMP5Flash{};
 unsigned effectModelQueries{}, effectShells{};
 void (*viewPunch)(event_args_s*){};
@@ -113,6 +114,8 @@ std::uint32_t Inspect(std::uint64_t expected, const char* name, std::uint32_t si
         if(MP5AudioResources[i].remoteAsset==std::string_view(name,size))return mp5Registrations[i];
     for(unsigned i=0;i<M16AudioResources.size();++i)
         if(M16AudioResources[i].remoteAsset==std::string_view(name,size))return m16Registrations[i];
+    for(unsigned i=0;i<G43AudioResources.size();++i)
+        if(G43AudioResources[i].remoteAsset==std::string_view(name,size))return g43Registrations[i];
     for(const auto& group:{std::span<const LocalSoundResource>(RevolverAudioResources),std::span<const LocalSoundResource>(VP70AudioResources)})
         for(const auto& asset:group)if(asset.remoteAsset==std::string_view(name,size))return 0;
     CHECK(false);
@@ -195,6 +198,7 @@ int ModelIndex(const char* path)
     if(!std::strcmp(path,TMPModels[0].host))return tmpRegistrations[0]?22:0;
     if(!std::strcmp(path,MP5Models[0].host))return mp5Registrations[0]?23:0;
     if(!std::strcmp(path,M16Models[0].host))return m16Registrations[0]?25:0;
+    if(!std::strcmp(path,G43Models[0].host))return g43Registrations[0]?26:0;
     if(!std::strcmp(path,MP5ClientModels[0].host))return missingMP5Flash?0:24;
     if(!std::strcmp(path,VP70Models[0].host)||!std::strcmp(path,RevolverModels[0].host))return 0;
     if(!std::strcmp(path,GlockModels[0].host))return 17;
@@ -203,7 +207,7 @@ int ModelIndex(const char* path)
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::CheapSmoke)].host))return 21;
     CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Shell)].host));return 19;
 }
-model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:index==22?&tmpModel:index==23?&mp5Model:index==24?&mp5FlashModel:index==25?&m16Model:nullptr;}
+model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:index==22?&tmpModel:index==23?&mp5Model:index==24?&mp5FlashModel:index==25?&m16Model:index==26?&g43Model:nullptr;}
 TEMPENTITY* Shell(float*,float*,float*,float,int index,int sound)
 {
     CHECK(index==19 && sound==1);++effectShells;static TEMPENTITY result;return &result;
@@ -214,7 +218,7 @@ void Begin()
     Disconnect();
     failRead = badWave = badScript = failLoad = failSprite = missingEffectModel = missingMP5Flash = false;
     cancelAt = replaceAt = Edge::None; edgeSkip = 0; nestedReady = false;
-    registrations.fill(3);tmpRegistrations.fill(0);mp5Registrations.fill(0);m16Registrations.fill(0);
+    registrations.fill(3);tmpRegistrations.fill(0);mp5Registrations.fill(0);m16Registrations.fill(0);g43Registrations.fill(0);
     limits = {4, 8u * 1024u * 1024u};
 #if CSOL_RESOURCE_REFRESH
     resource_refresh_detail::readsAllowed = true;
@@ -272,6 +276,8 @@ std::vector<std::byte> ReadResource(const char* name)
     for(const auto& asset:MP5AudioResources)
         if(asset.localFile==name)file=original/"sound"/asset.localKey;
     for(const auto& asset:M16AudioResources)
+        if(asset.localFile==name)file=original/"sound"/asset.localKey;
+    for(const auto& asset:G43AudioResources)
         if(asset.localFile==name)file=original/"sound"/asset.localKey;
     CHECK(!file.empty());
     std::ifstream input(file, std::ios::binary);
@@ -468,7 +474,28 @@ int main(int argc, char** argv)
     Disconnect();
     Begin();m16Registrations.fill(3);m16Registrations[2]=0;Complete();
     CHECK(GuestCofResourcesState().status==GuestCofResourceStatus::NativeSoundUnavailable);
+    Begin();g43Registrations.fill(3);g43Model.type=mod_studio;
+    std::strcpy(g43Model.name,G43Models[0].host);
+    before=reads;Complete();Prepared(18);CHECK(reads==before+24&&GuestCofResourcesState().weapons==131);
+    CHECK(GuestCofMuzzleModelsReady(26)&&GuestCofMuzzleModelsReady(3));
+    muzzle=GuestCofMuzzleEngine();flashIndex=0;
+    CHECK(muzzle&&muzzle->CL_LoadModel("models/flash2.mdl",&flashIndex)==&mp5FlashModel&&flashIndex==24);
+    SetGuestCofEffectsWeapon(guest::cof::client::Weapon::G43);viewModel.model=&g43Model;
+    CHECK(GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon::G43));
+    const auto g43Reads=reads,g43Queries=queries,g43EffectQueries=effectModelQueries;
+    for(const auto& sound:G43AudioResources)
+    {
+        studioEvent.event=5004;std::strcpy(studioEvent.options,"weapons/");std::strcat(studioEvent.options,sound.localKey.data()+12);
+        CHECK(GuestCofStudioEvent(&studioEvent,&viewModel)&&GuestCofLastStudioEffect()==guest::cof::client::EffectResult::Dispatched);
+    }
+    for(unsigned i=0;i<1000;++i)CHECK(muzzle->CL_LoadModel("models/flash2.mdl",&flashIndex)==&mp5FlashModel&&flashIndex==24);
+    CHECK(reads==g43Reads&&queries==g43Queries&&effectModelQueries==g43EffectQueries);
+    Disconnect();CHECK(!GuestCofMuzzleModelsReady(26)&&!GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon::G43));
+    Begin();g43Registrations.fill(3);missingMP5Flash=true;Complete();Prepared(18);
+    CHECK(!GuestCofMuzzleModelsReady(26)&&GuestCofMuzzleModelsReady(3)&&GuestCofMuzzleModelsReady(7));
+    Begin();g43Registrations.fill(3);g43Registrations[1]=0;Complete();
+    CHECK(GuestCofResourcesState().status==GuestCofResourceStatus::NativeSoundUnavailable);
     ShutdownGuestCofResources();ShutdownGuestCofAudio();ShutdownGuestCofParticles();ShutdownGuestCofEffects();
-    std::printf("checks=%u failures=%u realWaves=30 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
+    std::printf("checks=%u failures=%u realWaves=34 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
     return failures ? 1 : 0;
 }

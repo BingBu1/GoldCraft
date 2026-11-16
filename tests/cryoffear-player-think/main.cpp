@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "precompiled.h"
+#include "native/guest/cof/server/g43_weapon.hpp"
 #define main M16CompositionMain
 #include "../cryoffear-m16-weapon/main.cpp"
 #undef main
@@ -62,5 +64,15 @@ int main(int argc,char** argv)
         {playerThink.Invalidate();return true;},1,17,3}));
     Check(playerThink.Schedule(player,PlayerThinkKind::Pushback,.1F,1,17));
     Check(playerThink.Run(0,20)==PlayerThinkResult::Cancelled);
+    Initialize();Ready();
+    Check(playerThink.Schedule(player,PlayerThinkKind::Pushback,.23F,1,17,M16HostId));
+    const float firstDeadline=playerThink.Deadline();
+    Check(playerThink.SourceHostId()==M16HostId);
+    Check(!playerThink.Schedule(player,PlayerThinkKind::Pushback,INFINITY,1,17,G43HostId)&&
+        playerThink.SourceHostId()==M16HostId&&playerThink.Deadline()==firstDeadline);
+    ++player.pev->modelindex;player.m_pActiveItem=nullptr;
+    Check(playerThink.Current()&&playerThink.SourceHostId()==M16HostId);
+    Check(playerThink.Schedule(player,PlayerThinkKind::Pushback,.25F,1,17,G43HostId)&&playerThink.SourceHostId()==G43HostId);
+    playerThink.Invalidate();Check(playerThink.SourceHostId()==0&&!playerThink.Deadline());
     std::cout<<rows<<" original scheduler cases; "<<checks<<" SDK checks; zero mismatches\n";
 }

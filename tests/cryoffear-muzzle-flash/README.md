@@ -26,3 +26,5 @@ No production client bridge, deployed game or frame-time result follows.
 ## M16 branch (2026-11-16)
 
 The runner additionally executes 1,145 M16 original-instruction cases. Original id9 uses local flash2/base6; the exact cooperative M16 P path uses world flash2/base3. Both retain the original second model lookup before RNG. Other five gun runs remain enabled. The typed M16 component is not yet wired into the active client catalog/model/Studio bridge, and no rendering or gameplay acceptance follows.
+
+G43（原26）新增同一套完整原指令对照：本地flash2/base6、世界默认flash1/base3，保留独立随机/时间/回调顺序。运行器对G43及既有六种发射分支分别产出差分回执，原本地和世界消费者必须同时一致。

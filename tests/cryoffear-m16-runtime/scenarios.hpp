@@ -188,7 +188,7 @@ void CheckM16Runtime(GlockRuntime& runtime,const fs::path& root)
     globals.time=std::nextafter(deadline,std::numeric_limits<float>::infinity());gun->ItemPostFrame();
     Check(!gun->ActionState().loading&&gun->m_iClip==20&&player.m_rgAmmo[7]==980&&context.loads==loads);
     globals.time=540;player.pev->button=0;gun->ItemPostFrame();gun->SecondaryAttack();
-    const auto due=backend.playerThink->Deadline();Check(due>540);
+    const auto due=backend.playerThink->Deadline();Check(due>540&&backend.playerThink->SourceHostId()==M16HostId);
     gun->Holster();player.m_pActiveItem=nullptr;
     runtime.PlayerModelChanging(player);Check(m16Life.Current()&&backend.playerThink->Deadline()==due);
     Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,backend));

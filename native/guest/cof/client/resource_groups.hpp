@@ -31,7 +31,8 @@ inline constexpr std::array FirearmResourceGroups{
     FirearmResourceGroup{Firearm::VP70,resources::VP70AudioResources},
     FirearmResourceGroup{Firearm::TMP,resources::TMPAudioResources},
     FirearmResourceGroup{Firearm::MP5,resources::MP5AudioResources},
-    FirearmResourceGroup{Firearm::M16,resources::M16AudioResources}
+    FirearmResourceGroup{Firearm::M16,resources::M16AudioResources},
+    FirearmResourceGroup{Firearm::G43,resources::G43AudioResources}
 };
 inline constexpr std::size_t FirearmLocalSampleCount=[] {
     std::size_t count{};

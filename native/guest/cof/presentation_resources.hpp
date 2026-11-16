@@ -21,6 +21,8 @@ inline constexpr std::array<const char*,3> MP5PresentationResources{
     "sprites/weapon_cof_mp5.txt","sprites/guest/cof/cmp5.spr","sprites/guest/cof/mp5_ammo.spr"};
 inline constexpr std::array<const char*,3> M16PresentationResources{
     "sprites/weapon_cof_m16.txt","sprites/guest/cof/cm16.spr","sprites/guest/cof/m16_ammo.spr"};
+inline constexpr std::array<const char*,3> G43PresentationResources{
+    "sprites/weapon_cof_g43.txt","sprites/guest/cof/cg43.spr","sprites/guest/cof/g43_ammo.spr"};
 constexpr unsigned FirearmHudAmmoFrames(Firearm weapon) noexcept
 { return weapon==Firearm::Revolver?6u:weapon==Firearm::M16?2u:weapon<Firearm::Count?1u:0u; }
 constexpr unsigned PistolHudAmmoFrames(Pistol weapon) noexcept
@@ -43,6 +45,7 @@ constexpr std::span<const char* const> FirearmPresentationResources(Firearm weap
     if(weapon==Firearm::TMP)return TMPPresentationResources;
     if(weapon==Firearm::MP5)return MP5PresentationResources;
     if(weapon==Firearm::M16)return M16PresentationResources;
+    if(weapon==Firearm::G43)return G43PresentationResources;
     return {};
 }
 }

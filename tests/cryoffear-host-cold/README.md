@@ -58,3 +58,5 @@ debugger observations do not replace normal-frame or network-client acceptance.
 This is actual cold registration/resource/network evidence. It does not prove
 weapon input, visual grip, sounds, multiplayer, long-duration stability or game
 FPS. Those remain separate gameplay checks.
+
+G43八枪配置使用--include-tmp --include-mp5 --include-m16 --include-g43和v5平衡资源清单；普通四至七枪配置仍验证未配置武器没有注册。八枪必须配套包含真实玩家Think接口的当前引擎，不能只更新MP/客户端；完整HUD/menu闭包及实际公开HTTP/SHA在隔离服验证，停止后恢复所有文件。

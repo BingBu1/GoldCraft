@@ -659,7 +659,7 @@ bool G43Weapon::ControlEvent(void* context, const G43ControlEvent& event) noexce
     {
     case G43ControlEventKind::SchedulePushback:
         return self.backends_.playerThink->Schedule(*self.m_pPlayer, PlayerThinkKind::Pushback,
-            event.delay, self.backends_.playerModelGeneration.mapEpoch, self.backends_.ownerLife);
+            event.delay, self.backends_.playerModelGeneration.mapEpoch, self.backends_.ownerLife, G43HostId);
     case G43ControlEventKind::ViewAnimation: return self.View(event.argument);
     case G43ControlEventKind::PlayerWeaponMelee: return self.Animate(PlayerAction::WeaponMelee);
     case G43ControlEventKind::PlayerReloadLoaded:

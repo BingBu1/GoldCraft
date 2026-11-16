@@ -76,6 +76,7 @@ private:
     friend class TMPMuzzle;
     friend class MP5Muzzle;
     friend class M16Muzzle;
+    friend class G43Muzzle;
     MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize,
         const char* secondFlashModel = nullptr) const noexcept;
     MuzzleResult WorldWithSize(const std::array<float,3>&, float scale, float baseSize,
@@ -127,6 +128,17 @@ public:
     explicit M16Muzzle(MuzzleHost host) noexcept : base_(host) {}
     MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
+private:
+    P345Muzzle base_;
+};
+// Original26 uses local flash2/base6 and the default world flash1/base3.
+class G43Muzzle
+{
+public:
+    explicit G43Muzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept
+    {return base_.World(attachment,scale);}
 private:
     P345Muzzle base_;
 };

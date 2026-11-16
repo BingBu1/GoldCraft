@@ -160,6 +160,7 @@ void CheckG43SharedLongGuns(GlockRuntime& runtime)
     failDifferentG43Actions=false;Check(gun->CanDeploy());
     globals.time=gun->ActionState().primary+1;g43Pushes=0;gun->SecondaryAttack();
     const auto due=g43.playerThink->Deadline();Check(due>globals.time&&m16.playerThink->Deadline()==due);
+    Check(g43.playerThink->SourceHostId()==G43HostId&&m16.playerThink->SourceHostId()==G43HostId);
     Check(g43Life.BeginCommand());g43Stage.Fire(due);Check(g43Life.EndSharedCommand());
     Check(g43Pushes==1&&g43Ledger.amount==33&&m16.ownerFrame(m16.context,m16Frame)&&m16Frame.stamina==33);
     Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,m16)&&runtime.Backend(player,g43));
@@ -246,9 +247,9 @@ void CheckG43Runtime(GlockRuntime& runtime,const fs::path& root,bool m16Prepared
     globals.time=std::nextafter(deadline,std::numeric_limits<float>::infinity());gun->ItemPostFrame();
     Check(!gun->ActionState().loading&&gun->m_iClip==10&&player.m_rgAmmo[8]==990&&context.loads==loads);
     globals.time=540;player.pev->button=0;gun->ItemPostFrame();gun->SecondaryAttack();
-    const auto due=backend.playerThink->Deadline();Check(due>540);
+    const auto due=backend.playerThink->Deadline();Check(due>540&&backend.playerThink->SourceHostId()==G43HostId);
     gun->Holster();player.m_pActiveItem=nullptr;
-    runtime.PlayerModelChanging(player);Check(g43Life.Current()&&backend.playerThink->Deadline()==due);
+    runtime.PlayerModelChanging(player);Check(g43Life.Current()&&backend.playerThink->Deadline()==due&&backend.playerThink->SourceHostId()==G43HostId);
     Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,backend));
     Check(g43Life.BeginCommand());g43Stage.Fire(due);
     Check(g43Pushes==1&&backend.ownerFrame(backend.context,frame)&&frame.stamina==22);

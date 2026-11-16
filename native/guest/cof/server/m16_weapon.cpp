@@ -719,7 +719,7 @@ void M16Weapon::SecondaryAttack()
     // replacing the weapon must not cancel it or restore an older player task.
     Lease lease = lease_; lease.active = true;
     const bool scheduled = backends_.playerThink->Schedule(*m_pPlayer, PlayerThinkKind::Pushback, .23F,
-        backends_.playerModelGeneration.mapEpoch, backends_.ownerLife);
+        backends_.playerModelGeneration.mapEpoch, backends_.ownerLife, M16HostId);
     if (!Current(&lease)) return;
     if (!scheduled) { status_ = M16Status::MissingBackend; return; }
     if (!View(22) || !Animate(PlayerAction::WeaponMelee)) return;
