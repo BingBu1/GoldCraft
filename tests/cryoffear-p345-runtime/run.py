@@ -46,7 +46,8 @@ def main():
     sources.extend((ROOT/'native/csol/server/weapons/guest_cof_m16_factory.cpp',
         ROOT/'native/csol/server/weapons/guest_cof_m16_owner.cpp',ROOT/'native/csol/server/weapons/guest_cof_m16_native_effects.cpp',
         ROOT/'native/guest/cof/server/m16_weapon.cpp',
-        ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/m16_control.cpp',
+        ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/server/sound_dispatch.cpp',
+        ROOT/'native/guest/cof/m16_control.cpp',
         ROOT/'native/guest/cof/m16_shot.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
     factory_fixture=ROOT/'tests/cryoffear-glock-factory/main.cpp'
     prefix=factory_fixture.read_text('utf-8-sig').split('int main(int argc,char** argv)',1)[0]

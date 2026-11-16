@@ -57,10 +57,11 @@ template<class T> bool Read(T& x) { return std::fread(&x,sizeof(x),1,stdin)==1; 
 template<class T> void Write(const T& x) { std::fwrite(&x,sizeof(x),1,stdout); }
 }
 int main(int argc,char** argv) {
-    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")&&std::strcmp(argv[1],"--tmp")&&std::strcmp(argv[1],"--mp5")))return 2;
+    if(argc>2 || (argc==2&&std::strcmp(argv[1],"--revolver")&&std::strcmp(argv[1],"--tmp")&&std::strcmp(argv[1],"--mp5")&&std::strcmp(argv[1],"--m16")))return 2;
     const bool revolver=argc==2&&!std::strcmp(argv[1],"--revolver");
     const bool tmp=argc==2&&!std::strcmp(argv[1],"--tmp");
     const bool mp5=argc==2&&!std::strcmp(argv[1],"--mp5");
+    const bool m16=argc==2&&!std::strcmp(argv[1],"--m16");
     _setmode(_fileno(stdin),_O_BINARY); _setmode(_fileno(stdout),_O_BINARY);
     static_assert(sizeof(cl_entity_t)==3000 && sizeof(dlight_t)==40);
     engine.GetLocalPlayer=Local; engine.CL_LoadModel=Model; engine.pfnRandomFloat=Random;
@@ -92,12 +93,15 @@ int main(int argc,char** argv) {
         MuzzleResult result=MuzzleResult::RequestsIssued; int selected=-1;
         if(op==0 || op==6)
         {
-            if(mp5)result=MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            if(m16)result=M16Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
+            else if(mp5)result=MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else if(tmp)result=TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else if(revolver)result=RevolverMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).Local(view,attachment,scale,cheap);
             else result=muzzle.Local(view,attachment,scale,cheap);
         }
-        else if(op==1) result=mp5?MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
+        else if(op==1) result=m16?M16Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
+            {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):
+            mp5?MP5Muzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
             {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):
             tmp?TMPMuzzle({&engine,&localVisible,&worldVisible,nullptr,Ready,Allocate}).World(
             {view.attachment[0][0],view.attachment[0][1],view.attachment[0][2]},scale):

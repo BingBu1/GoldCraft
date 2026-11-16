@@ -75,10 +75,11 @@ private:
     friend class RevolverMuzzle;
     friend class TMPMuzzle;
     friend class MP5Muzzle;
+    friend class M16Muzzle;
     MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize,
         const char* secondFlashModel = nullptr) const noexcept;
     MuzzleResult WorldWithSize(const std::array<float,3>&, float scale, float baseSize,
-        bool repeatFlashLookup) const noexcept;
+        bool repeatFlashLookup, const char* secondFlashModel = "models/flash1.mdl") const noexcept;
     bool Ready(bool cheapSmoke) const noexcept;
     bool Current() const noexcept;
     MuzzleResult Lights(const float* origin) const noexcept;
@@ -113,6 +114,17 @@ class MP5Muzzle
 {
 public:
     explicit MP5Muzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
+private:
+    P345Muzzle base_;
+};
+// Original9 selects local flash2/base6. Exact cooperative M16 P selects
+// world flash2/base3; both retain the second model callback before RNG.
+class M16Muzzle
+{
+public:
+    explicit M16Muzzle(MuzzleHost host) noexcept : base_(host) {}
     MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
 private:

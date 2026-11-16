@@ -92,6 +92,8 @@ int main()
     CHECK(service.UpdateClientData(frame, output) && output.clientFov == 90.0f);
     CHECK(service.Receive({newLife, static_cast<Weapon>(255), true, 50, 50}) == Result::InvalidWeapon);
     CHECK(service.ActiveWeapon() == Weapon::Revolver && !service.ViewModel().suppressBob);
+    CHECK(service.Receive({newLife, Weapon::M16, false, 90, 0}) == Result::Applied);
+    CHECK(service.ActiveWeapon() == Weapon::M16);
     CHECK(service.Animation(Key, 38, 0) == Result::StaleAuthority);
     CHECK(service.Animation(newLife, 38, 2) == Result::Applied);
     CHECK(calls.animations == 1 && calls.sequence == 38 && calls.body == 2);

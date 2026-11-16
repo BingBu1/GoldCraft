@@ -2658,7 +2658,8 @@
     "docs/2026-11-16_接入-M16地图工厂与玩家动作-report.md",
     "tests/cryoffear-m16-runtime/README.md",
     "docs/2026-11-16_接入-M16原生操作声音-report.md",
-    "tests/cryoffear-m16-native-effects/README.md"
+    "tests/cryoffear-m16-native-effects/README.md",
+    "docs/2026-11-16_接入-M16合作射击声与原版枪口-report.md"
   ],
   "trees": {
     "native": [

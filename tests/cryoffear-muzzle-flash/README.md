@@ -22,3 +22,7 @@ so an incorrect model cannot pass from equal lookup counts alone.
 The full original functions1004BC30/10090130 and2,375 archived IDA bytes
 were rechecked against client d2a04641 before implementation.
 No production client bridge, deployed game or frame-time result follows.
+
+## M16 branch (2026-11-16)
+
+The runner additionally executes 1,145 M16 original-instruction cases. Original id9 uses local flash2/base6; the exact cooperative M16 P path uses world flash2/base3. Both retain the original second model lookup before RNG. Other five gun runs remain enabled. The typed M16 component is not yet wired into the active client catalog/model/Studio bridge, and no rendering or gameplay acceptance follows.

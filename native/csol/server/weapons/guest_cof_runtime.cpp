@@ -67,6 +67,7 @@ struct GlockRuntime::State
         TMPResources tmpResources{};
         MP5Resources mp5Resources{};
         M16Resources m16Resources{};
+        int m16SoundMessage{};
         GlockOwnerRuntime owners;
         std::array<Player, GlockOwnerRuntime::SlotCount> players{};
         std::vector<std::unique_ptr<Owner>> bindings;
@@ -254,6 +255,7 @@ struct GlockRuntime::State
         return map.host.p345.effect&&(bit&map.host.p345.effects)&&map.host.p345.effect(map.host.context,
             map.p345Resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
     }
+    static constexpr auto M16SoundEffects = M16NativeSoundEffects | (1u << unsigned(M16Effect::FireSound));
     static bool M16EffectBoundary(void* opaque, CBasePlayer& player, CBasePlayerWeapon& weapon,
         const M16Event& event) noexcept
     {
@@ -269,6 +271,13 @@ struct GlockRuntime::State
             const NativeSoundAuthority authority{&lease, EffectCurrent, map.m16Resources.generation,
                 frame.quietAudio, map.host.pickupSuppressed};
             return NativeSoundSucceeded(EmitM16NativeSound(authority, map.m16Resources, player, weapon, event)) && EffectCurrent(&lease);
+        }
+        if (event.kind == M16Effect::FireSound)
+        {
+            if (event.value != 0 || event.other != 1 || !event.enabled) return false;
+            const guest::cof::PlaySfxRequest request{M16LocalWaves[2].original, event.first, 0, 1, true, map.host.m16.soundRules};
+            return guest::cof::SendPlaySfx(player, request, map.m16SoundMessage, {&lease, EffectCurrent}).status ==
+                guest::cof::PlaySfxStatus::Sent && EffectCurrent(&lease);
         }
         return map.host.m16.effect && (bit & map.host.m16.effects) &&
             map.host.m16.effect(map.host.context, map.m16Resources, owner.view.binding, player, weapon, event) &&
@@ -500,7 +509,7 @@ struct GlockRuntime::State
         auto* owner = map.players[index].backend;
         if (!owner || owner->player != &player || !M16Current(owner)) return false;
         const auto& view = owner->m16View;
-        output = {owner, M16Current, M16Frame, M16EffectBoundary, map.host.m16.effects | M16NativeSoundEffects,
+        output = {owner, M16Current, M16Frame, M16EffectBoundary, map.host.m16.effects | M16SoundEffects,
             view.animation, view.animationGeneration, owner->view.binding.life, view.playerThink};
         return true;
     }
@@ -758,7 +767,7 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
     const bool vp70Requested=host.vp70.prepare||host.vp70.effect||host.vp70.effects;
     const bool tmpRequested=host.tmp.prepare||host.tmp.effect||host.tmp.effects;
     const bool mp5Requested=host.mp5.prepare||host.mp5.effect||host.mp5.effects;
-    const bool m16Requested=host.m16.prepare||host.m16.effect||host.m16.actions||host.m16.effects;
+    const bool m16Requested=host.m16.prepare||host.m16.effect||host.m16.actions||host.m16.effects||host.m16.soundRules != guest::cof::PlaySfxRules::Unsupported;
     if (!host.current || !host.ownerCurrent || !host.prepare || !host.effect ||
         (host.effects & ~GlockRequiredEffects) ||
         !state.limits.ownerBindingsPerMap || state.maps.size() >= state.limits.retainedMaps ||
@@ -778,9 +787,9 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
         (mp5Requested&&(!host.mp5.prepare||!host.mp5.effect||
             (host.mp5.effects&~MP5RequiredEffects)||
             ((host.mp5.effects|MP5NativeSoundEffects)&MP5RequiredEffects)!=MP5RequiredEffects))||
-        (m16Requested&&(!host.m16.prepare||!host.m16.effect||!host.m16.actions||
+        (m16Requested&&(!host.m16.prepare||!host.m16.effect||!host.m16.actions||host.m16.soundRules != guest::cof::PlaySfxRules::Cooperative||
             (host.m16.effects & ~M16RequiredEffects)||
-            ((host.m16.effects | M16NativeSoundEffects) & M16RequiredEffects) != M16RequiredEffects)))
+            ((host.m16.effects | State::M16SoundEffects) & M16RequiredEffects) != M16RequiredEffects)))
         return {ResourceStatus::InvalidAuthority};
     try
     {
@@ -839,6 +848,9 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             const auto m16 = PrepareM16Resources({&current, State::Current, current.epoch}, current.m16Resources);
             if (!m16 || !State::Current(&current))
             { EndMap(); return m16 ? ResourceResult{ResourceStatus::Cancelled} : m16; }
+            current.m16SoundMessage = guest::cof::RegisterPlaySfxMessage({&current, State::Current});
+            if (!current.m16SoundMessage || !State::Current(&current))
+            { EndMap(); return {ResourceStatus::InvalidAuthority}; }
             current.m16Prepared = true;
             if (!InstallM16Factory({&current, State::Current, State::PrepareM16, State::M16BackendsFor, State::M16InventoryPickup}))
             { EndMap(); return {ResourceStatus::InvalidAuthority}; }

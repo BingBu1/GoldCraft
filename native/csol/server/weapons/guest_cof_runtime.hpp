@@ -9,6 +9,7 @@
 #include "guest_cof_tmp_owner.hpp"
 #include "guest_cof_mp5_owner.hpp"
 #include "guest_cof_m16_owner.hpp"
+#include "native/guest/cof/server/sound_dispatch.hpp"
 #include <memory>
 #include <optional>
 
@@ -56,11 +57,12 @@ struct M16RuntimeHost
         CBasePlayer&, CBasePlayerWeapon&, const guest::cof::server::M16Event&) noexcept {};
     // Actual map stage/cycle owner, independent of this runtime's model views.
     // Must preserve same-life tasks, and run BeginCommand/PostThink at their
-    // verified stages. Runtime owns common native sounds; remaining effects,
-    // including the original fire-sound message, require real consumers.
+    // verified stages. Runtime owns common native sounds and the original
+    // cooperative fire-sound transport; remaining effects need real consumers.
     bool (*actions)(void*, CBasePlayer&, std::uint64_t map, std::uint64_t life,
         guest::cof::server::PlayerActionBinding&) noexcept {};
     std::uint32_t effects{};
+    guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
 };
 
 // Only the genuinely external consumers remain here. The runtime itself owns
