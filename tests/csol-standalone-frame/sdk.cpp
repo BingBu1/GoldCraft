@@ -224,6 +224,7 @@ void Run(std::string_view group)
     }
 }
 }
+#ifndef CSOL_STANDALONE_FRAME_LIBRARY
 int main(int argc, char** argv)
 {
     try { sdk_test::Require(argc == 2, "one standalone frame group"); standalone_frame_test::Run(argv[1]); }
@@ -232,3 +233,4 @@ int main(int argc, char** argv)
         << " failures=" << sdk_test::failures << '\n';
     return sdk_test::failures ? 1 : 0;
 }
+#endif
