@@ -2691,7 +2691,12 @@
     "tests/cryoffear-pushback-damage/audit.py",
     "docs/2026-11-16_接入-CoF推搡独立灾变伤害-report.md",
     "docs/2026-11-16_调整-CoF武器保留CSOL怪物AI-report.md",
-    "docs/2026-11-16_接入-M16生产宿主与共享CSOL体力-report.md"
+    "docs/2026-11-16_接入-M16生产宿主与共享CSOL体力-report.md",
+    "docs/2026-11-16_实现-G43原版换弹与推搡控制-report.md",
+    "tests/cryoffear-g43-control/README.md",
+    "tests/cryoffear-g43-control/run.py",
+    "tests/cryoffear-g43-control/oracle.py",
+    "tests/cryoffear-g43-control/main.cpp"
   ],
   "trees": {
     "native": [
