@@ -195,7 +195,8 @@ G43Status G43Weapon::Prepare(const G43Prepared& p) noexcept
         !g_engfuncs.pfnIndexOfEdict)
         return status_;
     if (!Finite(p.aimOffset) || p.aimZoom < 0 || p.aimZoom > 255 ||
-        p.hostSlot != G43HudSlot || p.hostPosition != G43HudPosition)
+        p.hostSlot != G43HudSlot || p.hostPosition != G43HudPosition ||
+        p.csPenetration<0 || p.csPenetration>32 || (p.csPenetration && p.csPenetration<3))
         return status_ = G43Status::InvalidInput;
     for (int i = 0; i < 38; ++i)
         if (!(p.sequences.present & (std::uint64_t{1} << i)) ||
@@ -832,7 +833,10 @@ void G43Weapon::PrimaryAttack()
             auto& b=*static_cast<Bridge*>(p);b.Sync();auto& shot=b.shot;
             shot.source=Bridge::V(bullet.source);shot.direction=Bridge::V(bullet.direction);shot.spread=Bridge::V(bullet.spread);
             shot.right=gpGlobals->v_right;shot.up=gpGlobals->v_up;shot.seed=bullet.seed;shot.damage=bullet.damage;
-            const auto result=FirePistolBallistics(*b.item.m_pPlayer,shot,b.item.prepared_.ballistics,{Current,&b.lease});
+            const auto result=b.item.prepared_.csPenetration?
+                FireCSRifleBallistics(*b.item.m_pPlayer,shot,b.item.prepared_.ballistics,{Current,&b.lease},
+                    b.item.prepared_.csPenetration,CSRifleMaterial::Rifle762):
+                FirePistolBallistics(*b.item.m_pPlayer,shot,b.item.prepared_.ballistics,{Current,&b.lease});
             return Current(&b.lease)&&result.status==BallisticsStatus::Fired;
         },
         [](void* p,G43Vector& out) noexcept

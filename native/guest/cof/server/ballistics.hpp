@@ -63,4 +63,11 @@ BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallisti
 // falloff. This is opt-in for Revolver; the original adapter above is unchanged.
 BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
     const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept;
+
+enum class CSRifleMaterial : unsigned char { Rifle556, Rifle762 };
+// Human-authored rifle rule, retaining the original CoF ray and the actual
+// CS material/shield/damage consumers. No additional spread or range falloff.
+BallisticsResult FireCSRifleBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration,
+    CSRifleMaterial material) noexcept;
 }

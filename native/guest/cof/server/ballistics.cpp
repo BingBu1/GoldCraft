@@ -235,8 +235,10 @@ BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallisti
     return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
 }
 
-BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
-    const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept
+namespace
+{
+BallisticsResult FireCSMaterialBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration, int bulletType) noexcept
 {
     if (penetration <= 0 || penetration > 32) return {BallisticsStatus::InvalidInput, {0,0,0}};
     const auto ready = CheckPistolBallistics(shot, effects, call);
@@ -260,10 +262,32 @@ BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallis
     Vector source = shot.source;
     DamageRegister transaction;
     // Direction already contains the original CoF spread. Passing zero here
-    // prevents CS from changing it; .357SIG supplies native material power25
-    // and penetration distance800. Unit range modifier is authored policy.
+    // prevents CS from changing it. Material and unit range modifier are host
+    // policy; bPistol suppresses an additional random ricochet-sound selection.
     shooter.FireBullets3(source, direction, 0, PistolDistance, penetration,
-        BULLET_PLAYER_357SIG, shot.damage, 1.0f, shooter.pev, true, static_cast<int>(shot.seed));
+        bulletType, shot.damage, 1.0f, shooter.pev, true, static_cast<int>(shot.seed));
     return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
+}
+}
+
+BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept
+{
+    return FireCSMaterialBallistics(shooter,shot,effects,call,penetration,BULLET_PLAYER_357SIG);
+}
+
+BallisticsResult FireCSRifleBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call, int penetration,
+    CSRifleMaterial material) noexcept
+{
+    if(penetration<3 || penetration>32)return {BallisticsStatus::InvalidInput,{0,0,0}};
+    int bulletType;
+    switch(material)
+    {
+    case CSRifleMaterial::Rifle556:bulletType=BULLET_PLAYER_556MM;break;
+    case CSRifleMaterial::Rifle762:bulletType=BULLET_PLAYER_762MM;break;
+    default:return {BallisticsStatus::InvalidInput,{0,0,0}};
+    }
+    return FireCSMaterialBallistics(shooter,shot,effects,call,penetration,bulletType);
 }
 }

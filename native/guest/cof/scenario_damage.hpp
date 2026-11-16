@@ -19,7 +19,7 @@ inline constexpr std::array<std::string_view, static_cast<std::size_t>(Pistol::C
 struct ScenarioDamage
 {
     float shot{}, melee{};
-    int penetration{}; // Explicit host-only CS material penetration; zero keeps CoF.
+    int penetration{}; // Host-only CS materials: rifles minimum3; Revolver zero keeps CoF.
     bool operator==(const ScenarioDamage&) const = default;
 };
 

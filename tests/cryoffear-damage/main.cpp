@@ -156,38 +156,56 @@ int main(int argc, char** argv)
     std::ifstream shippedV4(argv[4],std::ios::binary);if(!shippedV4)return 3;
     const std::string v4Json{std::istreambuf_iterator<char>(shippedV4),{}};
     Check(config.Parse(v4Json,error)&&config.Find(Firearm::M16)&&
-        *config.Find(Firearm::M16)==ScenarioDamage{90,120},"Explicit M16 author balance rejected");
+        *config.Find(Firearm::M16)==ScenarioDamage{90,120,3},"M16 minimum CS penetration missing");
     const auto* m16=FindFirearm(Firearm::M16);
     Check(m16&&m16->hostId==902&&m16->originalId==9&&m16->clip==20&&m16->reserve==200&&
         m16->price==3100&&m16->ammunitionPrice==40&&m16->ammunitionCount==20&&
         !FindPistol(902)&&!OriginalPistolId(9),"M16 metadata or host family mismatch");
     for(const auto& bad:{Changed(v4Json,"\"m16\"","\"mp5\""),Changed(v4Json,"\"shot\": 90","\"shot\": -1"),
-        Changed(v4Json,"\"shot\": 90","\"shot\": 90, \"penetration\": 5"),
+        Changed(v4Json,"\"shot\": 90","\"shot\": 90, \"penetration\": 33"),
         Changed(v4Json,"\"version\": 4","\"version\": 3"),Changed(v4Json,"\"version\": 4","\"version\": 5")})
     {
         Check(!config.Parse(bad,error),"Malformed v4 balance accepted");
         for(unsigned index=0;index<static_cast<unsigned>(Firearm::G43);++index)
             Check(config.Find(static_cast<Firearm>(index))!=nullptr,"Failed v4 reload lost a previous weapon");
-        Check(*config.Find(Firearm::M16)==ScenarioDamage{90,120},"Failed v4 transaction changed M16 balance");
+        Check(*config.Find(Firearm::M16)==ScenarioDamage{90,120,3},"Failed v4 transaction changed M16 balance");
     }
     Check(!config.Find(Firearm::G43),"Seven-gun v4 invented G43 permission");
     std::ifstream shippedV5(argv[5],std::ios::binary);if(!shippedV5)return 3;
     const std::string v5Json{std::istreambuf_iterator<char>(shippedV5),{}};
     Check(config.Parse(v5Json,error)&&config.Find(Firearm::G43)&&
-        *config.Find(Firearm::G43)==ScenarioDamage{180,120},"Explicit G43 author balance rejected");
+        *config.Find(Firearm::G43)==ScenarioDamage{180,120,3},"G43 minimum CS penetration missing");
     const auto* g43=FindFirearm(Firearm::G43);
     Check(g43&&g43->hostId==903&&g43->originalId==26&&g43->clip==10&&g43->reserve==100&&
         g43->price==3500&&g43->ammunitionPrice==50&&g43->ammunitionCount==10&&!FindPistol(903)&&!OriginalPistolId(26),
         "G43 metadata or family mismatch");
     for(const auto& bad:{Changed(v5Json,"\"g43\"","\"m16\""),Changed(v5Json,"\"shot\": 180","\"shot\": -1"),
-        Changed(v5Json,"\"shot\": 180","\"shot\": 180, \"penetration\": 5"),
+        Changed(v5Json,"\"shot\": 180","\"shot\": 180, \"penetration\": 33"),
         Changed(v5Json,"\"version\": 5","\"version\": 4"),Changed(v5Json,"\"version\": 5","\"version\": 6")})
     {
         Check(!config.Parse(bad,error),"Malformed v5 balance accepted");
         for(const auto& definition:Firearms)Check(config.Find(definition.identity)!=nullptr,"Failed v5 lost existing permissions");
         Check(config.Find(Firearm::G43)->shot==180,"Failed v5 changed G43 damage");
     }
-    Check(config.Parse(v4Json,error)&&!config.Find(Firearm::G43)&&config.Find(Firearm::M16),
+    for(const auto weapon:{Firearm::M16,Firearm::G43})
+    {
+        const auto marker=weapon==Firearm::M16?"\"shot\": 90":"\"shot\": 180";
+        for(int penetration:{0,1,2,3,5,32})
+        {
+            const auto configured=Changed(v5Json,marker,std::string(marker)+", \"penetration\": "+std::to_string(penetration));
+            Check(config.Parse(configured,error)&&config.Find(weapon)->penetration==(penetration<3?3:penetration),
+                "Rifle minimum or higher explicit penetration lost");
+            for(const auto& value:{"-1","33","3.5","true","null","\"3\""})
+            {
+                const auto bad=Changed(v5Json,marker,std::string(marker)+", \"penetration\": "+value);
+                Check(!config.Parse(bad,error)&&config.Find(weapon)->penetration==(penetration<3?3:penetration),
+                    "Failed rifle transaction lost the previous accepted penetration");
+            }
+            Check(config.Find(Firearm::Revolver)->penetration==5,"Rifle policy changed Revolver penetration");
+        }
+    }
+    Check(config.Parse(v4Json,error)&&!config.Find(Firearm::G43)&&config.Find(Firearm::M16)&&
+        config.Find(Firearm::M16)->penetration==3,
         "Returning to v4 left stale G43 permission/data");
     Check(config.Parse(v3Json,error)&&!config.Find(Firearm::M16)&&config.Find(Firearm::MP5),
         "Returning to v3 left stale M16 permission/data");

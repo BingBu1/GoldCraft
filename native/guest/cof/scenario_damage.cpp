@@ -53,6 +53,8 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
         const auto found=std::find(FirearmKeys.begin(),end,key);
         if(found==end)return reject("Unknown CoF firearm damage identity");
         const auto index=static_cast<std::size_t>(found-FirearmKeys.begin());
+        const bool rifle=index==static_cast<std::size_t>(Firearm::M16)||
+            index==static_cast<std::size_t>(Firearm::G43);
         const auto bit=1u<<index;
         if(available&bit)return reject("Duplicate CoF firearm damage identity");
         available|=bit;
@@ -64,11 +66,13 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
             return reject("Each CoF firearm requires finite shot and melee damage in 0..1000000");
         if(entry.MemberCount()==3)
         {
-            if(index!=static_cast<std::size_t>(Firearm::Revolver)||!entry.HasMember("penetration")||
+            if((index!=static_cast<std::size_t>(Firearm::Revolver)&&!rifle)||!entry.HasMember("penetration")||
                 !entry["penetration"].IsInt()||entry["penetration"].GetInt()<0||entry["penetration"].GetInt()>32)
-                return reject("Only Revolver supports an explicit CS penetration count in 0..32");
+                return reject("Only Revolver and rifles support a CS penetration count in 0..32");
             prepared[index].penetration=entry["penetration"].GetInt();
         }
+        // Human-authored scenario rule; original CoF has no CS material path.
+        if(rifle)prepared[index].penetration=std::max(3,prepared[index].penetration);
     }
 
     values_ = prepared;

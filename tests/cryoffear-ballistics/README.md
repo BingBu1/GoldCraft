@@ -15,3 +15,12 @@ Additional actual-SDK checks cover cancellation at clear/trace/damage/apply/cont
 Integration must preflight before ammo/recoil/animation, supply the current owner/life/map/weapon generation guard, and prepare real customdecal/bubble resource IDs. The required original cooperative player policy retraces past the first player then directly damages that player when MyMonsterPointer is non-null, including TakeDamage(0); it skips up to two further players before final TraceAttack. It is not a blanket harmless-player skip policy.
 
 The normal muzzle path is the implemented scope. Original owner+0x390 EHANDLE/active-weapon override, CoF Doctor-boss classes/statistics, other bullet types and multi-pellet weapons remain outside it. Unsupported source mode is rejected explicitly. This controlled-edge differential does not establish full scenario damage integration, actual client customdecal rendering, DLL linkage, deployment, multiplayer, gameplay or live CPU performance. The production path uses bounded stack state without allocation, I/O, cache growth or extra threads; no performance gain is claimed without real sampling.
+
+The human-authored CS material paths are separate from that original differential.
+Revolver keeps its optional .357SIG rule. M16/G43 use the typed 556/762 native
+material categories, with at least three penetration levels supplied by the
+cold scenario profile. The actual adapter checks both categories, levels 3/5/32,
+unchanged original seeded/aimed ray, zero additional spread, native caller and
+damage, cancellation/recycling and nested multi-damage restoration. The native
+FireBullets3 call is a controlled boundary in this suite; these checks do not
+claim an actual wall or multiplayer hit was observed.

@@ -38,6 +38,7 @@ bool fidgetMode{};
 unsigned fidgetChance{},fidgetChoice{};
 std::vector<unsigned> fidgetOrder;
 int shotLatch{};
+int rifleShots{},riflePenetration{};
 float shotLatchDeadline{};
 M16Weapon* live{};
 std::uint32_t Bits(float x){return std::bit_cast<std::uint32_t>(x);}
@@ -204,6 +205,13 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
     Event(31,Bits(shot.source.x),Bits(shot.source.y),Bits(shot.source.z),Bits(shot.direction.x),Bits(shot.direction.y),Bits(shot.direction.z),
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
     return {BallisticsStatus::Fired,{}};
+}
+BallisticsResult FireCSRifleBallistics(CBaseEntity& owner,const PistolBallistics& shot,const BallisticsEffects& fx,
+    const BallisticsCall& call,int penetration,CSRifleMaterial material) noexcept
+{
+    Check(material==CSRifleMaterial::Rifle556&&penetration==riflePenetration);
+    ++rifleShots;
+    return FirePistolBallistics(owner,shot,fx,call);
 }
 
 }
@@ -460,6 +468,22 @@ int main(int argc,char** argv)
     {
         Initialize();auto b=backends;b.preparedEffects&=~(1U<<kind);
         Check(weapon.Bind(player,prepared,b)==M16Status::MissingBackend);
+    }
+    for(int count:{3,5,32})
+    {
+        Initialize();prepared.csPenetration=count;rifleShots=0;riflePenetration=count;
+        Check(weapon.Bind(player,prepared,backends)==M16Status::Ready);
+        Check(weapon.Deploy());
+        Ready();frame.pressed=1;weapon.PrimaryAttack();Drain();
+        Check(rifleShots==3&&weapon.m_iClip==17);
+        Ready(20);weapon.Reload();Ready(30);weapon.ItemPostFrame();
+        Check(weapon.m_iClip==20&&!weapon.m_fInReload);
+        weapon.Holster();Ready(31);Check(weapon.Deploy());
+        Ready(35);frame.pressed=1;weapon.PrimaryAttack();Drain();Check(rifleShots==6&&weapon.m_iClip==17);
+    }
+    for(int count:{-1,1,2,33})
+    {
+        Initialize();prepared.csPenetration=count;Check(weapon.Prepare(prepared)==M16Status::InvalidInput);
     }
     std::cout<<checks<<" actual M16 SDK checks; 0 failures; pushback target/audio and transport are controlled boundaries\n";
     return 0;

@@ -73,6 +73,7 @@ struct G43Prepared
 {
     MagazineSequenceTimes sequences;
     BallisticsEffects ballistics{};
+    int csPenetration{}; // Cold host rule; zero retains original isolated simulation.
     bool pushbackReady{}; // Prepared original long-gun pushback consumer, not pistol-whip.
     // Read from the original inventory item metadata, not guessed from the MDL.
     Vector aimOffset{};

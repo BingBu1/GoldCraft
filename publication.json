@@ -2729,7 +2729,8 @@
     "tests/cryoffear-g43-owner/README.md",
     "docs/2026-11-16_接入-G43原资源工厂与操作音效-report.md",
     "tests/cryoffear-g43-native-effects/README.md",
-    "tests/cryoffear-g43-factory/README.md"
+    "tests/cryoffear-g43-factory/README.md",
+    "docs/2026-11-16_部署-CoF八枪与步枪穿透-report.md"
   ],
   "trees": {
     "native": [

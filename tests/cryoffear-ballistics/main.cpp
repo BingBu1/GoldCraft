@@ -200,6 +200,26 @@ void NativePenetrationChecks()
         Check(nativeShot.source==shot.source&&shot.direction==Vector(.7f,.2f,-.1f));
         for(int i=0;i<3;++i)Check(Bits(nativeShot.source[i]+nativeShot.direction[i]*8192)==endpoint[i]);
         Check(result.spread==original.spread&&gMultiDamage.amount==123&&gMultiDamage.type==456);
+        for(const auto material:{CSRifleMaterial::Rifle556,CSRifleMaterial::Rifle762})for(int count:{3,5,32})
+        {
+            const auto before=nativeShot.calls;
+            const auto rifle=FireCSRifleBallistics(targets[1],shot,fx,call,count,material);
+            Check(rifle.status==BallisticsStatus::Fired&&nativeShot.calls==before+1);
+            Check(nativeShot.penetration==count&&nativeShot.bullet==
+                (material==CSRifleMaterial::Rifle556?BULLET_PLAYER_556MM:BULLET_PLAYER_762MM));
+            Check(nativeShot.damage==100&&nativeShot.spread==0&&nativeShot.distance==8192&&nativeShot.range==1&&
+                nativeShot.pistol&&nativeShot.attacker==targets[1].pev&&std::uint32_t(nativeShot.seed)==seed);
+            for(int i=0;i<3;++i)Check(Bits(nativeShot.source[i]+nativeShot.direction[i]*8192)==endpoint[i]);
+            Check(rifle.spread==original.spread&&gMultiDamage.amount==123&&gMultiDamage.type==456);
+        }
+        for(int count:{-1,0,1,2,33})
+        {
+            const auto before=nativeShot.calls;
+            Check(FireCSRifleBallistics(targets[1],shot,fx,call,count,CSRifleMaterial::Rifle556).status==
+                BallisticsStatus::InvalidInput&&nativeShot.calls==before);
+        }
+        Check(FireCSRifleBallistics(targets[1],shot,fx,call,3,static_cast<CSRifleMaterial>(255)).status==
+            BallisticsStatus::InvalidInput);
         for(int count:{-1,0,33})
         {
             const auto before=nativeShot.calls;
@@ -207,6 +227,8 @@ void NativePenetrationChecks()
                 nativeShot.calls==before);
         }
         nativeCancel=true;
+        Check(FireCSRifleBallistics(targets[1],shot,fx,call,3,CSRifleMaterial::Rifle762).status==BallisticsStatus::Cancelled);
+        valid=true;
         Check(FireCSPistolBallistics(targets[1],shot,fx,call,5).status==BallisticsStatus::Cancelled);
         nativeCancel=false;valid=true;nativeRecycle=true;
         Check(FireCSPistolBallistics(targets[1],shot,fx,call,5).status==BallisticsStatus::Cancelled);

@@ -273,6 +273,8 @@ bool PrepareM16(void* context,const M16Resources& resources,M16Prepared& output)
 {
     auto& map=*static_cast<Map*>(context);
     if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    const auto* rules=map.damage.Find(Firearm::M16);if(!rules)return false;
+    output.csPenetration=rules->penetration;
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
     return output.pushbackReady;
@@ -281,6 +283,8 @@ bool PrepareG43(void* context,const G43Resources& resources,G43Prepared& output)
 {
     auto& map=*static_cast<Map*>(context);
     if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    const auto* rules=map.damage.Find(Firearm::G43);if(!rules)return false;
+    output.csPenetration=rules->penetration;
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
     return output.pushbackReady;

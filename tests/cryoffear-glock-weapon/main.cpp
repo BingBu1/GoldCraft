@@ -227,6 +227,9 @@ BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics&
 BallisticsResult FireCSPistolBallistics(CBaseEntity&,const PistolBallistics&,
     const BallisticsEffects&,const BallisticsCall&,int) noexcept
 {std::abort();} // This shared Glock fixture never opts into Revolver's host rule.
+BallisticsResult FireCSRifleBallistics(CBaseEntity&,const PistolBallistics&,
+    const BallisticsEffects&,const BallisticsCall&,int,CSRifleMaterial) noexcept
+{std::abort();} // Rifle penetration is exercised by its own actual SDK fixtures.
 MeleeStatus CheckPistolWeaponMelee(CBasePlayer& owner,const PistolMeleeRequest& r,const PistolMeleeEffects& fx,const MeleeCall& call) noexcept
 {
     Check(&owner==&player&&r.world==MeleeWorld::Multiplayer&&r.damage==frame.meleeDamage);
