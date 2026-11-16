@@ -28,8 +28,11 @@ def main():
         env['GOLDCRAFT_TEST_LIGHT_PROVIDER']=value['artifact']['path']
     cmd,_=sdk.commands(a.msbuild_log)
     base=[x for x in cmd if not(x.lower().endswith(('.cpp','.c'))or x.lower().startswith(('/yu','/yc','/fo','/fd'))or(x.lower().startswith('/fp')and not x.lower().startswith('/fp:')))]
-    base+=['/Y-','/showIncludes','/I'+str(ROOT/'build/scenario-sdk-current-20261108-05')]
-    units={'pure':ROOT/'tests/csol-action-stamina/pure.cpp','state':ROOT/'native/csol/scenario/custom/stamina.cpp','adapter':ROOT/'native/csol/server/custom/action_stamina.cpp'}
+    base+=['/Y-','/showIncludes','/I'+str(ROOT/'build/scenario-sdk-current-20261108-05'),
+        '/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include')]
+    units={'pure':ROOT/'tests/csol-action-stamina/pure.cpp','state':ROOT/'native/csol/scenario/custom/stamina.cpp',
+        'adapter':ROOT/'native/csol/server/custom/action_stamina.cpp',
+        'settings-tests':ROOT/'tests/csol-custom-settings/main.cpp','settings':ROOT/'native/csol/scenario/custom/settings.cpp'}
     if a.sdk_seal:units['sdk']=ROOT/'tests/csol-action-stamina/sdk.cpp'
     tracked={};compiledHeaders=set()
     def track(path):
@@ -57,6 +60,7 @@ def main():
         for name,path in units.items():run('compile-'+name,[*base,'/Fo'+str(out/(name+'.obj')),str(path)])
         linker=str(Path(cmd[0]).with_name('lld-link.exe'));libs=[str(Path(d)/name)for name in('libcmt.lib','libcpmt.lib','libvcruntime.lib','libucrt.lib','oldnames.lib','kernel32.lib')for d in sdk.read(a.environment)['LIB'].split(';')if(Path(d)/name).is_file()]
         run('link-pure',[linker,'/subsystem:console','/machine:x86','/threads:1','/opt:lldltojobs=1','/out:'+str(out/'pure.exe'),str(out/'pure.obj'),str(out/'state.obj'),*libs]);run('pure',[str(out/'pure.exe')])
+        run('link-settings',[linker,'/subsystem:console','/machine:x86','/threads:1','/opt:lldltojobs=1','/out:'+str(out/'settings.exe'),str(out/'settings-tests.obj'),str(out/'settings.obj'),*libs]);run('settings',[str(out/'settings.exe')])
         if a.sdk_seal:
             seal=sdk.read(a.sdk_seal)
             for row in seal['linkInputs']:sdk.verify(row)

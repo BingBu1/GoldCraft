@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "../../scenario/custom/stamina.hpp"
+#include "../../scenario/custom/standalone_input.hpp"
 #include <memory>
+#include <string_view>
 
 class CBasePlayer;
 class CCSOLScenarioRuntime;
@@ -28,6 +30,14 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
 // synthesized here. now is the authoritative engine float clock.
 bool CSOL_TickActionStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, float now, csol::scenario::ConfigError& error, bool forceHud=false);
+// Called only from the rules frame, before the gameplay manager. PostThink
+// and accepted kick queries must not consume another displacement/recovery.
+bool CSOL_TickStandaloneMovementFrame(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    csol::scenario::ConfigError& error);
+bool CSOL_ActionStaminaRunCommand(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, bool requested, std::string_view life);
+std::optional<float> CSOL_ActionStaminaRunSpeed(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, float weaponSpeed);
 bool CSOL_ActionStaminaCanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player);
 std::optional<csol::scenario::custom::StaminaView> CSOL_ActionStaminaView(

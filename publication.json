@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_接入-绝命档案服务端疾跑帧与命令-report.md",
+    "tests/csol-standalone-frame/README.md",
     "docs/2026-11-16_实现-客户端永夜全员随身光-report.md",
     "tests/csol-night-player-lights/README.md",
     "docs/2026-11-16_修复-原生增量快照残留导致连跳延迟-report.md",

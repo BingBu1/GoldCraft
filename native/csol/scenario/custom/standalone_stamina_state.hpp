@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "standalone_stamina.hpp"
+#include "standalone_movement.hpp"
 #include "stamina.hpp" // Shared life/view contracts; the legacy CoF state is unused.
 
 namespace csol::scenario::custom
@@ -9,6 +10,7 @@ struct StandaloneStaminaConfig
 {
     StandaloneRecoveryConfig recovery;
     float jumpCost{15}, kickCost{10}, duskMaximum{1.5f}, duskRecovery{1.25f};
+    float runCostPerUnit{.1f};
     // Explicit custom linear-per-second override; absent uses original
     // StandAlone's accelerating recovery, never the former CoF period.
     std::optional<float> recoveryPerSecond;
@@ -18,6 +20,7 @@ inline bool Valid(const StandaloneStaminaConfig& config) noexcept
     auto recovery=config.recovery;
     recovery.lowThreshold=std::min(recovery.lowThreshold,recovery.maximum);
     return Valid(recovery) && std::isfinite(config.jumpCost) && config.jumpCost >= 0 &&
+        std::isfinite(config.runCostPerUnit) && config.runCostPerUnit >= 0 &&
         std::isfinite(config.kickCost) && config.kickCost >= 0 &&
         std::isfinite(config.duskMaximum) && config.duskMaximum >= 1 &&
         std::isfinite(config.duskRecovery) && config.duskRecovery >= 0 &&
@@ -39,6 +42,7 @@ public:
         key_ = key; config_ = config; phase_ = phase; now_ = now; command_ = 0;
         recovery_ = {}; recovery_.amount = recovery_.observed = Capacity();
         recovery_.wait = config.recovery.delay; recovery_.deadline = deadline; recovery_.started = now;
+        run_ = {};
         depleted_ = recoveryVoice_ = stepped_ = false;
         return true;
     }
@@ -55,7 +59,7 @@ public:
         if (!Current(key)) return {};
         const bool infinite = phase_ == Phase::Noon;
         return StaminaView{recovery_.amount, Capacity(), 0, recovery_.deadline,
-            infinite, false, !infinite && depleted_, infinite || recovery_.amount >= config_.kickCost, true};
+            infinite, run_.running, !infinite && depleted_, infinite || recovery_.amount >= config_.kickCost, true};
     }
     bool CanKick(LifeKey key) const noexcept
     { const auto view = View(key); return view && view->kickAvailable; }
@@ -65,6 +69,28 @@ public:
     { return CanKick(key) && Debit(config_.kickCost); }
     bool DebitJump(LifeKey key) noexcept
     { return CanJump(key) && Debit(config_.jumpCost); }
+    bool RequestRun(LifeKey key, bool requested) noexcept
+    {
+        if (!Current(key)) return false;
+        run_.requested = requested;
+        return true;
+    }
+    std::optional<float> RunDisplacement(LifeKey key, const std::array<float, 3>& origin, bool ducking) noexcept
+    {
+        if (!Current(key)) return {};
+        const bool infinite = phase_ == Phase::Noon;
+        float amount = infinite ? Capacity() : recovery_.amount;
+        const auto distance = AdvanceStandaloneRunDisplacement(run_, amount, origin, ducking,
+            infinite ? 0 : config_.runCostPerUnit);
+        if (!distance) return {};
+        if (!infinite)
+        {
+            recovery_.amount = amount;
+            if (amount == 0) depleted_ = true;
+        }
+        return distance;
+    }
+    bool Running(LifeKey key) const noexcept { return Current(key) && run_.running; }
     std::optional<StaminaView> Step(LifeKey key, std::uint64_t command, float now, float frameTime) noexcept
     {
         if (!Current(key) || !command || command <= command_ || !std::isfinite(now) || now < now_ ||
@@ -103,7 +129,7 @@ public:
     bool Retire(LifeKey key) noexcept
     { if (!Current(key)) return false; Reset(); return true; }
     void Reset() noexcept
-    { if (key_.Valid()) retired_ = key_; key_ = {}; command_ = 0; depleted_ = recoveryVoice_ = stepped_ = false; }
+    { if (key_.Valid()) retired_ = key_; key_ = {}; command_ = 0; run_ = {}; depleted_ = recoveryVoice_ = stepped_ = false; }
 private:
     bool Current(LifeKey key) const noexcept { return key_.Valid() && key_ == key; }
     static bool Playing(Phase phase) noexcept
@@ -122,6 +148,7 @@ private:
     LifeKey key_, retired_;
     StandaloneStaminaConfig config_;
     StandaloneRecoveryState recovery_;
+    StandaloneRunState run_;
     Phase phase_{Phase::Night};
     float now_{};
     std::uint64_t command_{};

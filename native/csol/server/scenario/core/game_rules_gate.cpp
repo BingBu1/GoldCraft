@@ -636,6 +636,20 @@ public:
         CheckWinConditions();
         if (!Ready()) return;
         if (!UpdateCustomTime()) return;
+        // Original mode+70 (1080E080 ->10858EC0) updates player movement
+        // before the gameplay manager. Capability stays closed until the
+        // remaining original noise/input consumers are implemented.
+        if (CSOL_CustomFeatureEnabled(csol::scenario::custom::Feature::CofSprint))
+        {
+            csol::scenario::ConfigError error;
+            const bool updated = CSOL_TickStandaloneMovementFrame(m_runtime, error);
+            if (!Ready()) return;
+            if (!updated)
+            {
+                CSOL_RejectGameRules(error.message.empty() ? "Standalone movement frame lost its current owner." : error.message.c_str());
+                return;
+            }
+        }
         // MP runs the manager (including a due end-round drain batch) before
         // testing final-result and ordinary restart deadlines. Do not discard
         // that final batch by immediately rebuilding the next round here.
@@ -1843,6 +1857,18 @@ public:
             { CSOL_RejectGameRules(error.message.c_str()); return; }
             if (limited) return;
         }
+        // StandAlone1080DD40 takes the native selected weapon speed. Existing
+        // status/freeze/observer restrictions keep their higher-priority path;
+        // without a prepared frame owner the original scenario path follows.
+        const auto standalone = CSOL_ActionStaminaRunSpeed(runtime, player, weaponSpeed);
+        if (!OwnsRules() || m_runtime != runtime || runtime->session != session ||
+            runtime->players != profiles || handle.Get<CBaseEntity>() != &player ||
+            (profiles && profiles->WasRemoved(handle))) return;
+        if (standalone)
+        {
+            player.pev->maxspeed = *standalone;
+            return;
+        }
         const auto players = session->Players();
         const auto state = players ? players->Upgrades(handle) : nullptr;
         const bool applied = state && state->ApplyMovement(weaponSpeed);
@@ -2738,11 +2764,13 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     if (!command) return false;
     const bool kick = !Q_strcmp(command, "csol_kick");
     const bool cheer = !Q_strcmp(command, "cheer");
+    const bool sprintOn = !Q_strcmp(command, "sprintON");
+    const bool sprintOff = !Q_strcmp(command, "sprintOFF");
     // Only menuselect for the open emotion menu (m_iMenu 15) is ours; every
     // stock menu keeps ReGameDLL's own menuselect handling.
     const bool select = !Q_strcmp(command, "menuselect") &&
         csol::scenario::skills::CharacterEmotionMenuOpen(player);
-    if (!kick && !cheer && !select && Q_strcmp(command, "buffclass_skill")) return false;
+    if (!kick && !cheer && !select && !sprintOn && !sprintOff && Q_strcmp(command, "buffclass_skill")) return false;
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario()) return false;
     if (!scope.Current()) return true;
@@ -2750,6 +2778,13 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     if (!record || record->retired || record->runtime->Closing()) return true;
     const auto runtime = record->runtime;
     const auto players = runtime->players;
+    if (sprintOn || sprintOff)
+    {
+        if (!g_engfuncs.pfnCmd_Argc || !g_engfuncs.pfnCmd_Argv || CMD_ARGC_() != 2 || !scope.Current()) return true;
+        const auto* life = CMD_ARGV_(1);
+        if (scope.Current() && life) CSOL_ActionStaminaRunCommand(runtime, player, sprintOn, life);
+        return true;
+    }
     if (kick)
     {
         csol::scenario::ConfigError error;

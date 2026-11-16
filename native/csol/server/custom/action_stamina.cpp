@@ -13,6 +13,7 @@
 #include "../scenario/core/scenario_player_runtime.h"
 #include "../scenario/core/scenario_entity_lookup.h"
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <limits>
 
@@ -37,6 +38,8 @@ struct State
     custom::StaminaSnapshot published;
     std::uint32_t hudRevision{};
     bool hudPublished{};
+    std::uint32_t inputRevision{};
+    bool frameMovement{}, inputPublished{};
     bool retired{};
     custom::LifeKey key;
     custom::StandaloneStaminaState stamina;
@@ -65,6 +68,7 @@ std::uint64_t serial{};
 bool operating{};
 int breathMessage{};
 int staminaMessage{};
+int inputMessage{};
 std::shared_ptr<const CSOLScenarioEntityAccess> breathAccess;
 struct Guard { Guard(){operating=true;} ~Guard(){operating=false;} };
 struct PhaseOwner
@@ -84,6 +88,14 @@ struct MapPolicy
     custom::SnapshotPtr settings;
     std::uint64_t generation{};
 } mapPolicy;
+struct FrameOwner
+{
+    std::weak_ptr<CCSOLScenarioRuntime> runtime;
+    std::shared_ptr<const CSOLScenarioEntityAccess> access;
+    std::uint64_t generation{}, round{};
+    float time{};
+    bool begun{}, completed{};
+} frameOwner;
 custom::SnapshotPtr MapSettings(const Runtime& runtime,
     const std::shared_ptr<const CSOLScenarioEntityAccess>& access)
 {
@@ -117,6 +129,7 @@ bool Configuration(const custom::Snapshot& settings, custom::StandaloneStaminaCo
         target = static_cast<float>(*value); return std::isfinite(target);
     };
     if (!apply(custom::Setting::SprintMaximum, config.recovery.maximum) ||
+        !apply(custom::Setting::SprintCostPerUnit, config.runCostPerUnit) ||
         !apply(custom::Setting::JumpCost, config.jumpCost) ||
         !apply(custom::Setting::KickCost, config.kickCost) ||
         !apply(custom::Setting::DuskMaximumMultiplier, config.duskMaximum) ||
@@ -195,6 +208,22 @@ bool PublishHud(State& state,const Runtime& runtime,CBasePlayer& player,const cu
     MESSAGE_END();
     return state.Current(runtime,player);
 }
+bool PublishInput(State& state, const Runtime& runtime, CBasePlayer& player,
+    csol::scenario::ConfigError& error)
+{
+    if (state.inputPublished) return state.Current(runtime, player);
+    if (state.inputRevision == UINT32_MAX || inputMessage < 64 || breathAccess != state.access ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnMessageEnd)
+    { error.message = "standalone input has no prepared current transport"; return false; }
+    const auto serial = state.serial;
+    const auto bytes = custom::EncodeStandaloneInput({serial, ++state.inputRevision, true});
+    if (!bytes || !state.Current(runtime, player) || state.serial != serial) return false;
+    state.inputPublished = true;
+    MESSAGE_BEGIN(MSG_ONE, inputMessage, nullptr, player.pev);
+    for (const auto byte : *bytes) WRITE_BYTE(std::to_integer<unsigned>(byte));
+    MESSAGE_END();
+    return state.Current(runtime, player) && state.serial == serial;
+}
 }
 
 bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAccess>& access,
@@ -210,6 +239,9 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
     const int hud=REG_USER_MSG(custom::StaminaMessage,static_cast<int>(custom::StaminaMessageSize));
     if(!access->Allowed())return false;
     if(hud<64||hud>255){error.message="stamina HUD message registration failed";return false;}
+    const int input = REG_USER_MSG(custom::StandaloneInputMessage, static_cast<int>(custom::StandaloneInputMessageSize));
+    if (!access->Allowed()) return false;
+    if (input < 64 || input > 255) { error.message = "standalone input message registration failed"; return false; }
     for(const auto* sound:custom::RecoverySounds)
     {
         const auto path=std::string("sound/")+sound;
@@ -219,23 +251,24 @@ bool CSOL_PrecacheActionStamina(const std::shared_ptr<const CSOLScenarioEntityAc
         const auto index=PRECACHE_SOUND(sound);if(!access->Allowed())return false;
         if(index<=0){error.message="stamina recovery sound could not be registered";return false;}
     }
-    breathAccess=access;breathMessage=message;staminaMessage=hud;return true;
+    breathAccess=access;breathMessage=message;staminaMessage=hud;inputMessage=input;return true;
 }
 
-bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float now, csol::scenario::ConfigError& error,bool forceHud)
+namespace
 {
-    if (operating) return true;
-    Guard guard;
-    auto* prepared=Prepare(runtime,player,now,error);if(!prepared)return false;
-    auto& state=*prepared;const auto access=state.access;
+bool AdvanceRecovery(State& state, const Runtime& runtime, CBasePlayer& player, float now,
+    csol::scenario::ConfigError& error, bool forceHud)
+{
+    const auto access = state.access;
+    const auto serial = state.serial;
     if (state.tick == UINT64_MAX) { error.message = "kick stamina tick identity exhausted"; return false; }
     const auto after=state.stamina.Step(state.key,++state.tick,now,gpGlobals?gpGlobals->frametime:0);
-    if(!after||!state.Current(runtime,player))return false;
+    if(!after||!state.Current(runtime,player)||state.serial!=serial)return false;
     if(state.stamina.RecoveryVoice()&&!after->infinite)
     {
         bool male{};
         const bool resolved=CSOL_CharacterMale(&player,male,access);
-        if(!state.Current(runtime,player))return false;
+        if(!state.Current(runtime,player)||state.serial!=serial)return false;
         if(resolved)
         {
         if(breathAccess!=access||breathMessage<64||state.recoveryEvents==UINT32_MAX||
@@ -248,7 +281,106 @@ bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float n
         MESSAGE_END();
         }
     }
-    return state.Current(runtime,player)&&PublishHud(state,runtime,player,*after,error,forceHud);
+    return state.Current(runtime,player)&&state.serial==serial&&PublishHud(state,runtime,player,*after,error,forceHud);
+}
+}
+bool CSOL_TickActionStamina(const Runtime& runtime, CBasePlayer& player, float now, csol::scenario::ConfigError& error,bool forceHud)
+{
+    if (operating) return true;
+    Guard guard;
+    auto* state = Prepare(runtime, player, now, error);
+    if (!state) return false;
+    if (!state->frameMovement) return AdvanceRecovery(*state, runtime, player, now, error, forceHud);
+    const auto view = state->stamina.View(state->key);
+    return view && PublishHud(*state, runtime, player, *view, error, forceHud);
+}
+bool CSOL_TickStandaloneMovementFrame(const Runtime& runtime, csol::scenario::ConfigError& error)
+{
+    error = {};
+    if (operating || !runtime || runtime->Closing() || !runtime->session || !runtime->players || !gpGlobals ||
+        runtime->session->State() != CSOLScenarioSessionState::Active || !runtime->players->Active()) return false;
+    Guard guard;
+    const auto access = runtime->session->Map().EntityAccess();
+    if (!access || !access->Allowed()) return false;
+    const auto settings = MapSettings(runtime, access);
+    if (!settings) return false;
+    if (!settings->Enabled(custom::Feature::CofSprint)) return true;
+    const auto generation = runtime->Generation(), round = runtime->session->Map().RoundGeneration();
+    const auto session = runtime->session;
+    const auto players = runtime->players;
+    const float now = gpGlobals->time;
+    const auto current = [&]
+    {
+        return !runtime->Closing() && access->Allowed() && runtime->Generation() == generation && runtime->session == session &&
+            session->State() == CSOLScenarioSessionState::Active && runtime->players == players && players->Active() &&
+            runtime->session->Map().EntityAccess() == access && runtime->session->Map().RoundGeneration() == round;
+    };
+    if (!std::isfinite(now) || !std::isfinite(gpGlobals->frametime) || gpGlobals->frametime < 0 ||
+        gpGlobals->maxClients < 1 || gpGlobals->maxClients > 32)
+    { error.message = "standalone frame clock or player bound is invalid"; return false; }
+    if (frameOwner.begun && frameOwner.runtime.lock() == runtime && frameOwner.access == access &&
+        frameOwner.generation == generation && frameOwner.round == round)
+    {
+        if (!frameOwner.completed)
+        { error.message = "standalone frame did not complete; its owner must be retired"; return false; }
+        if (frameOwner.time == now) return current();
+        if (frameOwner.time > now) { error.message = "standalone frame clock moved backwards"; return false; }
+    }
+    frameOwner = {runtime, access, generation, round, now, true, false};
+    for (int slot = 1; slot <= gpGlobals->maxClients; ++slot)
+    {
+        auto* player = dynamic_cast<CBasePlayer*>(CSOL_ScenarioPlayerEntity(slot, access));
+        if (!current()) return false;
+        if (!player || player->has_disconnected || !player->pev || player->m_iTeam == SPECTATOR ||
+            player->m_iTeam == UNASSIGNED || player->m_iJoiningState != JOINED) continue;
+        if (player->pev->deadflag != DEAD_NO || player->pev->health <= 0)
+        { CSOL_RetireActionStamina(*player); if (!current()) return false; continue; }
+        auto* state = Prepare(runtime, *player, now, error);
+        if (!current()) return false;
+        if (!state) { if (!error.message.empty()) return false; continue; }
+        const auto serial = state->serial;
+        const auto valid = [&] { return current() && state->Current(runtime, *player) && state->serial == serial; };
+        state->frameMovement = true;
+        if (!state->stamina.RunDisplacement(state->key,
+            {player->pev->origin.x, player->pev->origin.y, player->pev->origin.z}, (player->pev->flags & FL_DUCKING) != 0))
+        { error.message = "standalone displacement update is invalid"; return false; }
+        // Original108595D0 resets native speed before108593D0 recovery. The
+        // normal ReAPI/native freeze, observer and scenario layers still run.
+        player->ResetMaxSpeed();
+        if (!valid() || !AdvanceRecovery(*state, runtime, *player, now, error, false) || !valid() ||
+            !PublishInput(*state, runtime, *player, error) || !valid()) return false;
+    }
+    if (!current() || !frameOwner.begun || frameOwner.runtime.lock() != runtime || frameOwner.access != access ||
+        frameOwner.generation != generation || frameOwner.round != round || frameOwner.time != now) return false;
+    frameOwner.completed = true;
+    return true;
+}
+bool CSOL_ActionStaminaRunCommand(const Runtime& runtime, CBasePlayer& player, bool requested, std::string_view life)
+{
+    if (operating || life.empty()) return false;
+    std::uint64_t token{};
+    const auto parsed = std::from_chars(life.data(), life.data() + life.size(), token);
+    if (parsed.ec != std::errc{} || parsed.ptr != life.data() + life.size() || !token) return false;
+    Guard guard;
+    auto* state = Find(runtime, player);
+    return state && state->frameMovement && state->inputPublished && state->serial == token &&
+        state->stamina.RequestRun(state->key, requested);
+}
+std::optional<float> CSOL_ActionStaminaRunSpeed(const Runtime& runtime, CBasePlayer& player, float weaponSpeed)
+{
+    // Read-only during native ResetMaxSpeed, including our own frame callback.
+    // Ordinary/kick-only maps never prepare a movement frame; avoid resolving
+    // player/session/EHANDLE ownership on every ordinary weapon speed reset.
+    if (!frameOwner.begun) return {};
+    auto* state = Find(runtime, player);
+    if (!state || !state->frameMovement || !player.pev || !std::isfinite(weaponSpeed) || !g_engfuncs.pfnCVarGetFloat) return {};
+    const auto serial = state->serial;
+    const bool ducking = (player.pev->flags & FL_DUCKING) != 0;
+    const bool running = state->stamina.Running(state->key);
+    const float speed = custom::StandaloneMaxSpeed(weaponSpeed, ducking, running,
+        [] { return CVAR_GET_FLOAT("sv_maxspeed"); });
+    if (!std::isfinite(speed) || !state->Current(runtime, player) || state->serial != serial) return {};
+    return speed;
 }
 std::optional<custom::StaminaView> CSOL_ActionStaminaView(const Runtime& runtime, CBasePlayer& player)
 {
@@ -341,9 +473,21 @@ void CSOL_RetireActionStamina(CBasePlayer& player)
                 for(const auto byte:*bytes)WRITE_BYTE(std::to_integer<unsigned>(byte));
                 MESSAGE_END();
             }
+            if (retiring.inputPublished && retiring.inputRevision < UINT32_MAX && breathAccess == access && inputMessage >= 64 &&
+                retiring.Current(runtime, player, false) && state.serial == retiring.serial && state.retired &&
+                g_engfuncs.pfnMessageBegin && g_engfuncs.pfnWriteByte && g_engfuncs.pfnMessageEnd)
+            {
+                const auto input = custom::EncodeStandaloneInput({retiring.serial, ++state.inputRevision, false});
+                if (input)
+                {
+                    MESSAGE_BEGIN(MSG_ONE, inputMessage, nullptr, player.pev);
+                    for (const auto byte : *input) WRITE_BYTE(std::to_integer<unsigned>(byte));
+                    MESSAGE_END();
+                }
+            }
         }
 }
-void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {};breathAccess.reset();breathMessage=staminaMessage=0; }
+void CSOL_ResetActionStamina() { states = {}; phaseOwner = {}; mapPolicy = {};frameOwner={};breathAccess.reset();breathMessage=staminaMessage=inputMessage=0; }
 bool CSOL_SetChallengeStaminaPhase(const Runtime& runtime, custom::Phase phase, bool available)
 {
     if (operating || !runtime || runtime->Closing() || !runtime->session ||
