@@ -2696,7 +2696,20 @@
     "tests/cryoffear-g43-control/README.md",
     "tests/cryoffear-g43-control/run.py",
     "tests/cryoffear-g43-control/oracle.py",
-    "tests/cryoffear-g43-control/main.cpp"
+    "tests/cryoffear-g43-control/main.cpp",
+    "docs/2026-11-16_实现-G43射击机瞄与普通帧-report.md",
+    "tests/cryoffear-g43-shot/README.md",
+    "tests/cryoffear-g43-shot/run.py",
+    "tests/cryoffear-g43-shot/oracle.py",
+    "tests/cryoffear-g43-shot/main.cpp",
+    "tests/cryoffear-g43-aim/README.md",
+    "tests/cryoffear-g43-aim/run.py",
+    "tests/cryoffear-g43-aim/oracle.py",
+    "tests/cryoffear-g43-aim/main.cpp",
+    "tests/cryoffear-g43-frame/README.md",
+    "tests/cryoffear-g43-frame/run.py",
+    "tests/cryoffear-g43-frame/oracle.py",
+    "tests/cryoffear-g43-frame/main.cpp"
   ],
   "trees": {
     "native": [
