@@ -2634,7 +2634,12 @@
     "tests/cryoffear-stamina-cycle/oracle.py",
     "tests/cryoffear-stamina-cycle/run.py",
     "tests/cryoffear-stamina-cycle/README.md",
-    "docs/2026-11-15_实现-CoF体力周期与耗尽提示-report.md"
+    "docs/2026-11-15_实现-CoF体力周期与耗尽提示-report.md",
+    "native/guest/cof/server/player_action_runtime.hpp",
+    "native/guest/cof/server/player_action_runtime.cpp",
+    "tests/cryoffear-player-actions/main.cpp",
+    "tests/cryoffear-player-actions/README.md",
+    "docs/2026-11-16_接入-CoF玩家生命动作与体力归属-report.md"
   ],
   "trees": {
     "native": [

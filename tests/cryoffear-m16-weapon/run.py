@@ -22,7 +22,10 @@ def main():
     for name in ('sample','proof','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--player-think-engine',type=Path)
     p.add_argument('--player-think-proof',type=Path)
+    p.add_argument('--player-actions',action='store_true')
+    p.add_argument('--action-proof',type=Path)
     a=p.parse_args();output=a.output.absolute()
+    if a.player_actions != (a.action_proof is not None):p.error('--player-actions requires --action-proof and vice versa')
     gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -33,6 +36,11 @@ def main():
              ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
              ROOT/'native/guest/cof/player_actions.cpp']
     scheduler=None
+    if a.player_actions:
+        if a.player_think_engine is not None or a.player_think_proof is not None:
+            p.error('Player actions and scheduler oracle are separate runs')
+        sources[0]=ROOT/'tests/cryoffear-player-actions/main.cpp'
+        sources.extend((ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
     if a.player_think_engine is not None or a.player_think_proof is not None:
         if a.player_think_engine is None or a.player_think_proof is None:p.error('Both player-think inputs are required')
         sources[0]=ROOT/'tests/cryoffear-player-think/main.cpp'
@@ -54,6 +62,19 @@ def main():
     pe=a.sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');count=int.from_bytes(pe[nt+6:nt+8],'little')
     opt=nt+24;optional=int.from_bytes(pe[nt+20:nt+22],'little');base=int.from_bytes(pe[opt+28:opt+32],'little')
     regions=proof['newRegions']+proof['existingM16Regions']+proof['sharedInventory']
+    actionOwnership=None
+    if a.player_actions:
+        actionOwnership=json.loads(a.action_proof.read_text('utf-8-sig'));inputs.add(a.action_proof.resolve())
+        if actionOwnership['sampleSha256']!=sha(a.sample) or not actionOwnership['beforeImplementation']:
+            raise ValueError('Player action original identity mismatch')
+        for record in actionOwnership['proofs']+actionOwnership['hostFiles']:
+            path=ROOT/record['path'];inputs.add(path)
+            if sha(path)!=record['sha256']:raise ValueError('Player action pre-edit dependency mismatch: '+record['path'])
+        cycleProof=ROOT/actionOwnership['proofs'][0]['path']
+        cycle=json.loads(cycleProof.read_text('utf-8-sig'));regions+=cycle['regions']
+        for name,digest in cycle['archives'].items():
+            path=cycleProof.parent/name;inputs.add(path)
+            if sha(path)!=digest:raise ValueError('Stamina evidence archive mismatch')
     for region in regions:
         rva=int(region['va'],16)-base;found=False
         for i in range(count):
@@ -143,7 +164,7 @@ def main():
     gitAfter=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     receipt=dict(success=success,gitBefore=gitBefore,gitAfter=gitAfter,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
-                 negative=negative,scheduler=scheduler,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
+                 negative=negative,scheduler=scheduler,actionOwnership=actionOwnership,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled engine stage/ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')
     print((tested.stdout+tested.stderr) if tested else compiled.stdout+compiled.stderr)
     raise SystemExit(0 if success else 1)

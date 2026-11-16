@@ -384,5 +384,12 @@
       <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 /Zc:strictStrings- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\guest\cof\server\player_action_runtime.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
   </ItemGroup>
 </Project>
