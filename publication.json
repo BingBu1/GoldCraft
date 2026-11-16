@@ -2654,7 +2654,9 @@
     "tests/server-update-lifecycle/worker.cs",
     "tests/server-update-lifecycle/Start-Servers.ps1",
     "tests/server-update-lifecycle/package_checks.py",
-    "docs/2026-11-16_实现-补丁自动停服与恢复启动-report.md"
+    "docs/2026-11-16_实现-补丁自动停服与恢复启动-report.md",
+    "docs/2026-11-16_接入-M16地图工厂与玩家动作-report.md",
+    "tests/cryoffear-m16-runtime/README.md"
   ],
   "trees": {
     "native": [

@@ -22,6 +22,9 @@ def main():
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--resources',type=Path,required=True)
     p.add_argument('--mp5-resources',type=Path,required=True)
+    p.add_argument('--m16-resources',type=Path)
+    p.add_argument('--m16-sample',type=Path)
+    p.add_argument('--m16-proof',type=Path)
     p.add_argument('--deployed-root',type=Path,required=True)
     p.add_argument('--compile-host',action='store_true',help='Also compile the real production host without fixture definitions')
     a=p.parse_args();output=a.output.absolute()
@@ -40,6 +43,10 @@ def main():
     sources.extend(ROOT/('native/csol/server/weapons/'+name+'.cpp') for name in
         ('guest_cof_mp5_factory','guest_cof_mp5_owner','guest_cof_mp5_native_effects'))
     sources.extend((ROOT/'native/guest/cof/server/mp5_weapon.cpp',ROOT/'native/guest/cof/mp5_primary.cpp'))
+    sources.extend((ROOT/'native/csol/server/weapons/guest_cof_m16_factory.cpp',
+        ROOT/'native/csol/server/weapons/guest_cof_m16_owner.cpp',ROOT/'native/guest/cof/server/m16_weapon.cpp',
+        ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/m16_control.cpp',
+        ROOT/'native/guest/cof/m16_shot.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
     factory_fixture=ROOT/'tests/cryoffear-glock-factory/main.cpp'
     prefix=factory_fixture.read_text('utf-8-sig').split('int main(int argc,char** argv)',1)[0]
     prefix=prefix.replace('../cryoffear-glock-weapon/main.cpp','tests/cryoffear-glock-weapon/main.cpp')
@@ -51,6 +58,7 @@ def main():
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     host=ROOT/'native/csol/server/weapons/guest_cof_host.cpp' if a.compile_host else None
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),host_source}
+    inputs.add(ROOT/'tests/cryoffear-m16-runtime/scenarios.hpp')
     if host:inputs.add(host)
     for root in (a.resources.resolve(),a.mp5_resources.resolve(),a.deployed_root.resolve()):
         if not root.is_relative_to(ROOT/'build') and not root.is_relative_to(ROOT/'sandbox'):raise ValueError('Runtime fixture assets must be in isolated workspace roots')
@@ -65,7 +73,32 @@ def main():
         if not path.is_file():path=a.deployed_root/name
         if not path.is_file():raise ValueError('Actual runtime fixture resource missing: '+name)
         inputs.add(path.resolve())
+    if a.m16_resources is not None:
+        if a.m16_sample is None or a.m16_proof is None:p.error('M16 resources require matched sample and proof')
+        if not a.m16_resources.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use isolated M16 candidate resources')
+        for row in resource_module.M16_PINS:
+            name=('sound/' if row.get('group','').endswith('Sounds') else '')+row['host']
+            path=a.m16_resources/name
+            if not path.is_file():raise ValueError('Actual M16 resource missing: '+name)
+            inputs.add(path.resolve())
     original={'boundary':'Original weapon behavior has separate instruction oracles; this suite executes actual map/owner/factory/resource composition with controlled external event and engine consumers'}
+    if a.m16_resources is not None:
+        inputs.update((a.m16_sample.resolve(),a.m16_proof.resolve()))
+        proof=json.loads(a.m16_proof.read_text('utf-8-sig'))
+        if not proof['beforeImplementation'] or sha(a.m16_sample)!=proof['sampleSha256']:raise ValueError('M16 original identity mismatch')
+        for record in proof['proofs']:
+            path=ROOT/record['path'];inputs.add(path)
+            if sha(path)!=record['sha256']:raise ValueError('M16 pre-edit evidence changed')
+        sdk=json.loads((ROOT/proof['proofs'][0]['path']).read_text('utf-8-sig'))
+        pe=a.m16_sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');opt=nt+24;base=int.from_bytes(pe[opt+28:opt+32],'little')
+        section=opt+int.from_bytes(pe[nt+20:nt+22],'little');regions=sdk['newRegions']+sdk['existingM16Regions']+sdk['sharedInventory']
+        for region in regions:
+            rva=int(region['va'],16)-base;raw=None
+            for i in range(int.from_bytes(pe[nt+6:nt+8],'little')):
+                at=section+i*40;va=int.from_bytes(pe[at+12:at+16],'little');size=int.from_bytes(pe[at+16:at+20],'little')
+                if va<=rva and rva+region['size']<=va+size:raw=int.from_bytes(pe[at+20:at+24],'little')+rva-va;break
+            if raw is None or hashlib.sha256(pe[raw:raw+region['size']]).hexdigest()!=region['sha256']:raise ValueError('M16 original region mismatch')
+        original.update(m16SampleSha256=sha(a.m16_sample),m16Regions=len(regions),m16ProofSha256=sha(a.m16_proof))
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -133,7 +166,9 @@ def main():
     compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=600)
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:
-        tested=subprocess.run([str(exe),str(model),str(a.resources.resolve()),str(a.deployed_root.resolve()),str(a.mp5_resources.resolve())],cwd=output,capture_output=True,text=True,timeout=30)
+        test_args=[str(exe),str(model),str(a.resources.resolve()),str(a.deployed_root.resolve()),str(a.mp5_resources.resolve())]
+        if a.m16_resources is not None:test_args.append(str(a.m16_resources.resolve()))
+        tested=subprocess.run(test_args,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     host_compile=None;host_command=None
     if host:
