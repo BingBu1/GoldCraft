@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/scenario/core/challenge_environment.cpp"
+#include "../../native/csol/scenario/custom/night_lighting.hpp"
 #include "../csol-hud-style/allocation_probe.hpp"
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +14,7 @@ namespace custom = csol::scenario::custom;
 unsigned checks{}, parameterCalls{}, drawCalls{};
 custom::FogPair seen;
 pfnUserMsgHook envMessage{}, initMessage{};
+pfnUserMsgHook nightMessage{};
 bool resetSession{};
 movevars_t* vars{};
 engine_studio_api_t* lightingTable{};
@@ -42,7 +44,8 @@ void NativeLight(cl_entity_t* entity, alight_t* light)
 }
 pfnUserMsgHook Hook(const char* name, pfnUserMsgHook callback)
 {
-    auto& value = std::strcmp(name, custom::EnvironmentMessage) ? initMessage : envMessage;
+    auto& value = !std::strcmp(name, custom::EnvironmentMessage) ? envMessage :
+        !std::strcmp(name, custom::NightLightingMessage) ? nightMessage : initMessage;
     auto old = value; value = callback; return old;
 }
 void Send(custom::EnvironmentSnapshot snapshot)

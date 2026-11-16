@@ -47,6 +47,20 @@ unsigned Count(Case& c)
     const auto id = c.f.engine.messages.at(custom::EnvironmentMessage);
     return unsigned(std::count_if(c.packets.begin(), c.packets.end(), [&](const auto& p) { return p.id == id; }));
 }
+custom::NightLightingSnapshot LastNight(Case& c)
+{
+    const auto id = c.f.engine.messages.at(custom::NightLightingMessage);
+    const auto packet = std::find_if(c.packets.rbegin(), c.packets.rend(), [&](const auto& p) { return p.id == id; });
+    Require(packet != c.packets.rend(), "actual low-frequency lighting control exists");
+    const auto value = custom::DecodeNightLighting(packet->bytes);
+    Require(bool(value), "actual control packet is exactly24 bytes and has no coordinate/player list");
+    return *value;
+}
+unsigned NightCount(Case& c)
+{
+    const auto id = c.f.engine.messages.at(custom::NightLightingMessage);
+    return unsigned(std::count_if(c.packets.begin(), c.packets.end(), [&](const auto& p) { return p.id == id; }));
+}
 void Start(Case& c)
 {
     NativeActor(c); Restart(c); Tick(c, 120); Tick(c, 122); Tick(c, 125);
@@ -61,6 +75,8 @@ void Flow(bool join, bool replay)
 {
     Settings(true); Case c(MusicResources); Start(c);
     const auto owner = Last(c).owner;
+    Expect(LastNight(c).phase == custom::Phase::Night && LastNight(c).config.enabled &&
+        LastNight(c).owner == owner, "actual clock sends one shared night policy without creating player lights");
     Expect(State().applied && State().level == 'i' && !Last(c).view.fog,
         "actual dusk/night entry owns the light but preserves map fog until dark");
     const auto first = Count(c);
@@ -72,8 +88,10 @@ void Flow(bool join, bool replay)
     Expect(State().applied && State().level == 'b' && std::string_view(State().baseline) == "klm",
         "external writes update the actual engine baseline while retaining night");
     const auto count = Count(c);
+    const auto nightCount = NightCount(c);
     for (unsigned i = 0; i != 50; ++i) Tick(c, 146.001f + float(i) * .001f);
     Expect(Count(c) == count, "50 unchanged actual Think frames never flood environment messages");
+    Expect(NightCount(c) == nightCount, "50 actual frames publish no lighting packets or per-player coordinates");
     Restart(c);
     Expect(State().owner == token && Last(c).owner == owner && State().level == 'b',
         "ordinary intermediate-stage restart keeps current light lease and environment owner");
@@ -82,18 +100,22 @@ void Flow(bool join, bool replay)
         c.f.engine.files["env-motd.txt"] = "Environment join boundary\n";
         CVAR_SET_STRING("motdfile", "env-motd.txt");
         const auto before = Count(c);
+        const auto beforeNight = NightCount(c);
         g_pGameRules->InitHUD(&c.player);
         const auto id = c.f.engine.messages.at(custom::EnvironmentMessage);
         const auto packet = std::find_if(c.packets.rbegin(), c.packets.rend(), [&](const auto& p) { return p.id == id; });
         Expect(Count(c) == before + 1 && Last(c).owner == owner && Last(c).view.level == 'b' && Last(c).view.fog &&
             packet->destination == MSG_ONE && packet->receiver == c.player.entindex(),
             "actual InitHUD replays the final night profile only to the late joining player");
+        Expect(NightCount(c) == beforeNight + 1 && LastNight(c).phase == custom::Phase::Night,
+            "late join replays one policy so its own client can render every current player");
     }
     Tick(c, 170);
     c.player.pev->health = 0; c.player.pev->deadflag = DEAD_DEAD;
     Tick(c, 171);
     Expect(!State().applied && !State().owner && std::string_view(State().baseline) == "klm" && !Last(c).view.active,
         "actual all-dead failure restores latest map light and retires client fog");
+    Expect(LastNight(c).phase == custom::Phase::Ended, "actual result disables client lamps");
     if (!replay) return;
     auto* service = static_cast<csol::IScenarioReplayService*>(CreateInterface(csol::ScenarioReplayServiceVersion, nullptr));
     Require(service && service->RequestReplay(98), "actual administration accepts one replay");

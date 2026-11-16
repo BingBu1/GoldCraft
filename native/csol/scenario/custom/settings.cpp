@@ -25,7 +25,8 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::NightBuff, "night_buff", "csol_custom_night_buff", "永夜独立伤害、移速和回血参数；不开启不要求未定参数。", false, Scope::NextMapSession},
     {Feature::ZombiePopulation, "zombie_population", "csol_custom_zombie_population", "分阶段基础怪量与每玩家增加量；实际池容量由消费者核验。", false, Scope::NextMapSession},
     {Feature::RandomHorde, "random_horde", "csol_custom_random_horde", "随机尸潮；间隔、0到1概率和持续时间必须明确。", false, Scope::NextMapSession},
-    {Feature::DamageRefundCap, "damage_refund_cap", "csol_custom_damage_refund_cap", "返现上限对每位玩家与每只怪物的组合分别累计，新怪租约获得新额度。", false, Scope::NextMapSession}
+    {Feature::DamageRefundCap, "damage_refund_cap", "csol_custom_damage_refund_cap", "返现上限对每位玩家与每只怪物的组合分别累计，新怪租约获得新额度。", false, Scope::NextMapSession},
+    {Feature::NightPlayerLights, "night_player_lights", "csol_custom_night_player_lights", "永夜全员互见随身光；客户端管理灯池与跟随，服务器仅同步阶段和配置。自定义默认开启。", true, Scope::Immediate}
 }};
 
 // Bounds are host configuration/overflow limits, not recovered CSOL values.
@@ -47,10 +48,10 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::MasteryDamage3, Feature::Mastery, "mastery_damage_3", "csol_custom_mastery_damage_3", "三档伤害倍率。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, 0, 1000, 1.20, Scope::NextMapSession},
     {Setting::MasteryFireRate3, Feature::Mastery, "mastery_fire_rate_3", "csol_custom_mastery_fire_rate_3", "三档每秒射击频率倍率，1不变。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, .001, 1000, 1.10, Scope::NextMapSession},
     {Setting::SprintMaximum, Feature::CofSprint, "sprint_maximum", "csol_custom_sprint_maximum", "有限阶段体力上限，正午无限由阶段规则表达。", ValueType::Real, .001, 1000000, {}, Scope::NextMapSession},
-    {Setting::SprintDrainPerSecond, Feature::CofSprint, "sprint_drain_per_second", "csol_custom_sprint_drain_per_second", "每秒跑动体力消耗，必须显式填写。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
-    {Setting::SprintRecoveryPerSecond, Feature::CofSprint, "sprint_recovery_per_second", "csol_custom_sprint_recovery_per_second", "每秒体力恢复，必须显式填写。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
-    {Setting::SprintSpeed, Feature::CofSprint, "sprint_speed", "csol_custom_sprint_speed", "跑动基础速度，仍须宿主碰撞和移动权威验证。", ValueType::Real, .001, 4096, {}, Scope::NextMapSession},
-    {Setting::WalkSpeed, Feature::CofSprint, "walk_speed", "csol_custom_walk_speed", "普通行走基础速度，不覆盖其他功能拥有的速度限制。", ValueType::Real, .001, 4096, {}, Scope::NextMapSession},
+    {Setting::SprintDrainPerSecond, Feature::CofSprint, "sprint_drain_per_second", "csol_custom_sprint_drain_per_second", "已停用的旧CoF每秒消耗；启用绝命档案前须置null，不能换算成位移单位。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
+    {Setting::SprintRecoveryPerSecond, Feature::CofSprint, "sprint_recovery_per_second", "csol_custom_sprint_recovery_per_second", "可选自定义每秒恢复；null使用原版延迟3秒和加速恢复。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
+    {Setting::SprintSpeed, Feature::CofSprint, "sprint_speed", "csol_custom_sprint_speed", "已停用的旧固定跑速；启用前须置null，绝命档案使用当前武器速度。", ValueType::Real, .001, 4096, {}, Scope::NextMapSession},
+    {Setting::WalkSpeed, Feature::CofSprint, "walk_speed", "csol_custom_walk_speed", "已停用的旧固定走速；启用前须置null，原版按武器速度乘0.5。", ValueType::Real, .001, 4096, {}, Scope::NextMapSession},
     {Setting::JumpCost, Feature::CofSprint, "jump_cost", "csol_custom_jump_cost", "跳跃单次体力消耗。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
     {Setting::KickCost, Feature::CofSprint, "kick_cost", "csol_custom_kick_cost", "踢击单次体力消耗，接受动作后由权威消费者记账。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
     {Setting::DuskMaximumMultiplier, Feature::CofSprint, "dusk_maximum_multiplier", "csol_custom_dusk_maximum_multiplier", "黄昏体力上限倍率。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, .001, 1000, 1.5, Scope::NextMapSession},
@@ -77,7 +78,11 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::NightFogColor, Feature::TimeCycle, "night_fog_color", "csol_custom_night_fog_color", "雾颜色的十进制RGB打包值0xRRGGBB；默认65793对应原版(1,1,1)。", ValueType::Integer, 0, 16777215, 65793, Scope::NextMapSession},
     {Setting::NightFogStart, Feature::TimeCycle, "night_fog_start", "csol_custom_night_fog_start", "标准Fog接口起始距离，默认原版100，须小于结束距离。", ValueType::Real, 0, 999999, 100, Scope::NextMapSession},
     {Setting::NightFogEnd, Feature::TimeCycle, "night_fog_end", "csol_custom_night_fog_end", "标准Fog接口结束距离，默认原版2000，须大于起始距离。", ValueType::Real, .001, 1000000, 2000, Scope::NextMapSession},
-    {Setting::NightFogSkybox, Feature::TimeCycle, "night_fog_skybox", "csol_custom_night_fog_skybox", "雾是否影响天空盒：0否，1是；默认原版1。", ValueType::Integer, 0, 1, 1, Scope::NextMapSession}
+    {Setting::NightFogSkybox, Feature::TimeCycle, "night_fog_skybox", "csol_custom_night_fog_skybox", "雾是否影响天空盒：0否，1是；默认原版1。", ValueType::Integer, 0, 1, 1, Scope::NextMapSession},
+    {Setting::SprintCostPerUnit, Feature::CofSprint, "sprint_cost_per_unit", "csol_custom_sprint_cost_per_unit", "绝命档案按水平实际位移扣费，每GoldSrc单位体力；默认原版0.1，非每秒。", ValueType::Real, 0, 1000000, .1, Scope::NextMapSession},
+    {Setting::NightPlayerLightRadius, Feature::NightPlayerLights, "night_player_light_radius", "csol_custom_night_player_light_radius", "随身光半径，GoldSrc单位16至512；自定义默认128，客户端更新位置。", ValueType::Real, 16, 512, 128, Scope::Immediate},
+    {Setting::NightPlayerLightBrightness, Feature::NightPlayerLights, "night_player_light_brightness", "csol_custom_night_player_light_brightness", "随身光亮度0至255，0熄灭；自定义默认48，保留永夜黑暗和雾。", ValueType::Integer, 0, 255, 48, Scope::Immediate},
+    {Setting::NightPlayerLightColor, Feature::NightPlayerLights, "night_player_light_color", "csol_custom_night_player_light_color", "随身光RGB颜色十进制0至16777215；自定义默认16777215为白色。", ValueType::Integer, 0, 16777215, 16777215, Scope::Immediate}
 }};
 
 constexpr bool DescriptorOrder()
@@ -292,8 +297,13 @@ bool Draft::SetComment(Setting setting, std::string_view text, Error& error)
 bool Draft::Finish(SnapshotPtr& output, Error& error) const
 {
     for (const auto& descriptor : SettingRows)
-        if (value_.Enabled(descriptor.feature) && !value_.Number(descriptor.id))
+        if (value_.Enabled(descriptor.feature) && descriptor.feature != Feature::CofSprint && !value_.Number(descriptor.id))
             return Fail(error, descriptor.key, "enabled feature requires an explicit numeric parameter");
+    if (value_.Enabled(Feature::CofSprint))
+        for (const auto obsolete : {Setting::SprintDrainPerSecond, Setting::SprintSpeed, Setting::WalkSpeed})
+            if (value_.Number(obsolete))
+                return Fail(error, SettingRows[static_cast<std::size_t>(obsolete)].key,
+                    "legacy CoF parameter must be null; StandAlone uses distance cost and weapon-derived speed");
     const auto increasing = [&](Setting first, Setting second, Setting third)
     {
         const auto a = value_.Number(first), b = value_.Number(second), c = value_.Number(third);

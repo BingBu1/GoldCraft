@@ -30,7 +30,8 @@ bool Available(custom::Feature feature)
 {
     // Consumers register their capability as they are integrated. Publishing
     // a configuration flag alone cannot claim an unimplemented gameplay path.
-    return feature == custom::Feature::Kick || feature == custom::Feature::DamageRefundCap;
+    return feature == custom::Feature::Kick || feature == custom::Feature::DamageRefundCap ||
+        feature == custom::Feature::NightPlayerLights;
 }
 
 template<std::size_t N> void Copy(char (&output)[N], std::string_view value)

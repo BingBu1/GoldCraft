@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "challenge_environment.h"
+#include "gameplay_settings.h"
 #include "../scenario/core/scenario_runtime.h"
 #include "../scenario/core/scenario_session.h"
 #include "goldcraft/lightstyle_api.hpp"
@@ -29,13 +30,16 @@ bool CCSOLChallengeEnvironment::Precache(const csol::scenario::custom::Snapshot&
     namespace custom = csol::scenario::custom;
     if (prepared_ || busy_ || revoked_) return false;
     const auto config = custom::ReadEnvironmentConfig(settings);
-    if (!config) return false;
+    const auto night = custom::ReadNightLighting(settings);
+    if (!config || !night) return false;
     const auto factory = Sys_GetFactory("swds.dll");
     lights_ = factory ? static_cast<goldcraft::IMapLightStyleService*>(
         factory(goldcraft::MapLightStyleServiceVersion, nullptr)) : nullptr;
     if (!lights_) return false;
     message_ = REG_USER_MSG(custom::EnvironmentMessage, static_cast<int>(custom::EnvironmentMessageSize));
-    if (revoked_ || message_ < 64 || message_ > 255) return false;
+    nightMessage_ = REG_USER_MSG(custom::NightLightingMessage, static_cast<int>(custom::NightLightingMessageSize));
+    if (revoked_ || message_ < 64 || message_ > 255 || nightMessage_ < 64 || nightMessage_ > 255) return false;
+    night_.config = *night;
     config_ = *config; prepared_ = true; return true;
 }
 bool CCSOLChallengeEnvironment::Update(const Runtime& runtime, std::uint64_t challenge,
@@ -58,11 +62,28 @@ bool CCSOLChallengeEnvironment::Update(const Runtime& runtime, std::uint64_t cha
         if (!fade_.Begin(challenge, config_)) return false;
         challenge_ = challenge; runtime_ = runtime;
         snapshot_ = {}; snapshot_.owner = ++environmentSerial; snapshot_.profile = config_.fog;
+        night_.owner = snapshot_.owner; nightKnown_ = false;
         known_ = false;
     }
     else if (runtime_.lock() != runtime) return false;
     const auto value = fade_.Advance(challenge, phase, now);
     if (!value) return false;
+    // Configuration is an immutable in-memory snapshot. Never read a file or
+    // build a player/light list here; clients follow existing network entities.
+    const auto settings = CSOL_CustomSettings();
+    bool configChanged{};
+    if (settings && settings != nightSettings_)
+    {
+        const auto config = custom::ReadNightLighting(*settings);
+        if (!config) return false;
+        configChanged = night_.config != *config;
+        night_.config = *config; nightSettings_ = settings;
+    }
+    if (!nightKnown_ || night_.phase != phase || configChanged)
+    {
+        night_.phase = phase; nightKnown_ = true;
+        if (!PublishNight(runtime, nullptr)) return false;
+    }
     if (value->active)
     {
         if (!lightOwner_)
@@ -107,7 +128,29 @@ bool CCSOLChallengeEnvironment::Replay(const Runtime& runtime, CBasePlayer& play
 {
     if (revoked_ || busy_) return false;
     if (!known_) return true;
-    Busy busy(busy_); return Publish(runtime, &player);
+    Busy busy(busy_);
+    return Publish(runtime, &player) && (!nightKnown_ || PublishNight(runtime, &player));
+}
+bool CCSOLChallengeEnvironment::PublishNight(const Runtime& runtime, CBasePlayer* player)
+{
+    namespace custom = csol::scenario::custom;
+    if (revoked_ || !nightKnown_ || runtime_.lock() != runtime || night_.revision == UINT32_MAX) return false;
+    const auto generation = runtime->Generation();
+    if (!Current(runtime, generation)) return false;
+    const auto session = runtime->session;
+    const auto round = session->Map().RoundGeneration();
+    const EHANDLE recipient(player);
+    if (player && (player->has_disconnected || !player->pev ||
+        (player->pev->flags & (FL_FAKECLIENT | FL_KILLME | FL_DORMANT)))) return true;
+    ++night_.revision;
+    const auto bytes = custom::EncodeNightLighting(night_);
+    if (!bytes) return false;
+    if (player) MESSAGE_BEGIN(MSG_ONE, nightMessage_, nullptr, player->pev);
+    else MESSAGE_BEGIN(MSG_ALL, nightMessage_);
+    for (const auto byte : *bytes) WRITE_BYTE(std::to_integer<unsigned>(byte));
+    MESSAGE_END();
+    return !revoked_ && Current(runtime, generation) && runtime->session == session &&
+        session->Map().RoundGeneration() == round && (!player || recipient.Get<CBasePlayer>() == player);
 }
 void CCSOLChallengeEnvironment::Restore()
 {

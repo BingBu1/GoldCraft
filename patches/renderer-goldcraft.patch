@@ -2613,7 +2613,7 @@ index 2832883..4d2ed52 100644
 +#define SHADER_UNIFORM(name, loc, locstring) name.loc = glGetUniformLocation(name.program, locstring);
 +#define SHADER_ATTRIB(name, loc, locstring)  name.loc = glGetAttribLocation(name.program, locstring);
 diff --git a/src/gl_shadow.cpp b/src/gl_shadow.cpp
-index 0683b11..4dfd423 100644
+index 0683b11..86310b2 100644
 --- a/src/gl_shadow.cpp
 +++ b/src/gl_shadow.cpp
 @@ -1,4 +1,6 @@
@@ -2676,7 +2676,23 @@ index 0683b11..4dfd423 100644
                      {
                          auto old_draw_classify = r_draw_classify;
                          r_draw_classify        = DRAW_CLASSIFY_OPAQUE_ENTITIES;
-@@ -659,6 +668,8 @@ void R_RenderShadowmapForDynamicLights(void)
+@@ -639,8 +648,15 @@ void R_RenderShadowmapForDynamicLights(void)
+                         auto old_draw_classify = r_draw_classify;
+                         r_draw_classify        = DRAW_CLASSIFY_WORLD | DRAW_CLASSIFY_OPAQUE_ENTITIES;
+ 
++                        if (args->sourceEntityIndex != 0)
++                        {
++                            r_draw_hide_entity       = true;
++                            r_draw_hide_entity_index = args->sourceEntityIndex;
++                        }
++
+                         R_RenderScene();
+ 
++                        r_draw_hide_entity = false;
+                         r_draw_classify = old_draw_classify;
+                     }
+ 
+@@ -659,6 +675,8 @@ void R_RenderShadowmapForDynamicLights(void)
          };
  
          const auto SpotLightCallback = [](SpotLightCallbackArgs* args, void* context) {
@@ -2685,7 +2701,7 @@ index 0683b11..4dfd423 100644
              if (args->ppDynamicShadowTexture && args->dynamicShadowSize > 0)
              {
                  if ((*args->ppDynamicShadowTexture) == nullptr ||
-@@ -758,6 +769,8 @@ void R_RenderShadowmapForDynamicLights(void)
+@@ -758,6 +776,8 @@ void R_RenderShadowmapForDynamicLights(void)
          };
  
          const auto DirectionalLightCallback = [](DirectionalLightCallbackArgs* args, void* context) {
@@ -2694,7 +2710,7 @@ index 0683b11..4dfd423 100644
              if (args->ppStaticShadowTexture && args->staticShadowSize > 0)
              {
                  if ((*args->ppStaticShadowTexture) == nullptr ||
-@@ -1062,4 +1075,4 @@ void R_RenderShadowMap(void)
+@@ -1062,4 +1082,4 @@ void R_RenderShadowMap(void)
      {
          R_RenderShadowmapForDynamicLights();
      }
@@ -9765,7 +9781,7 @@ index 0000000..12c4479
 +}
 diff --git a/tests/extract_scene_culling_dispatch.py b/tests/extract_scene_culling_dispatch.py
 new file mode 100644
-index 0000000..44e2e80
+index 0000000..067f634
 --- /dev/null
 +++ b/tests/extract_scene_culling_dispatch.py
 @@ -0,0 +1,37 @@
@@ -9787,10 +9803,10 @@ index 0000000..44e2e80
 +args = parser.parse_args()
 +source = args.rmain.read_text(encoding="utf-8-sig")
 +start = "namespace\n{\nstd::vector<IMetaRendererSceneCallbacks*> externalSceneCallbacks;"
-+end = "\nclass CMetaRenderer : public IMetaRenderer\n"
++end = "EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneCulling, IMetaRendererSceneCulling, METARENDERER_SCENE_CULLING_INTERFACE_VERSION);"
 +if source.count(start) != 1 or source.count(end) != 1:
 +    raise SystemExit("Production scene extraction boundaries changed")
-+body = source[source.index(start):source.index(end)]
++body = source[source.index(start):source.index(end) + len(end)]
 +for required in (
 +    "void R_DrawExternalOpaqueScene()",
 +    "RExternalSceneShadowCullScope cullScope((flags & META_SCENE_SHADOW) != 0);",
@@ -9808,14 +9824,15 @@ index 0000000..44e2e80
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/src/gl_external_scene.h b/src/gl_external_scene.h
 new file mode 100644
-index 0000000..08f7e03
+index 0000000..3ae708e
 --- /dev/null
 +++ b/src/gl_external_scene.h
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,19 @@
 +#pragma once
 +#include <IMetaRendererScene.h>
 +#include <IMetaRendererSceneCulling.h>
 +#include <IMetaRendererSceneLights.h>
++#include <IMetaRendererMovingLights.h>
 +#include <IMetaRendererSceneVision.h>
 +#include <IMetaRendererSceneDistortion.h>
 +void R_ClearExternalSceneDistortion(IMetaRendererSceneCallbacks* owner) noexcept;
@@ -20812,10 +20829,10 @@ index 0000000..d9a7260
 +#define METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION "MetaRendererSceneLights_API_001"
 diff --git a/src/gl_scene_lights.cpp b/src/gl_scene_lights.cpp
 new file mode 100644
-index 0000000..45b0510
+index 0000000..7f93052
 --- /dev/null
 +++ b/src/gl_scene_lights.cpp
-@@ -0,0 +1,271 @@
+@@ -0,0 +1,411 @@
 +#include "gl_local.h"
 +#include "gl_external_scene.h"
 +#include <algorithm>
@@ -20840,10 +20857,25 @@ index 0000000..45b0510
 +    std::vector<SceneLightNode> nodes;
 +};
 +std::array<SceneLightOwner, 16> sceneLightOwners;
++struct MovingLightOwner
++{
++    IMetaRendererSceneCallbacks* owner{};
++    std::array<std::shared_ptr<CDynamicLight>, META_MOVING_LIGHTS_MAX_COUNT> lights;
++    uint32_t capacity{}, active{};
++};
++std::array<MovingLightOwner, 4> movingLightOwners;
 +// Only lights used by a view enter this list. End-of-frame cleanup therefore
 +// scans the live shadow cache, not potentially hundreds of thousands of
 +// resident light descriptions. Its capacity is reserved on snapshot updates.
 +std::vector<std::shared_ptr<CDynamicLight>> sceneShadowCandidates;
++
++void ReserveVisibleLights(size_t staticCount, size_t movingCount)
++{
++    // Native slots can be materialized after HUD_Init. Prepare that entire
++    // bounded pool at the cold API boundary, before a night view draws it.
++    const auto nativeCount = (std::max)(g_EngineDynamicLights.size(), size_t(MAX_DLIGHTS_SVENGINE));
++    g_VisibleDynamicLights.reserve(g_BSPDynamicLights.size() + nativeCount + staticCount + movingCount);
++}
 +
 +bool SameLight(const MetaRendererSceneLight& a, const MetaRendererSceneLight& b) noexcept
 +{
@@ -21020,7 +21052,9 @@ index 0000000..45b0510
 +            if (state.owner != owner) combined.insert(combined.end(), state.lights.begin(), state.lights.end());
 +        combined.insert(combined.end(), candidate.lights.begin(), candidate.lights.end());
 +        // Preallocate the visible list on snapshot updates, not on every view.
-+        g_VisibleDynamicLights.reserve(g_BSPDynamicLights.size() + g_EngineDynamicLights.size() + combined.size());
++        size_t movingCapacity{};
++        for (const auto& state : movingLightOwners) movingCapacity += state.capacity;
++        ReserveVisibleLights(combined.size(), movingCapacity);
 +        sceneShadowCandidates.reserve(combined.size());
 +        RemoveVisibleOwner(owner);
 +        for (const auto& light : destination->lights) light->external_scene_resident = false;
@@ -21044,6 +21078,8 @@ index 0000000..45b0510
 +    std::erase_if(g_ExternalDynamicLights, [owner](const auto& light) { return light->external_scene_owner == owner; });
 +    for (auto& state : sceneLightOwners)
 +        if (state.owner == owner) state = {};
++    for (auto& state : movingLightOwners)
++        if (state.owner == owner) state = {};
 +}
 +
 +void R_ResetExternalSceneLights() noexcept
@@ -21052,15 +21088,35 @@ index 0000000..45b0510
 +    sceneShadowCandidates.clear();
 +    g_ExternalDynamicLights.clear();
 +    for (auto& state : sceneLightOwners) state = {};
++    for (auto& state : movingLightOwners)
++    {
++        state.active = 0;
++        for (const auto& light : state.lights)
++            if (light)
++            {
++                light->pStaticShadowTexture.reset();
++                light->pDynamicShadowTexture.reset();
++            }
++    }
 +}
 +
 +void R_AddVisibleExternalSceneLights()
 +{
-+    if (g_ExternalDynamicLights.empty()) return;
 +    const std::array<float, 4> coefficients{r_dynlight_ambient->GetValue(), r_dynlight_diffuse->GetValue(),
 +        r_dynlight_specular->GetValue(), r_dynlight_specularpow->GetValue()};
 +    for (const auto& state : sceneLightOwners)
 +        if (!state.nodes.empty()) AddLightNode(state, 0, coefficients);
++    for (const auto& state : movingLightOwners)
++        for (uint32_t slot = 0; slot < state.capacity; ++slot)
++        {
++            if (!(state.active & (uint32_t{1} << slot))) continue;
++            const auto& light = state.lights[slot];
++            light->ambient = coefficients[0];
++            light->diffuse = coefficients[1];
++            light->specular = coefficients[2];
++            light->specularpow = coefficients[3];
++            R_AddVisibleDynamicLight(light);
++        }
 +}
 +
 +void R_EndExternalSceneLightsFrame() noexcept
@@ -21087,6 +21143,107 @@ index 0000000..45b0510
 +    void ClearLights(IMetaRendererSceneCallbacks* owner) noexcept override { R_ClearExternalSceneLights(owner); }
 +};
 +EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneLights, IMetaRendererSceneLights, METARENDERER_SCENE_LIGHTS_INTERFACE_VERSION);
++
++class CMetaRendererMovingLights : public IMetaRendererMovingLights
++{
++public:
++    bool PrepareLights(IMetaRendererSceneCallbacks* owner, uint32_t capacity) noexcept override
++    {
++        if (!R_IsExternalSceneOwner(owner) || !capacity || capacity > META_MOVING_LIGHTS_MAX_COUNT) return false;
++        auto destination = std::find_if(movingLightOwners.begin(), movingLightOwners.end(),
++            [owner](const auto& state) { return state.owner == owner; });
++        if (destination != movingLightOwners.end())
++        {
++            if (destination->capacity != capacity) return false;
++            try
++            {
++                size_t total{};
++                for (const auto& state : movingLightOwners) total += state.capacity;
++                ReserveVisibleLights(g_ExternalDynamicLights.size(), total);
++                return true;
++            }
++            catch (...) { return false; }
++        }
++        destination = std::find_if(movingLightOwners.begin(), movingLightOwners.end(),
++            [](const auto& state) { return !state.owner; });
++        if (destination == movingLightOwners.end()) return false;
++        try
++        {
++            MovingLightOwner candidate;
++            candidate.owner = owner; candidate.capacity = capacity;
++            for (uint32_t slot = 0; slot < capacity; ++slot)
++            {
++                auto light = std::make_shared<CDynamicLight>();
++                light->type = DynamicLightType_Point;
++                light->shadow = 1;
++                light->dynamic_shadow_size = 256;
++                // Moving BSP occlusion belongs in the dynamic pass. A static
++                // cubemap would go stale on relocation and need another pass.
++                light->external_scene_owner = owner;
++                candidate.lights[slot] = std::move(light);
++            }
++            size_t total = capacity;
++            for (const auto& state : movingLightOwners) total += state.capacity;
++            ReserveVisibleLights(g_ExternalDynamicLights.size(), total);
++            *destination = std::move(candidate);
++            return true;
++        }
++        catch (...) { return false; }
++    }
++    bool UpdateLights(IMetaRendererSceneCallbacks* owner, const MetaRendererMovingLight* lights,
++                      uint32_t count) noexcept override
++    {
++        if (!R_IsExternalSceneOwner(owner) || (count && !lights)) return false;
++        auto destination = std::find_if(movingLightOwners.begin(), movingLightOwners.end(),
++            [owner](const auto& state) { return state.owner == owner; });
++        if (destination == movingLightOwners.end() || count > destination->capacity) return false;
++        uint32_t mask{};
++        for (uint32_t i = 0; i < count; ++i)
++        {
++            const auto& value = lights[i];
++            if (value.slot >= destination->capacity || value.sourceEntityIndex > 32 ||
++                (mask & (uint32_t{1} << value.slot)) || !std::isfinite(value.light.radius) ||
++                value.light.radius <= 0 || value.light.radius > 999999) return false;
++            for (const auto coordinate : value.light.origin)
++                if (!std::isfinite(coordinate) || !std::isfinite(coordinate - value.light.radius) ||
++                    !std::isfinite(coordinate + value.light.radius)) return false;
++            mask |= uint32_t{1} << value.slot;
++        }
++        RemoveVisibleOwner(owner);
++        for (uint32_t i = 0; i < count; ++i)
++        {
++            const auto& value = lights[i];
++            auto& light = *destination->lights[value.slot];
++            for (int axis = 0; axis < 3; ++axis)
++            {
++                light.origin[axis] = value.light.origin[axis];
++                light.color[axis] = float((value.light.color >> (8 * axis)) & 255) / 255.0f;
++            }
++            light.size = value.light.radius;
++            light.source_entity_index = int(value.sourceEntityIndex);
++        }
++        // Retain objects for reactivation, but release inactive GPU textures
++        // once instead of carrying shadows across death/disconnect/phase end.
++        const auto removed = destination->active & ~mask;
++        for (uint32_t slot = 0; slot < destination->capacity; ++slot)
++            if (removed & (uint32_t{1} << slot)) destination->lights[slot]->pDynamicShadowTexture.reset();
++        destination->active = mask;
++        return true;
++    }
++    void ClearLights(IMetaRendererSceneCallbacks* owner) noexcept override
++    {
++        for (auto& state : movingLightOwners)
++            if (state.owner == owner)
++            {
++                RemoveVisibleOwner(owner);
++                state.active = 0;
++                for (const auto& light : state.lights)
++                    if (light) light->pDynamicShadowTexture.reset();
++                break;
++            }
++    }
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererMovingLights, IMetaRendererMovingLights, METARENDERER_MOVING_LIGHTS_INTERFACE_VERSION);
 diff --git a/tests/extract_scene_lights_dispatch.py b/tests/extract_scene_lights_dispatch.py
 new file mode 100644
 index 0000000..faee9b8
@@ -21157,10 +21314,10 @@ index 0000000..faee9b8
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/tests/scene_lights_tests.cpp b/tests/scene_lights_tests.cpp
 new file mode 100644
-index 0000000..4906a88
+index 0000000..86647d0
 --- /dev/null
 +++ b/tests/scene_lights_tests.cpp
-@@ -0,0 +1,425 @@
+@@ -0,0 +1,484 @@
 +// Production snapshot/owner/API implementation and complete extracted engine
 +// dispatch/visibility code. Host PVS/frustum inputs and texture objects are
 +// adapters; this is CPU correctness evidence, not GL pixels or game FPS.
@@ -21583,6 +21740,65 @@ index 0000000..4906a88
 +    scene->UnregisterSceneCallbacks(&second);
 +    g_VisibleDynamicLights.clear();
 +    g_EngineDynamicLights.clear();
++    // The moving pool is separate from native dlights and static snapshots.
++    auto* moving = static_cast<IMetaRendererMovingLights*>(CreateInterface(METARENDERER_MOVING_LIGHTS_INTERFACE_VERSION, nullptr));
++    Check(moving != nullptr);
++    Check(!moving->PrepareLights(&unregistered, 32));
++    scene->RegisterSceneCallbacks(&first);
++    Check(!moving->PrepareLights(&first, 0) && !moving->PrepareLights(&first, 33));
++    Check(moving->PrepareLights(&first, 32) && moving->PrepareLights(&first, 32));
++    Check(!moving->PrepareLights(&first, 16));
++    std::array<MetaRendererMovingLight, 32> movingInput;
++    std::array<CDynamicLight*, 32> stableLights;
++    for (uint32_t slot = 0; slot < 32; ++slot)
++        movingInput[slot] = {{{float(slot * 8), 0, 36}, 128, 0x303030}, slot, slot + 1};
++    Check(moving->UpdateLights(&first, movingInput.data(), 32));
++    Check(g_EngineDynamicLights.empty() && g_ExternalDynamicLights.empty());
++    g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.size() == 32);
++    for (uint32_t slot = 0; slot < 32; ++slot)
++    {
++        auto& light = g_VisibleDynamicLights[slot].m_pDynamicLight;
++        stableLights[slot] = light.get();
++        Check(light->static_shadow_size == 0 && light->dynamic_shadow_size == 256 && light->shadow == 1);
++        Check(light->source_entity_index == int(slot + 1) && light->color[0] == 48.f / 255.f);
++        light->pDynamicShadowTexture = std::make_shared<Shadow>();
++    }
++    const auto beforeMoving = allocations;
++    for (unsigned frame = 0; frame < 2000; ++frame)
++    {
++        for (auto& value : movingInput) value.light.origin[0] += .25f;
++        Check(moving->UpdateLights(&first, movingInput.data(), 32));
++        g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights(); R_EndExternalSceneLightsFrame();
++        Check(g_VisibleDynamicLights.size() == 32);
++        for (uint32_t slot = 0; slot < 32; ++slot)
++            Check(g_VisibleDynamicLights[slot].m_pDynamicLight.get() == stableLights[slot] &&
++                stableLights[slot]->origin[0] == movingInput[slot].light.origin[0] && stableLights[slot]->pDynamicShadowTexture);
++    }
++    Check(allocations == beforeMoving);
++    auto invalidMoving = movingInput;
++    invalidMoving[31].slot = 0;
++    Check(!moving->UpdateLights(&first, invalidMoving.data(), 32));
++    Check(!moving->UpdateLights(&first, nullptr, 1));
++    invalidMoving = movingInput; invalidMoving[31].light.radius = std::numeric_limits<float>::infinity();
++    Check(!moving->UpdateLights(&first, invalidMoving.data(), 32));
++    g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.size() == 32 && stableLights[31]->pDynamicShadowTexture);
++    Check(moving->UpdateLights(&first, movingInput.data(), 31));
++    Check(!stableLights[31]->pDynamicShadowTexture);
++    ResetQueryBounds(); rejectAll = true;
++    eye[0] = -10000; g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.empty());
++    ResetQueryBounds();
++    R_ResetExternalSceneLights();
++    g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.empty() && moving->PrepareLights(&first, 32));
++    Check(moving->UpdateLights(&first, movingInput.data(), 32));
++    moving->ClearLights(&first);
++    g_VisibleDynamicLights.clear(); R_AddVisibleExternalSceneLights();
++    Check(g_VisibleDynamicLights.empty() && !stableLights[0]->pDynamicShadowTexture);
++    scene->UnregisterSceneCallbacks(&first);
++    Check(!moving->UpdateLights(&first, movingInput.data(), 32));
 +    std::printf("{\"sceneLightsChecks\":%u,\"allocationFailureBoundaries\":%u,\"visibilityViews\":128,\"maxSnapshot\":%u,\"steadyAllocations\":0,\"allViewCacheEviction\":true,\"realGL\":false,\"passed\":true}\n",
 +        checks, rejectedAllocations, META_SCENE_LIGHTS_MAX_COUNT);
 +}
@@ -21959,10 +22175,10 @@ index 0000000..4f44664
 +}, indent=2) + "\n", encoding="utf-8")
 diff --git a/tests/scene_static_shadows_tests.cpp b/tests/scene_static_shadows_tests.cpp
 new file mode 100644
-index 0000000..39b012d
+index 0000000..9e444bc
 --- /dev/null
 +++ b/tests/scene_static_shadows_tests.cpp
-@@ -0,0 +1,317 @@
+@@ -0,0 +1,320 @@
 +#include "../src/gl_scene_static_shadows.cpp"
 +#include "../src/gl_shadow_cull.cpp"
 +#include <cassert>
@@ -21976,6 +22192,7 @@ index 0000000..39b012d
 +namespace
 +{
 +unsigned checks{}, staticDraws{}, dynamicDraws{}, renderedClass{};
++bool renderedEmitterHidden{};
 +size_t allocations{};
 +bool shadowView{}, multiview{}, linearDepth{};
 +cvar_t cullingCvar{};
@@ -22022,6 +22239,7 @@ index 0000000..39b012d
 +void R_RenderScene()
 +{
 +    renderedClass = r_draw_classify;
++    renderedEmitterHidden = r_draw_hide_entity && r_draw_hide_entity_index == 17;
 +    R_DrawExternalOpaqueScene();
 +}
 +
@@ -22118,6 +22336,7 @@ index 0000000..39b012d
 +    args.sourceEntityIndex = 17;
 +    TestProductionPointDynamicSelection(&args);
 +    Check(r_draw_classify == DRAW_CLASSIFY_ALL && !r_draw_hide_entity);
++    Check(renderedEmitterHidden); // Includes moving-light WORLD fallback.
 +}
 +}
 +
@@ -26121,3 +26340,37 @@ index 0000000..649f94e
 +    virtual bool SetBrushSnapshotCapture(bool enabled) noexcept = 0;
 +};
 +#define METARENDERER_OPAQUE_SCENE_INTERFACE_VERSION "MetaRendererOpaqueScene_API_002"
+diff --git a/include/Interface/IMetaRendererMovingLights.h b/include/Interface/IMetaRendererMovingLights.h
+new file mode 100644
+index 0000000..babbf2a
+--- /dev/null
++++ b/include/Interface/IMetaRendererMovingLights.h
+@@ -0,0 +1,28 @@
++#pragma once
++#include <IMetaRendererSceneLights.h>
++
++// Independent from the static SceneLights001 snapshot/BVH. Call on the game /
++// render thread, outside scene callbacks. No native CL_AllocDlight slots used.
++inline constexpr uint32_t META_MOVING_LIGHTS_MAX_COUNT = 32;
++struct MetaRendererMovingLight
++{
++    MetaRendererSceneLight light;
++    uint32_t slot;              // Stable identity in [0, capacity).
++    uint32_t sourceEntityIndex; // Exclude the emitter's body from its shadow.
++};
++static_assert(sizeof(MetaRendererMovingLight) == 28);
++
++class IMetaRendererMovingLights : public IBaseInterface
++{
++public:
++    // Cold allocation. Owner must already be registered with Scene001.
++    // Idempotent for the same capacity; survives map resets, not unregister.
++    virtual bool PrepareLights(IMetaRendererSceneCallbacks* owner, uint32_t capacity) noexcept = 0;
++    // Complete active snapshot. Empty disables the pool but retains prepared
++    // objects. Invalid input preserves the previous snapshot. Updates allocate
++    // nothing and retain stable objects/shadow handles across movement.
++    virtual bool UpdateLights(IMetaRendererSceneCallbacks* owner,
++                              const MetaRendererMovingLight* lights, uint32_t count) noexcept = 0;
++    virtual void ClearLights(IMetaRendererSceneCallbacks* owner) noexcept = 0;
++};
++#define METARENDERER_MOVING_LIGHTS_INTERFACE_VERSION "MetaRendererMovingLights_API_001"

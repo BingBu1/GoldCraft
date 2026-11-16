@@ -138,7 +138,9 @@ void Init()
     {
         csol::GameplaySetting field; Require(service->Read(id, field), "real service exposes each typed descriptor");
         Check(field.id == id && field.key[0] && field.cvar[0] && field.comment[0], "every service field retains identity and explanation");
-        if (id < int(custom::FeatureCount)) Check(field.available == (id == int(custom::Feature::Kick)), "only integrated feature capability is reported available");
+        if (id < int(custom::FeatureCount))
+            Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::DamageRefundCap) ||
+                id == int(custom::Feature::NightPlayerLights)), "only integrated feature capability is reported available");
     }
     csol::GameplaySetting field;
     Check(!service->Read(-1, field) && !service->Read(state.count, field), "unknown field indices are rejected");
@@ -215,6 +217,22 @@ void Writer()
     Wait(next.revision, true);
     Check(Disk()->Integer(custom::Setting::MiddaySeconds) == 240 && CSOL_CustomSettings()->Integer(custom::Setting::MiddaySeconds) == 240,
         "real serialized numeric value agrees with published snapshot");
+    auto lights = Status();
+    Require(service->Edit(1, 71, lights.revision, int(custom::Feature::NightPlayerLights), 0) == csol::GameplayEditResult::Queued,
+        "night-light toggle uses the same verified persistent edit route");
+    Wait(lights.revision, true);
+    Check(!Disk()->Enabled(custom::Feature::NightPlayerLights) && !CSOL_CustomSettings()->Enabled(custom::Feature::NightPlayerLights),
+        "night-light off is committed to the sole JSON and current immutable policy");
+    lights = Status();
+    Require(service->Edit(1, 71, lights.revision, int(custom::FeatureCount) + int(custom::Setting::NightPlayerLightRadius), 192) == csol::GameplayEditResult::Queued,
+        "night-light numeric parameter uses the same real atomic store");
+    Wait(lights.revision, true);
+    lights = Status();
+    Require(service->Edit(1, 71, lights.revision, int(custom::Feature::NightPlayerLights), 1) == csol::GameplayEditResult::Queued,
+        "installed client-light consumer can be reenabled without opening incomplete features");
+    Wait(lights.revision, true);
+    Check(Disk()->Enabled(custom::Feature::NightPlayerLights) && Disk()->Number(custom::Setting::NightPlayerLightRadius) == 192,
+        "light toggle and radius are durable before process shutdown");
     Check(fs::exists(Target().parent_path() / "gameplay.json.bak1") && fs::exists(Target().parent_path() / "gameplay.json.bak2"), "actual Store creates bounded prior-file backups");
     CSOL_ShutdownGameplaySettings();
     Check(!CSOL_CustomSettings() && !policies.back(), "explicit cold shutdown drains worker and revokes policy");
@@ -227,6 +245,10 @@ void Reader()
     Check(CSOL_CustomSettings()->Integer(custom::Setting::MiddaySeconds) == 240 &&
         cvars.at("csol_custom_midday_seconds").native->value == 240, "second process restores actual persisted numeric configuration");
     Check(Disk()->Integer(custom::Setting::MiddaySeconds) == 240, "second process verifies the same sole target file");
+    Check(CSOL_CustomSettings()->Enabled(custom::Feature::NightPlayerLights) &&
+        CSOL_CustomSettings()->Number(custom::Setting::NightPlayerLightRadius) == 192 &&
+        cvars.at("csol_custom_night_player_light_radius").native->value == 192,
+        "independent second process restores permanent light settings and cvar initialization");
 }
 void Failure()
 {

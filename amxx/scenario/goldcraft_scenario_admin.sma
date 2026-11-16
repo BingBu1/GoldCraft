@@ -30,6 +30,7 @@ new const g_CustomKeys[][] = {
     "zombie_population",
     "random_horde",
     "damage_refund_cap",
+    "night_player_lights",
     "midday_seconds",
     "dusk_seconds",
     "blind_box_price_1",
@@ -66,7 +67,19 @@ new const g_CustomKeys[][] = {
     "horde_interval_seconds",
     "horde_probability",
     "horde_duration_seconds",
-    "damage_refund_max_per_monster"
+    "damage_refund_max_per_monster",
+    "dusk_light_level",
+    "night_light_level",
+    "light_step_seconds",
+    "night_fog_density",
+    "night_fog_color",
+    "night_fog_start",
+    "night_fog_end",
+    "night_fog_skybox",
+    "sprint_cost_per_unit",
+    "night_player_light_radius",
+    "night_player_light_brightness",
+    "night_player_light_color"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
@@ -80,6 +93,7 @@ new const g_CustomNames[][] = {
     "僵尸数量",
     "随机尸潮",
     "伤害返金限制",
+    "永夜随身照明",
     "正午时长",
     "黄昏时长",
     "CoF盲盒价格",
@@ -116,7 +130,19 @@ new const g_CustomNames[][] = {
     "尸潮抽样间隔",
     "尸潮触发概率",
     "尸潮持续时长",
-    "单怪伤害返金上限"
+    "单怪伤害返金上限",
+    "黄昏光照档位",
+    "永夜光照档位",
+    "变暗步进间隔",
+    "永夜雾密度",
+    "永夜雾颜色",
+    "永夜雾起始距离",
+    "永夜雾结束距离",
+    "永夜天空盒雾",
+    "奔跑每单位耗体力",
+    "随身光半径",
+    "随身光亮度",
+    "随身光颜色"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.

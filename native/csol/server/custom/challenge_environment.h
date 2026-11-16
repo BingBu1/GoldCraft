@@ -2,6 +2,7 @@
 #pragma once
 #include "../../scenario/custom/environment_config.hpp"
 #include "../../scenario/custom/environment_snapshot.hpp"
+#include "../../scenario/custom/night_lighting.hpp"
 #include <memory>
 
 class CBasePlayer;
@@ -19,13 +20,17 @@ public:
     void Restore();
 private:
     bool Publish(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer* player);
+    bool PublishNight(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer* player);
     csol::scenario::custom::EnvironmentConfig config_;
     csol::scenario::custom::EnvironmentFade fade_;
     csol::scenario::custom::EnvironmentSnapshot snapshot_;
+    csol::scenario::custom::NightLightingSnapshot night_;
+    csol::scenario::custom::SnapshotPtr nightSettings_;
     goldcraft::IMapLightStyleService* lights_{};
     std::weak_ptr<CCSOLScenarioRuntime> runtime_;
     std::uint64_t challenge_{}, lightOwner_{};
     std::uint32_t revision_{};
-    int message_{};
+    int message_{}, nightMessage_{};
+    bool nightKnown_{};
     bool prepared_{}, revoked_{}, busy_{}, known_{};
 };

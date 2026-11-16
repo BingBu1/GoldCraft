@@ -18,6 +18,7 @@ def main():
         parser.add_argument("--" + key, type=Path, required=True)
     parser.add_argument("--settings-regression", action="store_true",
                         help="Also run the complete existing commented/grouped settings codec suite")
+    parser.add_argument("--night-lights", action="store_true", help="Run the actual client night-light consumer and protocol")
     parser.add_argument("--input-fixture", type=Path,
                         help="Run a matched native input consumer fixture instead of the environment groups")
     args = parser.parse_args()
@@ -94,7 +95,9 @@ def main():
     try:
         settings = ROOT / "native/csol/scenario/custom/settings.cpp"
         groups = [("protocol", [Path(__file__).with_name("protocol.cpp"), settings]),
-                  ("client", [Path(__file__).with_name("client.cpp")])]
+                  ("client", [Path(__file__).with_name("client.cpp"), ROOT / "native/csol/client/scenario/core/night_player_lights.cpp"])]
+        if args.night_lights:
+            groups.append(("night-lights", [ROOT / "tests/csol-night-player-lights/client.cpp", settings]))
         if args.settings_regression:
             groups.append(("settings", [ROOT / "tests/csol-custom-settings/main.cpp", settings]))
         if args.input_fixture:

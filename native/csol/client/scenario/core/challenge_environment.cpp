@@ -2,6 +2,7 @@
 #include "../../runtime.hpp"
 #include "../../user_message_chain.hpp"
 #include "challenge_environment.hpp"
+#include "night_player_lights.hpp"
 #include "../../../scenario/custom/fog_owner.hpp"
 #include "../../../scenario/custom/sky_lighting.hpp"
 #include <triangleapi.h>
@@ -148,6 +149,7 @@ void InitializeChallengeEnvironment()
     if (ownerThread && !Owner()) return;
     ownerThread = GetCurrentThreadId();
     enabled = true;
+    InitializeNightPlayerLights();
     InstallChainedUserMessage(custom::EnvironmentMessage, Receive, previousMessage);
     InstallChainedUserMessage("InitHUD", Init, previousInit);
     if (!skyFog && engine.pfnGetCvarPointer) skyFog = engine.pfnGetCvarPointer("r_wsurf_sky_fog");
@@ -183,6 +185,7 @@ void DrawChallengeEnvironment() { Apply(); }
 void ResetChallengeEnvironment()
 {
     if (!Owner()) return;
+    ResetNightPlayerLights();
     if (skyFog) skyFogOwner.Release(skyFog->value, skyFog->string);
     ++skyEpoch; movement = nullptr; preparedSky.Reset();
     // Map/connection boundary: the host resets its fog. Never send an old
@@ -193,6 +196,7 @@ void ResetChallengeEnvironment()
 void ShutdownChallengeEnvironment()
 {
     if (!Owner()) return;
+    ShutdownNightPlayerLights();
     environment.Reset(); Apply();
     enabled = false;
     if (triangle)
@@ -209,6 +213,7 @@ void ShutdownChallengeEnvironment()
 }
 void ChallengeEnvironmentDiagnostics(std::ostream& out)
 {
+    NightPlayerLightsDiagnostics(out);
     out << "challengeEnvironment baseline=" << fog.Known() << " view=" << viewKnown
         << " water=" << waterlevel << " accepted=" << accepted << " rejected=" << rejected
         << " apiUpdates=" << appliedCalls;

@@ -67,7 +67,8 @@ void Defaults()
     for (const auto& descriptor : Features())
     {
         Check(value->Enabled(descriptor.id) == descriptor.defaultValue, "feature getter matches documented transition default");
-        Check(descriptor.id == Feature::Kick || !descriptor.defaultValue, "new incomplete feature defaults disabled");
+        Check(descriptor.id == Feature::Kick || descriptor.id == Feature::NightPlayerLights || !descriptor.defaultValue,
+            "incomplete features remain disabled; client night lights have an explicit enabled default");
         Check(!descriptor.key.empty() && descriptor.key.size() <= 63 && descriptor.cvar.starts_with("csol_custom_"), "feature descriptor has bounded key and uniform cvar namespace");
         Check(FindFeature(descriptor.key) == descriptor.id, "feature key finds stable typed identity");
         Check(!value->Comment(descriptor.id).empty(), "default feature explanation is retained");
@@ -79,7 +80,7 @@ void Defaults()
     Check(value->Number(Setting::MasteryReload1) == .85 && value->Integer(Setting::DamageRefundMaximumPerMonster) == 1000 &&
         value->Comment(Setting::MasteryReload1).find("GoldCraft自定义默认") != std::string_view::npos,
         "explicit custom balance defaults retain their provenance");
-    Check(!value->Number(Setting::SprintMaximum), "unverified CoF base stamina remains absent");
+    Check(!value->Number(Setting::SprintMaximum), "absent optional maximum uses the original StandAlone consumer default");
     for (const auto& descriptor : Settings())
     {
         Check(!descriptor.key.empty() && descriptor.key.size() <= 63 && descriptor.cvar.starts_with("csol_custom_"), "numeric descriptor has bounded key and matching cvar namespace");
@@ -219,7 +220,11 @@ void GroupedVersion2()
     Reject(Grouped(R"("time_cycle":{"enabled":false,"comment":"x","values":{"midday_seconds":{"value":1.5,"comment":"a"}}})"), "grouped fractional integer rejected");
     Reject(Grouped(R"("time_cycle":{"enabled":false,"comment":"x","values":{"midday_seconds":{"value":true,"comment":"a"}}})"), "grouped boolean numeric value rejected");
     Reject(Grouped(R"("time_cycle":{"enabled":false,"comment":"x","values":{"midday_seconds":{"value":null,"comment":"a"}}})"), "null cannot erase a declared numeric default");
-    Reject(Grouped(R"("cof_sprint":{"enabled":true,"comment":"x","values":{"sprint_maximum":{"value":null,"comment":"a"}}})"), "enabled grouped feature still rejects missing optional parameters");
+    const auto originalSprint=Read(Grouped(R"("cof_sprint":{"enabled":true,"comment":"x","values":{"sprint_maximum":{"value":null,"comment":"a"}}})"));
+    Check(originalSprint&&originalSprint->Enabled(Feature::CofSprint)&&originalSprint->Number(Setting::SprintCostPerUnit)==.1,
+        "enabled grouped StandAlone configuration uses known original defaults when optional values are absent");
+    Reject(Grouped(R"("cof_sprint":{"enabled":true,"comment":"x","values":{"sprint_drain_per_second":{"value":10,"comment":"old unit"}}})"),
+        "enabled grouped configuration cannot reinterpret a legacy per-second cost as distance");
     Reject(Grouped(R"("cof_sprint":{"enabled":false,"comment":"x","values":{"sprint_maximum":{"value":"100","comment":"a"}}})"), "grouped numeric string rejected");
     Reject(Grouped(R"("cof_sprint":{"enabled":false,"comment":"x","values":{"sprint_maximum":{"value":100,"comment":false}}})"), "grouped nonstring numeric explanation rejected");
     Reject(Grouped(R"("time_cycle":{"enabled":false,"comment":"x","values":{"midday_seconds":{"value":0,"comment":"a"}}})"), "grouped range validation remains strict");
@@ -228,11 +233,13 @@ void FeatureRequirements()
 {
     for (const auto& descriptor : Features())
     {
-        if (descriptor.id != Feature::CofSprint && descriptor.id != Feature::Blood &&
+        if (descriptor.id != Feature::Blood &&
             descriptor.id != Feature::ZombiePopulation && descriptor.id != Feature::RandomHorde) continue;
         const std::string enabled = "\"" + std::string(descriptor.key) + "\":true";
         Reject(Document(enabled), "enabling feature with unknown required parameters is explicit failure");
     }
+    Check(Read(Document(R"("cof_sprint":true)"))->Enabled(Feature::CofSprint),
+        "StandAlone omitted parameters retain recovered consumer defaults; legacy fields remain rejected separately");
     Reject(Document(R"("blind_box":true)", R"("blind_box_price_1":30,"blind_box_price_2":20,"blind_box_price_3":40)"),
         "three blind box prices must be strictly increasing");
     Reject(Document({}, R"("mastery_threshold_1":100,"mastery_threshold_2":100)"), "mastery thresholds remain strictly increasing even while disabled");
@@ -253,9 +260,20 @@ void DraftValidation()
     Check(!draft.Set(Setting::SprintMaximum, std::numeric_limits<double>::infinity(), error), "draft rejects infinity");
     Check(!draft.SetComment(Feature::Kick, std::string(513, 'x'), error), "oversized explanations rejected");
     Check(!draft.SetComment(Feature::Kick, std::string("x\0y", 3), error), "NUL explanatory text rejected");
-    Require(draft.Set(Feature::CofSprint, true, error), "incomplete draft can hold pending feature activation");
+    Require(draft.Set(Feature::CofSprint, true, error), "original StandAlone defaults can supply omitted optional values");
     auto target = old;
-    Check(!draft.Finish(target, error) && target == old, "whole draft rejection does not replace published snapshot");
+    Require(draft.Finish(target, error), "known original defaults make the typed sprint draft complete");
+    Check(target->Number(Setting::SprintCostPerUnit)==.1&&!target->Number(Setting::SprintDrainPerSecond)&&
+        !target->Number(Setting::SprintSpeed)&&!target->Number(Setting::WalkSpeed),
+        "per-distance original fee is separate from legacy per-second and fixed speeds");
+    for (const auto key : {Setting::SprintDrainPerSecond,Setting::SprintSpeed,Setting::WalkSpeed})
+    {
+        const auto published=target;
+        Require(draft.Set(key,20,error),"old units may be retained while preparing migration");
+        Check(!draft.Finish(target,error)&&target==published,"legacy CoF units reject activation without replacing the published snapshot");
+        Require(draft.Set(key,std::nullopt,error),"explicitly clear the legacy unit");
+        Require(draft.Finish(target,error),"activation becomes valid after clearing the legacy unit");
+    }
     Require(draft.Set(Feature::CofSprint, false, error), "incomplete disabled feature can be retained");
     Require(draft.Finish(target, error), "valid restored draft publishes independently");
     Require(draft.Set(Setting::MiddaySeconds, 50, error), "cold edit changes known default");

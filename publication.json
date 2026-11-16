@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_实现-客户端永夜全员随身光-report.md",
+    "tests/csol-night-player-lights/README.md",
     "docs/2026-11-16_修复-原生增量快照残留导致连跳延迟-report.md",
     "tools/nightfall-hotfix/jump-recovery.md",
     "tests/cryoffear-host-cold/run.py",
