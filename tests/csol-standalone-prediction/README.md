@@ -70,6 +70,33 @@ are ABI stubs; neither tested scalar body is replaced. The test covers finite,
 infinite and NaN attribute inputs, preserves the original float/double ordering,
 and confirms that the special friction gate selects mode53 rather than33.
 
+## Replay prediction-field transfers and mutable callback arguments
+
+With Capstone and Unicorn available to the selected workspace Python, run:
+
+```bash
+python -B tests/csol-standalone-prediction/original_transfer.py \
+  --client analysis/csol-standalone-stamina-20261115/samples/client32.dll \
+  --engine analysis/csol-model-20261017/samples/hw.dll \
+  --client-evidence analysis/csol-standalone-stamina-20261115/client-attribute-20261116/client-exact-query.json \
+  --engine-evidence analysis/csol-standalone-stamina-20261115/client-attribute-20261116/hw-exact-query-complete.json \
+  --output build/standalone-original-transfer-new
+```
+
+The private samples must match the original client/engine SHAs recorded in
+[the transfer report](../../docs/2026-11-16_分析-绝命档案预测字段传递与可写回调-report.md).
+The runner executes original engine copies in both directions for 264 raw
+32-bit values, checks that surrounding memory stays unchanged, and executes
+the original PlayerMove wrapper with three callback providers. Those providers
+exercise writable pointer/flag arguments and downstream call ordering; they
+do not stand in for the original runtime plugin or complete PM physics.
+
+The complete IDA response is required. The first run correctly rejected an
+automatically shortened response even though its inner query claimed completion.
+Use the response metadata's full output download; do not weaken the boundary
+check or manufacture missing instruction records. This test does not establish
+the network producer, plugin behavior, final crouch speed, gameplay or performance.
+
 The extra value is an active attribute contribution capped at0.9, not a fixed
 compensation for native crouching. The earlier low-speed observation alone does
 not establish an original-game bug. Remaining client injection, input-lock and
