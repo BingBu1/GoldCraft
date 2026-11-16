@@ -44,8 +44,9 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     bool (*ownerCurrent)(const void*), const void* ownerContext);
 
 // Damage-only host adapter for original CoF100E8B40: actor is both source and
-// attacker. Native DMG_CLUB replaces incompatible CoF damage bits. The caller
-// owns original target response; no CSOL random flinch, kick impulse or timer.
+// attacker. Native DMG_CLUB replaces incompatible CoF damage bits. Existing
+// CSOL damage/flinch behavior owns the target response; no CoF monster AI or
+// HumanKick impulse/stagger is installed (user direction, 2026-11-16).
 CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, csol::scenario::ConfigError& error,

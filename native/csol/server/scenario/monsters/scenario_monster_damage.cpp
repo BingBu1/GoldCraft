@@ -636,8 +636,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
         }
         const auto* appearance = csol::scenario::FindMonsterAppearance(monster->Type()->appearance);
         if (!appearance) return fail("ordinary damage appearance is unavailable");
-        if (call.Action() != CSOLMonsterActionKind::GuestCofPushback &&
-            monster->HostState().frozenRemaining <= 0 && monster->HostState().flinchEnabled &&
+        if (monster->HostState().frozenRemaining <= 0 && monster->HostState().flinchEnabled &&
             !appearance->healthSummary && monster->TypeId() <= 29999)
             if (!step(damageBehavior->DamageFlinch(spawn, stageError), "monster flinch failed")) return FALSE;
         if (!independentAction && !step(ApplyOrdinaryKnockback(call, knockbackAttribution, stageError), "ordinary weapon knockback failed")) return FALSE;

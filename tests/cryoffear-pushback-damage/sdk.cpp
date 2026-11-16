@@ -30,16 +30,15 @@ void CofDamage()
         Require(c.session->Weapons()->SetParts(weapon, {17, 0}) && c.session->Weapons()->ReplacePartEffects({part}),
             "actual held weapon has a large damage part");
         const auto velocity = c.target->pev->velocity;
-        const auto sequence = c.target->pev->sequence;
-        const auto lock = c.target->Animation().LockedUntil();
         Require(Push(c, error) == ActionResult::Applied, error.message.c_str());
         Check(c.target->pev->health == 997 && c.target->HostState().lastHitgroup == 0,
             "CoF base3 uses actual damage without held gun minimum, headgroup or parts");
         Check(c.actor->m_pActiveItem == &weapon && !Weapon::active && !Weapon::source,
             "CoF damage does not change weapon or call weapon kill callbacks");
-        Check(c.target->pev->velocity == velocity && c.target->pev->sequence == sequence &&
-            c.target->Animation().LockedUntil() == lock && !CSOL_HumanKickMonsterStaggered(*c.target, 100),
-            "damage-only bridge does not install CSOL random flinch, impulse or fixed stun");
+        Check(c.target->Animation().LockedUntil() == 100.1f,
+            "CoF action retains the existing CSOL ordinary damage flinch response");
+        Check(c.target->pev->velocity == velocity && !CSOL_HumanKickMonsterStaggered(*c.target, 100),
+            "CoF action adds neither HumanKick impulse nor its one-second stagger");
         const auto state = c.runtime->players->Find(EHANDLE(c.actor));
         Check(state && state->ordinaryMonsterDamage == 3 && state->monsterDamageHits == 1,
             "actual player statistics count CoF action damage");
