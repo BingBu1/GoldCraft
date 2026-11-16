@@ -2,7 +2,9 @@
 
 The production adapter chains the real SDK `+speed`/`-speed` commands. Original client `f4145136…`, sender `02A59180`, stores one integer before calling out: changed1 queues `sprintON`, changed0 queues `sprintOFF`, both consume the native callback; identical states fall through. This differs from the separate inactive CoF two-key/axis adapter.
 
-The named host API is `pfnClientCmd`, matching the original HW command-buffer route. No bindings, movement axes or archived cvars change. The 14-byte `CsoRun` host grant carries version1, enabled, little-endian life64 and revision32. Commands include a decimal life token and newline so the server consumer can reject queued commands from a retired life. The server frame/command owner is integrated, but the complete capability remains closed pending movement/prediction and input validation. Per the user's scope correction, preserve scenario AI and do not integrate StandAlone noise, hearing or target selection.
+The named host API is `pfnClientCmd`, matching the original HW command-buffer route. No bindings, movement axes or archived cvars change. The 14-byte `CsoRun` host transport now uses version2: byte1 is retire0, enable1 or probe2, followed by little-endian life64 and revision32. A probe is not an input grant. Only installed native speed-command handlers acknowledge it with `csol_sprint_ready <life> <revision>\n`; the server checks the exact current owner before enabling speed or sending a newer grant. Generic `csol_protocol=1` is not this proof. Version1 packets and grants without a matching probe cannot activate input.
+
+Run commands retain the decimal life token and newline so the server rejects queued commands from a retired life. Probe/acknowledgement is a GoldCraft transport adaptation, not an original CSO command or a security claim about a trusted client. The original one-integer sprint edge is unchanged. The complete capability remains closed pending input-lock lifecycle, actual native movement/prediction and gameplay validation. Per the user's scope correction, preserve scenario AI and do not integrate StandAlone noise, hearing or target selection.
 
 Run the actual SDK consumer:
 
@@ -13,7 +15,7 @@ python tests/csol-standalone-input/run.py \
   --output build/standalone-input-sdk-new
 ```
 
-The fixture executes the production command/message implementation with matched SDK types. It checks ordinary fallback, repeated states, callback ordering/return, stale and disabled grants, reentrancy, connection retirement, foreign threads, missing APIs and HUD callback replacement. Two thousand real adapter edges allocate nothing and perform no command lookup. This is a bounded hot-path check, not live CPU/FPS evidence.
+The fixture executes the production command/message implementation with matched SDK types. It checks ordinary fallback, probe/grant ordering, exact acknowledgement text, replay and foreign-life rejection, repeated states, callback ordering/return, reentrancy, connection retirement, foreign threads, missing native commands/APIs and HUD callback replacement. Two thousand real adapter edges allocate nothing and perform no command lookup. This is a bounded hot-path check, not live CPU/FPS evidence.
 
 Compare the complete original sender separately, using private workspace copies:
 

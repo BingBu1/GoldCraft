@@ -36,6 +36,10 @@ bool CSOL_TickStandaloneMovementFrame(const std::shared_ptr<CCSOLScenarioRuntime
     csol::scenario::ConfigError& error);
 bool CSOL_ActionStaminaRunCommand(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, bool requested, std::string_view life);
+// Host transport proof only: no original mode or movement state is inferred
+// from the broad weapon protocol or a client-controlled persisted userinfo key.
+bool CSOL_ActionStaminaInputReady(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, std::string_view life, std::string_view revision);
 std::optional<float> CSOL_ActionStaminaRunSpeed(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, float weaponSpeed);
 bool CSOL_ActionStaminaCanKick(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,

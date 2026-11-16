@@ -22,6 +22,15 @@ void Command(Case& c, const char* name, const std::string& life, int count = 2)
     ClientCommand_(c.player.edict());
     commandArguments = {}; commandCount = 0;
 }
+void ReadyCommand(Case& c, const std::string& life, const std::string& revision, int count = 3)
+{
+    commandArguments = {custom::StandaloneInputReadyCommand, life.c_str(), revision.c_str()}; commandCount = count;
+    g_engfuncs.pfnCmd_Argc = [] { return commandCount; };
+    g_engfuncs.pfnCmd_Argv = [](int index) -> const char*
+    { return index >= 0 && index < commandCount && index < 3 ? commandArguments[unsigned(index)] : ""; };
+    ClientCommand_(c.player.edict());
+    commandArguments = {}; commandCount = 0;
+}
 void Speed(IReGameHook_CBasePlayer_ResetMaxSpeed* chain, CBasePlayer* player)
 {
     ++speedCalls;
@@ -60,11 +69,31 @@ custom::StandaloneInputGrant Grant(Case& c)
         }
     throw std::runtime_error("Actual owner emitted no input grant");
 }
+custom::StandaloneInputProbe Probe(Case& c)
+{
+    const auto id = c.f.engine.messages.at(custom::StandaloneInputMessage);
+    for (auto packet = c.packets.rbegin(); packet != c.packets.rend(); ++packet)
+        if (packet->id == id)
+            if (const auto value = custom::DecodeStandaloneInputProbe(packet->bytes))
+            {
+                Require(packet->destination == MSG_ONE && packet->receiver == c.player.entindex(),
+                    "actual readiness probe belongs to this player only");
+                return *value;
+            }
+    throw std::runtime_error("Actual owner emitted no readiness probe");
+}
 bool Frame(Case& c, float now)
 {
     c.f.engine.globals.time = now; c.f.engine.globals.frametime = .01f;
     c.error = {};
     return CSOL_TickStandaloneMovementFrame(c.f.runtime, c.error);
+}
+void Admit(Case& c, float now)
+{
+    Require(Frame(c, std::nextafter(now, -std::numeric_limits<float>::infinity())),
+        "cold current life emits a readiness probe without enabling movement");
+    const auto challenge = Probe(c);
+    ReadyCommand(c, std::to_string(challenge.life), std::to_string(challenge.revision));
 }
 void Run(std::string_view group)
 {
@@ -96,8 +125,98 @@ void Run(std::string_view group)
         Command(c, "sprintON", "1");
         Expect(grants() == before && !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
             "manual native command cannot manufacture a granted movement life");
+        Expect(!CSOL_ActionStaminaInputReady(c.f.runtime, c.player, "1", "1"),
+            "unprobed acknowledgement cannot manufacture disabled or unsupported movement");
         return;
     }
+    if (group == "probe-reset" || group == "probe-close" || group == "probe-ack-reentry")
+    {
+        bool fired{}, nestedAcknowledged{};
+        c.callback = [&](std::string_view event)
+        {
+            if (fired || event != "message" || c.packets.empty()) return;
+            const auto challenge = custom::DecodeStandaloneInputProbe(c.packets.back().bytes);
+            if (!challenge) return;
+            fired = true;
+            if (group == "probe-reset") CSOL_ResetActionStamina();
+            else if (group == "probe-close") c.f.runtime->RequestClose();
+            else nestedAcknowledged = CSOL_ActionStaminaInputReady(c.f.runtime, c.player,
+                std::to_string(challenge->life), std::to_string(challenge->revision));
+        };
+        const bool complete = Frame(c, 100);
+        c.callback = {};
+        Require(fired, "actual prepared probe enters the native transport callback boundary");
+        if (group != "probe-ack-reentry")
+            Expect(!complete && !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
+                "reset or close during probe publication cannot retain an active movement owner");
+        else
+        {
+            Expect(complete && !nestedAcknowledged && !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
+                "synchronous transport callback cannot acknowledge a partially executing owner");
+            const auto challenge = Probe(c);
+            ReadyCommand(c, std::to_string(challenge.life), std::to_string(challenge.revision));
+            Require(Frame(c, 100.01f), "later queued native acknowledgement admits the same prepared life");
+            Expect(Grant(c).enabled, "only queued acknowledgement after callback completion activates input");
+        }
+        return;
+    }
+    if (group == "readiness" || group == "old-client" || group == "ready-retired" || group == "fake-client")
+    {
+        const auto calls = speedCalls;
+        c.player.pev->maxspeed = 321;
+        if (group == "fake-client") c.player.pev->flags |= FL_FAKECLIENT;
+        Require(Frame(c, 100), "unacknowledged frame keeps the map usable");
+        Expect(speedCalls == calls && c.player.pev->maxspeed == 321 &&
+            !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
+            "readiness never applies speed before an installed client acknowledges");
+        if (group == "fake-client")
+        {
+            const auto id = c.f.engine.messages.at(custom::StandaloneInputMessage);
+            Expect(std::none_of(c.packets.begin(), c.packets.end(), [id](const auto& packet) { return packet.id == id; }),
+                "fake clients receive no input probe and retain their native movement");
+            return;
+        }
+        const auto challenge = Probe(c);
+        const auto life = std::to_string(challenge.life), revision = std::to_string(challenge.revision);
+        const auto packets = c.packets.size();
+        Command(c, "sprintON", life);
+        c.player.pev->origin.x += 800;
+        Require(Frame(c, 100.01f), "waiting for readiness advances no movement owner");
+        Expect(c.packets.size() == packets && speedCalls == calls && Amount(c) == 100,
+            "old consumer neither receives repeated probes nor gets distance debit or speed changes");
+        if (group == "old-client") return;
+        if (group == "ready-retired")
+        {
+            CSOL_RetireActionStamina(c.player);
+            Expect(!CSOL_ActionStaminaInputReady(c.f.runtime, c.player, life, revision),
+                "queued acknowledgement cannot revive a retired native life");
+            CSOL_ScenarioPlayerSpawnStarted(c.player); ++c.player.m_iNumSpawns;
+            Admit(c, 100.02f);
+            Require(Frame(c, 100.02f), "independent native spawn admits its own acknowledgement");
+            Expect(Grant(c).life > challenge.life && Amount(c) == 100 &&
+                !CSOL_ActionStaminaInputReady(c.f.runtime, c.player, life, revision),
+                "new owner cannot inherit the preceding readiness token");
+            return;
+        }
+        for (const auto* bad : {"", "-1", "0", "1x", "4294967296"})
+            Expect(!CSOL_ActionStaminaInputReady(c.f.runtime, c.player, life, bad),
+                "malformed or oversized acknowledgement revision is rejected");
+        Expect(!CSOL_ActionStaminaInputReady(c.f.runtime, c.player, std::to_string(challenge.life + 1), revision),
+            "foreign life cannot acknowledge this current input owner");
+        ReadyCommand(c, life, revision, 4);
+        Require(Frame(c, 100.02f), "extra native acknowledgement argument leaves readiness pending");
+        Expect(speedCalls == calls, "native ClientCommand cannot accept a partial acknowledgement");
+        ReadyCommand(c, life, revision);
+        Expect(!CSOL_ActionStaminaInputReady(c.f.runtime, c.player, life, revision),
+            "same acknowledgement cannot activate twice");
+        Require(Frame(c, 100.03f), "next actual frame applies acknowledged movement");
+        const auto grant = Grant(c);
+        Expect(grant.enabled && grant.life == challenge.life && grant.revision > challenge.revision &&
+            CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 125 && Amount(c) == 100,
+            "exact current acknowledgement precedes first grant and cannot charge pre-admission distance");
+        return;
+    }
+    Admit(c, 100);
     Require(Frame(c, 100), "actual frame owner prepares joined native player");
     const auto grant = Grant(c);
     const auto life = std::to_string(grant.life);
@@ -215,6 +334,7 @@ void Run(std::string_view group)
         if (group == "new-life")
         {
             CSOL_ScenarioPlayerSpawnStarted(c.player); ++c.player.m_iNumSpawns;
+            Admit(c, 100.03f);
             Require(Frame(c, 100.03f), "native SpawnStarted creates independent stamina and input life");
             const auto next = Grant(c);
             Expect(next.enabled && next.life > grant.life && Amount(c) == 100 &&

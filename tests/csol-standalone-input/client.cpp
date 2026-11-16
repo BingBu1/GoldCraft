@@ -9,12 +9,12 @@
 namespace input_test
 {
 namespace custom = csol::scenario::custom;
-unsigned checks{}, lookups{}, downCalls{}, upCalls{}, queues{}, serverCalls{}, synchronizations{}, chains{};
+unsigned checks{}, lookups{}, downCalls{}, upCalls{}, queues{}, readyQueues{}, serverCalls{}, synchronizations{}, chains{};
 bool resetOnSync{};
 cmd_function_t down{}, up{};
 pfnUserMsgHook message{}, init{};
 xcommand_t onQueue{};
-std::array<char, 64> lastCommand{};
+std::array<char, 64> lastCommand{}, lastReady{};
 void Check(bool value, const char* why)
 { ++checks; if (!value) { std::printf("FAIL %s\n", why); std::exit(1); } }
 void StockDown() { ++downCalls; }
@@ -28,9 +28,15 @@ pfnUserMsgHook Message(const char* name, pfnUserMsgHook callback)
 }
 int Queue(const char* text)
 {
-    ++queues;
     const auto size = std::strlen(text);
     Check(size < lastCommand.size(), "queued life-tagged command fits its fixed stack budget");
+    if (!std::strncmp(text, custom::StandaloneInputReadyCommand, sizeof(custom::StandaloneInputReadyCommand) - 1))
+    {
+        ++readyQueues; std::memcpy(lastReady.data(), text, size + 1);
+        if (onQueue) onQueue();
+        return 0;
+    }
+    ++queues;
     std::memcpy(lastCommand.data(), text, size + 1);
     if (onQueue) onQueue();
     return 0; // Original sender consumes the edge even when the callback returns0.
@@ -41,6 +47,18 @@ void Send(custom::StandaloneInputGrant grant)
     Check(bytes && message, "actual registered standalone grant route exists");
     Check(message(custom::StandaloneInputMessage, int(bytes->size()), const_cast<std::byte*>(bytes->data())) == 73,
         "grant callback preserves the downstream user-message return value");
+}
+void Probe(custom::StandaloneInputProbe value)
+{
+    const auto bytes = custom::EncodeStandaloneInputProbe(value);
+    Check(bytes && message, "actual registered readiness probe route exists");
+    Check(message(custom::StandaloneInputMessage, int(bytes->size()), const_cast<std::byte*>(bytes->data())) == 73,
+        "readiness probe preserves the downstream user-message return value");
+}
+void Activate(std::uint64_t life)
+{
+    Probe({life, 1});
+    Send({life, 2, true});
 }
 }
 namespace csol::client
@@ -73,8 +91,12 @@ int main()
     Check(!custom::EncodeStandaloneInput({0, 1, true}) && !custom::EncodeStandaloneInput({1, 0, true}),
         "zero life or revision cannot be published");
     Check(!custom::DecodeStandaloneInput(std::span(bytes->data(), bytes->size() - 1)), "truncated policy is rejected");
-    auto bad = *bytes; bad[0] = std::byte{2};
+    auto bad = *bytes; bad[0] = std::byte{1};
     Check(!protocol.Receive(bad), "other protocol versions are rejected");
+    const auto probeBytes = custom::EncodeStandaloneInputProbe({7, 1});
+    Check(probeBytes && custom::DecodeStandaloneInputProbe(*probeBytes) &&
+        !custom::DecodeStandaloneInput(*probeBytes) && !custom::DecodeStandaloneInputProbe(*bytes),
+        "a readiness probe cannot be mistaken for either an enabled or retired grant");
     grant.enabled = false; grant.revision = 2;
     Check(protocol.Receive(*custom::EncodeStandaloneInput(grant)), "authority retires a native life");
     grant.enabled = true; grant.revision = 3;
@@ -109,7 +131,18 @@ int main()
     input_test::down.function(); input_test::up.function();
     Check(input_test::downCalls == 1 && input_test::upCalls == 1 && !input_test::queues,
         "ordinary CS without grant keeps both original speed callbacks");
-    input_test::Send({7, 1, true});
+    input_test::Send({7, 2, true});
+    Check(!authority.Current(), "a grant without the current installed-consumer probe cannot enable input");
+    const auto readiness = input_test::readyQueues;
+    input_test::Probe({7, 1});
+    Check(input_test::readyQueues == readiness + 1 && !authority.Current() &&
+        !std::strcmp(input_test::lastReady.data(), "csol_sprint_ready 7 1\n"),
+        "installed handlers acknowledge the exact life and probe revision before grant");
+    input_test::Probe({7, 1});
+    Check(input_test::readyQueues == readiness + 1, "duplicate probe does not queue another acknowledgement");
+    input_test::Send({8, 2, true}); input_test::Send({7, 1, true});
+    Check(!authority.Current(), "foreign life and pre-probe revision cannot activate input");
+    input_test::Send({7, 2, true});
     input_test::up.function();
     Check(input_test::upCalls == 2 && !input_test::queues, "initial state0 release falls through as in original");
     input_test::onQueue = [] { Check(sprint.State() == 1, "state is committed before command-buffer callback"); };
@@ -118,7 +151,7 @@ int main()
         !std::strcmp(input_test::lastCommand.data(), "sprintON 7\n"), "rising edge queues named client command and consumes native slowdown");
     input_test::down.function();
     Check(input_test::downCalls == 2 && input_test::queues == 1, "repeated state falls through instead of always consuming");
-    input_test::Send({7, 2, true});
+    input_test::Send({7, 3, true});
     input_test::down.function();
     Check(input_test::downCalls == 3 && input_test::queues == 1, "same-life policy refresh cannot manufacture a new key edge");
     input_test::up.function();
@@ -129,10 +162,10 @@ int main()
     input_test::down.function(); input_test::down.function(); input_test::up.function();
     Check(sprint.State() == 0 && input_test::queues == 4 && input_test::downCalls == 4,
         "two keydowns and one release retain original one-state behavior, not CoF two-key ownership");
-    input_test::Send({7, 3, false}); input_test::Send({7, 4, true});
+    input_test::Send({7, 4, false}); input_test::Send({7, 5, true});
     input_test::down.function();
     Check(input_test::queues == 4 && input_test::downCalls == 5, "retired policy continues ordinary native input");
-    input_test::Send({8, 1, true}); input_test::down.function();
+    input_test::Activate(8); input_test::down.function();
     Check(!std::strcmp(input_test::lastCommand.data(), "sprintON 8\n"), "new authoritative life resets the original edge state");
     const auto sync = input_test::synchronizations;
     input_test::message(custom::StandaloneInputMessage, -1, nullptr);
@@ -146,7 +179,7 @@ int main()
     input_test::onQueue = ResetStandaloneMovementInput;
     input_test::down.function(); input_test::onQueue = nullptr;
     Check(!authority.Current() && sprint.State() == 0, "connection reset during queue cannot be overwritten on callback return");
-    input_test::Send({1, 1, true});
+    input_test::Activate(1);
     engine.pfnClientCmd = nullptr; input_test::down.function(); engine.pfnClientCmd = input_test::Queue;
     Check(sprint.State() == 0, "missing host command API neither consumes nor commits an edge");
     input_test::down.function();
@@ -155,7 +188,7 @@ int main()
     Check(sprint.State() == 1, "foreign thread cannot alter the owning client's input state");
     Check(input_test::init("InitHUD", 0, nullptr) == 73 && !authority.Current() && sprint.State() == 0,
         "InitHUD retires authority and preserves downstream callback");
-    input_test::Send({UINT64_MAX, 1, true}); input_test::down.function();
+    input_test::Activate(UINT64_MAX); input_test::down.function();
     Check(!std::strcmp(input_test::lastCommand.data(), "sprintON 18446744073709551615\n"), "maximum life identity fits without truncation");
     const auto lookups = input_test::lookups, queued = input_test::queues;
     allocation_probe::calls = 0; allocation_probe::active = true;
@@ -171,11 +204,31 @@ int main()
         "retained callbacks safely fall back after plugin shutdown");
     InitializeStandaloneMovementInput(); input_test::down.function();
     Check(input_test::queues == stoppedQueues && !authority.Current(), "reinitialization never reuses the old life grant");
+    engine.pfnClientCmd = nullptr;
+    const auto noApiReady = input_test::readyQueues;
+    input_test::Probe({1, 1}); engine.pfnClientCmd = input_test::Queue;
+    Check(input_test::readyQueues == noApiReady && !probe.life,
+        "missing command buffer neither acknowledges nor records a ready consumer");
+    input_test::onQueue = ResetStandaloneMovementInput;
+    input_test::Probe({1, 1}); input_test::onQueue = nullptr;
+    Check(!probe.life && !authority.Current(), "reentrant reset during readiness acknowledgement is retained");
     auto heads = CaptureChainedCommandHeads();
     input_test::down.function = input_test::StockDown; input_test::up.function = input_test::StockUp;
     RefreshChainedCommandHeads(heads); InitializeStandaloneMovementInput();
-    input_test::Send({1, 1, true}); input_test::down.function();
+    input_test::Activate(1); input_test::down.function();
     Check(input_test::queues == stoppedQueues + 1, "native HUD callback replacement starts one fresh command chain");
     ShutdownStandaloneMovementInput();
+    const auto missingHeads = CaptureChainedCommandHeads();
+    input_test::down.function = input_test::up.function = nullptr;
+    RefreshChainedCommandHeads(missingHeads); InitializeStandaloneMovementInput();
+    const auto missingCommandsReady = input_test::readyQueues;
+    input_test::Probe({2, 1}); input_test::Send({2, 2, true});
+    Check(!commandsReady && input_test::readyQueues == missingCommandsReady && !authority.Current(),
+        "missing original speed commands cannot manufacture a ready consumer from retained downstream pointers");
+    ShutdownStandaloneMovementInput();
+    const auto hookCommand = meta.HookCmd; meta.HookCmd = nullptr;
+    InitializeStandaloneMovementInput();
+    Check(!initialized && !commandsReady, "missing native hook API leaves input uninitialized");
+    meta.HookCmd = hookCommand;
     std::printf("CSOL StandAlone actual input adapter: %u checks passed\n", input_test::checks);
 }

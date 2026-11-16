@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_接入-绝命档案客户端就绪握手-report.md",
     "docs/2026-11-16_分析-绝命档案输入锁与原生速度预测链-report.md",
     "tests/csol-standalone-prediction/README.md",
     "docs/2026-11-16_修复-M菜单时间阶段开关不可用-report.md",

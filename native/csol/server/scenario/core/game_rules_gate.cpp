@@ -2843,11 +2843,12 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     const bool cheer = !Q_strcmp(command, "cheer");
     const bool sprintOn = !Q_strcmp(command, "sprintON");
     const bool sprintOff = !Q_strcmp(command, "sprintOFF");
+    const bool sprintReady = !Q_strcmp(command, csol::scenario::custom::StandaloneInputReadyCommand);
     // Only menuselect for the open emotion menu (m_iMenu 15) is ours; every
     // stock menu keeps ReGameDLL's own menuselect handling.
     const bool select = !Q_strcmp(command, "menuselect") &&
         csol::scenario::skills::CharacterEmotionMenuOpen(player);
-    if (!kick && !cheer && !select && !sprintOn && !sprintOff && Q_strcmp(command, "buffclass_skill")) return false;
+    if (!kick && !cheer && !select && !sprintOn && !sprintOff && !sprintReady && Q_strcmp(command, "buffclass_skill")) return false;
     CSOLScenarioSdkScope scope;
     if (!scope.Scenario()) return false;
     if (!scope.Current()) return true;
@@ -2855,6 +2856,14 @@ bool CSOL_ScenarioCharacterSkillCommand(CBasePlayer& player, const char* command
     if (!record || record->retired || record->runtime->Closing()) return true;
     const auto runtime = record->runtime;
     const auto players = runtime->players;
+    if (sprintReady)
+    {
+        if (!g_engfuncs.pfnCmd_Argc || !g_engfuncs.pfnCmd_Argv || CMD_ARGC_() != 3 || !scope.Current()) return true;
+        const auto* life = CMD_ARGV_(1);
+        const auto* revision = CMD_ARGV_(2);
+        if (scope.Current() && life && revision) CSOL_ActionStaminaInputReady(runtime, player, life, revision);
+        return true;
+    }
     if (sprintOn || sprintOff)
     {
         if (!g_engfuncs.pfnCmd_Argc || !g_engfuncs.pfnCmd_Argv || CMD_ARGC_() != 2 || !scope.Current()) return true;

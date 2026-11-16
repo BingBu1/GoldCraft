@@ -39,7 +39,7 @@ struct State
     std::uint32_t hudRevision{};
     bool hudPublished{};
     std::uint32_t inputRevision{};
-    bool frameMovement{}, inputPublished{};
+    bool frameMovement{}, inputPublished{}, inputProbed{}, inputReady{};
     bool retired{};
     custom::LifeKey key;
     custom::StandaloneStaminaState stamina;
@@ -209,16 +209,19 @@ bool PublishHud(State& state,const Runtime& runtime,CBasePlayer& player,const cu
     return state.Current(runtime,player);
 }
 bool PublishInput(State& state, const Runtime& runtime, CBasePlayer& player,
-    csol::scenario::ConfigError& error)
+    csol::scenario::ConfigError& error, bool probing = false)
 {
-    if (state.inputPublished) return state.Current(runtime, player);
+    if (probing ? state.inputProbed : state.inputPublished) return state.Current(runtime, player);
+    if (!probing && !state.inputReady)
+    { error.message = "standalone input has no current client acknowledgement"; return false; }
     if (state.inputRevision == UINT32_MAX || inputMessage < 64 || breathAccess != state.access ||
         !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnMessageEnd)
     { error.message = "standalone input has no prepared current transport"; return false; }
     const auto serial = state.serial;
-    const auto bytes = custom::EncodeStandaloneInput({serial, ++state.inputRevision, true});
+    const auto bytes = probing ? custom::EncodeStandaloneInputProbe({serial, ++state.inputRevision}) :
+        custom::EncodeStandaloneInput({serial, ++state.inputRevision, true});
     if (!bytes || !state.Current(runtime, player) || state.serial != serial) return false;
-    state.inputPublished = true;
+    (probing ? state.inputProbed : state.inputPublished) = true;
     MESSAGE_BEGIN(MSG_ONE, inputMessage, nullptr, player.pev);
     for (const auto byte : *bytes) WRITE_BYTE(std::to_integer<unsigned>(byte));
     MESSAGE_END();
@@ -331,7 +334,7 @@ bool CSOL_TickStandaloneMovementFrame(const Runtime& runtime, csol::scenario::Co
     {
         auto* player = dynamic_cast<CBasePlayer*>(CSOL_ScenarioPlayerEntity(slot, access));
         if (!current()) return false;
-        if (!player || player->has_disconnected || !player->pev || player->m_iTeam == SPECTATOR ||
+        if (!player || player->has_disconnected || !player->pev || (player->pev->flags & FL_FAKECLIENT) || player->m_iTeam == SPECTATOR ||
             player->m_iTeam == UNASSIGNED || player->m_iJoiningState != JOINED) continue;
         if (player->pev->deadflag != DEAD_NO || player->pev->health <= 0)
         { CSOL_RetireActionStamina(*player); if (!current()) return false; continue; }
@@ -340,6 +343,11 @@ bool CSOL_TickStandaloneMovementFrame(const Runtime& runtime, csol::scenario::Co
         if (!state) { if (!error.message.empty()) return false; continue; }
         const auto serial = state->serial;
         const auto valid = [&] { return current() && state->Current(runtime, *player) && state->serial == serial; };
+        if (!state->inputReady)
+        {
+            if (!PublishInput(*state, runtime, *player, error, true) || !valid()) return false;
+            continue;
+        }
         state->frameMovement = true;
         if (!state->stamina.RunDisplacement(state->key,
             {player->pev->origin.x, player->pev->origin.y, player->pev->origin.z}, (player->pev->flags & FL_DUCKING) != 0))
@@ -355,6 +363,23 @@ bool CSOL_TickStandaloneMovementFrame(const Runtime& runtime, csol::scenario::Co
     frameOwner.completed = true;
     return true;
 }
+bool CSOL_ActionStaminaInputReady(const Runtime& runtime, CBasePlayer& player,
+    std::string_view life, std::string_view revision)
+{
+    if (operating || life.empty() || revision.empty()) return false;
+    std::uint64_t token{};
+    std::uint32_t sequence{};
+    const auto lifeResult = std::from_chars(life.data(), life.data() + life.size(), token);
+    const auto revisionResult = std::from_chars(revision.data(), revision.data() + revision.size(), sequence);
+    if (lifeResult.ec != std::errc{} || lifeResult.ptr != life.data() + life.size() || !token ||
+        revisionResult.ec != std::errc{} || revisionResult.ptr != revision.data() + revision.size() || !sequence) return false;
+    Guard guard;
+    auto* state = Find(runtime, player);
+    if (!state || !state->inputProbed || state->inputReady || state->frameMovement ||
+        state->serial != token || state->inputRevision != sequence) return false;
+    state->inputReady = true;
+    return true;
+}
 bool CSOL_ActionStaminaRunCommand(const Runtime& runtime, CBasePlayer& player, bool requested, std::string_view life)
 {
     if (operating || life.empty()) return false;
@@ -363,7 +388,7 @@ bool CSOL_ActionStaminaRunCommand(const Runtime& runtime, CBasePlayer& player, b
     if (parsed.ec != std::errc{} || parsed.ptr != life.data() + life.size() || !token) return false;
     Guard guard;
     auto* state = Find(runtime, player);
-    return state && state->frameMovement && state->inputPublished && state->serial == token &&
+    return state && state->frameMovement && state->inputReady && state->inputPublished && state->serial == token &&
         state->stamina.RequestRun(state->key, requested);
 }
 std::optional<float> CSOL_ActionStaminaRunSpeed(const Runtime& runtime, CBasePlayer& player, float weaponSpeed)

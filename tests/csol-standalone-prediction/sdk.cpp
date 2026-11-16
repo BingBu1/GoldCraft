@@ -61,6 +61,7 @@ void Run(std::string_view group)
     rules->m_bFreezePeriod = FALSE;
     const float weapon = c.player.m_pActiveItem->GetMaxSpeed();
     Require(std::isfinite(weapon) && weapon > 0, "real current weapon has native movement speed");
+    Admit(c, 100);
     Require(Frame(c, 100), "real movement frame prepares walk and current-life input");
     const auto grant = Grant(c);
     const auto life = std::to_string(grant.life);
