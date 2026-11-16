@@ -85,7 +85,7 @@ void WorldImpact(const TraceResult& trace, const BallisticsEffects& effects) noe
 
 bool BubbleTrail(const Vector& source, const TraceResult& trace,
     const BallisticsEffects& effects, const BallisticsCall& call,
-    const Owner& owner) noexcept
+    const Owner& owner, float distance) noexcept
 {
     bool valid = true;
     float height = WaterLevel(source, source.z, source.z + 256.0f, call, owner, valid) - source.z;
@@ -98,7 +98,7 @@ bool BubbleTrail(const Vector& source, const TraceResult& trace,
         if (endHeight < 8.0f) return true;
         height = (trace.vecEndPos.z + endHeight) - source.z;
     }
-    const float travelled = trace.flFraction * PistolDistance;
+    const float travelled = trace.flFraction * distance;
     const int count = static_cast<int>(static_cast<double>(travelled) * (1.0 / 64.0));
     MESSAGE_BEGIN(MSG_BROADCAST, SVC_TEMPENTITY);
     WRITE_BYTE(TE_BUBBLETRAIL);
@@ -128,7 +128,10 @@ BallisticsStatus CheckPistolBallistics(const PistolBallistics& shot,
     return call.current(call.context) ? BallisticsStatus::Ready : BallisticsStatus::Cancelled;
 }
 
-BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+namespace
+{
+template<unsigned Pellets, unsigned Distance>
+BallisticsResult FireOriginalBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
     const BallisticsEffects& effects, const BallisticsCall& call) noexcept
 {
     const auto ready = CheckPistolBallistics(shot, effects, call);
@@ -151,88 +154,106 @@ BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallisti
     if (!Current(call, owner)) return {BallisticsStatus::Cancelled, {0, 0, 0}};
     gMultiDamage.type = PistolDamageBits;
 
-    const float xFirst = UTIL_SharedRandomFloat(shot.seed + 2u, -0.5f, 0.5f);
-    const float xSecond = UTIL_SharedRandomFloat(shot.seed + 1u, -0.5f, 0.5f);
-    const float yFirst = UTIL_SharedRandomFloat(shot.seed + 4u, -0.5f, 0.5f);
-    const float ySecond = UTIL_SharedRandomFloat(shot.seed + 3u, -0.5f, 0.5f);
-    const float x = xFirst + xSecond;
-    const float y = yFirst + ySecond;
-    const float horizontal = x * spread.x;
-    const float vertical = y * spread.y;
-    const Vector direction{
-        (shot.direction.x + shot.right.x * horizontal) + shot.up.x * vertical,
-        (shot.direction.y + shot.right.y * horizontal) + shot.up.y * vertical,
-        (shot.direction.z + shot.right.z * horizontal) + shot.up.z * vertical
-    };
-    const Vector end{
-        shot.source.x + direction.x * PistolDistance,
-        shot.source.y + direction.y * PistolDistance,
-        shot.source.z + direction.z * PistolDistance
-    };
-    const Vector result{horizontal, vertical, 0};
-    TraceResult trace{};
-    UTIL_TraceLine(shot.source, end, dont_ignore_monsters, shooterEdict, &trace);
-    if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
-
-    // CoF first retraces past a player, then gives that original player direct
-    // damage when MyMonsterPointer is non-null. Two further players are skipped.
-    for (int skipped = 0; skipped < 3 && trace.flFraction != 1.0f; ++skipped)
+    Vector result{0, 0, 0};
+    for (unsigned pellet = 0; pellet < Pellets; ++pellet)
     {
-        auto* const target = CBaseEntity::Instance(trace.pHit);
+        const auto seed = shot.seed + pellet;
+        const float xFirst = UTIL_SharedRandomFloat(seed + 2u, -0.5f, 0.5f);
+        const float xSecond = UTIL_SharedRandomFloat(seed + 1u, -0.5f, 0.5f);
+        const float yFirst = UTIL_SharedRandomFloat(seed + 4u, -0.5f, 0.5f);
+        const float ySecond = UTIL_SharedRandomFloat(seed + 3u, -0.5f, 0.5f);
+        const float x = xFirst + xSecond;
+        const float y = yFirst + ySecond;
+        const float horizontal = x * spread.x;
+        const float vertical = y * spread.y;
+        const Vector direction{
+            (shot.direction.x + shot.right.x * horizontal) + shot.up.x * vertical,
+            (shot.direction.y + shot.right.y * horizontal) + shot.up.y * vertical,
+            (shot.direction.z + shot.right.z * horizontal) + shot.up.z * vertical
+        };
+        const Vector end{
+            shot.source.x + direction.x * Distance,
+            shot.source.y + direction.y * Distance,
+            shot.source.z + direction.z * Distance
+        };
+        result = {horizontal, vertical, 0};
+        TraceResult trace{};
+        UTIL_TraceLine(shot.source, end, dont_ignore_monsters, shooterEdict, &trace);
         if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
-        if (!target) break;
-        const EntityHandle<CBaseEntity> targetHandle(target);
-        const bool player = target->IsPlayer() != FALSE;
-        if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
-            return {BallisticsStatus::Cancelled, result};
-        if (!player) break;
-        if (targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
-        auto* const skip = target->edict();
-        if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
-            return {BallisticsStatus::Cancelled, result};
-        const Vector start = trace.vecEndPos;
-        UTIL_TraceLine(start, end, dont_ignore_monsters, skip, &trace);
-        if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
-        if (skipped == 0)
+
+        // CoF first retraces past a player, then gives that original player direct
+        // damage when MyMonsterPointer is non-null. Two further players are skipped.
+        for (int skipped = 0; skipped < 3 && trace.flFraction != 1.0f; ++skipped)
         {
-            if (targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
-            const bool monster = target->MyMonsterPointer() != nullptr;
+            auto* const target = CBaseEntity::Instance(trace.pHit);
+            if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            if (!target) break;
+            const EntityHandle<CBaseEntity> targetHandle(target);
+            const bool player = target->IsPlayer() != FALSE;
             if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
                 return {BallisticsStatus::Cancelled, result};
-            if (monster)
+            if (!player) break;
+            if (targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
+            auto* const skip = target->edict();
+            if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
+                return {BallisticsStatus::Cancelled, result};
+            const Vector start = trace.vecEndPos;
+            UTIL_TraceLine(start, end, dont_ignore_monsters, skip, &trace);
+            if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            if (skipped == 0)
             {
-                target->TakeDamage(inflictor, inflictor, static_cast<float>(shot.damage), PistolDamageBits);
+                if (targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
+                const bool monster = target->MyMonsterPointer() != nullptr;
                 if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
                     return {BallisticsStatus::Cancelled, result};
+                if (monster)
+                {
+                    target->TakeDamage(inflictor, inflictor, static_cast<float>(shot.damage), PistolDamageBits);
+                    if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target)
+                        return {BallisticsStatus::Cancelled, result};
+                }
             }
         }
-    }
 
-    if (trace.flFraction != 1.0f)
-    {
-        auto* const target = CBaseEntity::Instance(trace.pHit);
-        if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
-        const EntityHandle<CBaseEntity> targetHandle(target);
-        if (target && shot.damage != 0)
+        if (trace.flFraction != 1.0f)
         {
-            target->TraceAttack(inflictor, static_cast<float>(shot.damage), direction, &trace, PistolDamageBits);
+            auto* const target = CBaseEntity::Instance(trace.pHit);
             if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            const EntityHandle<CBaseEntity> targetHandle(target);
+            if (target && shot.damage != 0)
+            {
+                target->TraceAttack(inflictor, static_cast<float>(shot.damage), direction, &trace, PistolDamageBits);
+                if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            }
+            if (target && targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
+            // Original customdecal only supports world BSP, not brush entities.
+            const int hitIndex = trace.pHit ? ENTINDEX(trace.pHit) : 0;
+            if (!Current(call, owner) || (target && targetHandle.Get<CBaseEntity>() != target))
+                return {BallisticsStatus::Cancelled, result};
+            if (hitIndex == 0 && target && target->pev->solid == SOLID_BSP && !trace.fInWater)
+            {
+                WorldImpact(trace, effects);
+                if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            }
         }
-        if (target && targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
-        // Original customdecal only supports world BSP, not brush entities.
-        const int hitIndex = trace.pHit ? ENTINDEX(trace.pHit) : 0;
-        if (!Current(call, owner) || (target && targetHandle.Get<CBaseEntity>() != target))
+        if (!BubbleTrail(shot.source, trace, effects, call, owner, Distance))
             return {BallisticsStatus::Cancelled, result};
-        if (hitIndex == 0 && target && target->pev->solid == SOLID_BSP && !trace.fInWater)
-        {
-            WorldImpact(trace, effects);
-            if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
-        }
     }
-    if (!BubbleTrail(shot.source, trace, effects, call, owner))
-        return {BallisticsStatus::Cancelled, result};
     ApplyMultiDamage(inflictor, inflictor);
     return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
+}
+}
+
+BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call) noexcept
+{
+    return FireOriginalBallistics<1, 8192>(shooter, shot, effects, call);
+}
+
+BallisticsResult FireShotgunBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call) noexcept
+{
+    return FireOriginalBallistics<8, 2048>(shooter, shot, effects, call);
 }
 
 namespace

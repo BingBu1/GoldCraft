@@ -58,6 +58,11 @@ BallisticsStatus CheckPistolBallistics(const PistolBallistics& shot,
 BallisticsResult FirePistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
     const BallisticsEffects& effects, const BallisticsCall& call) noexcept;
 
+// Original 870: eight seeded pellets over 2048 units, with one shared damage
+// transaction. The input payload and preflight are shared with the single shot.
+BallisticsResult FireShotgunBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
+    const BallisticsEffects& effects, const BallisticsCall& call) noexcept;
+
 // Human-requested host deviation: keep CoF's seeded ray, then use the actual
 // CS .357SIG material/shield/hookchain path with no additional spread or range
 // falloff. This is opt-in for Revolver; the original adapter above is unchanged.

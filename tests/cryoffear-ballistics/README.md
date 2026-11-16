@@ -1,8 +1,8 @@
-# CoF pistol ballistics differential
+# CoF single-shot and shotgun ballistics differential
 
 Run from the project root through Git Bash, with Python Unicorn and an x86 clang-cl environment:
 
-    python tests/cryoffear-ballistics/run.py --sample <private-original-hl.dll> --compiler <clang-cl.exe> --environment <compiler-environment.json> --output build/<fresh-directory>
+    python tests/cryoffear-ballistics/run.py --sample <private-original-hl.dll> --proof <private-PREEDIT-ballistics.json> --compiler <clang-cl.exe> --environment <compiler-environment.json> --output build/<fresh-directory>
 
 The private original must have SHA-256 0036b91c01e92ed205513f52563053a55a66a32d257efb5f476b8f1f3dde0e63. No original binary, game resources, or decompiled source belong in publication. The environment JSON supplies matching INCLUDE/LIB/LIBPATH. Output must be a new workspace build directory. Temporary compiler data stays there.
 
@@ -14,7 +14,13 @@ Additional actual-SDK checks cover cancellation at clear/trace/damage/apply/cont
 
 Integration must preflight before ammo/recoil/animation, supply the current owner/life/map/weapon generation guard, and prepare real customdecal/bubble resource IDs. The required original cooperative player policy retraces past the first player then directly damages that player when MyMonsterPointer is non-null, including TakeDamage(0); it skips up to two further players before final TraceAttack. It is not a blanket harmless-player skip policy.
 
-The normal muzzle path is the implemented scope. Original owner+0x390 EHANDLE/active-weapon override, CoF Doctor-boss classes/statistics, other bullet types and multi-pellet weapons remain outside it. Unsupported source mode is rejected explicitly. This controlled-edge differential does not establish full scenario damage integration, actual client customdecal rendering, DLL linkage, deployment, multiplayer, gameplay or live CPU performance. The production path uses bounded stack state without allocation, I/O, cache growth or extra threads; no performance gain is claimed without real sampling.
+An additional 512 cases execute the same whole original function for the 870's
+eight type3 pellets over 2048 units. Spread is halved once when aiming, the seed
+advances per pellet, water bubbles use the actual distance, and Clear/Apply run
+once around the entire burst. Every pellet boundary has a cancellation case;
+existing single-shot and CS material checks remain in the same suite.
+
+The normal muzzle path is the implemented scope. Original owner+0x390 EHANDLE/active-weapon override, CoF Doctor-boss classes/statistics and other bullet types remain outside it. Unsupported source mode is rejected explicitly. This controlled-edge differential does not establish full scenario damage integration, actual client customdecal rendering, DLL linkage, deployment, multiplayer, gameplay or live CPU performance. The production path uses bounded stack state without allocation, I/O, cache growth or extra threads; no performance gain is claimed without real sampling.
 
 The human-authored CS material paths are separate from that original differential.
 Revolver keeps its optional .357SIG rule. M16/G43 use the typed 556/762 native

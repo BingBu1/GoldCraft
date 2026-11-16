@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sample', type=Path, required=True)
+    parser.add_argument('--proof', type=Path, required=True)
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--environment', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -35,7 +36,7 @@ def main():
 
     before = identities()
     with (output/'cases.txt').open('w', encoding='ascii') as cases, (output/'expected.txt').open('w', encoding='ascii') as expected:
-        original = generate(args.sample, cases, expected)
+        original = generate(args.sample, args.proof, cases, expected)
     (output/'oracle-receipt.json').write_text(json.dumps(original, indent=2), 'utf-8')
     project = inputs[-1].read_text('utf-8-sig')
     includes = re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>', project)[1].split(';')
@@ -70,7 +71,10 @@ def main():
     environment.update(TEMP=str(temporary), TMP=str(temporary))
     # Ask the actual compiler for each transitive include closure before the
     # build, rather than assuming a list of SDK headers or hashing a tree copy.
-    dependencies = set(inputs) | {random_adapter, args.environment.resolve()}
+    proof = json.loads(args.proof.read_text('utf-8-sig'))
+    dependencies = set(inputs) | {random_adapter, args.environment.resolve(),
+                                  args.sample.resolve(), args.proof.resolve()}
+    dependencies.update((args.proof.parent / name).resolve() for name in proof['archives'])
     dependency_commands = []
     for index, source in enumerate((inputs[2], inputs[4], random_adapter)):
         depfile = output/f'headers-{index}.d'

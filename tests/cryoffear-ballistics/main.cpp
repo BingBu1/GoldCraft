@@ -22,7 +22,7 @@ namespace
 {
 std::vector<std::uint32_t> events;
 std::array<edict_t, 6> edicts{};
-int players{}, finalTarget{}, water{}, traces{}, checks{};
+int players{}, finalTarget{}, water{}, traces{}, checks{}, cancelTrace{};
 float surface{};
 bool valid = true;
 int cancelEvent{}, recycleEvent{}, recycleEntity{}, phase{}, privateAction{};
@@ -101,6 +101,7 @@ void Initialize()
         Check(ignore == 0);
         Event(2, Index(skip), Bits(start[0]), Bits(start[1]), Bits(start[2]), Bits(end[0]), Bits(end[1]), Bits(end[2]));
         ++traces;
+        if (traces == cancelTrace) valid = false;
         const bool player = traces <= players;
         const int index = player ? traces + 1 : (finalTarget == 0 ? 0 : 5);
         *trace = {};
@@ -249,15 +250,17 @@ int main(int argc, char** argv)
     std::size_t rows{};
     while (input >> std::ws && input.peek() != std::char_traits<char>::eof())
     {
-        std::array<std::uint32_t, 22> row{};
+        std::array<std::uint32_t, 23> row{};
         for (auto& value : row) if (!(input >> std::hex >> value)) return 3;
+        if (row[22] != 1 && row[22] != 8) return 3;
         const auto vector = [&](int offset) { return Vector(Float(row[offset]), Float(row[offset+1]), Float(row[offset+2])); };
         PistolBallistics shot{vector(0), vector(3), vector(6), vector(9), vector(12), row[15], static_cast<int>(row[16]), row[17] != 0,
             PistolPlayerHits::OriginalCooperativeSkipPlayers, PistolSource::NormalMuzzle};
         players = row[18]; finalTarget = row[19]; water = row[20]; surface = Float(row[21]);
         events.clear(); traces = 0; valid = true; cancelEvent = 0;
         gMultiDamage = {}; gMultiDamage.amount = 123; gMultiDamage.type = 456;
-        const auto result = FirePistolBallistics(targets[1], shot, fx, call);
+        const auto result = row[22] == 8 ? FireShotgunBallistics(targets[1], shot, fx, call) :
+            FirePistolBallistics(targets[1], shot, fx, call);
         Check(result.status == BallisticsStatus::Fired);
         Check(gMultiDamage.amount == 123 && gMultiDamage.type == 456);
         std::string line;
@@ -275,6 +278,13 @@ int main(int argc, char** argv)
                 if (actual[i]!=wanted[i]) { std::cerr << "word " << i << ' ' << std::hex << actual[i] << " != " << wanted[i] << '\n'; break; }
             return 5;
         }
+        unsigned clears{}, applies{};
+        for (std::size_t at=0;at<events.size();at+=events[at+1]+2)
+        {
+            clears += events[at] == 1;
+            applies += events[at] == 5;
+        }
+        Check(clears == 1 && applies == 1 && traces >= static_cast<int>(row[22]));
         // Unsupported/preflight calls must not touch engine or damage state.
         events.clear(); shot.sourceMode = PistolSource::UnsupportedOriginalOverride;
         Check(FirePistolBallistics(targets[1], shot, fx, call).status == BallisticsStatus::UnsupportedSource && events.empty());
@@ -286,7 +296,7 @@ int main(int argc, char** argv)
         Check(events.size() == 11 && events[0] == 1 && events[2] == 2);
         ++rows;
     }
-    if (rows != 512) return 6;
+    if (rows != 1024) return 6;
     input >> std::ws; expected >> std::ws;
     if (input.peek() != std::char_traits<char>::eof() || expected.peek() != std::char_traits<char>::eof()) return 7;
 
@@ -294,11 +304,20 @@ int main(int argc, char** argv)
         19, 35, false, PistolPlayerHits::OriginalCooperativeSkipPlayers, PistolSource::NormalMuzzle};
     const auto reset = [&]
     {
-        events.clear(); traces=0; valid=true; cancelEvent=0; recycleEvent=0; privateAction=0;
+        events.clear(); traces=0; valid=true; cancelEvent=0; recycleEvent=0; privateAction=0; cancelTrace=0;
         for (int i=0;i<6;++i) edicts[i].pvPrivateData=&targets[i];
         players=0; finalTarget=0; water=0; surface=200;
         gMultiDamage={}; gMultiDamage.amount=123; gMultiDamage.type=456;
     };
+    // Cancellation at every pellet boundary must suppress the rest of the
+    // burst and its final damage apply, restoring the enclosing transaction.
+    for (int pellet=1;pellet<=8;++pellet)
+    {
+        reset(); cancelTrace=pellet;
+        Check(FireShotgunBallistics(targets[1], baseline, fx, call).status == BallisticsStatus::Cancelled);
+        Check(traces == pellet && gMultiDamage.amount == 123 && gMultiDamage.type == 456);
+        for (std::size_t at=0;at<events.size();at+=events[at+1]+2) Check(events[at] != 5);
+    }
     // Cancellation stops callbacks after the current edge; begun packets finish.
     for (int edge : {1,2,3,4,5,6,7,8,9,10,11,12})
     {

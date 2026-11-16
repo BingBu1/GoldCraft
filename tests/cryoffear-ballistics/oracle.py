@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Private original machine-code oracle; controlled engine/entity boundaries."""
 import hashlib
+import json
 import random
 import struct
 
@@ -193,7 +194,9 @@ class Original:
         self.uc.mem_write(self.obj(1) + 0x390, bytes(8))
         self.uc.mem_write(self.weapon + 0x178, bytes([row[17]]))
         stack, result = STACK + 0x8000, WORK + 0xa0000
-        args = [0x60000000, result, 1, *row[:9], bits(8192), 3, 2, row[16], self.pev(1), row[15]]
+        pellets = row[22] if len(row) > 22 else 1
+        distance = 2048 if pellets == 8 else 8192
+        args = [0x60000000, result, pellets, *row[:9], bits(distance), 3, 2, row[16], self.pev(1), row[15]]
         for i, value in enumerate(args):
             self.write(stack + 4 * i, value)
         self.uc.reg_write(UC_X86_REG_ESP, stack)
@@ -208,17 +211,29 @@ class Original:
         return self.vector(result), self.events
 
 
-def generate(sample, cases_file, expected_file):
+def generate(sample, proof, cases_file, expected_file):
     original = Original(sample)
+    preedit = json.loads(proof.read_text('utf-8-sig'))
+    sha = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    if not preedit['beforeImplementation'] or preedit['sampleSha256'] != SHA:
+        raise ValueError('Missing matching pre-edit pellet evidence')
+    for region in preedit['regions']:
+        data = original.uc.mem_read(int(region['va'], 16), region['size'])
+        if hashlib.sha256(data).hexdigest() != region['sha256']:
+            raise ValueError('Changed original pellet-loop instructions')
+    for name, digest in preedit['archives'].items():
+        if sha(proof.parent / name) != digest:
+            raise ValueError('Changed original IDA archive: ' + name)
     randomizer = random.Random(0x10088ca0)
     count = 0
-    for i in range(512):
+    for i in range(1024):
         row = [bits(randomizer.uniform(-128, 128)) for _ in range(3)]
         row += [bits(randomizer.uniform(-1, 1)) for _ in range(3)]
         row += [bits(randomizer.uniform(0, .1)) for _ in range(3)]
         row += [bits(randomizer.uniform(-1, 1)) for _ in range(6)]
         row += [randomizer.getrandbits(32), (0, 1, 15, 16, 17, 35, 100, 1000)[i % 8], i % 2,
-                (i // 2) % 5, (i // 10) % 3, (i // 30) % 3, bits(randomizer.uniform(-100, 200))]
+                (i // 2) % 5, (i // 10) % 3, (i // 30) % 3, bits(randomizer.uniform(-100, 200)),
+                1 if i < 512 else 8]
         result, events = original.run(row)
         cases_file.write(' '.join(f'{value:08x}' for value in row) + '\n')
         expected_file.write(' '.join(f'{value:08x}' for value in [*result, *events]) + '\n')
@@ -227,6 +242,7 @@ def generate(sample, cases_file, expected_file):
                 0x1008936c, 0x1008943c, 0x10117c78, 0x1011b919)
     if not all(address in original.visited for address in required):
         raise ValueError('Missing critical original branch coverage')
-    return dict(sampleSha256=SHA, functionVA='10088CA0', functionRVA='88CA0', cases=count,
+    return dict(sampleSha256=SHA, proofSha256=sha(proof), functionVA='10088CA0', functionRVA='88CA0', cases=count,
+                singlePelletCases=512, eightPelletCases=512,
                 visitedInstructions=len(original.visited), requiredInstructions=[f'{x:08x}' for x in required],
                 boundary='Original full bullet/helper instructions; controlled SDK/entity callbacks, no live engine')
