@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_修复-随身光Renderer配套遗漏与部署预检-report.md",
     "docs/2026-11-16_修复-随身光控制台CVAR即时生效-report.md",
     "docs/2026-11-16_分析-绝命档案预测字段传递与可写回调-report.md",
     "docs/2026-11-16_接入-G43生产购买与八枪客户端-report.md",

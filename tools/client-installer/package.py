@@ -12,6 +12,9 @@ import json
 from pathlib import Path
 import shutil
 import zipfile
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import csol_resource_capabilities
 
 HERE = Path(__file__).resolve().parent
 _resource_spec = importlib.util.spec_from_file_location('goldcraft_runtime_resources', HERE / 'runtime_resources.py')
@@ -100,6 +103,9 @@ def verified_gui(directory):
 def make_plan(game, upstream, license_file, gui):
     game, upstream, license_file = map(safe, (game, upstream, license_file))
     post_effects = runtime_resources.verify_post_runtime(game, safe)
+    if (game / 'cstrike/metahook/plugins/CSOLSupport.dll').is_file():
+        csol_resource_capabilities.verify_renderer(game / 'cstrike/metahook/plugins/CSOLSupport.dll',
+                                                  game / 'cstrike/metahook/plugins/Renderer_AVX2.dll')
     pin = json.loads((HERE / 'upstream.json').read_text('utf-8'))
     cli = upstream / 'MetahookInstallerCLI.exe'
     if digest(cli) != pin['cliSha256']:
@@ -188,6 +194,7 @@ def validate_publish(plan, output):
     if plan.get('schema') != 1 or not isinstance(plan.get('files'), list) or not plan['files']:
         raise ValueError('Invalid package plan schema or empty file list')
     runtime_resources.verify_post_rows(plan['files'], 'install/output/svencoop/', plan.get('postEffects'))
+    csol_resource_capabilities.verify_renderer_rows(plan['files'], 'install/output/svencoop/')
     destinations = set()
     sources = []
     for row in plan['files']:

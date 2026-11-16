@@ -27,3 +27,12 @@ the server. Only a changed valid policy causes a packet. Menu edits still save
 to the same JSON and supersede temporary console overrides after publication;
 invalid numeric values keep the previous valid policy and cannot prevent a
 valid disable request.
+
+CSOLSupport and Renderer must also be paired. The client requests
+`MetaRendererMovingLights_API_001`; an older Renderer can leave the ordinary HUD
+working while the player lights never prepare. Run
+`tools/csol_resource_capabilities.py` with `--consumer`, `--candidate` and
+`--renderer` before deployment. The sandbox deployment script and client package
+planner reject the missing marker; the candidate planner can include an explicit
+`--renderer` and its PDB. These are cold static checks, not proof that the live
+factory, renderer or GPU effects initialized.

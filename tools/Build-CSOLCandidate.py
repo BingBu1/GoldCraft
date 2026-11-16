@@ -158,7 +158,7 @@ def relative_resource(value):
     return path
 
 
-def plan(output, resource_plan, server, client, http_url, http_port, resource_root=None):
+def plan(output, resource_plan, server, client, http_url, http_port, resource_root=None, renderer=None):
     candidate = load(output / 'candidate.json')
     for row in candidate['artifacts']:
         if identity(Path(row['path'])) != row:
@@ -196,6 +196,16 @@ def plan(output, resource_plan, server, client, http_url, http_port, resource_ro
         symbols = (output / relative).with_suffix('.pdb')
         if symbols.exists():
             add(symbols, target.with_suffix('.pdb'), 'symbols')
+    renderer_path = client / 'cstrike/metahook/plugins/Renderer_AVX2.dll'
+    if renderer is not None:
+        renderer = safe(renderer)
+        add(renderer, renderer_path, 'native')
+        if renderer.with_suffix('.pdb').exists():
+            add(renderer.with_suffix('.pdb'), renderer_path.with_suffix('.pdb'), 'symbols')
+    caps_spec = importlib.util.spec_from_file_location('candidate_capabilities', ROOT / 'tools/csol_resource_capabilities.py')
+    caps = importlib.util.module_from_spec(caps_spec)
+    caps_spec.loader.exec_module(caps)
+    renderer_capabilities = caps.verify_renderer(output / 'client/CSOLSupport.dll', renderer or renderer_path)
     for name in ('goldcraft_game_mode', 'goldcraft_scenario_admin'):
         add(output / 'amxx/plugins' / (name + '.amxx'), server / 'cstrike/addons/amxmodx/plugins' / (name + '.amxx'), 'pawn')
     for path in sorted((output / 'gamedata').rglob('*.json')):
@@ -256,7 +266,7 @@ def plan(output, resource_plan, server, client, http_url, http_port, resource_ro
     add(staged, receipt_path, 'launcher-receipt')
     write_new(output / 'deployment-plan.json', dict(schemaVersion=1, candidate=identity(output / 'candidate.json'),
         resourcePlan=identity(resource_plan), resourceRoot=str(Path(resource_root).resolve()) if resource_root else None,
-        server=str(server), client=str(client), files=rows,
+        server=str(server), client=str(client), files=rows, rendererCapabilities=renderer_capabilities,
         http=dict(url=http_url, port=http_port, bind='127.0.0.1', builtIn=True),
         note='Resources go only to server cstrike. Actual HTTP registration/downloads require the running dedicated server.'))
     write_new(output / 'launch-environment.json', dict(GOLDCRAFT_HTTP_ENABLED='1', GOLDCRAFT_HTTP_BIND='127.0.0.1',
@@ -373,6 +383,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--resources', type=Path)
     parser.add_argument('--resource-root', type=Path, help='Explicit read-only common root for manifest sources outside the workspace')
+    parser.add_argument('--renderer', type=Path, help='Explicit paired Renderer DLL to include when planning an update')
     parser.add_argument('--http-paths', type=Path, help='JSON array of this candidate resources actually registered by the running server; excludes server-only tables')
     parser.add_argument('--server', type=Path, default=ROOT / 'sandbox/cs-server/Half-Life')
     parser.add_argument('--client', type=Path, default=ROOT / 'sandbox/cs-client-b/Half-Life')
@@ -383,7 +394,7 @@ def main():
     if args.command == 'plan':
         if not args.resources or not 1 <= args.http_port <= 65535:
             parser.error('plan requires --resources and a valid --http-port')
-        plan(output, args.resources, args.server, args.client, args.http_url, args.http_port, args.resource_root)
+        plan(output, args.resources, args.server, args.client, args.http_url, args.http_port, args.resource_root, args.renderer)
     elif args.command == 'verify-http':
         if not args.http_paths:
             parser.error('verify-http requires --http-paths from the actual running server resource list')

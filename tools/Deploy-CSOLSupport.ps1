@@ -17,13 +17,16 @@ $source=Assert-SandboxPath (Join-Path $reference $plugin)
 $target=Assert-SandboxPath (Join-Path $game $plugin)
 $listPath=Assert-SandboxPath (Join-Path $game $list)
 $consumer=Assert-SandboxPath (Join-Path $game 'cstrike/metahook/plugins/GoldCraft.dll')
-if(Test-Path -LiteralPath $consumer){
-    & python -X utf8 -B (Join-Path $PSScriptRoot 'csol_resource_capabilities.py') --consumer $consumer --candidate $source
-    if($LASTEXITCODE){throw 'CSOLSupport would remove the installed resource-update provider.'}
-}
 $text=[IO.File]::ReadAllText($listPath)
 $names=@($text -split '\r?\n' | ForEach-Object {($_ -split '//',2)[0].Trim()} | Where-Object {$_ -and -not $_.StartsWith('#')})
 $referenceNames=@([IO.File]::ReadAllLines((Join-Path $reference $list)) | ForEach-Object {($_ -split '//',2)[0].Trim()} | Where-Object {$_ -and -not $_.StartsWith('#')})
+$rendererNames=@($names | Where-Object {$_ -imatch '^Renderer(?:_AVX2)?\.dll$'})
+if($rendererNames.Count -ne 1){throw 'Select exactly one Renderer in the target plugin chain.'}
+$renderer=Assert-SandboxPath (Join-Path $game "cstrike/metahook/plugins/$($rendererNames[0])")
+$capabilityArgs=@('--candidate',$source,'--renderer',$renderer)
+if(Test-Path -LiteralPath $consumer){$capabilityArgs+=@('--consumer',$consumer)}
+& python -X utf8 -B (Join-Path $PSScriptRoot 'csol_resource_capabilities.py') @capabilityArgs
+if($LASTEXITCODE){throw 'CSOLSupport resource-update or Renderer interfaces are incomplete.'}
 $withoutCsol=@($names | Where-Object {$_ -ine 'CSOLSupport.dll'})
 $referenceWithoutCsol=@($referenceNames | Where-Object {$_ -ine 'CSOLSupport.dll'})
 if(@($names | Where-Object {$_ -ieq 'CSOLSupport.dll'}).Count -gt 1 -or @($referenceNames | Where-Object {$_ -ieq 'CSOLSupport.dll'}).Count -ne 1){
