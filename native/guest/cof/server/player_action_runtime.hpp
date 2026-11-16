@@ -68,6 +68,11 @@ public:
     PlayerActionBinding() noexcept = default;
     explicit operator bool() const noexcept { return Current(); }
     bool Current() const noexcept { return Matches() && life_->Current(); }
+    bool PreparedFor(CBasePlayer& player, std::uint64_t map, std::uint64_t life) const noexcept
+    {
+        return Matches() && life_->player_ == &player && life_->map_ == map && life_->life_ == life &&
+            life_->think_.PreparedFor(player, PlayerThinkKind::Pushback, map, life);
+    }
     bool Read(StaminaCycleState& state, StaminaCycleOwner& owner) const noexcept
     { return Matches() && life_->Read(state, owner); }
     bool SetStamina(float amount) const noexcept { return Matches() && life_->SetStamina(amount); }

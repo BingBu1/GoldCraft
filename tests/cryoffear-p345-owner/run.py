@@ -29,7 +29,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5","m16"),default="p345")
+    parser.add_argument('--sample',type=Path)
+    parser.add_argument('--proof',type=Path)
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
@@ -61,6 +63,34 @@ def main():
     if args.weapon=='mp5':sources.append(ROOT/'native/csol/server/weapons/guest_cof_tmp_owner.cpp')
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
+    original=None
+    if args.weapon=='m16':
+        if args.sample is None or args.proof is None:parser.error('M16 requires original --sample and --proof')
+        sources.extend((ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
+        inputs.update(sources);inputs.update((args.sample.resolve(),args.proof.resolve()))
+        proof=json.loads(args.proof.read_text('utf-8-sig'))
+        if not proof['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256']:
+            raise ValueError('M16 original identity mismatch')
+        regions=[]
+        for record in proof['proofs']:
+            path=ROOT/record['path'];inputs.add(path)
+            if sha(path)!=record['sha256']:raise ValueError('M16 pre-edit evidence changed')
+            data=json.loads(path.read_text('utf-8-sig'))
+            if 'newRegions' in data:regions.extend(data['newRegions']+data['existingM16Regions']+data['sharedInventory'])
+            else:regions.extend(data['regions'])
+            for name,digest in data.get('archives',{}).items():
+                archive=path.parent/name;inputs.add(archive)
+                if sha(archive)!=digest:raise ValueError('M16 IDA archive changed')
+        pe=args.sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');opt=nt+24
+        base=int.from_bytes(pe[opt+28:opt+32],'little');section=opt+int.from_bytes(pe[nt+20:nt+22],'little')
+        for region in regions:
+            rva=int(region['va'],16)-base;raw=None
+            for i in range(int.from_bytes(pe[nt+6:nt+8],'little')):
+                at=section+i*40;va=int.from_bytes(pe[at+12:at+16],'little');size=int.from_bytes(pe[at+16:at+20],'little')
+                if va<=rva and rva+region['size']<=va+size:raw=int.from_bytes(pe[at+20:at+24],'little')+rva-va;break
+            if raw is None or hashlib.sha256(pe[raw:raw+region['size']]).hexdigest()!=region['sha256']:
+                raise ValueError('Original M16 region mismatch')
+        original=dict(sampleSha256=sha(args.sample),regions=len(regions),proofSha256=sha(args.proof))
     for name, path, sig, only in (
         ('sdk-sequence-info.inc', SDK / 'dlls/animation.cpp', 'void GetSequenceInfo(', False),
         ('sdk-sequence-flags.inc', SDK / 'dlls/animation.cpp', 'int GetSequenceFlags(', False),
@@ -148,7 +178,7 @@ def main():
     after = {str(p): sha(p) for p in sorted(inputs)}
     success = (not compiled.returncode and tested is not None and not tested.returncode and
                before == after and compiler_hash == sha(args.compiler))
-    receipt = dict(success=success, revision=revision, command=command, dependencyCommands=dependency_commands,
+    receipt = dict(success=success, revision=revision, original=original, command=command, dependencyCommands=dependency_commands,
         compiled=compiled.returncode, tested=tested.returncode if tested else None,
         before=before, after=after, compilerSha256=compiler_hash, unchanged=before == after, sourceCopies=0,
         boundary=f'Actual {args.weapon} canonical owner view, native inventory frame capability and actual models; controlled authority/effects; no external production hooks, whole DLL, deployment, gameplay or live performance acceptance')

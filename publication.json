@@ -2641,7 +2641,12 @@
     "native/guest/cof/server/player_action_runtime.cpp",
     "tests/cryoffear-player-actions/main.cpp",
     "tests/cryoffear-player-actions/README.md",
-    "docs/2026-11-16_接入-CoF玩家生命动作与体力归属-report.md"
+    "docs/2026-11-16_接入-CoF玩家生命动作与体力归属-report.md",
+    "native/csol/server/weapons/guest_cof_m16_owner.hpp",
+    "native/csol/server/weapons/guest_cof_m16_owner.cpp",
+    "tests/cryoffear-m16-owner/main.cpp",
+    "tests/cryoffear-m16-owner/README.md",
+    "docs/2026-11-16_接入-M16权威输入与生命体力-report.md"
   ],
   "trees": {
     "native": [
