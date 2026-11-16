@@ -90,6 +90,9 @@ bool Frame(Case& c, float now)
 }
 void Admit(Case& c, float now)
 {
+    // Explicit boundary: native UpdateClientData has completed InitHUD.
+    // The hud-order group separately drives that real native method.
+    c.player.m_fGameHUDInitialized = TRUE;
     Require(Frame(c, std::nextafter(now, -std::numeric_limits<float>::infinity())),
         "cold current life emits a readiness probe without enabling movement");
     const auto challenge = Probe(c);
@@ -129,6 +132,34 @@ void Run(std::string_view group)
             "unprobed acknowledgement cannot manufacture disabled or unsupported movement");
         return;
     }
+    if (group == "hud-order")
+    {
+        c.player.m_fGameHUDInitialized = FALSE;
+        const auto before = c.packets.size(), calls = speedCalls;
+        Require(Frame(c, 100), "pre-InitHUD native frame remains usable");
+        Expect(c.packets.size() == before && speedCalls == calls &&
+            !CSOL_ActionStaminaInputReady(c.f.runtime, c.player, "1", "1") &&
+            !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
+            "no movement owner or one-shot probe precedes native InitHUD completion");
+        c.player.m_fInitHUD = TRUE;
+        // Actual ReHLDS COM_FreeFile accepts nullptr. InitHUD may request an
+        // absent optional MOTD; nonnull buffers retain the fixture's exact
+        // one-release check instead of accepting unknown allocations.
+        g_engfuncs.pfnFreeFile = [](void* data) { if (data) Engine::Free(data); };
+        c.player.UpdateClientData();
+        Require(c.player.m_fGameHUDInitialized != FALSE && !CSOL_RulesRejected(),
+            "real native UpdateClientData completes HUD initialization");
+        const auto initializedPackets = c.packets.size();
+        Require(Frame(c, 100.01f), "first initialized frame may publish its readiness probe");
+        const auto challenge = Probe(c);
+        Expect(c.packets.size() > initializedPackets && challenge.life != 0,
+            "readiness probe follows native HUD messages in the actual transport sequence");
+        ReadyCommand(c, std::to_string(challenge.life), std::to_string(challenge.revision));
+        Require(Frame(c, 100.02f), "queued post-InitHUD acknowledgement admits movement");
+        Expect(Grant(c).enabled, "HUD initialization cannot erase the first movement grant");
+        return;
+    }
+    c.player.m_fGameHUDInitialized = TRUE;
     if (group == "probe-reset" || group == "probe-close" || group == "probe-ack-reentry")
     {
         bool fired{}, nestedAcknowledged{};

@@ -38,13 +38,16 @@ def main():
                         help='Optional existing workspace gameplay JSON for the isolated test; original runtime file is restored')
     parser.add_argument('--challenge-environment',action='store_true',
                         help='Read the actual environment service/profile through its matching PDB')
+    parser.add_argument('--live-time-controls',action='store_true',
+                        help='Start time disabled, then verify real CVAR edits in this same no-player map via matching PDB')
     parser.add_argument('--map',default='zs_deadend')
     parser.add_argument('--map-id',type=int,
                         help='Explicit current catalog id when multiple rows share one filename')
     parser.add_argument('--http-resource',action='append',default=[],
                         help='Additional map resource whose actual HTTP bytes must match the server')
     args=parser.parse_args();out=args.output.resolve();game=ROOT/'sandbox/cs-dione-probe/Half-Life';cstrike=game/'cstrike'
-    if args.challenge_environment and not args.pdb:raise ValueError('Environment inspection requires the exact candidate PDB')
+    if (args.challenge_environment or args.live_time_controls) and not args.pdb:
+        raise ValueError('Native state inspection requires the exact candidate PDB')
     if not re.fullmatch(r'[a-z0-9_]{1,63}',args.map):raise ValueError('Invalid scenario map basename')
     if out.exists()or not out.is_relative_to(ROOT/'build'):raise ValueError('fresh workspace receipt required')
     if any(p.get('image')and str(game).casefold()in p['image'].casefold()for p in processes(('hlds.exe',))):
@@ -87,7 +90,7 @@ def main():
     settings_source=args.settings_file.resolve(strict=True)if args.settings_file else config
     if not settings_source.is_relative_to(ROOT):raise ValueError('Test settings must stay in the workspace')
     settings=json.loads(settings_source.read_text('utf-8-sig'))
-    settings['features']['time_cycle']['enabled']=True
+    settings['features']['time_cycle']['enabled']=not args.live_time_controls
     (out/'gameplay.json').write_text(json.dumps(settings,ensure_ascii=False,indent=2)+'\n','utf8')
     (out/'server.cfg').write_text(f'hostname "GoldCraft isolated HUD cold"\nrcon_password "{token}"\nsv_lan 0\nlog off\nsv_logecho 0\nmp_timelimit 0\nmp_autokick 0\nsypb_quota 0\ncsol_weapons 1\ncsol_scenario_difficulty 1\nmc_http_download 1\nmc_http_bind "127.0.0.1"\nmc_http_port {http_port}\nmc_http_public_url "http://127.0.0.1:{http_port}/goldcraft/"\n','utf8')
     try:
@@ -113,6 +116,8 @@ def main():
                 status=rcon.command('status',config_path=private)
                 if args.map in status and '0 active'in status:break
             except (TimeoutError,ConnectionResetError,ConnectionRefusedError):pass
+            except ValueError as error:
+                if str(error)!='Unexpected GoldSrc RCON reply type':raise
             time.sleep(.25)
         else:raise TimeoutError('isolated server did not finish cold startup')
         for key,command in [('status','status'),('mode','csol_game_mode'),('time','csol_custom_time_cycle'),('deathmatch','deathmatch'),('coop','coop'),('mapId','csol_scenario_map_id'),('difficulty','amx_scenario_difficulty')]:
@@ -176,8 +181,60 @@ def main():
                         originalFogProfile=actual['densityBits']=='3480373a'and actual['color']==[1,1,1]and
                             actual['start']==100 and actual['end']==2000 and actual['sky'])
                 receipt['nativeRules']=native
+                if args.live_time_controls:
+                    controls_type='csol::scenario::custom::TimeCycleControls'
+                    duration_type='csol::scenario::custom::PhaseConfig'
+                    controls=field(rules,"`anonymous namespace'::CCSOLScenarioRules",'m_timeControls')
+                    duration=field(controls,controls_type,'duration')
+                    enabled=field(controls,controls_type,'enabled')
+                    noon=field(duration,duration_type,'noonSeconds')
+                    dusk=field(duration,duration_type,'duskSeconds')
+                    pointer=module['base']+symbols.global_rva('g_pGameRules')
+                    original_config=sha(config)
+                    initial_generation=process.read(runtime+runtime_layout['members']['m_generation'],8)
+                    def snapshot():
+                        if child.poll()is not None:raise RuntimeError('Owned time-control test server exited')
+                        if u32(pointer)!=rules:raise ValueError('Time-control edit replaced the native rules object')
+                        if process.read(runtime+runtime_layout['members']['m_generation'],8)!=initial_generation:
+                            raise ValueError('Time-control edit replaced the map runtime generation')
+                        return dict(enabled=bool(process.read(enabled,1)[0]),
+                            noon=struct.unpack('<f',process.read(noon,4))[0],
+                            dusk=struct.unpack('<f',process.read(dusk,4))[0],
+                            invalidReported=bool(process.read(rules+rules_layout['members']['m_timeInvalidReported'],1)[0]),
+                            prepared=bool(process.read(rules+rules_layout['members']['m_timePrepared'],1)[0]),
+                            round=int.from_bytes(process.read(rules+rules_layout['members']['m_timeRound'],8),'little'))
+                    initial=snapshot()
+                    if initial['enabled']or not initial['prepared']:
+                        raise ValueError('Initially disabled map did not cold-prepare the live time owner')
+                    receipt['timeControlSamples']=[dict(step='initial-disabled',**initial)]
+                    def edit(label,commands,expected):
+                        for text in commands:
+                            answer=rcon.command(text,config_path=private)
+                            receipt.setdefault('timeControlCommands',[]).append(dict(command=text,output=answer))
+                        deadline=time.monotonic()+5
+                        while time.monotonic()<deadline:
+                            actual=snapshot()
+                            if all(actual[key]==value for key,value in expected.items()):break
+                            time.sleep(.02)
+                        else:raise TimeoutError('Current-map CVAR edit was not applied: '+label)
+                        if sha(config)!=original_config:raise ValueError('Temporary CVAR edit rewrote persistent gameplay JSON')
+                        receipt['timeControlSamples'].append(dict(step=label,**actual))
+                    edit('enabled-current-map',['csol_custom_time_cycle 1'],dict(enabled=True))
+                    edit('retimed-current-map',['csol_custom_midday_seconds 17','csol_custom_dusk_seconds 19'],
+                        dict(enabled=True,noon=17,dusk=19))
+                    edit('invalid-noon-refused',['csol_custom_midday_seconds -1'],
+                        dict(enabled=True,noon=17,dusk=19,invalidReported=True))
+                    edit('disabled-current-map',['csol_custom_midday_seconds 17','csol_custom_time_cycle 0'],
+                        dict(enabled=False,invalidReported=False))
+                    edit('reenabled-current-map',['csol_custom_time_cycle 1'],dict(enabled=True,noon=17,dusk=19))
+                    current_status=rcon.command('status',config_path=private)
+                    receipt['checks'].update(liveTimeControls=True,sameMapNoPlayers=args.map in current_status and '0 active'in current_status,
+                        liveConfigNotPersisted=sha(config)==original_config,
+                        noSyntheticRound=all(item['round']==0 for item in receipt['timeControlSamples']))
             finally:process.close()
-        receipt['checks'].update(mode2='"2"'in receipt['responses']['mode'],timeEnabled='"1"'in receipt['responses']['time'],slots32='32 max'in receipt['responses']['status'],noPlayers='0 active'in receipt['responses']['status'],difficultyReady='1..6'in receipt['responses']['difficulty'])
+        receipt['checks'].update(mode2='"2"'in receipt['responses']['mode'],
+            timeEnabled=('"0"'if args.live_time_controls else'"1"')in receipt['responses']['time'],
+            slots32='32 max'in receipt['responses']['status'],noPlayers='0 active'in receipt['responses']['status'],difficultyReady='1..6'in receipt['responses']['difficulty'])
         advertised={}
         if args.http_resource:
             for kind in ('model','sound','generic','event'):

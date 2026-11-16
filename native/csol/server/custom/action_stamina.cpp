@@ -338,6 +338,10 @@ bool CSOL_TickStandaloneMovementFrame(const Runtime& runtime, csol::scenario::Co
             player->m_iTeam == UNASSIGNED || player->m_iJoiningState != JOINED) continue;
         if (player->pev->deadflag != DEAD_NO || player->pev->health <= 0)
         { CSOL_RetireActionStamina(*player); if (!current()) return false; continue; }
+        // Native UpdateClientData queues InitHUD before setting this flag.
+        // A probe sent earlier would be cleared by the client's InitHUD reset;
+        // reliable ordering alone cannot rescue a one-shot acknowledgement.
+        if (!player->m_fGameHUDInitialized) continue;
         auto* state = Prepare(runtime, *player, now, error);
         if (!current()) return false;
         if (!state) { if (!error.message.empty()) return false; continue; }
