@@ -38,6 +38,7 @@ decltype(&fixture::End) pfnMessageEnd=fixture::End;
 void DispatchBegin(int destination,int message,const void* origin=nullptr,const void* recipient=nullptr)
 {g_engfuncs.pfnMessageBegin(destination,message,origin,recipient);}
 #define PRECACHE_GENERIC(p) g_engfuncs.pfnPrecacheGeneric(p)
+#define GET_FILE_SIZE(p) g_engfuncs.pfnGetFileSize(p)
 #define REG_USER_MSG(n,s) g_engfuncs.pfnRegUserMsg(n,s)
 #define MESSAGE_BEGIN(...) DispatchBegin(__VA_ARGS__)
 #define WRITE_BYTE(v) g_engfuncs.pfnWriteByte(v)
@@ -52,7 +53,9 @@ int main()
         auto access=std::make_shared<CSOLScenarioEntityAccess>();CCSOLScenarioMusic music(access);
         RoundTable rounds;rounds.headerRecord=6;rounds.source.records.resize(9);rounds.rows.resize(2);
         for(int i=0;i<2;++i){rounds.rows[i].recordIndex=i+7;rounds.source.records[i+7].fields.resize(12);rounds.source.records[i+7].fields[10]=i?"6":"5";}
-        ResourceError error;Check(music.Precache(rounds,error));Check(paths==std::vector<std::string>({"bgm/Scenario_Ready.mp3","bgm/Scenario_Normal.mp3","bgm/Scenario_Rush.mp3"}));
+        ResourceError error;Check(music.Precache(rounds,error));Check(paths==std::vector<std::string>({"bgm/Scenario_Ready.mp3","bgm/Scenario_Normal.mp3","bgm/Scenario_Rush.mp3",
+            "bgm/Zsh_nightbgm.mp3","bgm/Play_BGM_Rex.mp3","bgm/BGM_Rex_loop.mp3","bgm/BGM_zombie_attack.mp3"}));
+        Check(music.ChallengeReady());
         CBasePlayer p;Check(music.Replay(p));Check(packets.empty());
         loading=false;Check(music.Select(1));Check(packets.back().action==music::Action::Play&&packets.back().revision==1);
         Check(music.Select(5));Check(packets.back().path=="bgm/Scenario_Normal.mp3"&&packets.back().action==music::Action::Loop);

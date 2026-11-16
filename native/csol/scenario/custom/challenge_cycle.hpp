@@ -39,6 +39,37 @@ public:
         stage_ = key;
         return true;
     }
+    bool RestartCurrent(RoundKey key, PhaseConfig config) noexcept
+    {
+        if (!key.Valid() || (stage_.Valid() &&
+            (stage_.session != key.session || key.round < stage_.round)) ||
+            !std::isfinite(config.noonSeconds) || !std::isfinite(config.duskSeconds) ||
+            config.noonSeconds <= 0 || config.duskSeconds <= 0 ||
+            challenge_ == std::numeric_limits<std::uint64_t>::max()) return false;
+        config_ = config; configured_ = true; stage_ = key; ++challenge_;
+        clock_.Reset(); begun_ = ended_ = sampled_ = false;
+        view_ = {{Phase::Noon, config_.noonSeconds}, true, challenge_};
+        return true;
+    }
+    bool Reconfigure(RoundKey key, float now, PhaseConfig config) noexcept
+    {
+        if (!stage_.Valid() || key != stage_ || !std::isfinite(now) ||
+            (sampled_ && now < last_) || !std::isfinite(config.noonSeconds) ||
+            !std::isfinite(config.duskSeconds) || config.noonSeconds <= 0 || config.duskSeconds <= 0) return false;
+        auto clock = clock_;
+        auto next = view_;
+        if (begun_)
+        {
+            if (!clock.Reconfigure({key.session, challenge_}, now, config)) return false;
+            const auto value = clock.Sample({key.session, challenge_}, now);
+            if (!value) return false;
+            next.time = *value;
+        }
+        else if (!ended_) next.time.remaining = config.noonSeconds;
+        config_ = config; clock_ = clock; view_ = next;
+        last_ = now; sampled_ = true;
+        return true;
+    }
     std::optional<ChallengePhaseView> Advance(RoundKey key, float now,
         bool combat, bool finished) noexcept
     {

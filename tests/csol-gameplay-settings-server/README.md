@@ -35,3 +35,17 @@ The initial input-inventory rejection, variadic-lambda compiler rejection and
 single missing SDK global link probe remain in `-01` through `-03`. These are
 not counted as passes. This test does not validate AMXX administrator flags,
 menu rendering, complete MP linking, the actual kick consumer or live performance.
+
+The 2026-11-16 time-toggle regression uses the real settings service to enable,
+disable and reenable the installed `TimeCycle` capability. It checks the sole
+JSON file, registered CVAR, next-map marker, unchanged previously captured
+snapshot and an independent process reload. Incomplete mastery and full sprint
+activation remain rejected. The old adapter fails before the production edit;
+the fixed five groups pass 2,804 checks with 6,009 stable inputs. See
+[the time-menu report](../../docs/2026-11-16_修复-M菜单时间阶段开关不可用-report.md).
+
+The subsequent immediate-CVAR correction passes 2,840 checks. The three time
+controls now advertise `nextMap == false`, while previously captured immutable
+snapshots remain unchanged. The fixture explicitly controls current-map time
+resource readiness; the real implementation is exercised separately by the
+full GameDLL phase fixture, including an actual settings save and Think update.

@@ -110,7 +110,7 @@ custom::SnapshotPtr MapSettings(const Runtime& runtime,
 }
 custom::Phase Phase(const Runtime& runtime, const custom::SnapshotPtr& settings)
 {
-    if (settings && settings->Enabled(custom::Feature::TimeCycle) && phaseOwner.available &&
+    if (settings && phaseOwner.available &&
         phaseOwner.runtime.lock() == runtime && phaseOwner.session.lock() == runtime->session &&
         runtime->Generation() == phaseOwner.generation && runtime->session->Map().EntityAccess() == phaseOwner.access &&
         phaseOwner.access && phaseOwner.access->Allowed() && runtime->session->Map().RoundGeneration() == phaseOwner.round)

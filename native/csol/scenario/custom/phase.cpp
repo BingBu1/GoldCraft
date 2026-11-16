@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "phase.hpp"
+#include <algorithm>
 #include <cmath>
 
 namespace csol::scenario::custom
@@ -26,6 +27,24 @@ bool PhaseClock::End(RoundKey key) noexcept
 {
     if (!key_.Valid() || key != key_) return false;
     ended_ = true; return true;
+}
+bool PhaseClock::Reconfigure(RoundKey key, float now, PhaseConfig config) noexcept
+{
+    const auto phase = Sample(key, now);
+    if (!phase || !std::isfinite(config.noonSeconds) || !std::isfinite(config.duskSeconds) ||
+        config.noonSeconds <= 0 || config.duskSeconds <= 0) return false;
+    if (phase->phase >= Phase::Night) return true;
+    float dusk = dusk_, night;
+    if (phase->phase == Phase::Noon)
+    {
+        dusk = std::max(now, start_ + config.noonSeconds);
+        night = dusk + config.duskSeconds;
+    }
+    else night = std::max(now, dusk_ + config.duskSeconds);
+    if (!std::isfinite(dusk) || !std::isfinite(night) || dusk < start_ || night < dusk ||
+        (phase->phase == Phase::Noon && night <= dusk)) return false;
+    dusk_ = dusk; night_ = night;
+    return true;
 }
 void PhaseClock::Reset() noexcept { key_ = {}; ended_ = false; }
 }

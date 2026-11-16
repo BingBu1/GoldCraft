@@ -28,6 +28,7 @@ public:
     bool SetDusk(std::uint64_t challenge);
     bool Replay(CBasePlayer& player) const;
     bool Current() const;
+    bool ChallengeReady() const { return m_challengePrepared; }
     std::uint32_t Revision() const { return m_mapRevision; }
     void Reset();
 private:
@@ -40,7 +41,7 @@ private:
     csol::music::Packet m_mapState;
     std::uint32_t m_mapRevision{};
     std::uint64_t m_challenge{};
-    bool m_night{},m_dusk{};
+    bool m_night{},m_dusk{},m_challengePrepared{};
     csol::music::NightChoice m_nightChoice{};
     int m_message{};
     std::uint64_t m_generation{};

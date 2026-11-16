@@ -18,12 +18,22 @@ int main()
         auto access=std::make_shared<CSOLScenarioEntityAccess>();
         CCSOLScenarioMusic music(access);
         const auto firstPath=paths.size();
+        missingPath="bgm/BGM_zombie_attack.mp3";
         Check(music.Precache(rounds,error));
-        Check(paths.size()==firstPath+2);
+        Check(paths.size()==firstPath+2&&!music.ChallengeReady());
         const auto coldPackets=packets.size();
         Check(!music.SetNight(1,true)&&packets.size()==coldPackets);
         Check(music.Revision()==0);
         music.Reset();
+        missingPath.clear();
+        const auto optionalPaths=paths.size();
+        Check(music.Precache(rounds,error)&&music.ChallengeReady());
+        Check(paths.size()==optionalPaths+6);
+        loading=false;
+        const auto optionalReads=sizes;
+        Check(music.SetDusk(1)&&music.SetNight(1,true));
+        Check(sizes==optionalReads); // Activation never reads the filesystem.
+        music.Reset();Check(!music.ChallengeReady());loading=true;
         missingPath="bgm/Play_BGM_Rex.mp3";
         Check(!music.Precache(rounds,error,true)&&error.path==missingPath);
         missingPath.clear();music.Reset();

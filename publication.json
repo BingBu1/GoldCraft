@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_修复-M菜单时间阶段开关不可用-report.md",
     "docs/2026-11-16_接入-绝命档案服务端疾跑帧与命令-report.md",
     "tests/csol-standalone-frame/README.md",
     "docs/2026-11-16_实现-客户端永夜全员随身光-report.md",

@@ -55,7 +55,23 @@ bool CCSOLScenarioMusic::Precache(const csol::scenario::RoundTable& rounds,csol:
         if(!track){error={"",{index,"unsupported scenario music ID: "+std::to_string(settings.music)}};return false;}
         if(!track->filename.empty()&&!PrecacheFile(track->filename,error))return false;
     }
-    if(challengeNight)
+    bool prepareChallenge = challengeNight;
+    // An initially disabled clock can be enabled in the same map. Prepare
+    // the complete optional program here, never in a live phase callback.
+    // An absent optional file keeps ordinary map music usable.
+    if (!prepareChallenge && g_engfuncs.pfnGetFileSize)
+    {
+        prepareChallenge = true;
+        for (const auto file : csol::music::NightFiles)
+        {
+            const auto path = csol::music::ResourcePath(file);
+            if (!path) { prepareChallenge = false; break; }
+            const int bytes = GET_FILE_SIZE(path->c_str());
+            if (!Current() || generation != m_generation) return false;
+            if (bytes <= 0) { prepareChallenge = false; break; }
+        }
+    }
+    if(prepareChallenge)
     {
         const auto night=csol::music::FindTrack(18);
         if(!night||night->action!=csol::music::Action::Play||night->filename.empty())
@@ -63,6 +79,7 @@ bool CCSOLScenarioMusic::Precache(const csol::scenario::RoundTable& rounds,csol:
         for(const auto file:csol::music::NightFiles)
             if(!PrecacheFile(file,error))return false;
     }
+    m_challengePrepared = prepareChallenge;
     return Current()&&m_generation==generation;
 }
 
@@ -161,5 +178,5 @@ void CCSOLScenarioMusic::Reset()
     if(!s_sending&&m_state.revision&&Current())PublishOutput(csol::music::Action::Stop);
     ++m_generation;
     m_state={};m_mapState={};m_paths.clear();m_message=0;
-    m_mapRevision=0;m_challenge=0;m_night=m_dusk=false;m_nightChoice={};
+    m_mapRevision=0;m_challenge=0;m_night=m_dusk=m_challengePrepared=false;m_nightChoice={};
 }

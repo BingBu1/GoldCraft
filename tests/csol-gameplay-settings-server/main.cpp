@@ -27,6 +27,7 @@ namespace test
 namespace custom = csol::scenario::custom;
 namespace fs = std::filesystem;
 int checks{}, failures{}, mode{2}, registrations{}, sets{}, userQueries{}, callbackQueries{};
+bool timeReady{true}; // Explicit current-map resource/engine readiness boundary.
 DWORD ownerThread{};
 fs::path root;
 globalvars_t globals{};
@@ -139,7 +140,7 @@ void Init()
         csol::GameplaySetting field; Require(service->Read(id, field), "real service exposes each typed descriptor");
         Check(field.id == id && field.key[0] && field.cvar[0] && field.comment[0], "every service field retains identity and explanation");
         if (id < int(custom::FeatureCount))
-            Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::DamageRefundCap) ||
+            Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::TimeCycle) || id == int(custom::Feature::DamageRefundCap) ||
                 id == int(custom::Feature::NightPlayerLights)), "only integrated feature capability is reported available");
     }
     csol::GameplaySetting field;
@@ -171,8 +172,14 @@ void Negative()
     for (const int id : {-1, before.count}) Check(service->Edit(1, 71, before.revision, id, 0) == Result::Failed, "unknown entry cannot edit");
     for (const double value : {std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), .5})
         Check(service->Edit(1, 71, before.revision, 0, value) == Result::Failed, "boolean edit rejects nonfinite and nonboolean inputs");
-    Check(service->Edit(1, 71, before.revision, int(custom::Feature::TimeCycle), 1) == Result::Unavailable,
+    Check(service->Edit(1, 71, before.revision, int(custom::Feature::Mastery), 1) == Result::Unavailable,
         "uninstalled feature refuses activation instead of reporting gameplay ready");
+    Check(service->Edit(1, 71, before.revision, int(custom::Feature::CofSprint), 1) == Result::Unavailable,
+        "exposing installed time stages does not activate incomplete standalone movement");
+    timeReady = false;
+    Check(service->Edit(1, 71, before.revision, int(custom::Feature::TimeCycle), 1) == Result::Unavailable,
+        "missing prepared time resources cannot be activated through the menu");
+    timeReady = true;
     Check(service->Edit(1, 71, before.revision, int(custom::FeatureCount) + int(custom::Setting::MiddaySeconds), 1.5) == Result::Failed,
         "real adapter preserves pure parser integer requirement");
     mode = 1; Check(service->UserId(1) == 0 && service->Edit(1, 71, before.revision, 0, 0) == Result::Failed, "other mode cannot enter custom edits"); mode = 2;
@@ -190,6 +197,23 @@ void Negative()
 void Writer()
 {
     Init(); Negative();
+    const auto savedTime = CSOL_CustomSettings();
+    const auto savedFile = Bytes(Target());
+    custom::TimeCycleControls controls;
+    Require(CSOL_ReadTimeCycleControls(controls) && !controls.enabled && controls.duration == custom::PhaseConfig{},
+        "live time controls initially match registered JSON defaults");
+    Set("csol_custom_time_cycle", "1"); Set("csol_custom_midday_seconds", "30"); Set("csol_custom_dusk_seconds", "40");
+    Require(CSOL_ReadTimeCycleControls(controls) && controls.enabled && controls.duration == custom::PhaseConfig{30,40},
+        "direct CVAR edits reach typed live controls without changing the JSON snapshot");
+    Check(CSOL_CustomSettings() == savedTime && Bytes(Target()) == savedFile,
+        "temporary console edits do not claim permanent persistence");
+    for (const char* invalid : {"0", "1.5", "86401", "nan"})
+    {
+        Set("csol_custom_midday_seconds", invalid);
+        Check(!CSOL_ReadTimeCycleControls(controls) && controls.duration == custom::PhaseConfig{30,40},
+            "invalid live duration leaves the caller's last validated controls unchanged");
+    }
+    Set("csol_custom_time_cycle", "0"); Set("csol_custom_midday_seconds", "180"); Set("csol_custom_dusk_seconds", "120");
     const auto originalFile = Bytes(Target());
     Set("csol_custom_kick", "0"); CSOL_PollGameplaySettings();
     Check(!CSOL_CustomFeatureEnabled(custom::Feature::Kick) && !policies.back() && CSOL_CustomSettings()->Enabled(custom::Feature::Kick) && Bytes(Target()) == originalFile,
@@ -217,6 +241,28 @@ void Writer()
     Wait(next.revision, true);
     Check(Disk()->Integer(custom::Setting::MiddaySeconds) == 240 && CSOL_CustomSettings()->Integer(custom::Setting::MiddaySeconds) == 240,
         "real serialized numeric value agrees with published snapshot");
+    const auto captured = CSOL_CustomSettings();
+    csol::GameplaySetting timeField;
+    Require(service->Read(int(custom::Feature::TimeCycle), timeField) && timeField.available && !timeField.nextMap &&
+        timeField.type == csol::GameplayValueType::Boolean && timeField.value == 0,
+        "menu service exposes installed time stages with immediate application");
+    for (const bool enabled : {true, false, true})
+    {
+        const auto beforeTime = Status();
+        Require(service->Edit(1, 71, beforeTime.revision, int(custom::Feature::TimeCycle), enabled ? 1 : 0) ==
+            csol::GameplayEditResult::Queued, "time toggle enters the real persistent administrator edit route");
+        Wait(beforeTime.revision, true);
+        Check(Disk()->Enabled(custom::Feature::TimeCycle) == enabled &&
+            CSOL_CustomSettings()->Enabled(custom::Feature::TimeCycle) == enabled &&
+            CSOL_CustomFeatureEnabled(custom::Feature::TimeCycle) == enabled &&
+            cvars.at("csol_custom_time_cycle").native->value == (enabled ? 1 : 0),
+            "saved time toggle agrees across JSON snapshot and registered CVAR");
+        Require(service->Read(int(custom::Feature::TimeCycle), timeField), "menu reads committed time setting");
+        Check(timeField.value == (enabled ? 1 : 0) && timeField.available && !timeField.nextMap,
+            "subsequent menu reads keep time editable and disclose its application boundary");
+        Check(!captured->Enabled(custom::Feature::TimeCycle),
+            "published snapshots stay immutable while the rules observe new controls");
+    }
     auto lights = Status();
     Require(service->Edit(1, 71, lights.revision, int(custom::Feature::NightPlayerLights), 0) == csol::GameplayEditResult::Queued,
         "night-light toggle uses the same verified persistent edit route");
@@ -245,6 +291,10 @@ void Reader()
     Check(CSOL_CustomSettings()->Integer(custom::Setting::MiddaySeconds) == 240 &&
         cvars.at("csol_custom_midday_seconds").native->value == 240, "second process restores actual persisted numeric configuration");
     Check(Disk()->Integer(custom::Setting::MiddaySeconds) == 240, "second process verifies the same sole target file");
+    Check(CSOL_CustomSettings()->Enabled(custom::Feature::TimeCycle) &&
+        CSOL_CustomFeatureEnabled(custom::Feature::TimeCycle) && Disk()->Enabled(custom::Feature::TimeCycle) &&
+        cvars.at("csol_custom_time_cycle").native->value == 1,
+        "independent process restores the permanent time toggle and its native CVAR");
     Check(CSOL_CustomSettings()->Enabled(custom::Feature::NightPlayerLights) &&
         CSOL_CustomSettings()->Number(custom::Setting::NightPlayerLightRadius) == 192 &&
         cvars.at("csol_custom_night_player_light_radius").native->value == 192,
@@ -273,6 +323,7 @@ void InvalidStartup()
 }
 }
 int CSOL_LockedGameMode() { return test::mode; }
+bool CSOL_ScenarioTimeCycleReady() { return test::timeReady; }
 void CSOL_SetHumanKickPolicy(bool value)
 {
     test::EngineThread(); test::policies.push_back(value);

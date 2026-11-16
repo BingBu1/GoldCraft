@@ -4,17 +4,23 @@
 #undef main
 #include "../../native/csol/scenario/custom/challenge_cycle.hpp"
 #include "../../native/csol/scenario/custom/phase_snapshot.hpp"
+#include "../../native/csol/scenario/custom/environment_snapshot.hpp"
+#include "../../native/csol/scenario/custom/night_lighting.hpp"
 #include "../../native/csol/scenario/custom/settings.hpp"
 #include "../../native/csol/server/custom/action_stamina.h"
+#include "../../native/csol/server/custom/gameplay_settings.h"
 #include "../../native/csol/server/characters.h"
 #include "../../native/csol/scenario/custom/stamina_audio.hpp"
 #include "../../native/csol/scenario/custom/stamina_snapshot.hpp"
 #include "../../native/csol/scenario/custom/phase_art.hpp"
 #include "../../native/csol/scenario/core/scenario_music.hpp"
 #include "goldcraft/csol_scenario_admin_api.hpp"
+#include "goldcraft/csol_gameplay_settings_api.hpp"
 #include "../csol-challenge-environment/provider_loader.hpp"
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <thread>
 
 namespace phase_sdk
 {
@@ -74,6 +80,7 @@ void Tick(Case& c,float now)
 {
     c.f.engine.globals.time=now;
     Require(CSOL_ScenarioThink(*static_cast<CHalfLifeMultiplay*>(g_pGameRules)),"actual rules Think consumes scenario frame");
+    if (CSOL_RulesRejected()) std::cerr << "phase rejection: " << CSOL_RulesRejectionReason() << '\n';
     Require(!CSOL_RulesRejected(),"phase update does not reject the map");
     custom::ChallengePhaseView observed;
     if(CSOL_ReadChallengePhase(c.f.runtime,observed))
@@ -109,7 +116,7 @@ void Flow(bool enabled,bool join=false,bool rex=false)
     Restart(c);
     if(!enabled)
     {
-        Expect(!c.f.engine.messages.contains(custom::PhaseMessage),"disabled policy does not register the extra message");
+        Expect(c.f.engine.messages.contains(custom::PhaseMessage),"cold registration permits a later live enable without sending a phase");
         Expect(!CSOL_ReadChallengePhase(c.f.runtime,absent),"disabled policy leaves native stage without custom clock");
         Require(c.Update(),"ordinary disabled-time kick owner still updates");
         const auto stamina=CSOL_ActionStaminaView(c.f.runtime,c.player);
@@ -334,6 +341,198 @@ void HudCancel()
     const auto count=c.packets.size();
     Expect(!CSOL_TickActionStamina(c.f.runtime,c.player,101,error)&&c.packets.size()==count,"closed owner cannot publish another HUD update");
 }
+void LiveControls(std::string_view group)
+{
+    Settings(false);
+    if (group != "live-missing") environment_test::LoadProvider();
+    const auto resources = +[](std::map<std::string, std::string>& files)
+    {
+        MusicResources(files);
+        files.erase("bgm/BGM_zombie_attack.mp3");
+    };
+    Case c(group == "live-missing-music" ? resources : MusicResources); NativeActor(c); Restart(c);
+    custom::ChallengePhaseView absent;
+    Expect(!CSOL_ReadChallengePhase(c.f.runtime, absent), "disabled time starts without a displayed phase");
+    const auto round = c.f.session->Map().RoundGeneration();
+    const auto generation = c.f.runtime->Generation();
+    const auto account = c.player.m_iAccount;
+    const auto weapon = c.player.m_pActiveItem;
+    const auto phaseMessage = c.f.engine.messages.at(custom::PhaseMessage);
+    auto latest = [&]
+    {
+        const auto packet = std::find_if(c.packets.rbegin(), c.packets.rend(),
+            [&](const auto& p) { return p.id == phaseMessage; });
+        Require(packet != c.packets.rend(), "live phase publishes through the actual message transport");
+        const auto value = custom::DecodePhase(packet->bytes);
+        Require(bool(value), "live phase message passes the current client decoder");
+        return *value;
+    };
+    if (group == "live-missing" || group == "live-missing-music")
+    {
+        Expect(!CSOL_ScenarioTimeCycleReady(), "missing cold environment or music cannot report time capability ready");
+        c.f.engine.Set("csol_custom_time_cycle", "1"); Tick(c, 120);
+        Expect(!CSOL_ReadChallengePhase(c.f.runtime, absent) && !CSOL_RulesRejected(),
+            "unprepared optional activation leaves the current playable map intact");
+        return;
+    }
+    Expect(CSOL_ScenarioTimeCycleReady(), "disabled map cold-prepares the actual time/environment consumers");
+    if (group == "live-cancel")
+        c.callback = [&](std::string_view edge)
+        { if (edge == "message" && c.packets.back().id == phaseMessage) c.f.runtime->RequestClose(); };
+    c.f.engine.Set("csol_custom_time_cycle", "1");
+    if (group == "live-cancel")
+    {
+        c.f.engine.globals.time = 120;
+        CSOL_ScenarioThink(*static_cast<CHalfLifeMultiplay*>(g_pGameRules));
+        Expect(c.f.runtime->Closing() && !CSOL_ReadChallengePhase(c.f.runtime, absent),
+            "message callback retirement prevents a live change from continuing on an obsolete owner");
+        return;
+    }
+    Tick(c, 120);
+    const auto first = Read(c);
+    Expect(first.time.phase == custom::Phase::Noon && first.time.remaining == 2 && !first.preparing,
+        "CVAR enable starts noon in the running map without a round restart");
+    Require(c.Update(), "live noon reaches the actual stamina owner");
+    Expect(CSOL_ActionStaminaView(c.f.runtime, c.player)->infinite,
+        "console enable grants noon stamina through phase authority even when saved JSON is off");
+    Tick(c, 121);
+    if (group == "live-invalid")
+    {
+        c.f.engine.Set("csol_custom_midday_seconds", "0"); Tick(c, 121);
+        Expect(Read(c).time.remaining == 1 && !CSOL_RulesRejected(), "invalid CVAR duration preserves the valid active clock");
+        c.f.engine.Set("csol_custom_time_cycle", "0.5"); Tick(c, 122);
+        Expect(Read(c).time.phase == custom::Phase::Dusk, "invalid toggle does not stop normal progression");
+        c.f.engine.Set("csol_custom_midday_seconds", "2"); c.f.engine.Set("csol_custom_time_cycle", "0"); Tick(c, 123);
+        Expect(!CSOL_ReadChallengePhase(c.f.runtime, absent), "corrected CVAR control can still disable the clock");
+        return;
+    }
+    if (group == "live-expiry")
+    {
+        c.f.engine.Set("csol_custom_midday_seconds", "1"); Tick(c, 121);
+        Expect(Read(c).time.phase == custom::Phase::Dusk && Read(c).time.remaining == 3,
+            "shortened expired noon starts a full dusk without inventing elapsed dusk time");
+        c.f.engine.Set("csol_custom_dusk_seconds", "1"); Tick(c, 123);
+        Expect(Read(c).time.phase == custom::Phase::Night, "shortened expired dusk enters eternal night immediately");
+        return;
+    }
+    c.f.engine.Set("csol_custom_midday_seconds", "4"); Tick(c, 121);
+    Expect(Read(c).time.phase == custom::Phase::Noon && Read(c).time.remaining == 3 && latest().remaining == 3,
+        "live noon duration retains elapsed time and refreshes the actual client countdown");
+    c.f.engine.Set("csol_custom_dusk_seconds", "6"); Tick(c, 124);
+    Expect(Read(c).time.phase == custom::Phase::Dusk && Read(c).time.remaining == 6,
+        "changed dusk duration applies at the actual phase transition");
+    c.f.engine.Set("csol_custom_midday_seconds", "20"); Tick(c, 125);
+    Expect(Read(c).time.phase == custom::Phase::Dusk && Read(c).time.remaining == 5,
+        "editing noon while in dusk cannot roll the challenge backwards");
+    c.f.engine.Set("csol_custom_dusk_seconds", "2"); Tick(c, 125);
+    Expect(Read(c).time.remaining == 1, "live dusk duration retains elapsed dusk time");
+    Tick(c, 126);
+    Expect(Read(c).time.phase == custom::Phase::Night, "live retiming still enters persistent night");
+    c.f.engine.Set("csol_custom_midday_seconds", "60"); c.f.engine.Set("csol_custom_dusk_seconds", "50"); Tick(c, 127);
+    Expect(Read(c).time.phase == custom::Phase::Night, "duration edits cannot move eternal night back into an earlier phase");
+    c.f.engine.Set("csol_custom_midday_seconds", "20"); Tick(c, 127);
+    const auto oldChallenge = Read(c).challenge;
+    c.f.engine.Set("csol_custom_time_cycle", "0"); Tick(c, 130);
+    Expect(!CSOL_ReadChallengePhase(c.f.runtime, absent) && latest().phase == custom::Phase::Ended,
+        "off immediately retires the authoritative phase and displayed HUD");
+    Require(c.Update(), "time disable reaches stamina");
+    Expect(!CSOL_ActionStaminaView(c.f.runtime, c.player)->infinite, "time disable removes the noon override");
+    for (const auto* name : {custom::EnvironmentMessage, custom::NightLightingMessage})
+    {
+        const auto id = c.f.engine.messages.at(name);
+        const auto packet = std::find_if(c.packets.rbegin(), c.packets.rend(), [&](const auto& p) { return p.id == id; });
+        Require(packet != c.packets.rend(), "off publishes actual environment and player-light cleanup");
+        if (!std::strcmp(name, custom::EnvironmentMessage))
+        {
+            const auto value = custom::DecodeEnvironment(packet->bytes);
+            Require(bool(value), "environment cleanup is a valid current wire message");
+            Expect(!value->view.active, "off restores map fog and light ownership");
+        }
+        else
+        {
+            const auto value = custom::DecodeNightLighting(packet->bytes);
+            Require(bool(value), "player-light cleanup is a valid current wire message");
+            Expect(value->phase == custom::Phase::Ended, "off clears every client's owned player lights");
+        }
+    }
+    const auto musicId = c.f.engine.messages.at(csol::music::MessageName);
+    const auto stoppedMusic = std::find_if(c.packets.rbegin(), c.packets.rend(), [&](const auto& p) { return p.id == musicId; });
+    Require(stoppedMusic != c.packets.rend(), "off updates the actual music transport");
+    const auto track = csol::music::Decode(stoppedMusic->bytes);
+    Require(bool(track), "music cleanup is a valid current wire message");
+    Expect(!track->path.ends_with(csol::music::NightFiles[0]) && !track->path.ends_with(csol::music::NightFiles[1]) &&
+        !track->path.ends_with(csol::music::NightFiles[3]), "off restores map music instead of retaining the phase BGM");
+    c.f.engine.Set("csol_custom_time_cycle", "1"); Tick(c, 131);
+    Expect(Read(c).challenge > oldChallenge && Read(c).time.phase == custom::Phase::Noon && Read(c).time.remaining == 20,
+        "reenabling creates a newer accepted cycle and uses the current CVAR duration");
+    custom::PhasePresentation display;
+    double received{};
+    for (const auto& packet : c.packets)
+        if (packet.id == phaseMessage)
+            Expect(display.Receive(packet.bytes, ++received), "actual phase wire remains monotonic across off and on");
+    const auto messages = std::count_if(c.packets.begin(), c.packets.end(), [&](const auto& p) { return p.id == phaseMessage; });
+    c.f.engine.Set("csol_custom_time_cycle", "1"); Tick(c, 131);
+    Expect(Read(c).challenge > oldChallenge &&
+        std::count_if(c.packets.begin(), c.packets.end(), [&](const auto& p) { return p.id == phaseMessage; }) == messages,
+        "unchanged CVAR writes do not restart the cycle or flood phase messages");
+    Expect(c.f.session->Map().RoundGeneration() == round && c.f.runtime->Generation() == generation &&
+        c.player.m_iAccount == account && c.player.m_pActiveItem == weapon,
+        "live settings preserve map/round identity and player economy/inventory");
+}
+void LiveMenu()
+{
+    Settings(false); environment_test::LoadProvider();
+    Case c(MusicResources); NativeActor(c); Restart(c);
+    const auto round = c.f.session->Map().RoundGeneration();
+    const auto generation = c.f.runtime->Generation();
+    g_engfuncs.pfnGetPlayerUserId = [](edict_t* player)
+    { return player == Case::active->player.edict() ? 71 : 0; };
+    auto* settings = static_cast<csol::IGameplaySettingsService*>(
+        CreateInterface(csol::GameplaySettingsServiceVersion, nullptr));
+    Require(settings != nullptr, "actual GameDLL exports the settings interface used by the M-menu bridge");
+    const auto edit = [&](int id, double value)
+    {
+        csol::GameplaySetting field;
+        Require(settings->Read(id, field) && field.available && !field.nextMap,
+            "actual menu service advertises immediate time controls");
+        csol::GameplaySettingsStatus before, after;
+        Require(settings->Status(before) && settings->Edit(1, 71, before.revision, id, value) ==
+            csol::GameplayEditResult::Queued, "actual menu request queues an authorized persistent edit");
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        do
+        {
+            Require(settings->Status(after), "actual menu service polls its file worker");
+            if (!after.busy && after.result != csol::GameplayEditResult::Queued) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } while (std::chrono::steady_clock::now() < deadline);
+        Require(!after.busy && after.result == csol::GameplayEditResult::Saved &&
+            after.revision == before.revision + 1, "real atomic JSON save publishes the next settings revision");
+        Require(settings->Read(id, field) && field.value == value && !field.nextMap,
+            "menu reads the saved immediate value without a map reload");
+        std::ifstream input("cstrike/addons/goldcraft/config/gameplay.json", std::ios::binary);
+        const std::string bytes{std::istreambuf_iterator<char>(input), {}};
+        custom::SnapshotPtr disk; custom::Error error;
+        Require(input && custom::Parse(bytes, disk, error), "sole gameplay JSON remains valid after real menu edit");
+        Expect(custom::Serialize(*disk) == custom::Serialize(*CSOL_CustomSettings()),
+            "disk and published menu settings agree before the running rules consume them");
+    };
+    const int toggle = int(custom::Feature::TimeCycle);
+    const int noon = int(custom::FeatureCount) + int(custom::Setting::MiddaySeconds);
+    edit(toggle, 1); Tick(c, 120);
+    Expect(Read(c).time.phase == custom::Phase::Noon && Read(c).time.remaining == 2,
+        "M-menu save activates the real clock in the running map");
+    Tick(c, 121); edit(noon, 4); Tick(c, 121);
+    Expect(Read(c).time.remaining == 3, "M-menu duration save retains already elapsed noon time");
+    const auto challenge = Read(c).challenge;
+    edit(toggle, 0); Tick(c, 121);
+    custom::ChallengePhaseView absent;
+    Expect(!CSOL_ReadChallengePhase(c.f.runtime, absent), "M-menu save disables the running phase");
+    edit(noon, 6); edit(toggle, 1); Tick(c, 122);
+    Expect(Read(c).time.phase == custom::Phase::Noon && Read(c).time.remaining == 6 && Read(c).challenge > challenge,
+        "M-menu reenable creates a fresh cycle using its saved duration");
+    Expect(c.f.session->Map().RoundGeneration() == round && c.f.runtime->Generation() == generation,
+        "real menu edits never reload the map or restart its round");
+}
 }
 namespace phase_sdk
 {
@@ -347,6 +546,8 @@ void Run(std::string_view group)
     else if(group=="breath-male"||group=="breath-female"||group=="breath-cancel")
         Breath(group!="breath-female",group=="breath-cancel");
     else if(group=="hud-cancel")HudCancel();
+    else if(group=="live-toggle"||group=="live-expiry"||group=="live-invalid"||group=="live-missing"||group=="live-missing-music"||group=="live-cancel")LiveControls(group);
+    else if(group=="live-menu")LiveMenu();
     else sdk_test::Require(false,"known phase SDK group");
 }
 }

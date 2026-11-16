@@ -12,7 +12,17 @@ struct RoundKey
     bool operator==(const RoundKey&) const = default;
 };
 enum class Phase : std::uint8_t { Noon, Dusk, Night, Ended };
-struct PhaseConfig { float noonSeconds{180.0f}, duskSeconds{120.0f}; };
+struct PhaseConfig
+{
+    float noonSeconds{180.0f}, duskSeconds{120.0f};
+    bool operator==(const PhaseConfig&) const = default;
+};
+struct TimeCycleControls
+{
+    bool enabled{};
+    PhaseConfig duration;
+    bool operator==(const TimeCycleControls&) const = default;
+};
 struct PhaseView { Phase phase; float remaining; };
 
 // User-defined round clock; it does not reproduce CSOL's original day length.
@@ -20,6 +30,7 @@ class PhaseClock
 {
 public:
     bool Begin(RoundKey key, float now, PhaseConfig config = {}) noexcept;
+    bool Reconfigure(RoundKey key, float now, PhaseConfig config) noexcept;
     std::optional<PhaseView> Sample(RoundKey key, float now) const noexcept;
     bool End(RoundKey key) noexcept;
     void Reset() noexcept;

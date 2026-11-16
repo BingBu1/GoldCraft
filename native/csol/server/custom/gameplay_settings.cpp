@@ -4,6 +4,7 @@
 #include "settings_store.hpp"
 #include "../game_mode.h"
 #include "../scenario/core/human_kick.h"
+#include "../scenario/core/game_rules_gate.h"
 #include "goldcraft/csol_gameplay_settings_api.hpp"
 #include <algorithm>
 #include <array>
@@ -30,7 +31,7 @@ bool Available(custom::Feature feature)
 {
     // Consumers register their capability as they are integrated. Publishing
     // a configuration flag alone cannot claim an unimplemented gameplay path.
-    return feature == custom::Feature::Kick || feature == custom::Feature::DamageRefundCap ||
+    return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::DamageRefundCap ||
         feature == custom::Feature::NightPlayerLights;
 }
 
@@ -155,6 +156,8 @@ public:
             if (value != 0 && value != 1) return csol::GameplayEditResult::Failed;
             if (value && !Available(custom::Features()[id].id))
             { failure = "This gameplay feature is not installed yet"; return csol::GameplayEditResult::Unavailable; }
+            if (value && id == int(custom::Feature::TimeCycle) && !CSOL_ScenarioTimeCycleReady())
+            { failure = "Time-cycle resources or engine service were unavailable at map startup"; return csol::GameplayEditResult::Unavailable; }
             changed = draft.Set(custom::Features()[id].id, value != 0, validation);
         }
         else changed = draft.Set(custom::Settings()[id - custom::FeatureCount].id, value, validation);
@@ -233,4 +236,21 @@ bool CSOL_CustomFeatureEnabled(custom::Feature feature)
     const auto index = static_cast<std::size_t>(feature);
     return registered && current && index < custom::FeatureCount && Available(feature) &&
         (publishing ? current->Enabled(feature) : variables[index].value == 1);
+}
+bool CSOL_ReadTimeCycleControls(custom::TimeCycleControls& output)
+{
+    if (!registered || !current) return false;
+    const auto number = [&](custom::Setting setting)
+    {
+        return publishing ? current->Number(setting).value_or(-1) :
+            double(variables[custom::FeatureCount + std::size_t(setting)].value);
+    };
+    const double noon = number(custom::Setting::MiddaySeconds), dusk = number(custom::Setting::DuskSeconds);
+    const float enabled = publishing ? (current->Enabled(custom::Feature::TimeCycle) ? 1 : 0) :
+        variables[std::size_t(custom::Feature::TimeCycle)].value;
+    if ((enabled != 0 && enabled != 1) || !std::isfinite(noon) || !std::isfinite(dusk) ||
+        noon < 1 || noon > 86400 || dusk < 1 || dusk > 86400 || std::trunc(noon) != noon || std::trunc(dusk) != dusk)
+        return false;
+    output = {enabled == 1, {float(noon), float(dusk)}};
+    return true;
 }

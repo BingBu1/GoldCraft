@@ -366,41 +366,43 @@ public:
     {
         if (!OwnsRules()) return;
         m_timeSettings = CSOL_CustomSettings();
-        if (m_timeSettings && m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle))
+        if (!m_timeSettings || !CSOL_ReadTimeCycleControls(m_timeControls) ||
+            !m_timeCycle.Configure(m_timeControls.duration))
+        {
+            CSOL_RejectGameRules("Scenario custom challenge clock configuration is invalid.");
+            return;
+        }
+        m_timeMessage = REG_USER_MSG(csol::scenario::custom::PhaseMessage,
+            static_cast<int>(csol::scenario::custom::PhaseMessageSize));
+        if (!OwnsRules()) return;
+        if (m_timeMessage < 64 || m_timeMessage > 255)
+        {
+            CSOL_RejectGameRules("Scenario custom time message registration failed.");
+            return;
+        }
+        // Cold preparation permits an in-map CVAR/menu enable. Missing
+        // optional resources leave disabled maps playable and activation
+        // unavailable; no disk work or message registration occurs on enable.
+        const auto* atlas = csol::scenario::custom::NightAnimationAtlas;
+        const int atlasBytes = g_engfuncs.pfnGetFileSize ? GET_FILE_SIZE(atlas) : -1;
+        if (!OwnsRules()) return;
+        if (atlasBytes > 0)
         {
             const auto environment = std::make_shared<CCSOLChallengeEnvironment>();
-            m_runtime->environment = environment;
             const bool environmentReady = environment->Precache(*m_timeSettings);
             if (!OwnsRules()) return;
-            if (!environmentReady)
+            if (environmentReady)
             {
-                CSOL_RejectGameRules("Scenario environment configuration or matching engine lightstyle service is unavailable.");
-                return;
+                PRECACHE_GENERIC(atlas);
+                if (!OwnsRules()) return;
+                m_runtime->environment = environment;
+                m_timePrepared = true;
             }
-            const auto noon = m_timeSettings->Number(csol::scenario::custom::Setting::MiddaySeconds);
-            const auto dusk = m_timeSettings->Number(csol::scenario::custom::Setting::DuskSeconds);
-            if (!noon || !dusk || !m_timeCycle.Configure({static_cast<float>(*noon), static_cast<float>(*dusk)}))
-            {
-                CSOL_RejectGameRules("Scenario custom challenge clock configuration is invalid.");
-                return;
-            }
-            m_timeMessage=REG_USER_MSG(csol::scenario::custom::PhaseMessage,
-                static_cast<int>(csol::scenario::custom::PhaseMessageSize));
-            if (!OwnsRules()) return;
-            if (m_timeMessage<64 || m_timeMessage>255)
-            {
-                CSOL_RejectGameRules("Scenario custom time message registration failed.");
-                return;
-            }
-            for(const auto* path:{csol::scenario::custom::NightAnimationAtlas})
-            {
-                const int bytes=g_engfuncs.pfnGetFileSize?GET_FILE_SIZE(path):-1;
-                if(!OwnsRules())return;
-                if(bytes<=0)
-                {CSOL_RejectGameRules("Scenario blood-moon animation resource is missing or empty.");return;}
-                PRECACHE_GENERIC(path);
-                if(!OwnsRules())return;
-            }
+        }
+        if (m_timeControls.enabled && !m_timePrepared)
+        {
+            CSOL_RejectGameRules("Scenario time resources or matching engine lightstyle service are unavailable.");
+            return;
         }
         CSOL_ResetScenarioMapVote();
         const bool voteResourcesReady = CSOL_PrecacheScenarioMapVote();
@@ -718,10 +720,15 @@ public:
         if (!UpdateCustomTime()) return;
         UpdateMusic();
     }
+    bool TimeCycleReady() const
+    {
+        if (!Ready() || !m_timePrepared) return false;
+        const auto music = m_runtime->session->Music();
+        return music && music->ChallengeReady();
+    }
     bool ReadCustomTime(csol::scenario::custom::ChallengePhaseView& output) const
     {
-        if (!Ready() || !m_timeSettings ||
-            !m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle)) return false;
+        if (!Ready() || !m_timeControls.enabled) return false;
         const auto value = m_timeCycle.View({m_runtime->Generation(), m_runtime->session->Map().RoundGeneration()});
         if (!value) return false;
         output = *value; return true;
@@ -729,10 +736,70 @@ public:
     bool UpdateCustomTime()
     {
         namespace custom = csol::scenario::custom;
-        if (!m_timeSettings || !m_timeSettings->Enabled(custom::Feature::TimeCycle) ||
-            !m_timeRound || !Ready()) return true;
+        if (!Ready()) return true;
+        if (m_timeUpdating) return false;
+        m_timeUpdating = true;
+        struct Updating { bool& flag; ~Updating() { flag = false; } } updating{m_timeUpdating};
+        custom::TimeCycleControls next;
+        if (!CSOL_ReadTimeCycleControls(next))
+        {
+            if (!m_timeInvalidReported && g_engfuncs.pfnAlertMessage)
+                ALERT(at_console, "[CSOL] Invalid time CVAR values were ignored; use a 0/1 toggle and whole seconds in 1..86400.\n");
+            m_timeInvalidReported = true;
+            return Ready() && AdvanceCustomTime();
+        }
+        m_timeInvalidReported = false;
+        if (next != m_timeControls)
+        {
+            if (next.enabled && !TimeCycleReady())
+            {
+                if (!m_timeUnavailableReported && g_engfuncs.pfnAlertMessage)
+                    ALERT(at_console, "[CSOL] Time-cycle activation is unavailable: resources or engine service were missing at map startup.\n");
+                m_timeUnavailableReported = true;
+                return Ready() && AdvanceCustomTime();
+            }
+            m_timeUnavailableReported = false;
+            const auto runtime = m_runtime;
+            const auto session = runtime->session;
+            const auto round = session->Map().RoundGeneration();
+            const auto current = [&]
+            { return Ready() && m_runtime == runtime && runtime->session == session && session->Map().RoundGeneration() == round; };
+            if (m_timeControls.enabled && !next.enabled && (!AdvanceCustomTime(true) || !current())) return false;
+            if (next.enabled)
+            {
+                if (!m_timeControls.enabled && round)
+                {
+                    if (!m_timeCycle.RestartCurrent({runtime->Generation(), round}, next.duration))
+                    {
+                        if (current()) CSOL_RejectGameRules("Scenario live time cycle could not acquire its current round.");
+                        return false;
+                    }
+                    m_timeRound = round; m_timePublishedRound = m_timeSentRound = 0;
+                }
+                else if (next.duration != m_timeControls.duration)
+                {
+                    const bool configured = m_timeRound ?
+                        m_timeCycle.Reconfigure({runtime->Generation(), m_timeRound}, gpGlobals->time, next.duration) :
+                        m_timeCycle.Configure(next.duration);
+                    if (!configured)
+                    {
+                        if (current()) CSOL_RejectGameRules("Scenario live time duration is incompatible with the current clock.");
+                        return false;
+                    }
+                    m_timeSentRound = 0;
+                }
+            }
+            if (!current()) return false;
+            m_timeControls = next;
+        }
+        return AdvanceCustomTime();
+    }
+    bool AdvanceCustomTime(bool stopped = false)
+    {
+        namespace custom = csol::scenario::custom;
+        if (!m_timeControls.enabled || !m_timeRound || !Ready()) return true;
         const auto round = m_runtime->session->Map().RoundGeneration();
-        const bool ended = m_phase == Phase::Failed || m_phase == Phase::Completing ||
+        const bool ended = stopped || m_phase == Phase::Failed || m_phase == Phase::Completing ||
             m_phase == Phase::Complete || m_phase == Phase::FreePlay;
         const auto value = m_timeCycle.Advance({m_runtime->Generation(), round}, gpGlobals->time,
             m_phase == Phase::Playing && !m_bFreezePeriod && !m_bRoundTerminating, ended);
@@ -797,7 +864,7 @@ public:
     {
         namespace custom=csol::scenario::custom;
         custom::ChallengePhaseView value;
-        if (!ReadCustomTime(value)) return !m_timeRound;
+        if (!ReadCustomTime(value)) return !m_timeControls.enabled || !m_timeRound;
         if (m_timeSending || m_timeMessage<64 || m_timeMessage>255 || m_timeRevision==UINT32_MAX) return false;
         if (recipient && (recipient->has_disconnected || (recipient->pev->flags&(FL_FAKECLIENT|FL_DORMANT|FL_KILLME))))
             return true;
@@ -1082,7 +1149,7 @@ public:
         m_pendingRound.reset();
         m_completionLocked = false;
         m_phase = Phase::Playing;
-        if (m_timeSettings && m_timeSettings->Enabled(csol::scenario::custom::Feature::TimeCycle))
+        if (m_timeControls.enabled)
         {
             m_timeRound = session->Map().RoundGeneration();
             if (!m_timeCycle.Stage({runtime->Generation(), m_timeRound}, replay != nullptr) || !UpdateCustomTime())
@@ -2273,6 +2340,7 @@ private:
     csol::scenario::RoundClock m_roundClock;
     csol::music::Countdown m_musicCountdown;
     csol::scenario::custom::SnapshotPtr m_timeSettings;
+    csol::scenario::custom::TimeCycleControls m_timeControls;
     csol::scenario::custom::ChallengeCycle m_timeCycle;
     std::uint64_t m_timeRound{}, m_timePublishedRound{};
     csol::scenario::custom::Phase m_timePublishedPhase{csol::scenario::custom::Phase::Ended};
@@ -2280,7 +2348,7 @@ private:
     std::uint32_t m_timeRevision{};
     std::uint64_t m_timeSentRound{};
     csol::scenario::custom::Phase m_timeSentPhase{csol::scenario::custom::Phase::Ended};
-    bool m_timeSentPreparing{},m_timeSending{};
+    bool m_timeSentPreparing{},m_timeSending{},m_timePrepared{},m_timeUpdating{},m_timeInvalidReported{},m_timeUnavailableReported{};
     std::uint64_t m_timeMusicChallenge{};
     csol::music::NightChoice m_timeMusicChoice{};
     float m_damageScale{1.0f}, m_damageScaleAt{};
@@ -2560,6 +2628,15 @@ bool CSOL_UsesScenarioRules()
 {
     return dynamic_cast<CCSOLScenarioRules*>(g_pGameRules) != nullptr;
 }
+
+bool CSOL_ScenarioTimeCycleReady()
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return false;
+    const auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+    return rules && rules->TimeCycleReady();
+}
+
 
 bool CSOL_ReadChallengePhase(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     csol::scenario::custom::ChallengePhaseView& output)

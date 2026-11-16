@@ -92,6 +92,7 @@ CGameRules* CSOL_CreateGameRules();
 void CSOL_PrecacheGameRules();
 bool CSOL_ActivateGameRules();
 bool CSOL_UsesScenarioRules();
+bool CSOL_ScenarioTimeCycleReady();
 // Server-owned time only. Missing/disabled/unstarted or retired owners return
 // false without changing output. Rendering/population remain separate consumers.
 bool CSOL_ReadChallengePhase(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,

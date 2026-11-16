@@ -16,7 +16,7 @@ namespace
 {
 constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::Kick, "kick", "csol_custom_kick", "F范围踢击开关；关闭不删除配置，可再次开启。", true, Scope::Immediate},
-    {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "正午与黄昏按秒推进，之后保持永夜；BGM资源由服务端另验。", false, Scope::NextMapSession},
+    {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "即时开关时间阶段；开启从正午开始，关闭恢复地图环境；配套资源须已预载。", false, Scope::Immediate},
     {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "三档盲盒使用本局CS金钱；奖池和真实发奖能力另验。", false, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
     {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "CSOL绝命档案体力/疾跑；cof_sprint为历史配置键，须完成正确模式消费者与双端移动后启用。", false, Scope::NextMapSession},
@@ -34,8 +34,8 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
 // GoldCraft custom balance decisions, not recovered CSOL values. Unknown CoF
 // base parameters remain absent instead of silently defining partial behavior.
 constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
-    {Setting::MiddaySeconds, Feature::TimeCycle, "midday_seconds", "csol_custom_midday_seconds", "正午持续秒数；之后进入黄昏。", ValueType::Integer, 1, 86400, 180, Scope::NextMapSession},
-    {Setting::DuskSeconds, Feature::TimeCycle, "dusk_seconds", "csol_custom_dusk_seconds", "黄昏持续秒数；之后永久保持夜间。", ValueType::Integer, 1, 86400, 120, Scope::NextMapSession},
+    {Setting::MiddaySeconds, Feature::TimeCycle, "midday_seconds", "csol_custom_midday_seconds", "正午持续秒数；即时调整当前正午剩余时间，保留已过时间。", ValueType::Integer, 1, 86400, 180, Scope::Immediate},
+    {Setting::DuskSeconds, Feature::TimeCycle, "dusk_seconds", "csol_custom_dusk_seconds", "黄昏持续秒数；即时调整当前黄昏剩余时间，阶段不倒退。", ValueType::Integer, 1, 86400, 120, Scope::Immediate},
     {Setting::BlindBoxPrice1, Feature::BlindBox, "blind_box_price_1", "csol_custom_blind_box_price_1", "第一档CS金钱价格，三档严格递增。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 3000, Scope::Immediate},
     {Setting::BlindBoxPrice2, Feature::BlindBox, "blind_box_price_2", "csol_custom_blind_box_price_2", "第二档CS金钱价格，不用仓库币。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 6000, Scope::Immediate},
     {Setting::BlindBoxPrice3, Feature::BlindBox, "blind_box_price_3", "csol_custom_blind_box_price_3", "第三档CS金钱价格，真实发奖另验。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 9000, Scope::Immediate},
