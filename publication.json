@@ -2713,7 +2713,9 @@
     "tests/cryoffear-g43-frame/oracle.py",
     "tests/cryoffear-g43-frame/main.cpp",
     "docs/2026-11-16_接入-G43实际SDK生命周期-report.md",
-    "tests/cryoffear-g43-weapon/README.md"
+    "tests/cryoffear-g43-weapon/README.md",
+    "docs/2026-11-16_接入-G43权威玩家帧与共享体力-report.md",
+    "tests/cryoffear-g43-owner/README.md"
   ],
   "trees": {
     "native": [

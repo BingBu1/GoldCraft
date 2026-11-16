@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5","m16"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5","m16","g43"),default="p345")
     parser.add_argument('--sample',type=Path)
     parser.add_argument('--proof',type=Path)
     args = parser.parse_args(); output = args.output.resolve()
@@ -64,23 +64,23 @@ def main():
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
     original=None
-    if args.weapon=='m16':
-        if args.sample is None or args.proof is None:parser.error('M16 requires original --sample and --proof')
+    if args.weapon in ('m16','g43'):
+        if args.sample is None or args.proof is None:parser.error('Long-gun owner requires original --sample and --proof')
         sources.extend((ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
         inputs.update(sources);inputs.update((args.sample.resolve(),args.proof.resolve()))
         proof=json.loads(args.proof.read_text('utf-8-sig'))
         if not proof['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256']:
-            raise ValueError('M16 original identity mismatch')
+            raise ValueError('Long-gun original identity mismatch')
         regions=[]
         for record in proof['proofs']:
             path=ROOT/record['path'];inputs.add(path)
-            if sha(path)!=record['sha256']:raise ValueError('M16 pre-edit evidence changed')
+            if sha(path)!=record['sha256']:raise ValueError('Long-gun pre-edit evidence changed')
             data=json.loads(path.read_text('utf-8-sig'))
-            if 'newRegions' in data:regions.extend(data['newRegions']+data['existingM16Regions']+data['sharedInventory'])
+            if 'newRegions' in data:regions.extend(data['newRegions']+data.get('existingM16Regions',[])+data.get('sharedInventory',[]))
             else:regions.extend(data['regions'])
             for name,digest in data.get('archives',{}).items():
                 archive=path.parent/name;inputs.add(archive)
-                if sha(archive)!=digest:raise ValueError('M16 IDA archive changed')
+                if sha(archive)!=digest:raise ValueError('Long-gun IDA archive changed')
         pe=args.sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');opt=nt+24
         base=int.from_bytes(pe[opt+28:opt+32],'little');section=opt+int.from_bytes(pe[nt+20:nt+22],'little')
         for region in regions:
@@ -89,7 +89,7 @@ def main():
                 at=section+i*40;va=int.from_bytes(pe[at+12:at+16],'little');size=int.from_bytes(pe[at+16:at+20],'little')
                 if va<=rva and rva+region['size']<=va+size:raw=int.from_bytes(pe[at+20:at+24],'little')+rva-va;break
             if raw is None or hashlib.sha256(pe[raw:raw+region['size']]).hexdigest()!=region['sha256']:
-                raise ValueError('Original M16 region mismatch')
+                raise ValueError('Original long-gun region mismatch')
         original=dict(sampleSha256=sha(args.sample),regions=len(regions),proofSha256=sha(args.proof))
     for name, path, sig, only in (
         ('sdk-sequence-info.inc', SDK / 'dlls/animation.cpp', 'void GetSequenceInfo(', False),
