@@ -2,7 +2,7 @@
 
 The production adapter chains the real SDK `+speed`/`-speed` commands. Original client `f4145136…`, sender `02A59180`, stores one integer before calling out: changed1 queues `sprintON`, changed0 queues `sprintOFF`, both consume the native callback; identical states fall through. This differs from the separate inactive CoF two-key/axis adapter.
 
-The named host API is `pfnClientCmd`, matching the original HW command-buffer route. No bindings, movement axes or archived cvars change. The 14-byte `CsoRun` host grant carries version1, enabled, little-endian life64 and revision32. Commands include a decimal life token and newline so the future server consumer can reject queued commands from a retired life. The current server does **not** publish this grant; full sprint remains unavailable until authoritative movement, noise, configuration and prediction are integrated.
+The named host API is `pfnClientCmd`, matching the original HW command-buffer route. No bindings, movement axes or archived cvars change. The 14-byte `CsoRun` host grant carries version1, enabled, little-endian life64 and revision32. Commands include a decimal life token and newline so the server consumer can reject queued commands from a retired life. The server frame/command owner is integrated, but the complete capability remains closed pending movement/prediction and input validation. Per the user's scope correction, preserve scenario AI and do not integrate StandAlone noise, hearing or target selection.
 
 Run the actual SDK consumer:
 

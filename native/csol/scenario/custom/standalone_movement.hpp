@@ -6,8 +6,8 @@
 
 namespace csol::scenario::custom
 {
-// MP39f962f3, 108595D0. The original controller's noise service and native
-// ResetMaxSpeed call belong to its host owner, not this arithmetic component.
+// MP39f962f3, 108595D0 displacement arithmetic. Native ResetMaxSpeed belongs
+// to the host owner. The user excludes StandAlone noise/AI from this port.
 struct StandaloneRunState
 {
     std::array<float, 3> previous{};

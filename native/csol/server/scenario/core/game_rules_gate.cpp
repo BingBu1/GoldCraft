@@ -637,8 +637,8 @@ public:
         if (!Ready()) return;
         if (!UpdateCustomTime()) return;
         // Original mode+70 (1080E080 ->10858EC0) updates player movement
-        // before the gameplay manager. Capability stays closed until the
-        // remaining original noise/input consumers are implemented.
+        // before the gameplay manager. Capability stays closed until input
+        // and actual movement prediction are validated; scenario AI is kept.
         if (CSOL_CustomFeatureEnabled(csol::scenario::custom::Feature::CofSprint))
         {
             csol::scenario::ConfigError error;
