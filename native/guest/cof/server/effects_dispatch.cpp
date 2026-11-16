@@ -133,9 +133,10 @@ WeaponEffectStatus SendParticle(CBasePlayer& player, ParticleMessageData value,
 }
 }
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer& player, std::uint8_t originalWeapon,
-    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall& authority) noexcept
+    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall& authority,
+    std::int16_t attachment) noexcept
 {
-    return SendParticle(player, {ParticleOperation::Add, originalWeapon, false, weaponEntity},
+    return SendParticle(player, {ParticleOperation::Add, originalWeapon, false, weaponEntity,attachment},
         MSG_ONE, preparedMessage, authority);
 }
 WeaponEffectStatus SendKillLocalParticles(CBasePlayer& player, bool immediate,

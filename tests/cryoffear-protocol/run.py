@@ -9,7 +9,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = (
-    "native/guest/cof/authority.hpp", "native/guest/cof/firearm_identity.hpp", "native/guest/cof/catalog.hpp",
+    "native/guest/cof/weapon_identity.hpp", "native/guest/cof/authority.hpp", "native/guest/cof/firearm_identity.hpp", "native/guest/cof/catalog.hpp",
     "native/guest/cof/scenario_damage.hpp", "native/guest/cof/aim_fov.hpp",
     "native/guest/cof/aim_fov.cpp", "native/guest/cof/presentation_protocol.hpp",
     "native/guest/cof/presentation_protocol.cpp",

@@ -164,7 +164,7 @@ AuroraResult Aurora::Add(int owner,std::string_view script,int local,std::string
                          int attachment,float particleLimit) noexcept
 {
     if(!prepared_)return AuroraResult::NotPrepared;
-    if(local!=1 || attachment!=0 || script!="aurora/gunsmoke.aur")return AuroraResult::Unsupported;
+    if(local!=1 || (attachment!=0&&attachment!=1) || script!="aurora/gunsmoke.aur")return AuroraResult::Unsupported;
     if(owner<0 || !std::isfinite(particleLimit) || model.empty() || model.size()>=128 ||
        model.find(char(0))!=model.npos)return AuroraResult::InvalidInput;
     unsigned limited=0;

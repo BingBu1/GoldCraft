@@ -52,7 +52,7 @@ void Engine()
         Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
         else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
-        else Check(flags==1&&index==35&&(i==7||i==19||i==14||i==27||i==9)&&j==19);
+        else Check(flags==1&&index==35&&(i==7||i==19||i==14||i==27||i==9||i==26)&&j==19);
         ++playbacks;
     };
 }
@@ -92,9 +92,11 @@ void CSOL_UpdateWeaponInventory(CBasePlayer* actor){Check(actor==&player);++disp
 void CBasePlayerWeapon::SendWeaponAnim(int animation,int body)
 {Check(m_pPlayer==&player&&body==0&&animation>=0&&animation<=42);++dispatch_fixture::viewAnimations;}
 
+#include "../cryoffear-g43-effects/scenarios.hpp"
+
 int main(int argc,char** argv)
 {
-    if(argc!=2)return 1;
+    if(argc!=2&&argc!=3)return 1;
     using namespace dispatch_fixture;
     std::ifstream input(argv[1],std::ios::binary);Check(input.good());
     const std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
@@ -433,6 +435,7 @@ int main(int argc,char** argv)
     g_engfuncs.pfnWriteByte=writer;player.m_pActiveItem=&m16;Check(m16.Deploy());
     const auto supersededRelease=packets.size();Check(effects.SynchronizeSelection(player)&&packets.size()==supersededRelease);
     Check(LatestState().originalWeapon==9); // New current ownership replaces a failed old release.
+    if(argc==3)CheckG43Effects(effects,glock);
     for(unsigned slot=1;slot<=32;++slot)
     {
         FirstDrawLifecycle ledger;FirstDrawConnection key{1,slot,0,int(slot),slot};bool drawn=true;

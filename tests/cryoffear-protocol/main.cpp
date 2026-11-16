@@ -91,6 +91,13 @@ void TmpTransport()
     Check(EncodeState(mp5,packet)&&DecodeState(packet,output)&&output==mp5,"MP5 preserves the common signed wire fields");
     Check(presentation.Receive({value.key,client::Weapon::Mp5,true,50,350})==client::Result::Applied,"MP5 presentation is a distinct supported original identity");
     Check(presentation.UpdateClientData({90,13,350,3,1.2f,1},fov)&&fov.wholeFov==50,"MP5 aim reaches original common FOV consumer");
+    auto g43=value;g43.originalWeapon=26;
+    Check(EncodeState(g43,packet)&&DecodeState(packet,output)&&output==g43&&packet[0]==std::byte{1},
+        "G43 keeps original26 with the ordinary authenticated presentation wire");
+    Check(presentation.Receive({value.key,client::Weapon::G43,true,50,350})==client::Result::Applied,
+        "G43 transport reaches actual original FOV consumer");
+    Check(presentation.UpdateClientData({90,14,350,3,1.2f,1},fov)&&fov.wholeFov==50,
+        "G43 aim drives the common original interpolation");
     auto m16=value;m16.originalWeapon=9;m16.m16Burst=true;
     Check(EncodeState(m16,packet)&&DecodeState(packet,output)&&output==m16,
         "M16 preserves signed transport and distinct original identity");
@@ -282,6 +289,23 @@ void Particles()
         Check(DecodeViewEntity(camera, cameraEntity) && cameraEntity == word,
             "all original ViewEntity signed short words preserved");
     }
+    const ParticleMessageData g43{ParticleOperation::Add,26,false,-123,1};
+    Check(EncodeParticle(g43,packet),"G43 attachment1 encodes explicitly");
+    constexpr std::array<unsigned char,ParticleBytes> g43Wire{2,1,26,0,133,255,1,0};
+    Check(!std::memcmp(packet.data(),g43Wire.data(),packet.size())&&DecodeParticle(packet,decoded)&&decoded==g43,
+        "G43 uses exact eight-byte v2 owner and attachment wire");
+    const auto correct=packet;const auto prior=decoded;
+    for(auto bad: {ParticleMessageData{ParticleOperation::Add,26,false,1,0},
+                  ParticleMessageData{ParticleOperation::Add,26,false,1,2},
+                  ParticleMessageData{ParticleOperation::Add,7,false,1,1}})
+        Check(!EncodeParticle(bad,packet)&&packet==correct,"Attachment belongs to the verified original identity");
+    for(unsigned field:{0u,2u,6u,7u})
+    {
+        auto bad=correct;bad[field]=field==7u?std::byte{1}:std::byte{};
+        Check(!DecodeParticle(bad,decoded)&&decoded==prior,"Invalid G43 version/identity/attachment preserves prior output");
+    }
+    auto old=correct;old[0]=std::byte{1};old[6]=std::byte{};
+    Check(!DecodeParticle(old,decoded),"G43 cannot silently use the old attachment0 wire");
     auto camera = EncodeViewEntity(-123);
     std::int16_t cameraEntity{19};
     for (std::size_t size = 0; size < camera.size(); ++size)

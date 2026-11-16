@@ -38,7 +38,8 @@ struct RevolverShellEvent
 WeaponEffectStatus PlayRevolverShellEvent(CBasePlayer&, const RevolverShellEvent&,
     unsigned short preparedEvent, const PlaySfxCall&) noexcept;
 WeaponEffectStatus SendLocalGunsmoke(CBasePlayer&, std::uint8_t originalWeapon,
-    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall&) noexcept;
+    std::int16_t weaponEntity, int preparedMessage, const PlaySfxCall&,
+    std::int16_t attachment = 0) noexcept;
 // Original KillWpnPart is unreliable and does not perform Deploy's forward reset.
 WeaponEffectStatus SendKillLocalParticles(CBasePlayer&, bool immediate,
     int preparedMessage, const PlaySfxCall&) noexcept;

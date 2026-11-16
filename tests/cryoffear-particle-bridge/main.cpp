@@ -3,9 +3,11 @@
 #include "../../native/csol/client/weapons/guest_cof_particles.hpp"
 #include "../../native/guest/cof/particle_protocol.hpp"
 #include "../../native/guest/cof/catalog.hpp"
+#include "../../native/guest/cof/resource_catalog.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
 
 #include <triangleapi.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -21,7 +23,7 @@ using guest::cof::client::AuroraResult;
 unsigned checks{}, failures{}, loads{}, randoms{}, quads{}, angleCalls{}, spriteQueries{}, nativeResets{};
 bool hasView{true}, hasLocal{true}, cancelSprite{}, cancelConnection{};
 std::uint64_t generation{1};
-float now{};
+float now{},maximumVertexX{-100000};
 int lastMode{-1};
 cl_entity_t viewModel{}, owner{}, local{};
 model_t model{}, sprite{};
@@ -89,7 +91,7 @@ void Begin(int) { ++quads; }
 void End() {}
 void Color(float,float,float,float) {}
 void UV(float,float) {}
-void Vertex(float*) {}
+void Vertex(float* value) {maximumVertexX=std::max(maximumVertexX,value[0]);}
 int Texture(model_t*, int) { return 1; }
 void Deliver(const ParticleMessageData& value)
 {
@@ -250,6 +252,14 @@ int main(int argc, char** argv)
     Draw(now+.04F);Draw(now+.04F);CHECK(quads>tmpQuads&&loads==tmpLoads);
     Deliver({ParticleOperation::KillLocal,0,true,0});
     ShutdownGuestCofParticles();
+    InitializeGuestCofParticles(&provider);CHECK(PrepareGuestCofParticles(plan)==AuroraResult::Applied);
+    std::strcpy(model.name,resources::G43Models[unsigned(resources::G43Model::View)].host);
+    for(unsigned i=0;i<3;++i){viewModel.attachment[0][i]=float(i+1)*10;viewModel.attachment[1][i]=float(i+1)*1000;}
+    maximumVertexX=-100000;const auto g43Loads=loads;
+    Deliver({ParticleOperation::Add,26,false,5,1});CHECK(GuestCofParticleStatus()==AuroraResult::Applied);
+    Draw(now+.04F);Draw(now+.04F);Draw(now+.04F);
+    CHECK(maximumVertexX>900&&loads==g43Loads); // Real rendered coordinates must use attachment1.
+    Deliver({ParticleOperation::KillLocal,0,true,0});ShutdownGuestCofParticles();
     std::printf("checks=%u failures=%u actualSdk=yes gameplay=no\n", checks, failures);
     return failures ? 1 : 0;
 }

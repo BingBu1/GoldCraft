@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "particle_protocol.hpp"
-#include "catalog.hpp"
+#include "weapon_identity.hpp"
 
 #include <bit>
 
@@ -13,11 +13,12 @@ bool Valid(const ParticleMessageData& value) noexcept
     switch (value.operation)
     {
     case ParticleOperation::Add:
-        return OriginalFirearmId(value.originalWeapon) && !value.immediate;
+        return KnownOriginalWeaponId(value.originalWeapon) && !value.immediate &&
+            value.attachment == (value.originalWeapon == unsigned(OriginalWeaponId::G43) ? 1 : 0);
     case ParticleOperation::DeleteOwner:
-        return !value.originalWeapon && !value.immediate;
+        return !value.originalWeapon && !value.immediate && !value.attachment;
     case ParticleOperation::KillLocal:
-        return !value.originalWeapon && !value.owner;
+        return !value.originalWeapon && !value.owner && !value.attachment;
     }
     return false;
 }
@@ -27,22 +28,27 @@ bool EncodeParticle(const ParticleMessageData& value, ParticlePacket& output) no
 {
     if (!Valid(value)) return false;
     const auto owner = std::bit_cast<std::uint16_t>(value.owner);
-    output = {std::byte{ParticleProtocol}, std::byte(value.operation),
+    const auto attachment=std::bit_cast<std::uint16_t>(value.attachment);
+    const auto protocol=value.originalWeapon == unsigned(OriginalWeaponId::G43) ? G43ParticleProtocol : ParticleProtocol;
+    output = {std::byte{protocol}, std::byte(value.operation),
         std::byte(value.originalWeapon), std::byte(value.immediate),
-        std::byte(owner & 255U), std::byte(owner >> 8U), std::byte{}, std::byte{}};
+        std::byte(owner & 255U), std::byte(owner >> 8U), std::byte(attachment & 255U), std::byte(attachment >> 8U)};
     return true;
 }
 
 bool DecodeParticle(std::span<const std::byte> bytes, ParticleMessageData& output) noexcept
 {
-    if (bytes.size() != ParticleBytes || bytes[0] != std::byte{ParticleProtocol} ||
-        std::to_integer<unsigned>(bytes[3]) > 1 || bytes[6] != std::byte{} || bytes[7] != std::byte{})
+    if (bytes.size() != ParticleBytes ||
+        bytes[0] != std::byte{bytes[2] == std::byte{26} ? G43ParticleProtocol : ParticleProtocol} ||
+        std::to_integer<unsigned>(bytes[3]) > 1)
         return false;
     const auto owner = std::uint16_t(std::to_integer<unsigned>(bytes[4]) |
         (std::to_integer<unsigned>(bytes[5]) << 8U));
+    const auto attachment=std::uint16_t(std::to_integer<unsigned>(bytes[6]) |
+        (std::to_integer<unsigned>(bytes[7]) << 8U));
     const ParticleMessageData decoded{ParticleOperation(std::to_integer<std::uint8_t>(bytes[1])),
         std::to_integer<std::uint8_t>(bytes[2]), bytes[3] != std::byte{},
-        std::bit_cast<std::int16_t>(owner)};
+        std::bit_cast<std::int16_t>(owner),std::bit_cast<std::int16_t>(attachment)};
     if (!Valid(decoded)) return false;
     output = decoded;
     return true;

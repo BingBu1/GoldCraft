@@ -4,6 +4,7 @@
 #include "../aim_fov.hpp"
 #include "../authority.hpp"
 #include "../sound_protocol.hpp"
+#include "../weapon_identity.hpp"
 
 #include <array>
 #include <cstdint>
@@ -15,7 +16,7 @@ namespace guest::cof::client
 // authenticates this identity and begins each ownership interval explicitly.
 using ::guest::cof::AuthorityKey;
 
-enum class Weapon : std::uint8_t { None = 0, Glock = 3, P345 = 7, M16 = 9, Tmp = 14, Vp70 = 19, Revolver = 21, Mp5 = 27 };
+using Weapon = ::guest::cof::OriginalWeaponId;
 
 struct DecodedState
 {

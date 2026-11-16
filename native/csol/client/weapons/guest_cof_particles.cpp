@@ -3,6 +3,7 @@
 #include "../user_message_chain.hpp"
 #include "guest_cof_particles.hpp"
 #include "../../../guest/cof/catalog.hpp"
+#include "../../../guest/cof/resource_catalog.hpp"
 #include "../../../guest/cof/particle_protocol.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 
@@ -64,6 +65,7 @@ std::string_view ViewModel(std::uint8_t original) noexcept
 {
     // The codec has authenticated the original identity; placement and resource
     // namespaces are host adaptations, not original CS inventory IDs.
+    if(original==26)return guest::cof::resources::G43Models[unsigned(guest::cof::resources::G43Model::View)].host;
     for (const auto& entry : guest::cof::Firearms)
         if (entry.originalId == original) return entry.viewModel;
     return {};
@@ -87,7 +89,7 @@ int ReceiveParticle(const char*, int size, void* data)
         const auto* model = engine.GetViewModel();
         if (!model) { status = AuroraResult::MissingBackend; return 1; }
         status = particles.Add(model->index, "aurora/gunsmoke.aur", 1,
-            ViewModel(value.originalWeapon), 0, particleLimit->value);
+            ViewModel(value.originalWeapon), value.attachment, particleLimit->value);
         break;
     }
     case guest::cof::ParticleOperation::DeleteOwner:

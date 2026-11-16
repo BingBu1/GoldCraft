@@ -9,12 +9,7 @@ namespace
 {
 bool Supported(Weapon weapon) noexcept
 {
-    switch (weapon)
-    {
-    case Weapon::None: case Weapon::Glock: case Weapon::P345:
-    case Weapon::Vp70: case Weapon::Revolver: case Weapon::Tmp: case Weapon::Mp5: case Weapon::M16: return true;
-    }
-    return false;
+    return weapon == Weapon::None || KnownOriginalWeaponId(static_cast<unsigned>(weapon));
 }
 
 // Original consumers have 256-byte suffix buffers. Reject host wire overflow

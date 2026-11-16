@@ -29,6 +29,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--g43-proof',type=Path)
+    parser.add_argument('--g43-aurora-proof',type=Path)
+    parser.add_argument('--sample',type=Path)
+    parser.add_argument('--client-sample',type=Path)
     args = parser.parse_args(); output = args.output.resolve()
     if output.exists() or not output.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh workspace build directory')
@@ -59,6 +63,9 @@ def main():
         ROOT / 'native/guest/cof/server/m16_weapon.cpp',
         ROOT / 'native/guest/cof/m16_control.cpp',
         ROOT / 'native/guest/cof/m16_shot.cpp',
+        ROOT / 'native/guest/cof/server/g43_weapon.cpp',
+        ROOT / 'native/guest/cof/g43_control.cpp',ROOT / 'native/guest/cof/g43_aim.cpp',
+        ROOT / 'native/guest/cof/g43_frame.cpp',ROOT / 'native/guest/cof/g43_shot.cpp',
         ROOT / 'native/guest/cof/mp5_primary.cpp',
         ROOT / 'native/guest/cof/automatic_sound.cpp',
         *[ROOT/('native/guest/cof/server/'+name+'.cpp') for name in ('control_dispatch','crosshair_dispatch','effects_dispatch','screen_shake','sound_dispatch')],
@@ -71,6 +78,33 @@ def main():
         ROOT / 'native/guest/cof/server/player_animation.cpp', ROOT / 'native/guest/cof/player_actions.cpp']
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
+    original={}
+    if args.g43_proof is not None:
+        if args.sample is None or args.client_sample is None or args.g43_aurora_proof is None:
+            parser.error('G43 requires both matched samples and both pre-edit proofs')
+        proof=json.loads(args.g43_proof.read_text('utf-8-sig'))
+        addon=json.loads(args.g43_aurora_proof.read_text('utf-8-sig'))
+        if not proof['beforeImplementation'] or not addon['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256'] or sha(args.client_sample)!=proof['clientSha256'] or addon['clientSha256']!=proof['clientSha256'] or addon['parentProofSha256']!=sha(args.g43_proof):
+            raise ValueError('G43 original identity/pre-edit proof mismatch')
+        inputs.update((args.g43_proof.resolve(),args.g43_aurora_proof.resolve(),args.sample.resolve(),args.client_sample.resolve()))
+        for row in proof['proofs']:
+            path=ROOT/row['path'];inputs.add(path)
+            if sha(path)!=row['sha256']:raise ValueError('Original G43 archive changed')
+        def region_sha(image,row):
+            nt=int.from_bytes(image[60:64],'little');opt=nt+24;base=int.from_bytes(image[opt+28:opt+32],'little')
+            sections=opt+int.from_bytes(image[nt+20:nt+22],'little');rva=int(row.get('va',row.get('addr')),16)-base
+            for i in range(int.from_bytes(image[nt+6:nt+8],'little')):
+                at=sections+i*40;va=int.from_bytes(image[at+12:at+16],'little');size=int.from_bytes(image[at+16:at+20],'little')
+                if va<=rva and rva+row['size']<=va+size:
+                    raw=int.from_bytes(image[at+20:at+24],'little')+rva-va
+                    return hashlib.sha256(image[raw:raw+row['size']]).hexdigest()
+            raise ValueError('Original G43 region not file-backed')
+        for sample,regions in ((args.sample,proof['mpRegions']),(args.client_sample,proof['clientRegions']+[addon['consumer']])):
+            image=sample.read_bytes()
+            for row in regions:
+                if region_sha(image,row)!=row['sha256']:raise ValueError('Original G43 region mismatch')
+        original=dict(sampleSha256=sha(args.sample),clientSha256=sha(args.client_sample),g43ProofSha256=sha(args.g43_proof),
+            auroraProofSha256=sha(args.g43_aurora_proof),mpRegions=len(proof['mpRegions']),clientRegions=len(proof['clientRegions'])+1)
     for name, path, sig, only in (
         ('sdk-sequence-info.inc', SDK / 'dlls/animation.cpp', 'void GetSequenceInfo(', False),
         ('sdk-sequence-flags.inc', SDK / 'dlls/animation.cpp', 'int GetSequenceFlags(', False),
@@ -153,13 +187,13 @@ def main():
     (output / 'compile.log').write_text(compiled.stdout + compiled.stderr, 'utf-8')
     tested = None
     if not compiled.returncode:
-        tested = subprocess.run([str(executable), str(models[0])], cwd=output,
+        tested = subprocess.run([str(executable), str(models[0]), *(["g43"] if args.g43_proof is not None else [])], cwd=output,
                                 capture_output=True, text=True, timeout=30)
         (output / 'test.log').write_text(tested.stdout + tested.stderr, 'utf-8')
     after = {str(p): sha(p) for p in sorted(inputs)}
     success = (not compiled.returncode and tested is not None and not tested.returncode and
                before == after and compiler_hash == sha(args.compiler))
-    receipt = dict(success=success, revision=revision, command=command, dependencyCommands=dependency_commands,
+    receipt = dict(original=original, success=success, revision=revision, command=command, dependencyCommands=dependency_commands,
         compiled=compiled.returncode, tested=tested.returncode if tested else None,
         before=before, after=after, compilerSha256=compiler_hash, unchanged=before == after, sourceCopies=0,
         boundary='Actual shared Glock/P345 effect dispatcher and real packet codecs/senders; controlled native engine callbacks; no external transport, deployment or gameplay acceptance')

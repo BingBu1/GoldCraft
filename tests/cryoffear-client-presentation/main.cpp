@@ -98,6 +98,9 @@ int main()
     CHECK(service.Animation(newLife, 38, 2) == Result::Applied);
     CHECK(calls.animations == 1 && calls.sequence == 38 && calls.body == 2);
 
+    CHECK(service.Receive({newLife,Weapon::G43,true,50,350})==Result::Applied);
+    CHECK(service.ActiveWeapon()==Weapon::G43&&service.ViewModel().suppressBob);
+    frame.clientTime+=.01F;CHECK(service.UpdateClientData(frame,output));
     DecodedSound sound{newLife, "weapons_new/glock/fire.wav", 2, 255, {1, 2, 3}, 1, 31};
     CHECK(service.Sound(sound) == Result::Applied);
     CHECK(std::string_view(calls.sample.data()) == "weapons/glock/fire.wav");

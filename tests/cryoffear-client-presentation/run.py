@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-INPUTS = ("native/guest/cof/aim_fov.hpp", "native/guest/cof/aim_fov.cpp",
+INPUTS = ("native/guest/cof/weapon_identity.hpp", "native/guest/cof/aim_fov.hpp", "native/guest/cof/aim_fov.cpp",
           "native/guest/cof/authority.hpp", "native/guest/cof/sound_protocol.hpp",
           "native/guest/cof/client/presentation.hpp", "native/guest/cof/client/presentation.cpp",
           "tests/cryoffear-client-presentation/main.cpp",
@@ -41,7 +41,7 @@ def main():
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     flags = ["/nologo", "/c", "/TP", "/W4", "/WX", "/utf-8", "/EHsc", "/MT", "/std:c++20",
              "--target=i686-pc-windows-msvc", "/arch:AVX2", "/O2", "/clang:-O3",
-             "/clang:-flto=thin", "/fp:precise", "/DNDEBUG"]
+             "/clang:-flto=thin", "/fp:precise", "/clang:-ffp-contract=off", "-Wno-overriding-option", "/DNDEBUG"]
     commands = [[str(compiler), *flags, "/Fo" + str(out) + os.sep,
                  *[str(ROOT / p) for p in INPUTS if p.endswith(".cpp")]]]
     for label, unit in (("lifecycle", "main"), ("differential", "differential_runner")):

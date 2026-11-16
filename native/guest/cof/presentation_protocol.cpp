@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "presentation_protocol.hpp"
-#include "catalog.hpp"
+#include "weapon_identity.hpp"
 
 #include <bit>
 
@@ -11,7 +11,7 @@ namespace
 bool ValidState(const PresentationState& value) noexcept
 {
     return Valid(value.key) && value.revision &&
-        (!value.originalWeapon || OriginalFirearmId(value.originalWeapon)) &&
+        (!value.originalWeapon || KnownOriginalWeaponId(value.originalWeapon)) &&
         (value.originalWeapon || !value.aimEnabled) &&
         (value.revolverAngle.has_value() == (value.originalWeapon == 21)) &&
         (value.m16Burst.has_value() == (value.originalWeapon == 9));
