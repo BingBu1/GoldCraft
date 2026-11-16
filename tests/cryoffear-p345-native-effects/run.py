@@ -21,7 +21,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--sample',type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70','automatic','tmp','mp5'),default='p345')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','automatic','tmp','mp5','m16'),default='p345')
     p.add_argument('--automatic-proof',type=Path)
     a=p.parse_args();output=a.output.absolute()
     if a.weapon=='automatic' and a.automatic_proof is None:p.error('automatic requires its matched IDA byte proof')
@@ -41,6 +41,8 @@ def main():
         sources.extend((ROOT/'native/csol/server/weapons/guest_cof_automatic_native_sound.cpp',ROOT/'native/guest/cof/automatic_sound.cpp'))
     if a.weapon=='mp5':
         sources.extend((ROOT/'native/guest/cof/server/tmp_weapon.cpp',ROOT/'native/guest/cof/mp5_primary.cpp'))
+    if a.weapon=='m16':
+        sources.extend((ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/m16_shot.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}

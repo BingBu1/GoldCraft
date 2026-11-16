@@ -56,7 +56,8 @@ struct M16RuntimeHost
         CBasePlayer&, CBasePlayerWeapon&, const guest::cof::server::M16Event&) noexcept {};
     // Actual map stage/cycle owner, independent of this runtime's model views.
     // Must preserve same-life tasks, and run BeginCommand/PostThink at their
-    // verified stages. All M16 effects, including native sound, are mandatory.
+    // verified stages. Runtime owns common native sounds; remaining effects,
+    // including the original fire-sound message, require real consumers.
     bool (*actions)(void*, CBasePlayer&, std::uint64_t map, std::uint64_t life,
         guest::cof::server::PlayerActionBinding&) noexcept {};
     std::uint32_t effects{};

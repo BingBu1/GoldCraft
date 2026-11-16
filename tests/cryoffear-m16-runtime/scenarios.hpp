@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include "native/csol/server/weapons/guest_cof_m16_native_effects.hpp"
 // Included after the real shared SDK fixture; only external host consumers are
 // controlled. The map runtime, resources, owner, factory and M16 class are real.
 namespace runtime_fixture
@@ -66,7 +67,7 @@ bool M16EffectBoundary(void*,const M16Resources& resources,const OwnerBinding& b
 GlockRuntimeHost M16Callbacks()
 {
     auto host=Callbacks(false);
-    host.m16={PrepareM16Boundary,M16EffectBoundary,M16ActionsFor,M16RequiredEffects};
+    host.m16={PrepareM16Boundary,M16EffectBoundary,M16ActionsFor,M16RequiredEffects & ~M16NativeSoundEffects};
     host.weaponCurrent=[](void*,CBasePlayer&,int id) noexcept
     {return id==M16HostId||id==guest::cof::Pistols[0].hostId;};
     return host;
@@ -98,7 +99,7 @@ void CheckM16Runtime(GlockRuntime& runtime,const fs::path& root)
     Check(bool(runtime.BeginMap(M16Callbacks()))&&runtime.PreparedM16Resources());
     auto request=PlayerPreparation(false);request.m16Rules=NativeOwnerRules{true,65,0,60};
     std::string error;Check(runtime.PlayerSpawned(player,request,error));
-    M16Backends backend;Check(runtime.Backend(player,backend));
+    M16Backends backend;Check(runtime.Backend(player,backend)&&backend.preparedEffects==M16RequiredEffects);
     M16OwnerFrame frame;Check(backend.ownerFrame(backend.context,frame)&&frame.stamina==100&&frame.reserveLimit==60);
     edict_t entity;InitEdict(entity);auto* gun=CreateM16(entity.v);Check(gun);gun->Spawn();
     Check(gun->ResourcesReady()&&gun->m_iId==M16HostId&&gun->m_iDefaultAmmo==20);

@@ -14,6 +14,7 @@
 #include "guest_cof_mp5_factory.hpp"
 #include "guest_cof_mp5_native_effects.hpp"
 #include "guest_cof_m16_factory.hpp"
+#include "guest_cof_m16_native_effects.hpp"
 #include <type_traits>
 #include "guest_cof_melee.hpp"
 #include "native/guest/cof/catalog.hpp"
@@ -262,6 +263,13 @@ struct GlockRuntime::State
         EffectLease lease{owner, weapon, entity, entity->serialnumber, EffectWeapon::M16};
         if (!EffectCurrent(&lease) || static_cast<unsigned>(event.kind) >= static_cast<unsigned>(M16Effect::Count)) return false;
         const auto bit = 1u << static_cast<unsigned>(event.kind);
+        if (bit & M16NativeSoundEffects)
+        {
+            M16OwnerFrame frame{}; if (!M16Frame(&owner, frame)) return false;
+            const NativeSoundAuthority authority{&lease, EffectCurrent, map.m16Resources.generation,
+                frame.quietAudio, map.host.pickupSuppressed};
+            return NativeSoundSucceeded(EmitM16NativeSound(authority, map.m16Resources, player, weapon, event)) && EffectCurrent(&lease);
+        }
         return map.host.m16.effect && (bit & map.host.m16.effects) &&
             map.host.m16.effect(map.host.context, map.m16Resources, owner.view.binding, player, weapon, event) &&
             EffectCurrent(&lease);
@@ -492,7 +500,7 @@ struct GlockRuntime::State
         auto* owner = map.players[index].backend;
         if (!owner || owner->player != &player || !M16Current(owner)) return false;
         const auto& view = owner->m16View;
-        output = {owner, M16Current, M16Frame, M16EffectBoundary, map.host.m16.effects,
+        output = {owner, M16Current, M16Frame, M16EffectBoundary, map.host.m16.effects | M16NativeSoundEffects,
             view.animation, view.animationGeneration, owner->view.binding.life, view.playerThink};
         return true;
     }
@@ -770,7 +778,9 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
         (mp5Requested&&(!host.mp5.prepare||!host.mp5.effect||
             (host.mp5.effects&~MP5RequiredEffects)||
             ((host.mp5.effects|MP5NativeSoundEffects)&MP5RequiredEffects)!=MP5RequiredEffects))||
-        (m16Requested&&(!host.m16.prepare||!host.m16.effect||!host.m16.actions||host.m16.effects!=M16RequiredEffects)))
+        (m16Requested&&(!host.m16.prepare||!host.m16.effect||!host.m16.actions||
+            (host.m16.effects & ~M16RequiredEffects)||
+            ((host.m16.effects | M16NativeSoundEffects) & M16RequiredEffects) != M16RequiredEffects)))
         return {ResourceStatus::InvalidAuthority};
     try
     {
