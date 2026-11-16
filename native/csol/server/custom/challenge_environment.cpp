@@ -68,17 +68,11 @@ bool CCSOLChallengeEnvironment::Update(const Runtime& runtime, std::uint64_t cha
     else if (runtime_.lock() != runtime) return false;
     const auto value = fade_.Advance(challenge, phase, now);
     if (!value) return false;
-    // Configuration is an immutable in-memory snapshot. Never read a file or
-    // build a player/light list here; clients follow existing network entities.
-    const auto settings = CSOL_CustomSettings();
-    bool configChanged{};
-    if (settings && settings != nightSettings_)
-    {
-        const auto config = custom::ReadNightLighting(*settings);
-        if (!config) return false;
-        configChanged = night_.config != *config;
-        night_.config = *config; nightSettings_ = settings;
-    }
+    // Read registered numeric CVARs, including temporary console overrides.
+    // No JSON parsing, string lookup or player/light list runs on this path.
+    auto config = night_.config;
+    const bool configChanged = CSOL_ReadNightLightingControls(config) && night_.config != config;
+    if (configChanged) night_.config = config;
     if (!nightKnown_ || night_.phase != phase || configChanged)
     {
         night_.phase = phase; nightKnown_ = true;

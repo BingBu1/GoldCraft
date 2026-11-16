@@ -25,7 +25,6 @@ private:
     csol::scenario::custom::EnvironmentFade fade_;
     csol::scenario::custom::EnvironmentSnapshot snapshot_;
     csol::scenario::custom::NightLightingSnapshot night_;
-    csol::scenario::custom::SnapshotPtr nightSettings_;
     goldcraft::IMapLightStyleService* lights_{};
     std::weak_ptr<CCSOLScenarioRuntime> runtime_;
     std::uint64_t challenge_{}, lightOwner_{};

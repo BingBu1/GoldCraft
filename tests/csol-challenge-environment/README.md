@@ -65,3 +65,24 @@ The seal/adapter paths are example local cache names and must refer to the match
 Only actual state changes and explicit late-join replay publish this message. Intermediate stages keep the same environment; a committed replay gets a new owner and noon baseline. End restores light and fog. Runtime revocation immediately removes authority, with safe same-map light cleanup deferred until callbacks unwind. A new connection/map discards the old client's baseline without writing it into the new scene.
 
 Actual client/server deployment, visible world and skybox fog, replay, late join, ordinary-server behavior and multiplayer remain separate acceptance evidence. This suite does not unlock the incomplete full time-cycle capability.
+
+## Current-map player-light controls
+
+Add `environment-console` to the actual GameDLL SDK groups to exercise temporary
+console overrides for all four player-light CVARs. The test disables and enables
+the policy, changes radius/brightness/color, checks inclusive bounds and rejects
+nonfinite/fractional values where required. Invalid overrides preserve the last
+valid policy; a valid disable still removes the lights while another number is
+invalid. Fifty unchanged rule frames must emit no extra light packets.
+
+This group also executes a real authorized settings-service edit after the
+temporary overrides, waits for the actual atomic JSON save, and verifies the
+next rule frame sends that saved policy in the same map/round/runtime. Console
+overrides do not rewrite JSON. `live-missing` deliberately skips loading the
+engine provider even when using this combined fixture.
+
+The cold-server runner can combine `--challenge-environment` with
+`--live-time-controls` to inspect the actual prepared environment and current-map
+time controls. Its environment address remains separate from the configuration
+file path; a numeric address must never become a file-hash input. This no-player
+test retains its `round=0` acceptance boundary.

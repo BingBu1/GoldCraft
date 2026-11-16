@@ -254,3 +254,29 @@ bool CSOL_ReadTimeCycleControls(custom::TimeCycleControls& output)
     output = {enabled == 1, {float(noon), float(dusk)}};
     return true;
 }
+bool CSOL_ReadNightLightingControls(custom::NightLightingConfig& output)
+{
+    if (!registered || !current) return false;
+    const auto number = [&](custom::Setting setting)
+    {
+        return publishing ? current->Number(setting).value_or(-1) :
+            double(variables[custom::FeatureCount + std::size_t(setting)].value);
+    };
+    const float enabled = publishing ? (current->Enabled(custom::Feature::NightPlayerLights) ? 1 : 0) :
+        variables[std::size_t(custom::Feature::NightPlayerLights)].value;
+    if (enabled != 0 && enabled != 1) return false;
+    const double radius = number(custom::Setting::NightPlayerLightRadius);
+    const double brightness = number(custom::Setting::NightPlayerLightBrightness);
+    const double color = number(custom::Setting::NightPlayerLightColor);
+    if (!std::isfinite(radius) || radius < 16 || radius > 512 ||
+        !std::isfinite(brightness) || brightness < 0 || brightness > 255 || std::trunc(brightness) != brightness ||
+        !std::isfinite(color) || color < 0 || color > 0xffffff || std::trunc(color) != color)
+    {
+        // Invalid numeric overrides retain the last valid policy. Disabling
+        // remains available without first repairing an unrelated number.
+        if (enabled) return false;
+        output.enabled = false; return true;
+    }
+    output = {enabled == 1, float(radius), std::uint32_t(color), std::uint8_t(brightness)};
+    return true;
+}

@@ -156,9 +156,9 @@ def main():
                     environment=shared_object(runtime+runtime_layout['members']['environment'])
                     if not environment:raise ValueError('Actual scenario runtime has no environment owner')
                     env_layout=symbols.layout('CCSOLChallengeEnvironment')['members']
-                    config=environment+env_layout['config_']
+                    environment_config=environment+env_layout['config_']
                     config_layout=symbols.layout('csol::scenario::custom::EnvironmentConfig')['members']
-                    fog=config+config_layout['fog']
+                    fog=environment_config+config_layout['fog']
                     fog_layout=symbols.layout('csol::scenario::custom::FogProfile')['members']
                     engine_module=next(row for row in process.modules()if Path(row['path']).name.casefold()=='swds.dll')
                     lights=u32(environment+env_layout['lights_'])
@@ -166,8 +166,8 @@ def main():
                         prepared=bool(process.read(environment+env_layout['prepared_'],1)[0]),
                         revoked=bool(process.read(environment+env_layout['revoked_'],1)[0]),
                         message=u32(environment+env_layout['message_']),
-                        dusk=process.read(config+config_layout['dusk'],1)[0],night=process.read(config+config_layout['night'],1)[0],
-                        step=struct.unpack('<f',process.read(config+config_layout['stepSeconds'],4))[0],
+                        dusk=process.read(environment_config+config_layout['dusk'],1)[0],night=process.read(environment_config+config_layout['night'],1)[0],
+                        step=struct.unpack('<f',process.read(environment_config+config_layout['stepSeconds'],4))[0],
                         densityBits=process.read(fog+fog_layout['density'],4).hex(),
                         color=list(process.read(fog+fog_layout['color'],3)),
                         start=struct.unpack('<f',process.read(fog+fog_layout['start'],4))[0],

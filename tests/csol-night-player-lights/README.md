@@ -19,3 +19,11 @@ The output directory must be new. This reuses an existing real compiler cache wi
 Renderer's real `scene_lights_tests` executes the independent moving-pool factory, stable handles, 32-player updates, unchanged native dlight pool, real extracted view/PVS dispatch, rejection preservation and zero steady allocations. `scene_static_shadows_tests` executes the actual dynamic shadow fallback and verifies that world/opaque geometry remain included while the source player's body is excluded. Existing static SceneLights001 ABI stays unchanged. Its actual GL/GPU and multiplayer acceptance remains separate.
 
 The actual GameDLL environment fixture adds `CsoNLight` checks to its phase, end, replay and late-join groups, including 50 real unchanged Think frames with zero additional light packets. Run it against a new full GameDLL link seal as described in [environment SDK validation](../csol-challenge-environment/README.md). Never treat a single-client sink, a compile or CPU timing as real multiplayer lighting acceptance.
+
+The `environment-console` group verifies current-map CVAR edits independently
+of the immutable saved JSON pointer. All four registered numeric variables are
+read directly, with no string lookup, file parsing or player-light iteration on
+the server. Only a changed valid policy causes a packet. Menu edits still save
+to the same JSON and supersede temporary console overrides after publication;
+invalid numeric values keep the previous valid policy and cannot prevent a
+valid disable request.

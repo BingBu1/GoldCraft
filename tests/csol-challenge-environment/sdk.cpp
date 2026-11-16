@@ -4,6 +4,7 @@
 #include "../../native/csol/server/custom/challenge_environment.h"
 #include "goldcraft/lightstyle_api.hpp"
 #include <cstdlib>
+#include <limits>
 
 namespace environment_sdk
 {
@@ -154,6 +155,112 @@ void Missing()
     Expect(!environment.Precache(*snapshot) && !c.f.engine.messages.contains(custom::EnvironmentMessage),
         "missing actual engine service does not fabricate successful environment capability");
 }
+void ConsoleControls()
+{
+    Settings(true); Case c(MusicResources); Start(c); Dark(c);
+    const auto diskBytes = []
+    {
+        std::ifstream input("cstrike/addons/goldcraft/config/gameplay.json", std::ios::binary);
+        Require(bool(input), "single persistent settings file is readable");
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    const auto originalJson = diskBytes();
+    const auto owner = LastNight(c).owner;
+    const auto generation = c.f.runtime->Generation();
+    const auto round = c.f.runtime->session->Map().RoundGeneration();
+    const auto* rules = g_pGameRules;
+    const auto environmentPackets = Count(c);
+    auto packets = NightCount(c);
+    float now = 146.01f;
+    const auto tick = [&] { now += .01f; Tick(c, now); };
+    CVAR_SET_FLOAT("csol_custom_night_player_lights", 0);
+    tick();
+    Expect(!LastNight(c).config.enabled && NightCount(c) == ++packets,
+        "console disable publishes one current-map policy without saving JSON");
+    CVAR_SET_FLOAT("csol_custom_night_player_light_radius", 96.5f);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_brightness", 64);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_color", 0x123456);
+    CVAR_SET_FLOAT("csol_custom_night_player_lights", 1);
+    tick();
+    const custom::NightLightingConfig expected{true, 96.5f, 0x123456, 64};
+    Expect(LastNight(c).config == expected && NightCount(c) == ++packets,
+        "console numeric changes and re-enable apply together on the next actual rule frame");
+    for (unsigned i = 0; i != 50; ++i) tick();
+    Expect(NightCount(c) == packets, "unchanged console controls produce no per-frame lighting packets");
+    const std::array invalid{
+        std::pair{"csol_custom_night_player_light_radius", 15.f},
+        std::pair{"csol_custom_night_player_light_radius", 513.f},
+        std::pair{"csol_custom_night_player_light_radius", std::numeric_limits<float>::quiet_NaN()},
+        std::pair{"csol_custom_night_player_light_radius", std::numeric_limits<float>::infinity()},
+        std::pair{"csol_custom_night_player_light_brightness", -1.f},
+        std::pair{"csol_custom_night_player_light_brightness", 256.f},
+        std::pair{"csol_custom_night_player_light_brightness", 1.5f},
+        std::pair{"csol_custom_night_player_light_color", -1.f},
+        std::pair{"csol_custom_night_player_light_color", 16777216.f},
+        std::pair{"csol_custom_night_player_light_color", .5f},
+        std::pair{"csol_custom_night_player_lights", 2.f},
+        std::pair{"csol_custom_night_player_lights", std::numeric_limits<float>::quiet_NaN()}
+    };
+    for (const auto& [name, value] : invalid)
+    {
+        CVAR_SET_FLOAT("csol_custom_night_player_light_radius", expected.radius);
+        CVAR_SET_FLOAT("csol_custom_night_player_light_brightness", expected.brightness);
+        CVAR_SET_FLOAT("csol_custom_night_player_light_color", float(expected.color));
+        CVAR_SET_FLOAT("csol_custom_night_player_lights", 1);
+        CVAR_SET_FLOAT(name, value);
+        tick();
+        Expect(LastNight(c).config == expected && NightCount(c) == packets,
+            "invalid console field preserves the previous valid policy and emits no bad packet");
+    }
+    CVAR_SET_FLOAT("csol_custom_night_player_light_radius", std::numeric_limits<float>::quiet_NaN());
+    CVAR_SET_FLOAT("csol_custom_night_player_lights", 0);
+    tick();
+    Expect(!LastNight(c).config.enabled && LastNight(c).config.radius == expected.radius &&
+        NightCount(c) == ++packets, "disable remains usable while an unrelated console number is invalid");
+    CVAR_SET_FLOAT("csol_custom_night_player_light_radius", 512);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_brightness", 255);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_color", 0xffffff);
+    CVAR_SET_FLOAT("csol_custom_night_player_lights", 1);
+    tick();
+    Expect(LastNight(c).config == custom::NightLightingConfig{true, 512, 0xffffff, 255} &&
+        NightCount(c) == ++packets, "correcting console values resumes without map reload or owner reset");
+    CVAR_SET_FLOAT("csol_custom_night_player_light_radius", 16);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_brightness", 0);
+    CVAR_SET_FLOAT("csol_custom_night_player_light_color", 0);
+    tick();
+    Expect(LastNight(c).config == custom::NightLightingConfig{true, 16, 0, 0} &&
+        NightCount(c) == ++packets, "inclusive numeric bounds retain zero-intensity policy semantics");
+    Expect(diskBytes() == originalJson, "temporary console light overrides never rewrite the persistent JSON");
+    g_engfuncs.pfnGetPlayerUserId = [](edict_t* player)
+    { return player == Case::active->player.edict() ? 71 : 0; };
+    auto* settings = static_cast<csol::IGameplaySettingsService*>(
+        CreateInterface(csol::GameplaySettingsServiceVersion, nullptr));
+    Require(settings != nullptr, "actual menu settings service is available after temporary console changes");
+    csol::GameplaySettingsStatus before, after;
+    const int radius = int(custom::FeatureCount) + int(custom::Setting::NightPlayerLightRadius);
+    Require(settings->Status(before) && settings->Edit(1, 71, before.revision, radius, 200) ==
+        csol::GameplayEditResult::Queued, "real menu edit queues one authorized persistent light change");
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    do
+    {
+        Require(settings->Status(after), "menu status polls its actual atomic settings writer");
+        if (!after.busy && after.result != csol::GameplayEditResult::Queued) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    } while (std::chrono::steady_clock::now() < deadline);
+    Require(!after.busy && after.result == csol::GameplayEditResult::Saved &&
+        after.revision == before.revision + 1, "persistent light settings publish only after the actual file save");
+    tick();
+    const auto persisted = custom::ReadNightLighting(*CSOL_CustomSettings());
+    Expect(persisted && LastNight(c).config == *persisted && persisted->radius == 200 &&
+        NightCount(c) == ++packets, "menu save supersedes temporary controls on the next current-map rule frame");
+    custom::SnapshotPtr disk; custom::Error error;
+    Expect(custom::Parse(diskBytes(), disk, error) &&
+        custom::ReadNightLighting(*disk) == persisted, "single saved JSON matches the policy actually sent to clients");
+    Expect(LastNight(c).owner == owner && LastNight(c).phase == custom::Phase::Night &&
+        c.f.runtime->Generation() == generation && c.f.runtime->session->Map().RoundGeneration() == round &&
+        g_pGameRules == rules && Count(c) == environmentPackets && State().level == 'b',
+        "console light controls preserve current challenge, runtime, round and map environment");
+}
 }
 int main(int argc, char** argv)
 {
@@ -161,11 +268,12 @@ int main(int argc, char** argv)
     {
         sdk_test::Require(argc == 2, "one environment SDK group");
         const std::string_view group = argv[1];
-        if (group != "environment-missing") environment_sdk::Provider();
+        if (group != "environment-missing" && group != "live-missing") environment_sdk::Provider();
         if (group == "environment-flow" || group == "environment-join" || group == "environment-replay")
             environment_sdk::Flow(group == "environment-join", group == "environment-replay");
         else if (group == "environment-cancel" || group == "environment-map") environment_sdk::Cancel(group == "environment-map");
         else if (group == "environment-missing") environment_sdk::Missing();
+        else if (group == "environment-console") environment_sdk::ConsoleControls();
         else phase_sdk::Run(group);
     }
     catch (const std::exception& error) { ++sdk_test::failures; std::cerr << "ERROR " << error.what() << '\n'; }
