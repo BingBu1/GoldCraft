@@ -2725,7 +2725,7 @@ bool CCSOLScenarioPlayerRuntime::RecordMonsterDamage(CSOLMonsterDamageCall& call
         total = updated;
         // User-authored action damage counts for the actual player, but does
         // not become a held-weapon/active-ability hit notification.
-        if (call.Action() == CSOLMonsterActionKind::HumanKick) return true;
+        if (call.Action() != CSOLMonsterActionKind::None) return true;
         if (!hasSkill) return true;
 
         // Only one original virtual call owns each pin. Release it and check

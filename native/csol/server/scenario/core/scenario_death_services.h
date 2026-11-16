@@ -18,7 +18,7 @@ bool CSOL_ArchiveScenarioShutdown(const CCSOLScenarioRuntime& runtime,
 // enclosing service is owned by one Runtime; generations cannot cross owners.
 struct CSOLScenarioDeathRecord
 {
-    enum class Kind { Kill, Frags, Event20, Ribbons, HumanKickKill };
+    enum class Kind { Kill, Frags, Event20, Ribbons, HumanKickKill, GuestCofPushbackKill };
     Kind kind{};
     std::uint64_t sequence{}, death{}, mapGeneration{}, roundGeneration{}, playerGeneration{};
     std::int32_t source{}, item{};

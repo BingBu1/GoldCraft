@@ -16,9 +16,9 @@ struct CSOLScenarioPlayerRuntimeState;
 namespace csol::scenario { struct ConfigError; }
 struct entvars_s;
 
-// User-authorized host action, separate from CSO's unchanged 32-byte context.
-// This is not a weapon ID or the original non-player kick branch.
-enum class CSOLMonsterActionKind : std::uint8_t { None, HumanKick };
+// Independent player actions, separate from CSO's unchanged 32-byte context
+// and from the held weapon. CoF damage adaptation does not add kick motion.
+enum class CSOLMonsterActionKind : std::uint8_t { None, HumanKick, GuestCofPushback };
 struct CSOLMonsterActionCredit
 {
     CSOLMonsterActionKind kind{CSOLMonsterActionKind::None};
@@ -30,7 +30,8 @@ struct CSOLMonsterActionCredit
     std::uint64_t runtimeGeneration{}, roundGeneration{}, actorGeneration{}, actorLife{}, actorSpawn{};
 };
 
-enum class CSOLHumanKickDamageResult { Ignored, Applied, Killed, Cancelled, Failed };
+enum class CSOLMonsterActionDamageResult { Ignored, Applied, Killed, Cancelled, Failed };
+using CSOLHumanKickDamageResult = CSOLMonsterActionDamageResult;
 
 // Call once for each server-selected victim. direction is target-origin minus
 // actor-origin (it need not be normalized); actorVelocity is the attack sample.
@@ -42,23 +43,31 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     csol::scenario::ConfigError& error,
     bool (*ownerCurrent)(const void*), const void* ownerContext);
 
+// Damage-only host adapter for original CoF100E8B40: actor is both source and
+// attacker. Native DMG_CLUB replaces incompatible CoF damage bits. The caller
+// owns original target response; no CSOL random flinch, kick impulse or timer.
+CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
+    CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    float baseDamage, csol::scenario::ConfigError& error,
+    bool (*ownerCurrent)(const void*), const void* ownerContext);
+
 // Internal typed-action consumers; ordinary weapon hits retain their old path.
-bool CSOL_CaptureHumanKickDamage(CSOLMonsterDamageCall& call);
-void CSOL_CommitHumanKickHealth(CSOLMonsterDamageCall& call);
-void CSOL_FinishHumanKickDamage(CSOLMonsterDamageCall& call, bool killed);
-bool CSOL_HumanKickCreditCurrent(const CSOLMonsterActionCredit& credit, const CBasePlayer* actor);
+bool CSOL_CaptureMonsterActionDamage(CSOLMonsterDamageCall& call);
+void CSOL_CommitMonsterActionHealth(CSOLMonsterDamageCall& call);
+void CSOL_FinishMonsterActionDamage(CSOLMonsterDamageCall& call, bool killed);
+bool CSOL_MonsterActionCreditCurrent(const CSOLMonsterActionCredit& credit, const CBasePlayer* actor);
 bool CSOL_HumanKickMonsterStaggered(CCSOLScenarioMonster& target, float now);
 
 // Enter before any SDK/engine callbacks in the actual virtual TakeDamage.
-// Nested unrelated damage cannot consume the pending kick's one-use credit.
-class CSOLHumanKickDamageEntry
+// Nested unrelated damage cannot consume the pending action's one-use credit.
+class CSOLMonsterActionDamageEntry
 {
 public:
-    CSOLHumanKickDamageEntry(CCSOLScenarioMonster& target,
+    CSOLMonsterActionDamageEntry(CCSOLScenarioMonster& target,
         const entvars_s* inflictor, const entvars_s* attacker);
-    ~CSOLHumanKickDamageEntry();
-    CSOLHumanKickDamageEntry(const CSOLHumanKickDamageEntry&) = delete;
-    CSOLHumanKickDamageEntry& operator=(const CSOLHumanKickDamageEntry&) = delete;
+    ~CSOLMonsterActionDamageEntry();
+    CSOLMonsterActionDamageEntry(const CSOLMonsterActionDamageEntry&) = delete;
+    CSOLMonsterActionDamageEntry& operator=(const CSOLMonsterActionDamageEntry&) = delete;
 private:
     void* m_previous{};
 };

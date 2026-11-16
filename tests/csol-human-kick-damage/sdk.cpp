@@ -12,6 +12,7 @@
 #include <cmath>
 #include <limits>
 #include <type_traits>
+#include "../../native/csol/scenario/custom/phase_art.hpp"
 
 extern "C" void worldspawn(entvars_t*);
 std::shared_ptr<CCSOLScenarioRuntime> CSOL_TestScenarioRuntimeForAccess(const CSOLScenarioEntityAccess* p)
@@ -55,6 +56,11 @@ struct Case
         e.files[csol::scenario::human_kick::FootModel]="fixture";
         e.files[std::string("sound/")+csol::scenario::human_kick::SwingSound]="fixture";
         for(const auto* sound:csol::scenario::human_kick::HitSounds)e.files[std::string("sound/")+sound]="fixture";
+        e.files[csol::scenario::custom::NightAnimationAtlas]="explicit blood-moon existence fixture";
+        for(const char* sound:{"vox/man/sprint_end_default.wav","vox/woman/sprint_end_default.wav"})
+            e.files[std::string("sound/")+sound]="explicit stamina voice existence fixture";
+        for(const char* music:{"Zsh_nightbgm.mp3","Play_BGM_Rex.mp3","BGM_Rex_loop.mp3","BGM_zombie_attack.mp3"})
+            e.files[std::string("bgm/")+music]="explicit challenge music existence fixture";
         // Same parsed cold-input shape as csol-oberon-chain/resources.hpp and
         // csol-consumables-host: valid empty mode/radio/action directories.
         e.files["resource/ModeEvent/modeevent.csv"]=";id,name,event\r\n";
@@ -70,9 +76,12 @@ struct Case
         e.files["maps/ZBS_DropItem.cso"]=Encrypt("id,diff,effect,p,owner,count,remove,reward\r\n");
         e.globals.mapname=Engine::String("zs_deadend");e.globals.time=100;e.Prepare("2");
         e.onTrace=[](edict_t*,TraceResult& trace){trace.flFraction=.5f;trace.vecEndPos=Vector(0,0,0);};
+        g_engfuncs.pfnGetInfoKeyBuffer=[](edict_t*) -> char* {return const_cast<char*>("controlled-userinfo");};
         gmsgCurWeapon=0;
         auto* world=e.Reserve(0,"worldspawn");worldspawn(&world->v);
-        Require(e.api.pfnSpawn(world)==0&&!CSOL_RulesRejected(),"actual world installs and precaches Combat rules");
+        const auto spawnResult=e.api.pfnSpawn(world);
+        if(spawnResult!=0||CSOL_RulesRejected())std::cerr<<"world rejection: "<<CSOL_RulesRejectionReason()<<'\n';
+        Require(spawnResult==0&&!CSOL_RulesRejected(),"actual world installs and precaches Combat rules");
         for(const char* name:{"playerspawn","zombiespawn","zbstrigger"})for(int id:{1,2,30})
         {
             if(std::strcmp(name,"zbstrigger")&&id!=1)continue;

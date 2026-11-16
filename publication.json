@@ -2683,7 +2683,12 @@
     "docs/2026-11-16_实现-CoF小受击任务原始生命周期-report.md",
     "tests/cryoffear-flinch-task/README.md",
     "docs/2026-11-16_实现-CoF原活动抽样与冷模型目录-report.md",
-    "tests/cryoffear-activity-catalog/README.md"
+    "tests/cryoffear-activity-catalog/README.md",
+    "tests/cryoffear-pushback-damage/sdk.cpp",
+    "tests/cryoffear-pushback-damage/run.py",
+    "tests/cryoffear-pushback-damage/README.md",
+    "tests/cryoffear-pushback-damage/audit.py",
+    "docs/2026-11-16_接入-CoF推搡独立灾变伤害-report.md"
   ],
   "trees": {
     "native": [

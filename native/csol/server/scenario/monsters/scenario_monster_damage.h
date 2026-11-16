@@ -35,9 +35,9 @@ public:
     int bits{};
     CSOLMonsterDeathContext context;
 private:
-    friend bool CSOL_CaptureHumanKickDamage(CSOLMonsterDamageCall&);
-    friend void CSOL_CommitHumanKickHealth(CSOLMonsterDamageCall&);
-    friend void CSOL_FinishHumanKickDamage(CSOLMonsterDamageCall&, bool);
+    friend bool CSOL_CaptureMonsterActionDamage(CSOLMonsterDamageCall&);
+    friend void CSOL_CommitMonsterActionHealth(CSOLMonsterDamageCall&);
+    friend void CSOL_FinishMonsterActionDamage(CSOLMonsterDamageCall&, bool);
     CSOLMonsterActionCredit m_action;
     bool (*m_actionCurrent)(const void*){};
     const void* m_actionContext{};

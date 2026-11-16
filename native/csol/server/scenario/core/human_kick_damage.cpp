@@ -45,12 +45,12 @@ struct Hit
 
     Hit(CCSOLScenarioMonster& target, CBasePlayer& player,
         const std::shared_ptr<CCSOLScenarioRuntime>& owner,
-        bool (*valid)(const void*), const void* context)
+        CSOLMonsterActionKind kind, bool (*valid)(const void*), const void* context)
         : runtime(owner), session(owner->session), players(owner->players),
           access(session->Map().EntityAccess()), victim(&target), actor(&player), actorVars(player.pev), identity(&target), behavior(target.Behavior()),
           lease(session->Monsters().Lease(target)), ownerCurrent(valid), ownerContext(context)
     {
-        credit.kind = CSOLMonsterActionKind::HumanKick;
+        credit.kind = kind;
         credit.runtime = owner;
         credit.session = session;
         credit.players = players;
@@ -84,12 +84,12 @@ struct Hit
     {
         const auto& hit = *static_cast<const Hit*>(pointer);
         return hit.Current() && (hit.healthCommitted ||
-            (hit.OwnerCurrent() && CSOL_HumanKickCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())));
+            (hit.OwnerCurrent() && CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())));
     }
 };
 }
 
-CSOLHumanKickDamageEntry::CSOLHumanKickDamageEntry(CCSOLScenarioMonster& target,
+CSOLMonsterActionDamageEntry::CSOLMonsterActionDamageEntry(CCSOLScenarioMonster& target,
     const entvars_t* inflictor, const entvars_t* attacker) : m_previous(enteredHit)
 {
     enteredHit = nullptr;
@@ -101,12 +101,13 @@ CSOLHumanKickDamageEntry::CSOLHumanKickDamageEntry(CCSOLScenarioMonster& target,
     hit->entered = true;
     enteredHit = hit;
 }
-CSOLHumanKickDamageEntry::~CSOLHumanKickDamageEntry()
+CSOLMonsterActionDamageEntry::~CSOLMonsterActionDamageEntry()
 { enteredHit = static_cast<Hit*>(m_previous); }
 
-bool CSOL_HumanKickCreditCurrent(const CSOLMonsterActionCredit& credit, const CBasePlayer* actor)
+bool CSOL_MonsterActionCreditCurrent(const CSOLMonsterActionCredit& credit, const CBasePlayer* actor)
 {
-    if (credit.kind != CSOLMonsterActionKind::HumanKick) return false;
+    if (credit.kind != CSOLMonsterActionKind::HumanKick &&
+        credit.kind != CSOLMonsterActionKind::GuestCofPushback) return false;
     const auto runtime = credit.runtime.lock();
     if (!runtime || runtime->Closing() || runtime->Generation() != credit.runtimeGeneration ||
         !runtime->session || !runtime->players || !runtime->players->Active()) return false;
@@ -124,7 +125,7 @@ bool CSOL_HumanKickCreditCurrent(const CSOLMonsterActionCredit& credit, const CB
     return !actor->has_disconnected && !(actor->pev->flags & (FL_KILLME | FL_DORMANT));
 }
 
-bool CSOL_CaptureHumanKickDamage(CSOLMonsterDamageCall& call)
+bool CSOL_CaptureMonsterActionDamage(CSOLMonsterDamageCall& call)
 {
     auto* hit = enteredHit;
     if (!hit || hit->consumed || call.Spawn().Current() != hit->identity ||
@@ -139,14 +140,14 @@ bool CSOL_CaptureHumanKickDamage(CSOLMonsterDamageCall& call)
     return true;
 }
 
-void CSOL_CommitHumanKickHealth(CSOLMonsterDamageCall& call)
+void CSOL_CommitMonsterActionHealth(CSOLMonsterDamageCall& call)
 {
-    if (call.Action() == CSOLMonsterActionKind::HumanKick)
+    if (call.Action() != CSOLMonsterActionKind::None)
         static_cast<Hit*>(const_cast<void*>(call.m_actionContext))->healthCommitted = true;
 }
-void CSOL_FinishHumanKickDamage(CSOLMonsterDamageCall& call, bool killed)
+void CSOL_FinishMonsterActionDamage(CSOLMonsterDamageCall& call, bool killed)
 {
-    if (call.Action() != CSOLMonsterActionKind::HumanKick) return;
+    if (call.Action() == CSOLMonsterActionKind::None) return;
     auto& hit = *static_cast<Hit*>(const_cast<void*>(call.m_actionContext));
     hit.finished = true;
     hit.killed = killed;
@@ -189,13 +190,13 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     const float until = gpGlobals->time + 1.0f;
     if (!std::isfinite(length) || !std::isfinite(speed) || !Finite(impulse) || !std::isfinite(until))
     { error.message = "human kick impulse is not finite"; return Result::Failed; }
-    Hit hit(target, actor, runtime, ownerCurrent, ownerContext);
-    if (!hit.OwnerCurrent() || !hit.Current() || !CSOL_HumanKickCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    Hit hit(target, actor, runtime, CSOLMonsterActionKind::HumanKick, ownerCurrent, ownerContext);
+    if (!hit.OwnerCurrent() || !hit.Current() || !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
     // Actual entity/behavior/armor/death hooks execute, retaining actor credit.
     target.TakeDamage(actor.pev, actor.pev, baseDamage, DMG_CLUB);
     if (hit.finished && hit.killed) return Result::Killed;
     auto* current = hit.Current();
-    if (!hit.OwnerCurrent() || !current || !CSOL_HumanKickCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    if (!hit.OwnerCurrent() || !current || !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
     if (!hit.finished) return Result::Ignored;
     // Factory selects ordinary behavior by skill/category, not priority.
     // Elite derives from ordinary; Boss classes can also have priority zero.
@@ -209,4 +210,33 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
         current->pev->velocity = impulse;
     }
     return Result::Applied;
+}
+
+CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
+    CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    float baseDamage, csol::scenario::ConfigError& error,
+    bool (*ownerCurrent)(const void*), const void* ownerContext)
+{
+    using Result = CSOLMonsterActionDamageResult;
+    if (!ownerCurrent || !ownerCurrent(ownerContext) ||
+        !runtime || runtime->Closing() || !runtime->session || !runtime->players ||
+        !runtime->players->Active()) return Result::Cancelled;
+    const auto session = runtime->session;
+    if (!session->Map().EntityAccessAllowed() || session->State() != CSOLScenarioSessionState::Active ||
+        target.Pool() != &session->Monsters() || !session->Monsters().Borrowed(target)) return Result::Cancelled;
+    if (!std::isfinite(baseDamage) || !(baseDamage > 0))
+    { error.message = "CoF pushback damage input is invalid"; return Result::Failed; }
+    if (!target.Type() || target.pev->deadflag != DEAD_NO || target.pev->health <= 0 ||
+        target.pev->takedamage == DAMAGE_NO || (target.pev->flags & FL_KILLME) ||
+        (target.pev->effects & EF_NODRAW) || actor.pev->deadflag != DEAD_NO ||
+        actor.has_disconnected || (actor.pev->flags & (FL_KILLME | FL_DORMANT))) return Result::Ignored;
+    Hit hit(target, actor, runtime, CSOLMonsterActionKind::GuestCofPushback, ownerCurrent, ownerContext);
+    if (!hit.OwnerCurrent() || !hit.Current() ||
+        !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    // Original0x05001000 is not a native CS damage mask (it includes CS explosion).
+    target.TakeDamage(actor.pev, actor.pev, baseDamage, DMG_CLUB);
+    if (hit.finished && hit.killed) return Result::Killed;
+    if (!hit.OwnerCurrent() || !hit.Current() ||
+        !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    return hit.finished ? Result::Applied : Result::Ignored;
 }
