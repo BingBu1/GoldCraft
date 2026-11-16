@@ -107,11 +107,15 @@ def prepare(args):
     if table['version'] != 2 or not {'glock', 'p345', 'revolver', 'vp70', 'tmp'} <= table['firearms'].keys():
         raise ValueError('Missing guest firearm bootstrap config')
     audit.extend([identity(config), identity(args.csx)])
+    server_dll = identity(args.server_dll) if args.server_dll else None
+    if server_dll:
+        audit.append(server_dll)
     out.mkdir(parents=True)
     plan = dict(release=release, sources=sources, auditFiles=audit)
     (out/'client-plan.json').write_text(json.dumps(plan, indent=2)+'\n', 'utf-8')
     (out/'inputs.json').write_text(json.dumps(dict(baseline=str(baseline), csx=identity(args.csx),
         config=identity(config), release=args.release, sequence=args.sequence,
+        serverDll=server_dll,
         revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
         text=True).strip()), indent=2)+'\n', 'utf-8')
     print('Prepared reviewed client release and guest bootstrap closure', flush=True)
@@ -150,6 +154,10 @@ def stage(args):
         changes[name] = row
 
     add('cs/cstrike/addons/amxmodx/modules/csx_amxx.dll', inputs['csx']['source'])
+    if inputs.get('serverDll'):
+        if identity(inputs['serverDll']['source']) != inputs['serverDll']:
+            raise ValueError('Reviewed server DLL changed after preparation')
+        add('cs/cstrike/dlls/mp.dll', inputs['serverDll']['source'])
     add(CONFIG, inputs['config']['source'])
     release = json.loads(base64.b64decode(read(publication/'manifest.json')['payload']))
     if release['sequence'] != sequence:
@@ -172,6 +180,17 @@ def stage(args):
             if source.stat().st_size != row['bytes'] or digest(source) != row['sha256']:
                 raise ValueError('Sealed guest script changed')
             add(row['path'], source)
+    compatible = []
+    for directory in args.compatible_baseline:
+        prior_manifest = plain(directory) / 'update-manifest.json'
+        prior = read(prior_manifest)
+        if prior.get('schema') != 1 or prior.get('scope') != old['scope'] or prior.get('release') == release_name:
+            raise ValueError('Invalid compatible issued baseline')
+        compatible.append(identity(prior_manifest))
+        for row in prior['files']:
+            target = changes.get(row['path'])
+            if target and row['sha256'] != target['sha256'] and row['sha256'] not in target['priorSha256']:
+                target['priorSha256'].append(row['sha256'])
     omitted = [copy.deepcopy(row) for name, row in rows.items() if name not in changes]
     manifest = dict(schema=1, release=release_name, scope=old['scope'], sourceRevision=inputs['revision'],
         files=list(changes.values()), requiredBaseline=omitted, requiredPlugins=old['requiredPlugins'],
@@ -182,6 +201,11 @@ def stage(args):
             shutil.copy2(source, package/source.name)
     updater = package/'Update-Server.ps1'
     text = updater.read_text('utf-8-sig').replace(old['release'], release_name)
+    if inputs.get('serverDll'):
+        pin = "'cs/cstrike/dlls/mp.dll'='" + rows['cs/cstrike/dlls/mp.dll']['sha256'] + "'"
+        if text.count(pin) != 1:
+            raise ValueError('Baseline updater MP pin changed')
+        text = text.replace(pin, "'cs/cstrike/dlls/mp.dll'='" + inputs['serverDll']['sha256'] + "'", 1)
     marker = "    if($Name -cin @('scripts/Start-Scenario.ps1'"
     if marker not in text:
         raise ValueError('Updater payload scope changed')
@@ -225,7 +249,8 @@ def stage(args):
             if source.is_file() and hashlib.sha256(z.read(package.name+'/'+source.relative_to(package).as_posix())).hexdigest() != digest(source):
                 raise ValueError('Archive byte mismatch')
     receipt = dict(package=str(package), archive=identity(archive), files=len(changes),
-                   baseline=len(omitted), remoteDeployed=False, sourceCopies=0)
+                   baseline=len(omitted), compatibleIssuedManifests=compatible,
+                   remoteDeployed=False, sourceCopies=0)
     (output/'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n', 'utf-8')
     (output/'SHA256SUMS.txt').write_text(digest(archive)+'  '+archive.name+'\n', 'utf-8')
     print(json.dumps(receipt), flush=True)
@@ -282,11 +307,14 @@ if __name__ == '__main__':
     p.add_argument('--release', default=RELEASE)
     p.add_argument('--sequence', type=int, default=SEQUENCE)
     p.add_argument('--version', default='2026.11.15 Nightfall Hotfix 1')
+    p.add_argument('--server-dll', type=Path, help='Optional reviewed authoritative snapshot hotfix')
     p = sub.add_parser('stage')
     for name in ('evidence', 'publication', 'output'):
         p.add_argument('--'+name, type=Path, required=True)
     p.add_argument('--guest-bootstrap', type=Path)
     p.add_argument('--readme', type=Path)
+    p.add_argument('--compatible-baseline', type=Path, action='append', default=[],
+                   help='Issued patch directory whose changed-file hashes may already be installed')
     p = sub.add_parser('sign')
     for name in ('evidence', 'publication', 'bundle', 'key'):
         p.add_argument('--'+name, type=Path, required=True)

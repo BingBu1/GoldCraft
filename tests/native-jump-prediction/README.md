@@ -19,3 +19,31 @@ camera presentation, real-map collision or game FPS.
 The sufficient-balance gate must preserve native same-command departures. The
 probe deliberately retains the original air/held-button latch and native jump
 fatigue; it does not add automatic bunnyhopping or pretend a denied jump passed.
+
+For the hw10210 snapshot regression, `delta_string.py` takes `--original`,
+`--evidence` (the private IDA unchanged-string disassembly JSON),
+`--parser-evidence` (the complete native Info_ValueForKey disassembly JSON),
+and a fresh `--output` directory. It executes the exact original decoder and
+parser with Unicorn, reproduces stale denial and cross-prefix corruption,
+then checks explicitly delimited 0/1 values. Only the parser's external strcmp
+and security-cookie callees use ABI stubs. It does not start or modify the engine.
+
+`build_snapshot.py --seal ... --output ...` recompiles the real `client.cpp`
+against an accepted, unchanged object seal and links a new complete DLL/PDB.
+The receipt identifies every retained object and visible header difference; it
+does not call this a full build of all current working-tree sources. Review the
+header differences and source reversal proof before a runtime deployment.
+
+`prepare_live.py` creates resource metadata from a complete HUD baseline,
+matching compiled menu and successful real guest HTTP receipt. It includes the
+actual recovery sound producer and hand-profile donor. `deploy_live.py` applies
+only the reviewed eight-file B plan after checking the actual live server,
+current complete HUD closure, stopped B and both source/destination identities.
+It preserves client root files deliberately corrupted for VFS repair tests.
+
+The existing cold-server fixture supports `--hold-for-client --cs-port 27045`.
+It creates no fake player, exposes `ready.json`, and restores all temporary
+server files when its `stop` file appears, on failure or at the 15-minute bound.
+`observe_progress.py` reads the actual matched progress producer and native
+connection state during an authorized B test; its counters do not replace
+screenshots or performance sampling. It cannot authorize desktop input.

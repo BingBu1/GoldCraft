@@ -469,7 +469,7 @@ index 70cdd7d..4ad0af7 100644
  	float SetBoneController(int iController, float flValue = 0.0f);
  	void InitBoneControllers();
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..ff02b5e 100644
+index daee11d..dc20904 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,30 @@
@@ -1354,7 +1354,7 @@ index daee11d..ff02b5e 100644
  	cd->waterlevel = pev->waterlevel;
  	cd->watertype = pev->watertype;
  	cd->weapons = pev->weapons;
-@@ -5056,8 +5338,34 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5056,8 +5338,37 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  	cd->waterjumptime = int(pev->teleport_time);
  
  	Q_strlcpy(cd->physinfo, ENGINE_GETPHYSINFO(ent));
@@ -1376,12 +1376,15 @@ index daee11d..ff02b5e 100644
 +        else CSOL_RejectGameRules("Scenario prediction physics info is full.");
 +    }
 +
-+    if (!pevOrg && pPlayer && CSOL_ActionStaminaJumpBlocked(*pPlayer))
++    if (!pevOrg && pPlayer && scope.Scenario())
 +    {
++        const bool jumpDenied = CSOL_ActionStaminaJumpBlocked(*pPlayer);
 +        if (!scope.Current()) return;
 +        const auto used = Q_strlen(cd->physinfo);
-+        if (used + sizeof("\\cso_jdeny\\1") <= sizeof(cd->physinfo))
-+            Q_strlcat(cd->physinfo, "\\cso_jdeny\\1", sizeof(cd->physinfo));
++        if (used + sizeof("\\cso_jdeny\\1\\") <= sizeof(cd->physinfo))
++            // Native hw10210's unchanged DT_STRING path omits the copied NUL.
++            // Delimit the value so a shorter prefix cannot attach stale bytes.
++            Q_strlcat(cd->physinfo, jumpDenied ? "\\cso_jdeny\\1\\" : "\\cso_jdeny\\0\\", sizeof(cd->physinfo));
 +        else CSOL_RejectGameRules("Scenario jump prediction physics info is full.");
 +    }
 +    if (!scope.Current()) return;
@@ -1391,7 +1394,7 @@ index daee11d..ff02b5e 100644
  	cd->fov = pev->fov;
  	cd->weaponanim = pev->weaponanim;
  	cd->pushmsec = pev->pushmsec;
-@@ -5135,6 +5443,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5135,6 +5446,9 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  				)
  			{
  				cd->m_iId = II.iId;
@@ -1401,7 +1404,7 @@ index daee11d..ff02b5e 100644
  
  				if ((unsigned int)weapon->m_iPrimaryAmmoType < MAX_AMMO_SLOTS)
  				{
-@@ -5149,10 +5460,16 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
+@@ -5149,10 +5463,16 @@ void EXT_FUNC UpdateClientData(const edict_t *ent, int sendweapons, struct clien
  			}
  		}
  	}
@@ -1418,7 +1421,7 @@ index daee11d..ff02b5e 100644
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5162,11 +5479,20 @@ void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsig
+@@ -5162,11 +5482,20 @@ void EXT_FUNC CmdStart(const edict_t *pEdict, const struct usercmd_s *cmd, unsig
  	if (pPlayer->pev->groupinfo)
  		UTIL_SetGroupTrace(pPlayer->pev->groupinfo, GROUP_OP_AND);
  
@@ -1439,7 +1442,7 @@ index daee11d..ff02b5e 100644
  	entvars_t *pev = const_cast<entvars_t *>(&pEdict->v);
  	CBasePlayer *pPlayer = CBasePlayer::Instance(pev);
  
-@@ -5176,6 +5502,7 @@ void EXT_FUNC CmdEnd(const edict_t *pEdict)
+@@ -5176,6 +5505,7 @@ void EXT_FUNC CmdEnd(const edict_t *pEdict)
  	if (pPlayer->pev->groupinfo)
  		UTIL_UnsetGroupTrace();
  

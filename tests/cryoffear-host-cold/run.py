@@ -67,7 +67,15 @@ def main():
                         help='Optional read-only exact-version PowerShell audit of the live isolated process')
     parser.add_argument('--jump-probe', type=Path,
                         help='Optional compiled goldcraft_jump_snapshot_probe.amxx for the isolated server only')
+    parser.add_argument('--hold-for-client', action='store_true',
+                        help='Keep the owned server for at most 15 minutes, until output/stop is created')
+    parser.add_argument('--cs-port', type=int, default=0,
+                        help='Explicit localhost UDP port; zero selects a free port')
     args = parser.parse_args()
+    if not 0 <= args.cs_port <= 65535:
+        parser.error('--cs-port must be between 0 and 65535')
+    if args.hold_for_client and args.jump_probe:
+        parser.error('--hold-for-client does not create the fake jump-probe actor')
     if args.debugger_extra and (not args.debugger or not args.jump_probe):
         parser.error('--debugger-extra requires --debugger and --jump-probe')
     if args.include_mp5 and not args.include_tmp:
@@ -143,7 +151,10 @@ def main():
             connection.bind(('127.0.0.1', 0))
             return connection.getsockname()[1]
 
-    cs_port, http_port = free_port(socket.SOCK_DGRAM), free_port(socket.SOCK_STREAM)
+    cs_port, http_port = args.cs_port or free_port(socket.SOCK_DGRAM), free_port(socket.SOCK_STREAM)
+    if args.cs_port:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as connection:
+            connection.bind(('127.0.0.1', cs_port))
     private = ROOT / 'sandbox/cs-dione-probe/cof-cold-private.json'
     private.write_text(json.dumps(dict(csPort=cs_port, csRconToken=token)), 'utf8')
     (out / 'server.cfg').write_text(
@@ -202,8 +213,8 @@ def main():
             dump = (out / 'cold-exception.dmp').as_posix()
             commands = out / 'debugger-commands.txt'
             commands.write_text(
-                f'bu swds!Sys_Error "da poi(@esp+4); da poi(@esp+8); kp 30; .dump /m /o {dump}; q"\n'
                 f'sxe -c ".exr -1; .ecxr; kp 30; .dump /m /o {dump}; q" av\n' +
+                f'sxe -c ".exr -1; .ecxr; kp 30; .dump /m /o {dump}; q" 0xc0000409\n' +
                 (args.debugger_extra.read_text('ascii') + '\n' if args.debugger_extra else '') + 'g\n', 'ascii')
             debugger_command = [str(debugger), '-G', '-logo', str(out / 'debugger.log'),
                                 '-y', str(args.pdb.resolve(strict=True).parent), '-cf', str(commands)]
@@ -387,6 +398,20 @@ def main():
             result['checks']['nativeJumpSnapshotProbeCompleted'] = len(samples) >= 50 and len(jumps) >= 3
             if not result['checks']['nativeJumpSnapshotProbeCompleted']:
                 raise RuntimeError('Native jump diagnostic did not observe real native departures and snapshots')
+        if args.hold_for_client:
+            (out / 'ready.json').write_text(json.dumps(dict(pid=targets[0]['pid'], csPort=cs_port,
+                httpPort=http_port, game=str(game), hud=result['hud'], menu=result['menu']['menu'],
+                mpSha256=sha(args.mp), clientSha256=sha(args.client),
+                expiresAfterSeconds=900, stopFile=str(out / 'stop'))), 'utf8')
+            print('Isolated server ready for the authorized single-client test', flush=True)
+            deadline = time.monotonic() + 900
+            while not (out / 'stop').exists():
+                if child.poll() is not None:
+                    raise RuntimeError('Owned playtest server exited')
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Owned playtest server reached its 15-minute bound')
+                time.sleep(.25)
+            result['checks']['ownedClientTestReleased'] = True
         result['checks']['sourceInputsStable'] = all(sha(Path(path)) == digest for path, digest in inputs.items())
         result['success'] = all(result['checks'].values())
     except BaseException as error:

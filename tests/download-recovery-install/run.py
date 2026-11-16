@@ -37,7 +37,8 @@ def main():
     target = out/'server with spaces'
     target.mkdir()
     manifest = json.loads((package/'update-manifest.json').read_text('utf-8'))
-    report = dict(success=False, checks=[], calls=[], remoteModified=False, gameLaunched=False)
+    report = dict(success=False, checks=[], calls=[], remoteModified=False, gameLaunched=False,
+                  immutableLinkedFiles=0, immutableLinkedLogicalBytes=0)
 
     def check(value, label):
         if not value:
@@ -67,14 +68,24 @@ def main():
         check(True, label)
 
     try:
-        # Copy runtime bytes, not source trees. No links or writable sharing
-        # groups: deliberate corruption and rollback cannot affect the baseline.
+        # Test corruption and the updater replace files atomically. Share only
+        # verified immutable assets; configs, DLLs and logs stay independent.
         before = snapshot(baseline)
         for relative in before:
             source = workspace(baseline/relative)
             dest = target/relative
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, dest)
+            if sha(source) != before[relative]:
+                raise ValueError('Baseline changed before fixture creation: ' + relative)
+            if source.suffix.lower() in ('.mdl', '.spr', '.seq', '.wav', '.mp3', '.tga',
+                                         '.bmp', '.png', '.wad', '.bsp', '.nav', '.ttf', '.otf', '.cso'):
+                os.link(source, dest)
+                if not os.path.samefile(source, dest) or sha(dest) != before[relative]:
+                    raise ValueError('Immutable fixture link identity changed')
+                report['immutableLinkedFiles'] += 1
+                report['immutableLinkedLogicalBytes'] += source.stat().st_size
+            else:
+                shutil.copy2(source, dest)
         original = snapshot(target)
         check(original == before, 'independent-baseline')
         package_before = snapshot(package)

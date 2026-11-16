@@ -1,6 +1,16 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_修复-原生增量快照残留导致连跳延迟-report.md",
+    "tools/nightfall-hotfix/jump-recovery.md",
+    "tests/cryoffear-host-cold/run.py",
+    "tests/download-recovery-install/run.py",
+    "tests/download-recovery-install/compatible.py",
+    "tests/native-jump-prediction/prepare_live.py",
+    "tests/native-jump-prediction/deploy_live.py",
+    "tests/native-jump-prediction/build_snapshot.py",
+    "tests/native-jump-prediction/delta_string.py",
+    "tests/native-jump-prediction/observe_progress.py",
     "docs/2026-11-16_修复-下载中断恢复与换图进度-report.md",
     "tools/nightfall-hotfix/download-recovery.md",
     "tools/nightfall-update/package.py",
