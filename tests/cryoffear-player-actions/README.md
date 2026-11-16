@@ -18,7 +18,7 @@ python -B tests/cryoffear-m16-weapon/run.py \
 ```
 
 This mode authenticates the original sample, 42 M16 regions, 10 stamina regions,
-stamina IDA archives and pre-edit ownership dependencies. It seals all compiler
+stamina IDA archives, optional additional original regions/archives, and pre-edit ownership dependencies. It seals all compiler
 dependencies before and after execution. Output must be a fresh directory under
 `build`; no source tree is copied.
 
@@ -30,3 +30,12 @@ new-life rebind during an old HUD callback, permanent old-life retirement,
 authority/edict/spawn/death/disconnect/map changes, failed service admission and
 32-player isolation. Ten thousand hot commands must allocate no heap memory;
 this is an allocation regression, not evidence of live CPU/FPS performance.
+
+Retirement evidence also covers capturing all eight stamina fields at the native
+Killed boundary after health reaches zero. Capture revokes the old capability
+and its task; it cannot reanimate a dead life. Death in a synchronous HUD callback
+captures the live staged state, and a stage callback replacing the life cannot
+receive an old capture or be retired by it. Disconnect, entity reuse, changed
+spawn/private data, and map reset reject capture without fabricating a seed.
+The host must still authenticate the connection when using that explicit
+snapshot for a new life; production seed and target wiring are separate work.

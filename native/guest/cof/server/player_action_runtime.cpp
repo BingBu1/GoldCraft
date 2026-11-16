@@ -82,13 +82,14 @@ void PlayerActionRuntime::Stage(void* context, edict_t* entity, float frameTime,
     if (slot >= 1 && slot <= 32) self.players_[slot].Stage(entity, frameTime, timebase);
 }
 
-bool PlayerActionLife::LocalCurrent() const noexcept
+bool PlayerActionLife::LocalIdentityCurrent() const noexcept
 {
     return runtime_ && runtime_->map_ == map_ && runtime_->Current() && player_ && entity_ &&
         !entity_->free && entity_->serialnumber == serial_ && entity_->pvPrivateData == player_ &&
-        player_->pev == &entity_->v && player_->m_iNumSpawns == spawn_ && !player_->has_disconnected &&
-        player_->pev->deadflag == DEAD_NO && player_->pev->health > 0;
+        player_->pev == &entity_->v && player_->m_iNumSpawns == spawn_ && !player_->has_disconnected;
 }
+bool PlayerActionLife::LocalCurrent() const noexcept
+{ return LocalIdentityCurrent() && player_->pev->deadflag == DEAD_NO && player_->pev->health > 0; }
 bool PlayerActionLife::Current() noexcept
 {
     if (!LocalCurrent()) { Retire(); return false; }
@@ -104,6 +105,19 @@ void PlayerActionLife::Retire() noexcept
     player_ = nullptr; entity_ = nullptr; backend_ = {};
     life_ = map_ = 0; activeStamina_ = nullptr; activeOwner_ = nullptr;
     stamina_ = {}; owner_ = {}; phase_ = Phase::None; lastThink_ = PlayerThinkResult::Cancelled;
+}
+bool PlayerActionLife::CaptureAndRetire(StaminaCycleState& output) noexcept
+{
+    const auto binding = binding_;
+    const bool current = LocalIdentityCurrent();
+    // The engine stage's Current callback may synchronously replace this life.
+    if (binding != binding_) return false;
+    if (!current) { Retire(); return false; }
+    const auto state = activeStamina_ ? *activeStamina_ : stamina_;
+    Retire();
+    if (!Finite(state)) return false;
+    output = state;
+    return true;
 }
 bool PlayerActionLife::Admit(CBasePlayer& player, std::uint64_t life, const StaminaCycleState& seed,
     const StaminaCycleOwner& owner, const PlayerActionBackend& backend) noexcept

@@ -16,9 +16,11 @@ struct Stage final:goldcraft::IPlayerThinkStage
 {
     void* context{};goldcraft::PlayerThinkStageCallback callback{};std::uint64_t token{},serial{};
     bool allow=true;
+    mutable void (*duringCurrent)() noexcept {};
     std::uint64_t Register(void* c,goldcraft::PlayerThinkStageCallback f) noexcept override
     { if(!allow||token)return 0;context=c;callback=f;return token=++serial; }
-    bool Current(std::uint64_t t) const noexcept override {return t&&t==token;}
+    bool Current(std::uint64_t t) const noexcept override
+    {if(auto call=duringCurrent){duringCurrent=nullptr;call();}return t&&t==token;}
     bool Release(std::uint64_t t) noexcept override
     {if(!Current(t))return false;token=0;callback=nullptr;return true;}
     void Fire(edict_t* e,float dt=0,double time=20) noexcept {if(callback)callback(context,e,dt,time);}
@@ -28,6 +30,8 @@ PlayerActionRuntime runtime;
 PlayerActionBinding action;
 bool actionAuthority=true,staminaAuthority=true,failHud{},rebindHud{},retireHud{},mutateHud{},reenterHud{};
 bool rescheduleAction{},rejectAction{};
+bool captureHud{};
+StaminaCycleState capturedHud,beforeHud;
 unsigned actions{},huds{},voices{};
 std::uint64_t expectedLife=1;
 StaminaCycleState seed;
@@ -57,6 +61,12 @@ bool Hud(void*,const StaminaHudEvent& e) noexcept
     if(e.kind==StaminaHudKind::Begin)
     {
         if(mutateHud)Check(action.SetStamina(37));
+        if(captureHud)
+        {
+            StaminaCycleOwner owner;Check(action.Read(beforeHud,owner));
+            player.pev->health=0;
+            Check(action.CaptureAndRetire(capturedHud));
+        }
         if(retireHud)action.Retire();
         if(rebindHud)
         {
@@ -74,6 +84,7 @@ void InitializeActions()
     runtime.Reset();Initialize();
     g_engfuncs.pfnIndexOfEdict=[](const edict_t*){return 1;};
     stage.allow=true;actionAuthority=staminaAuthority=true;failHud=rebindHud=retireHud=mutateHud=reenterHud=false;
+    stage.duringCurrent=nullptr;captureHud=false;capturedHud=beforeHud={};
     rescheduleAction=rejectAction=false;
     actions=huds=voices=0;expectedLife=1;
     seed={};seed.amount=seed.lastSent=100;
@@ -164,6 +175,69 @@ int main(int argc,char** argv)
     failHud=false;staminaAuthority=false;Check(action.Spawn()==PlayerCycleResult::Cancelled&&ReadState().amount==100);
     staminaAuthority=true;Check(action.Spawn()==PlayerCycleResult::Applied);
     failHud=false;retireHud=true;Check(action.Spawn()==PlayerCycleResult::Cancelled&&!action);
+
+    // Killed can start with zero health. Capture before asking the living
+    // capability to validate, and retain all eight original scalar fields.
+    InitializeActions();action.Retire();++expectedLife;
+    seed={12,13,14,15,16,17,18,19};
+    action=runtime.Prepare(1,player,expectedLife,seed,originalOwner,actionBackend);
+    Check(bool(action));auto dead=action;
+    Check(action.Think()->Schedule(player,PlayerThinkKind::Pushback,.23F,9,expectedLife));
+    player.pev->health=0;player.pev->deadflag=DEAD_DYING;
+    StaminaCycleState captured;captured.amount=999;
+    Check(dead.CaptureAndRetire(captured));
+    Check(captured.amount==12&&captured.lastSent==13&&captured.nextCycle==14&&captured.auxiliaryTime==15&&
+        captured.exhaustionActionDeadline==16&&captured.voiceDeadline==17&&
+        captured.exhaustionAudioDeadline==18&&captured.hudPulse==19);
+    Check(!dead.Current()&&!dead.SetStamina(1)&&!dead.Think());
+    StaminaCycleState untouched;untouched.amount=999;
+    Check(!dead.CaptureAndRetire(untouched)&&untouched.amount==999);
+    player.pev->health=100;player.pev->deadflag=DEAD_NO;++player.m_iNumSpawns;++expectedLife;
+    action=runtime.Prepare(1,player,expectedLife,captured,originalOwner,actionBackend);
+    Check(bool(action)&&ReadState().voiceDeadline==17);
+    globals.time=55;Check(action.Spawn()==PlayerCycleResult::Applied);
+    captured=ReadState();
+    Check(captured.amount==100&&captured.lastSent==13&&captured.nextCycle==55&&captured.auxiliaryTime==55&&
+        captured.exhaustionActionDeadline==16&&captured.voiceDeadline==17&&
+        captured.exhaustionAudioDeadline==18&&captured.hudPulse==19);
+    Command(60);Check(actions==0); // The previous life never transfers its task.
+
+    // Retirement in a synchronous HUD callback must capture the live staged
+    // copy, including writes made just before death, then stop the old cycle.
+    InitializeActions();captureHud=mutateHud=true;
+    Check(action.Spawn()==PlayerCycleResult::Cancelled&&!action);
+    Check(capturedHud.amount==37&&capturedHud.lastSent==beforeHud.lastSent&&
+        capturedHud.nextCycle==beforeHud.nextCycle&&capturedHud.auxiliaryTime==beforeHud.auxiliaryTime&&
+        capturedHud.exhaustionActionDeadline==beforeHud.exhaustionActionDeadline&&
+        capturedHud.voiceDeadline==beforeHud.voiceDeadline&&
+        capturedHud.exhaustionAudioDeadline==beforeHud.exhaustionAudioDeadline&&capturedHud.hudPulse==beforeHud.hudPulse);
+
+    // A stage callback can replace a life during identity checking. The old
+    // capture must neither publish its state nor retire the newer capability.
+    InitializeActions();auto replacing=action;
+    stage.duringCurrent=[]() noexcept {
+        ++expectedLife;auto changed=seed;changed.amount=73;
+        action=runtime.Prepare(1,player,expectedLife,changed,originalOwner,actionBackend);
+        Check(bool(action));
+    };
+    Check(!replacing.CaptureAndRetire(untouched)&&untouched.amount==999);
+    Check(action.Current()&&ReadState().amount==73);
+
+    for(unsigned failure=0;failure<6;++failure)
+    {
+        InitializeActions();auto staleCapture=action;
+        switch(failure)
+        {
+        case 0:player.has_disconnected=true;break;
+        case 1:++ownerEdict.serialnumber;break;
+        case 2:++player.m_iNumSpawns;break;
+        case 3:ownerEdict.free=true;break;
+        case 4:ownerEdict.pvPrivateData=nullptr;break;
+        case 5:runtime.Reset();break;
+        }
+        Check(!staleCapture.CaptureAndRetire(untouched)&&untouched.amount==999);
+        Check(!staleCapture.Current());
+    }
 
     // Once observed, retirement is permanent for a life token, even if a caller
     // restores the old health/serial/authority fields afterwards.

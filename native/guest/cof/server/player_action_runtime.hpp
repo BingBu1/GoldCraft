@@ -36,6 +36,7 @@ private:
     PlayerCycleResult Spawn() noexcept;
     PlayerCycleResult PostThink() noexcept;
     void Retire() noexcept;
+    bool CaptureAndRetire(StaminaCycleState&) noexcept;
     PlayerThinkResult LastThink() const noexcept { return lastThink_; }
 
     struct CycleCall;
@@ -43,6 +44,7 @@ private:
     bool Admit(CBasePlayer&, std::uint64_t life, const StaminaCycleState&,
                const StaminaCycleOwner&, const PlayerActionBackend&) noexcept;
     bool LocalCurrent() const noexcept;
+    bool LocalIdentityCurrent() const noexcept;
     void Stage(edict_t*, float, double) noexcept;
     PlayerCycleResult Cycle(bool spawn) noexcept;
     static bool TaskCurrent(void*, CBasePlayer&, std::uint64_t, std::uint64_t) noexcept;
@@ -84,6 +86,11 @@ public:
     PlayerThinkResult LastThink() const noexcept
     { return Current() ? life_->LastThink() : PlayerThinkResult::Cancelled; }
     void Retire() const noexcept { if (Matches()) life_->Retire(); }
+    // Native Killed may enter after health reaches zero. Capture only for this
+    // same entity/spawn/map, then permanently revoke its action capability.
+    // The host owns any later connection-keyed seed; this never grants a life.
+    bool CaptureAndRetire(StaminaCycleState& state) const noexcept
+    { return Matches() && life_->CaptureAndRetire(state); }
 
 private:
     friend class PlayerActionRuntime;

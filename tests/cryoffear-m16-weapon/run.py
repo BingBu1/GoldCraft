@@ -70,6 +70,10 @@ def main():
         for record in actionOwnership['proofs']+actionOwnership['hostFiles']:
             path=ROOT/record['path'];inputs.add(path)
             if sha(path)!=record['sha256']:raise ValueError('Player action pre-edit dependency mismatch: '+record['path'])
+        regions+=actionOwnership.get('additionalRegions',[])
+        for name,digest in actionOwnership.get('archives',{}).items():
+            path=a.action_proof.parent/name;inputs.add(path)
+            if sha(path)!=digest:raise ValueError('Player action evidence archive mismatch')
         cycleProof=ROOT/actionOwnership['proofs'][0]['path']
         cycle=json.loads(cycleProof.read_text('utf-8-sig'));regions+=cycle['regions']
         for name,digest in cycle['archives'].items():
