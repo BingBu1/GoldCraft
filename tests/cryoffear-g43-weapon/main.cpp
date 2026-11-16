@@ -94,7 +94,9 @@ bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const G43Event& e) noexce
     case G43Effect::FireSound:
         Check(e.value==0&&e.other==1&&e.enabled);
         Check(e.first==item.m_pPlayer->EyePosition());Event(kind);break;
-    case G43Effect::ForwardReset:Check(e.a==350);Event(kind,Bits(e.a));break;
+    case G43Effect::CameraZoom:
+        Check(e.a==350&&e.value==0&&e.other==0&&!e.enabled&&e.first==Vector{}&&e.second==Vector{});
+        Event(kind,Bits(e.a));break;
     case G43Effect::EmptyClick:Event(kind);break;
     default:break;
     }
@@ -406,6 +408,13 @@ int main(int argc,char** argv)
         Check(weapon.RestoreInventoryBinding(player)&&weapon.m_iClip==74&&!weapon.m_pfnThink);
         Check(playerThink.Deadline()==playerDue&&playerThink.Run(0,playerDue)==PlayerThinkResult::Dispatched&&meleeCalls==before+1);
     }
+    for(bool aimed:{false,true})
+    {
+        Prime();State().aiming=aimed;goldcraft::inventory::Snapshot view;
+        Check(weapon.SaveInventorySnapshot(view));events.clear();
+        Check(weapon.RestoreInventorySnapshot(view)&&State().aiming==aimed&&
+            player.pev->fov==(aimed?float(prepared.aimZoom):90.F));
+    }
     Prime();weapon.m_iClip=75;goldcraft::inventory::Snapshot saved;Check(weapon.SaveInventorySnapshot(saved));weapon.m_iClip=5;
     Check(weapon.RestoreInventorySnapshot(saved)&&weapon.m_iClip==75);
     Check(playerThink.Schedule(player,PlayerThinkKind::WeaponMelee,.5F,1,17));const float replacement=playerThink.Deadline();
@@ -422,7 +431,7 @@ int main(int argc,char** argv)
         Check(!current);
         for(std::size_t at=0;at<events.size();at+=events[at+1]+2)Check(events[at]!=31);
     }
-    Initialize();Ready();player.pev->button=0x40;frame.pressed=0x40;cancel=int(G43Effect::ForwardReset);
+    Initialize();Ready();player.pev->button=0x40;frame.pressed=0x40;cancel=int(G43Effect::CameraZoom);
     events.clear();weapon.ItemPostFrame();Check(!current&&!SawView(20));
     Initialize();auto noTask=backends;noTask.playerThink=nullptr;Check(weapon.Bind(player,prepared,noTask)==G43Status::MissingBackend);
     Initialize();auto noReady=prepared;noReady.pushbackReady=false;Check(weapon.Bind(player,noReady,backends)==G43Status::MissingBackend);

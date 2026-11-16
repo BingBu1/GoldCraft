@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tests/cryoffear-g43-runtime/README.md",
+    "docs/2026-11-16_接入-G43地图运行时与共用玩家任务-report.md",
     "docs/2026-11-16_修复-疾跑探测早于HUD初始化-report.md",
     "docs/2026-11-16_接入-绝命档案客户端就绪握手-report.md",
     "docs/2026-11-16_分析-绝命档案输入锁与原生速度预测链-report.md",

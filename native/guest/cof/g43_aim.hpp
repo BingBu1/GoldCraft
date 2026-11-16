@@ -10,7 +10,7 @@ struct G43AimMetadata
     std::array<float, 3> offset;
     int zoom;
 };
-enum class G43AimEventKind : unsigned char { Presentation, ForwardReset, PlayerFov, ViewAnimation };
+enum class G43AimEventKind : unsigned char { Presentation, CameraZoom, PlayerFov, ViewAnimation };
 struct G43AimEvent
 {
     G43AimEventKind kind;

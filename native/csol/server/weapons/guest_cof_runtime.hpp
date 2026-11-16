@@ -9,6 +9,7 @@
 #include "guest_cof_tmp_owner.hpp"
 #include "guest_cof_mp5_owner.hpp"
 #include "guest_cof_m16_owner.hpp"
+#include "guest_cof_g43_owner.hpp"
 #include "native/guest/cof/server/sound_dispatch.hpp"
 #include <memory>
 #include <optional>
@@ -65,6 +66,21 @@ struct M16RuntimeHost
     guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
 };
 
+struct G43RuntimeHost
+{
+    bool (*prepare)(void*, const G43Resources&, guest::cof::server::G43Prepared&) noexcept {};
+    bool (*effect)(void*, const G43Resources&, const OwnerBinding&,
+        CBasePlayer&, CBasePlayerWeapon&, const guest::cof::server::G43Event&) noexcept {};
+    // Actual map stage/cycle owner, independent of this runtime's model views.
+    // Must preserve same-life tasks, and run BeginCommand/EndSharedCommand at their
+    // verified stages. Runtime owns common native sounds and the original
+    // cooperative fire-sound transport; remaining effects need real consumers.
+    bool (*actions)(void*, CBasePlayer&, std::uint64_t map, std::uint64_t life,
+        guest::cof::server::PlayerActionBinding&) noexcept {};
+    std::uint32_t effects{};
+    guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
+};
+
 // Only the genuinely external consumers remain here. The runtime itself owns
 // native sounds, resources, factory, player generations and owner frame stages.
 // Storage and callbacks must survive EngineEntitiesReleased for their map.
@@ -89,6 +105,7 @@ struct GlockRuntimeHost
     TMPRuntimeHost tmp{};
     MP5RuntimeHost mp5{};
     M16RuntimeHost m16{};
+    G43RuntimeHost g43{};
 };
 
 struct GlockPlayerPreparation
@@ -109,6 +126,7 @@ struct GlockPlayerPreparation
     std::optional<TMPPreparation> tmp;
     std::optional<NativeOwnerRules> mp5Rules;
     std::optional<NativeOwnerRules> m16Rules;
+    std::optional<NativeOwnerRules> g43Rules;
 };
 
 class GlockRuntime final
@@ -141,6 +159,7 @@ public:
     const TMPResources* PreparedTMPResources() const noexcept;
     const MP5Resources* PreparedMP5Resources() const noexcept;
     const M16Resources* PreparedM16Resources() const noexcept;
+    const G43Resources* PreparedG43Resources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -156,6 +175,7 @@ public:
     bool Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
     bool MP5Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::M16Backends&) noexcept;
+    bool Backend(CBasePlayer&, guest::cof::server::G43Backends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;

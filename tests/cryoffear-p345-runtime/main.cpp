@@ -13,6 +13,7 @@
 #include "native/csol/server/weapons/guest_cof_mp5_factory.hpp"
 #include "native/csol/server/weapons/guest_cof_mp5_native_effects.hpp"
 #include "native/csol/server/weapons/guest_cof_m16_factory.hpp"
+#include "native/csol/server/weapons/guest_cof_g43_factory.hpp"
 #include "native/guest/cof/sound_protocol.hpp"
 #include "native/guest/cof/server/sound_dispatch.hpp"
 #include "native/guest/cof/admission.hpp"
@@ -302,7 +303,7 @@ GlockPlayerPreparation PlayerPreparation(bool p345,bool revolver=false,bool vp70
 void Engine()
 {
     g_engfuncs.pfnPvAllocEntPrivateData=[](edict_t* entity,int32 amount)->void* {
-        Check(amount==int(sizeof(P345Weapon))||amount==int(sizeof(RevolverWeapon))||amount==int(sizeof(VP70Weapon))||amount==int(sizeof(TMPWeapon))||amount==int(sizeof(MP5Weapon))||amount==int(sizeof(M16Weapon)));
+        Check(amount==int(sizeof(P345Weapon))||amount==int(sizeof(RevolverWeapon))||amount==int(sizeof(VP70Weapon))||amount==int(sizeof(TMPWeapon))||amount==int(sizeof(MP5Weapon))||amount==int(sizeof(M16Weapon))||amount==int(sizeof(G43Weapon)));
         auto* memory=std::calloc(1,std::size_t(amount));Check(memory!=nullptr);
         privateAllocations.push_back(memory);entity->pvPrivateData=memory;++allocated;return memory;
     };
@@ -368,6 +369,7 @@ void Engine()
     CBasePlayerItem::m_AmmoInfoArray[5].pszName="cof_tmp";
     CBasePlayerItem::m_AmmoInfoArray[6].pszName="cof_mp5";
     CBasePlayerItem::m_AmmoInfoArray[7].pszName="cof_m16";
+    CBasePlayerItem::m_AmmoInfoArray[8].pszName="cof_g43";
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
 }
 void DestroyP345()
@@ -380,6 +382,7 @@ void DestroyP345()
         else if(auto* tmp=dynamic_cast<TMPWeapon*>(p))tmp->~TMPWeapon();
         else if(auto* mp5=dynamic_cast<MP5Weapon*>(p))mp5->~MP5Weapon();
         else if(auto* m16=dynamic_cast<M16Weapon*>(p))m16->~M16Weapon();
+        else if(auto* g43=dynamic_cast<G43Weapon*>(p))g43->~G43Weapon();
         else static_cast<P345Weapon*>(p)->~P345Weapon();
         std::free(memory);
     }
@@ -387,9 +390,10 @@ void DestroyP345()
 }
 }
 #include "../cryoffear-m16-runtime/scenarios.hpp"
+#include "../cryoffear-g43-runtime/scenarios.hpp"
 int main(int argc,char** argv)
 {
-    if(argc!=5&&argc!=6)return 1;
+    if(argc<5||argc>7)return 1;
     using namespace runtime_fixture;
     std::ifstream input(argv[1],std::ios::binary);Check(input.good());
     const std::vector<char> bytes{std::istreambuf_iterator<char>(input),{}};
@@ -764,6 +768,7 @@ int main(int argc,char** argv)
     Check(!runtime.BeginMap(Callbacks(true,true,true,true,true))&&!runtime.PreparedMP5Resources());
     Check(runtime.EngineEntitiesReleased(runtime.LastIssuedMapEpoch()));
     edict_t refusedMP5{};InitEdict(refusedMP5);Check(!CreateMP5(refusedMP5.v));context.files.emplace(MP5Inventory.host,savedMP5Inventory);
-    if(argc==6)CheckM16Runtime(runtime,argv[5]);
-    std::cout<<"P345/Revolver/VP70/TMP/MP5/M16 actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
+    if(argc>=6&&*argv[5])CheckM16Runtime(runtime,argv[5]);
+    if(argc==7)CheckG43Runtime(runtime,argv[6],*argv[5]!=0);
+    std::cout<<"P345/Revolver/VP70/TMP/MP5/M16/G43 actual map/player/resource/factory runtime: "<<checks<<" SDK checks, zero failures; external visual/message consumers remain controlled boundaries\n";
 }

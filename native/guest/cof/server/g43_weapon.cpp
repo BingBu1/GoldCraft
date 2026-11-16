@@ -133,7 +133,7 @@ bool G43Weapon::PublishOwnerState() noexcept
     event.first = action_.aiming ? prepared_.aimOffset : Vector{};
     event.value = action_.aiming ? prepared_.aimZoom : 0;
     if (!Emit(event)) return false;
-    event.kind = G43Effect::ForwardReset; event.a = 350;
+    event = {G43Effect::CameraZoom}; event.a = 350;
     if (!Emit(event)) return false;
     lease.player->pev->fov = action_.aiming ? float(prepared_.aimZoom) : 90.F;
     return true;
@@ -636,7 +636,7 @@ void G43Weapon::Holster(int)
     {
         G43Event event{G43Effect::Aim};
         if (!Emit(event)) return;
-        event.kind = G43Effect::ForwardReset; event.a = 350;
+        event = {G43Effect::CameraZoom}; event.a = 350;
         if (!Emit(event)) return;
         m_pPlayer->pev->fov = 90.F; action_.aiming = false;
     }
@@ -717,8 +717,8 @@ bool G43Weapon::SetAim(bool enabled, bool input) noexcept
             switch (value.kind)
             {
             case G43AimEventKind::Presentation: return self.Emit(event);
-            case G43AimEventKind::ForwardReset:
-                event.kind = G43Effect::ForwardReset; event.a = value.amount; return self.Emit(event);
+            case G43AimEventKind::CameraZoom:
+                event = {G43Effect::CameraZoom}; event.a = value.amount; return self.Emit(event);
             case G43AimEventKind::PlayerFov: self.m_pPlayer->pev->fov = value.amount; return true;
             case G43AimEventKind::ViewAnimation: return self.View(value.value);
             }

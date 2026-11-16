@@ -19,7 +19,7 @@ def body(path,signature,only=False):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    for name in ('sample','proof','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    for name in ('sample','proof','camera-proof','client-sample','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();output=a.output.absolute()
     gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     for path in (output,*output.parents):
@@ -52,7 +52,28 @@ def main():
         if not found or got!=region['sha256']:raise ValueError('Original region mismatch: '+region['va'])
     shared=ROOT/proof['sharedProof'];inputs.add(shared)
     if sha(shared)!=proof['sharedProofSha256']:raise ValueError('Shared inventory proof mismatch')
-    original=dict(sampleSha256=proof['sampleSha256'],verifiedRegions=len(regions),proofSha256=sha(a.proof))
+    camera=json.loads(a.camera_proof.read_text('utf-8-sig'))
+    if not camera['beforeImplementation'] or camera['sampleSha256']!=sha(a.sample) or camera['clientSha256']!=sha(a.client_sample):raise ValueError('CameraZoom original identity/pre-edit proof mismatch')
+    inputs.update((a.camera_proof.resolve(),a.client_sample.resolve()))
+    for record in camera['archives']:
+        path=a.camera_proof.parent/record['path'];inputs.add(path)
+        if sha(path)!=record['sha256']:raise ValueError('CameraZoom IDA archive changed')
+    client_archive=ROOT/camera['clientHandler']['source'];inputs.add(client_archive)
+    if sha(client_archive)!=camera['clientHandler']['archiveSha256']:raise ValueError('CameraZoom original client archive changed')
+    def region_sha(image,va,length):
+        nt=int.from_bytes(image[60:64],'little');opt=nt+24;base=int.from_bytes(image[opt+28:opt+32],'little')
+        sections=opt+int.from_bytes(image[nt+20:nt+22],'little');rva=int(va,16)-base
+        for i in range(int.from_bytes(image[nt+6:nt+8],'little')):
+            at=sections+i*40;virtual=int.from_bytes(image[at+12:at+16],'little');size=int.from_bytes(image[at+16:at+20],'little')
+            if virtual<=rva and rva+length<=virtual+size:
+                offset=int.from_bytes(image[at+20:at+24],'little')+rva-virtual
+                return hashlib.sha256(image[offset:offset+length]).hexdigest()
+        raise ValueError('Original camera region is not file-backed')
+    if region_sha(pe,'0x100e65e0',36)!=camera['registryByteSha256']:raise ValueError('Original CameraZoom registry mismatch')
+    consumer=camera['clientHandler']
+    if region_sha(a.client_sample.read_bytes(),consumer['va'],consumer['size'])!=consumer['sha256']:raise ValueError('Original CameraZoom client consumer mismatch')
+    original=dict(sampleSha256=proof['sampleSha256'],verifiedRegions=len(regions)+1,proofSha256=sha(a.proof),
+        cameraProofSha256=sha(a.camera_proof),clientSampleSha256=sha(a.client_sample),cameraClientRegions=1)
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),

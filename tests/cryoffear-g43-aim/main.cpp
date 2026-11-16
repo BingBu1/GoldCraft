@@ -77,7 +77,7 @@ struct Context
         {
         case G43AimEventKind::Presentation:
             return c.Event(0, Bits(event.offset[0]), Bits(event.offset[1]), Bits(event.offset[2]), event.value, event.enabled);
-        case G43AimEventKind::ForwardReset: return c.Event(1, Bits(event.amount), 0, 0);
+        case G43AimEventKind::CameraZoom: return c.Event(1, Bits(event.amount), 0, 0);
         case G43AimEventKind::PlayerFov: c.fov = event.amount; return c.Event(2, Bits(c.fov));
         case G43AimEventKind::ViewAnimation:
             if (!c.Event(3, event.value)) return false;

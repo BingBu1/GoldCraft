@@ -46,8 +46,8 @@ G43ControlResult ApplyG43Aim(MagazineActionState& state, bool enabled,
     presentation.value = enabled ? metadata.zoom : 0;
     presentation.enabled = enabled;
     if (!call.Emit(presentation)) return call.result;
-    G43AimEvent forward{G43AimEventKind::ForwardReset}; forward.amount = 350;
-    if (!call.Emit(forward)) return call.result;
+    G43AimEvent zoom{G43AimEventKind::CameraZoom}; zoom.amount = 350;
+    if (!call.Emit(zoom)) return call.result;
     G43AimEvent fov{G43AimEventKind::PlayerFov}; fov.amount = enabled ? float(metadata.zoom) : 90.F;
     if (!call.Emit(fov)) return call.result;
     G43AimEvent view{G43AimEventKind::ViewAnimation};

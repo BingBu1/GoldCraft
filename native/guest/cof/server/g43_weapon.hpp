@@ -35,7 +35,7 @@ enum class G43Effect : unsigned char
 {
     DeployPrelude, ReserveHud, InventoryChanged, ViewAnimation, EmptyClick,
     Shell, Gunsmoke, FireEvent, Recoil, Shake, Aim, FireSound, ShotState, ShotLatch,
-    PickupSound, DeployReset, Sleeve, AmmoPickupSound, ForwardReset, Count
+    PickupSound, DeployReset, Sleeve, AmmoPickupSound, CameraZoom, Count
 };
 struct G43Event
 {
