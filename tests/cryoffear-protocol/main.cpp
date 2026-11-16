@@ -91,6 +91,31 @@ void TmpTransport()
     Check(EncodeState(mp5,packet)&&DecodeState(packet,output)&&output==mp5,"MP5 preserves the common signed wire fields");
     Check(presentation.Receive({value.key,client::Weapon::Mp5,true,50,350})==client::Result::Applied,"MP5 presentation is a distinct supported original identity");
     Check(presentation.UpdateClientData({90,13,350,3,1.2f,1},fov)&&fov.wholeFov==50,"MP5 aim reaches original common FOV consumer");
+    auto m16=value;m16.originalWeapon=9;m16.m16Burst=true;
+    Check(EncodeState(m16,packet)&&DecodeState(packet,output)&&output==m16,
+        "M16 preserves signed transport and distinct original identity");
+    Check(presentation.Receive({value.key,client::Weapon::M16,true,50,350})==client::Result::Applied,
+        "M16 transport reaches actual presentation service");
+    auto oldM16=m16;--oldM16.key.lifeEpoch;
+    Check(presentation.Receive({oldM16.key,client::Weapon::M16,false,90,350})==client::Result::StaleAuthority,
+        "Old M16 life cannot replace current presentation");
+    for(bool burst:{false,true})
+    {
+        m16.m16Burst=burst;
+        Check(EncodeState(m16,packet)&&packet[0]==std::byte{3}&&packet[3]==static_cast<std::byte>(burst)&&
+            DecodeState(packet,output)&&output==m16,"M16 mode has explicit version3 and stable original0/1 frames");
+        const auto saved=output;
+        auto bad=packet;bad[3]=std::byte{2};
+        Check(!DecodeState(bad,output)&&output==saved,"Unknown M16 mode cannot replace current state");
+        bad=packet;bad[0]=std::byte{1};
+        Check(!DecodeState(bad,output),"Old protocol cannot silently discard M16 mode");
+        bad=packet;bad[1]=std::byte{27};
+        Check(!DecodeState(bad,output),"M16 mode cannot leak into another firearm");
+    }
+    auto missingMode=m16;missingMode.m16Burst.reset();const auto savedMode=packet;
+    Check(!EncodeState(missingMode,packet)&&packet==savedMode,"Missing M16 mode has no guessed fallback");
+    auto wrongMode=value;wrongMode.m16Burst=false;
+    Check(!EncodeState(wrongMode,packet)&&packet==savedMode,"Mode is reserved for actual M16");
 }
 
 void InvalidPackets()

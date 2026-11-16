@@ -207,6 +207,37 @@ void InvalidateSelectedRow()
         card.equippedReady=false;card.imageRetryAfter=0;card.titleId=0;
     }
 }
+void ExerciseAmmoFrames()
+{
+    using namespace csol::client;
+    const auto savedState=state;
+    auto& row=catalog.weapons.at("weapon_cannon");
+    const auto savedRow=row;
+    const auto savedAmmo=files.at(row.ammo);
+    const std::string second="resource/csol/hud/v1/m16_mode1.tga";
+    row.selectedKnown=true;row.selected.clear();
+    row.ammoFrames={row.ammo,second};
+    files[row.ammo]=Tga(32,32);
+    state.kind=csol::hud_style::AmmoKind::Magazine;state.ammoFrame=0;
+    InvalidateSelectedRow();PrepareSelection();
+    Check(!HudStyleWeaponResourcesReady(state.id,2),"missing second mode image cannot admit partial HUD");
+    files[second]=Tga(32,32);InvalidateSelectedRow();PrepareSelection();Draw();
+    const auto& frames=selectionCards.at(state.id).ammoFrames;
+    Check(HudStyleWeaponResourcesReady(state.id,2)&&!HudStyleWeaponResourcesReady(state.id,6)&&
+        frames[0].id&&frames[1].id&&!frames[2].id,"actual cold loader owns exactly two authored frames");
+    Check(ammoImage.id==frames[0].id,"single mode selects the first actual prepared frame");
+    const auto preparedReads=reads;
+    state.ammoFrame=1;Draw();Check(ammoImage.id==frames[1].id,"burst mode selects second actual prepared frame");
+    Check(reads==preparedReads,"mode changes do not read disk or allocate a new texture");
+    state.ammoFrame=csol::hud_style::HiddenAmmoFrame;state.kind=csol::hud_style::AmmoKind::None;Draw();
+    Check(!ammoImage.id&&HudStyleWeaponVisible(),"missing authenticated mode keeps card but never guesses an icon");
+    files[second]=Tga(24,24);InvalidateSelectedRow();PrepareSelection();
+    Check(!HudStyleWeaponResourcesReady(state.id,2),"wrong mode-image dimensions retire incomplete ownership");
+    files[second]=Tga(32,32);InvalidateSelectedRow();PrepareSelection();
+    Check(HudStyleWeaponResourcesReady(state.id,2),"correct resource replacement recovers both mode frames");
+    InvalidateSelectedRow();row=savedRow;files[row.ammo]=savedAmmo;files.erase(second);state=savedState;
+    PrepareSelection();Draw();
+}
 std::string DigitsAt(int y)
 {
     std::string result;
@@ -585,6 +616,7 @@ int main(int argc,char** argv)
     files[ammo]={std::byte{1},std::byte{2}};InvalidateSelectedRow();PrepareSelection();BeginHudStyle(0,0);
     Check(!weaponImage.id&&!ammoImage.id&&!HudStyleWeaponVisible(),"corrupt TGA rejected by real decoder without partial replacement");
     files[ammo]=Tga(24,24);InvalidateSelectedRow();PrepareSelection();BeginHudStyle(0,0);Check(HudStyleWeaponVisible(),"downloaded weapon row recovers");
+    ExerciseAmmoFrames();
     state.id=999;PrepareSelection();BeginHudStyle(0,0);Check(!HudStyleWeaponVisible()&&!weaponImage.id,"switch to unregistered weapon retires prior art");state.id=400;PrepareSelection();
     state.kind=csol::hud_style::AmmoKind::Total;state.total=30;Draw();Check(DigitsAt(681).ends_with("30"),"total-ammo weapon keeps all thirty throws");
     for(const auto& q:capture.quads)if(q.y==681&&q.x>1000&&(q.texture==digits[3].id||q.texture==digits[0].id))

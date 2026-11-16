@@ -48,6 +48,13 @@ void ResetHumanKick() {}
 void ResetChallengePhase() {}
 void ResetScenarioRespawnUi() {}
 void ResetPlayerClips() {}
+// Unrelated session owners are controlled void boundaries in this FOV/HUD suite.
+void ResetMountWeapon() {}
+void ResetChallengeEnvironment() {}
+void ResetCofMovementInput() {}
+void ResetStandaloneMovementInput() {}
+void ResetStaminaAudio() {}
+void ResetStaminaHud() {}
 void ResetRenderSettings() {}
 void ResetGuestCofCrosshair() noexcept{}
 void GuestCofCrosshairPresentation(const guest::cof::PresentationState&) noexcept{}
@@ -312,6 +319,30 @@ int main()
     CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
     GuestCofVideoInit();CHECK(GuestCofPrepareStudioModel(&cylinderView,revolverId));
     ResetGuestCof();CHECK(!GuestCofPrepareStudioModel(&cylinderView,revolverId));
+    unsigned modeFrame=99;
+    CHECK(!GuestCofM16AmmoFrame(modeFrame)&&modeFrame==99);
+    PresentationState m16{{20,21,22},1,9,false,0,0,{},true};
+    Deliver(m16);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==1);
+    Frame(5);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==1);
+    auto staleM16=m16;
+    ++m16.revision;m16.m16Burst=false;Deliver(m16);
+    CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    Frame(5.125F);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    Deliver(staleM16);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    GuestCofVideoInit();CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    zoomSpeed.value=std::numeric_limits<float>::infinity();
+    Frame(5.1875F);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    zoomSpeed.value=100;
+    const auto modeLookups=lookups;
+    for(unsigned i=0;i<10000;++i)CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    CHECK(lookups==modeLookups); // No hot cvar/resource discovery.
+    ++nativeConnectionGeneration;modeFrame=99;
+    CHECK(!GuestCofM16AmmoFrame(modeFrame)&&modeFrame==99);
+    Frame(5.25F);CHECK(!GuestCofM16AmmoFrame(modeFrame));
+    Deliver(m16);Frame(5.375F);CHECK(GuestCofM16AmmoFrame(modeFrame)&&modeFrame==0);
+    Deliver({m16.key,3,0,false,0,0});CHECK(!GuestCofM16AmmoFrame(modeFrame));
+    Frame(5.5F);CHECK(!GuestCofM16AmmoFrame(modeFrame));
+    ResetGuestCof();CHECK(!GuestCofM16AmmoFrame(modeFrame));
     installed = OtherConsumer;
     bool collision{};
     try { InitializeGuestCof(&connection); } catch (const std::runtime_error&) { collision = true; }

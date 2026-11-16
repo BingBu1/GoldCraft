@@ -56,6 +56,7 @@ std::vector<std::string> ResourcePaths(const Catalog& catalog);
 
 // The meaning belongs to the weapon, not its icon or numeric ID range.
 enum class AmmoKind { None, Magazine, Total };
+inline constexpr int HiddenAmmoFrame = -2;
 struct WeaponState
 {
     int id{}, slot{}, clip{-1}, reserve{}, secondary{}, total{};

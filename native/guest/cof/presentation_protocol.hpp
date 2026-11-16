@@ -17,6 +17,7 @@ inline constexpr std::uint8_t StateProtocol = 1;
 inline constexpr std::size_t StateBytes = 24;
 inline constexpr std::uint8_t RevolverStateProtocol = 2;
 inline constexpr std::size_t RevolverStateBytes = 28;
+inline constexpr std::uint8_t M16StateProtocol = 3;
 
 struct PresentationState
 {
@@ -32,6 +33,9 @@ struct PresentationState
     // Original player angle, before the client performs the controller math.
     // Present only for Revolver; never inferred from animation or clip count.
     std::optional<float> revolverAngle{};
+    // Original MP byte200 -> clientdata1C4 -> entity_state13C -> icon frame.
+    // Required only for M16; absence never means a guessed single-fire mode.
+    std::optional<bool> m16Burst{};
     bool operator==(const PresentationState&) const noexcept = default;
 };
 

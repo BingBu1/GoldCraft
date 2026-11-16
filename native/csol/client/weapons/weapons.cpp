@@ -480,9 +480,12 @@ void DrawMagazineAmmo(int intermission)
     if(!infinite||!DrawCharacterSkillInfiniteAmmo(active,reserveX+reserveSpan,y,red,green,blue))
         number(reserveText,reserveX,reserveCells);
     originalFill(dividerX,y,dividerWidth,height,red,green,blue,255);
-    originalSet(ammoIcon.handle,red,green,blue);
-    originalDraw(current.ammoFrame>=0?current.ammoFrame:0,
-        reserveX+reserveSpan,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
+    if(current.ammoFrame!=hud_style::HiddenAmmoFrame)
+    {
+        originalSet(ammoIcon.handle,red,green,blue);
+        originalDraw(current.ammoFrame>=0?current.ammoFrame:0,
+            reserveX+reserveSpan,y-(ammoIcon.rect.bottom-ammoIcon.rect.top)/8,&ammoIcon.rect);
+    }
     ++hudDraws;
 }
 void PrepareWideAmmo(int intermission)

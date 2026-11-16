@@ -553,7 +553,9 @@ void CSOL_PrecacheGuestCof()
         const bool config = size > 0 && map->damage.Parse({reinterpret_cast<const char*>(file.get()), std::size_t(size)}, error);
         if (!config) { ALERT(at_error, "[CoF] Guest weapons disabled: %s\n", error.c_str()); return; }
         for(const auto& definition:Firearms)
-            if(map->damage.Find(definition.identity))map->configuredWeapons|=FirearmCapability(definition.identity);
+            // M16's production action-life/target providers are not installed yet.
+            if(definition.identity!=Firearm::M16&&map->damage.Find(definition.identity))
+                map->configuredWeapons|=FirearmCapability(definition.identity);
         host.maps.push_back(std::move(map));
         host.active = host.maps.back().get(); host.active->active = true;
         auto& current = *host.active;
@@ -593,6 +595,7 @@ void CSOL_PrecacheGuestCof()
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Actual Glock consumers were not prepared\n"); return; }
         for(const auto& definition:Firearms)
         {
+            if(!(current.configuredWeapons&FirearmCapability(definition.identity)))continue;
             if(definition.identity==Firearm::MP5&&!host.runtime.PreparedMP5Resources())continue;
             if(definition.identity==Firearm::TMP&&!tmpEnabled)continue;
             const auto hud=PrepareFirearmPresentationResources(authority,definition.identity);
@@ -602,6 +605,7 @@ void CSOL_PrecacheGuestCof()
         current.ready = true;
         for(const auto& definition:Firearms)
         {
+            if(!(current.configuredWeapons&FirearmCapability(definition.identity)))continue;
             if(definition.identity==Firearm::MP5&&!host.runtime.PreparedMP5Resources())continue;
             if(definition.identity==Firearm::TMP&&!tmpEnabled)continue;
             UTIL_PrecacheOtherWeapon(definition.classname.data());

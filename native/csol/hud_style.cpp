@@ -71,8 +71,8 @@ Catalog ParseCatalog(std::string_view json)
         if(row.HasMember("ammoFrames"))
         {
             const auto& frames=row["ammoFrames"];
-            Require(frames.IsArray()&&frames.Size()==AmmoFrameCount&&!art.ammo.empty());
-            for(unsigned i=0;i<AmmoFrameCount;++i)
+            Require(frames.IsArray()&&frames.Size()>=2&&frames.Size()<=AmmoFrameCount&&!art.ammo.empty());
+            for(unsigned i=0;i<frames.Size();++i)
             {
                 art.ammoFrames[i]=ImageValue(frames[i]);
             }

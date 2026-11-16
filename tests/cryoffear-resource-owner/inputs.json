@@ -27,5 +27,13 @@
   "sound/weapons_new/mp5/mp5_charger_back.wav": "2b027b7b5b5c3ad6ed4d7c2b8681786c611f0344eae72d3511a957b19c1bd5ec",
   "sound/weapons_new/mp5/mp5_charger_forward.wav": "3e4f69da2842cba52cb8ee356b7590ab1f213a43775c034e43dd02cc9084ea64",
   "sound/weapons_new/mp5/mp5_magin.wav": "a19e0d724f78a0d0ae7bcd2b244ea00d00ca2e980baf65b338e1a5a09ab10ebf",
-  "sound/weapons_new/mp5/mp5_magout.wav": "772847f992d1cf58566ba9c37f641cf16444b7c8453224834b7c566ab17c88e0"
+  "sound/weapons_new/mp5/mp5_magout.wav": "772847f992d1cf58566ba9c37f641cf16444b7c8453224834b7c566ab17c88e0",
+  "sound/weapons_new/m16/m16_cock.wav": "c279ac58bb499bc891ba6a989f2b424c424c801c5308af9297bab80f462db0ac",
+  "sound/weapons_new/m16/m16_magin.wav": "f2be106e7c7f900885eee13da0e2b4bd09f44581fcf52a5db1cd809c130e1664",
+  "sound/weapons_new/m16/m16_magout.wav": "50d61f04b75faf36dd6d9d40aa23c9aba491248c744130fcea8cc98f2dfd1d39",
+  "sound/weapons_new/m16/m16_fire.wav": "b5728b348f0c24ad9d865ec6cc19b411ce878334e66cc8079d4a0a113f8a4267",
+  "sound/weapons_new/m16/m16_magtap.wav": "61acfd24ed6e0e7dee05fbe6eef7fe40fc627935cd9eef7f6ae9985e2ead6e76",
+  "sound/weapons_new/m16/m16_cock1.wav": "0da055f4dabc433f76910990cb1e2c44e6026fd0fe1dc614c6719e10c9c7f205",
+  "sound/weapons_new/m16/m16_cock2.wav": "bb34f2ab0a1704f74faca3354385c125919cbacd94e7b7aada659c8fb27cbf06",
+  "sound/weapons_new/m16/m16_switch.wav": "a04d3c8c152fff96da7501b836f1efe24e5860cb31fd32e35cff9ff48dbc4e59"
 }

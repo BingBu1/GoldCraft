@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "weapon_module.hpp"
 #include "guest_cof_crosshair.hpp"
+#include "guest_cof.hpp"
 #include "../../../guest/cof/catalog.hpp"
 #include "../../../guest/cof/client/revolver_hud.hpp"
 
@@ -55,5 +56,18 @@ constinit const WeaponModule mp5Module{
     .ammoSprite="sprites/guest/cof/mp5_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false};
 const WeaponModuleRegistration mp5Registration{mp5Module};
+constexpr int m16Ids[]{guest::cof::FindFirearm(guest::cof::Firearm::M16)->hostId};
+void M16HudState(hud_style::WeaponState& state)
+{
+    unsigned frame{};
+    if(GuestCofM16AmmoFrame(frame))state.ammoFrame=int(frame);
+    else {state.ammoFrame=hud_style::HiddenAmmoFrame;state.kind=hud_style::AmmoKind::None;}
+}
+constinit const WeaponModule m16Module{
+    .ids=m16Ids,.order=96,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/m16_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false,.hudState=M16HudState};
+const WeaponModuleRegistration m16Registration{m16Module};
 }
 }

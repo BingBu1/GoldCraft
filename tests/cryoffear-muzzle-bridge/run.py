@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--vp70-model',type=Path)
     parser.add_argument('--tmp-model',type=Path)
     parser.add_argument('--mp5-model',type=Path)
+    parser.add_argument('--m16-model',type=Path)
     parser.add_argument('--vp70-attachment-proof',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -42,6 +43,8 @@ def main():
         raise ValueError('Use actual TMP P together with all four verified pistol models')
     if args.mp5_model and (not args.tmp_model or sha(args.mp5_model)!='7390f49357e9fcdc726324447ee9603d438eb673423e67be0fa876b7dc14e1a2'):
         raise ValueError('Use the reviewed resident MP5 P with its authored muzzle attachment and all five earlier models')
+    if args.m16_model and (not args.mp5_model or sha(args.m16_model)!='69e88ff618b4000e572a067712247f0e5f9f7ea4e886d51080ee0d6dc00a5fd9'):
+        raise ValueError('Use original police M16 P together with the earlier six models')
     vp70_inputs=[]
     if args.vp70_model:
         if not args.p345_model or not args.revolver_model:
@@ -99,6 +102,7 @@ def main():
     if args.vp70_model:inputs.add(args.vp70_model.resolve())
     if args.tmp_model:inputs.add(args.tmp_model.resolve())
     if args.mp5_model:inputs.add(args.mp5_model.resolve())
+    if args.m16_model:inputs.add(args.m16_model.resolve())
     inputs.update(vp70_inputs)
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
@@ -126,6 +130,7 @@ def main():
         if args.vp70_model:arguments.append(str(args.vp70_model.resolve()))
         if args.tmp_model:arguments.append(str(args.tmp_model.resolve()))
         if args.mp5_model:arguments.append(str(args.mp5_model.resolve()))
+        if args.m16_model:arguments.append(str(args.m16_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

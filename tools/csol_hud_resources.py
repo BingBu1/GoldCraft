@@ -70,7 +70,7 @@ def dependencies(data, constants, images):
             image(row['selected'], True)
         if 'ammoFrames' in row:
             frames = row['ammoFrames']
-            if not isinstance(frames, list) or len(frames) != 6 or not row['ammo'] or frames[0] != row['ammo']:
+            if not isinstance(frames, list) or not 2 <= len(frames) <= 6 or not row['ammo'] or frames[0] != row['ammo']:
                 raise ValueError('Invalid HUD ammunition frames')
             for frame in frames:
                 image(frame)

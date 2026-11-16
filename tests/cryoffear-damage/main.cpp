@@ -27,7 +27,7 @@ std::string Changed(std::string value, const std::string& from, const std::strin
 int main(int argc, char** argv)
 {
     using namespace guest::cof;
-    if (argc != 4) return 2;
+    if (argc != 5) return 2;
     std::ifstream file(argv[1], std::ios::binary);
     if (!file) return 3;
     const std::string json{std::istreambuf_iterator<char>(file), {}};
@@ -118,11 +118,11 @@ int main(int argc, char** argv)
         tmp->price==2000&&tmp->ammunitionPrice==30&&tmp->ammunitionCount==30&&
         tmp->displayName=="客串武器·MP9"&&!FindPistol(900)&&!OriginalPistolId(14),
         "TMP was misplaced in pistol family or lost authored metadata");
-    Check(!FindFirearm(-1)&&!FindFirearm(895)&&!FindFirearm(902)&&!FindFirearm(Firearm::Count)&&
+    Check(!FindFirearm(-1)&&!FindFirearm(895)&&!FindFirearm(903)&&!FindFirearm(Firearm::Count)&&
         !FindOriginalFirearm(0)&&!config.Find(Firearm::Count),"Invalid firearm identity accepted");
-    for(unsigned bits=0;bits<=63;++bits)
+    for(unsigned bits=0;bits<=127;++bits)
         Check(ParseFirearmAdmission("1",std::to_string(bits)).weapons==bits,"Valid explicit firearm mask rejected");
-    for(const char* bad:{"-1","+1"," 1","1 ","64","16x","4294967296","2147483648"})
+    for(const char* bad:{"-1","+1"," 1","1 ","128","16x","4294967296","2147483648"})
         Check(ParseFirearmAdmission("1",bad).weapons==0,"Malformed firearm mask accepted");
     Check(ParseFirearmAdmission("1","").weapons==1&&ParseFirearmAdmission("0","31").weapons==0&&
         ParsePistolAdmission("1","16").weapons==0,"Legacy protocol semantics changed");
@@ -152,6 +152,26 @@ int main(int argc, char** argv)
         Changed(v3Json,"\"shot\": 60","\"shot\": 60, \"penetration\": 5"),Changed(v3Json,"\"version\": 3","\"version\": 2")})
         Check(!config.Parse(bad,error)&&config.Find(Firearm::MP5)&&config.Find(Firearm::MP5)->shot==60,
             "Failed MP5 balance transaction changed the accepted configuration");
+    Check(!config.Find(Firearm::M16),"Six-gun v3 invented M16 permission");
+    std::ifstream shippedV4(argv[4],std::ios::binary);if(!shippedV4)return 3;
+    const std::string v4Json{std::istreambuf_iterator<char>(shippedV4),{}};
+    Check(config.Parse(v4Json,error)&&config.Find(Firearm::M16)&&
+        *config.Find(Firearm::M16)==ScenarioDamage{90,120},"Explicit M16 author balance rejected");
+    const auto* m16=FindFirearm(Firearm::M16);
+    Check(m16&&m16->hostId==902&&m16->originalId==9&&m16->clip==20&&m16->reserve==200&&
+        m16->price==3100&&m16->ammunitionPrice==40&&m16->ammunitionCount==20&&
+        !FindPistol(902)&&!OriginalPistolId(9),"M16 metadata or host family mismatch");
+    for(const auto& bad:{Changed(v4Json,"\"m16\"","\"mp5\""),Changed(v4Json,"\"shot\": 90","\"shot\": -1"),
+        Changed(v4Json,"\"shot\": 90","\"shot\": 90, \"penetration\": 5"),
+        Changed(v4Json,"\"version\": 4","\"version\": 3"),Changed(v4Json,"\"version\": 4","\"version\": 5")})
+    {
+        Check(!config.Parse(bad,error),"Malformed v4 balance accepted");
+        for(unsigned index=0;index<Firearms.size();++index)
+            Check(config.Find(static_cast<Firearm>(index))!=nullptr,"Failed v4 reload lost a previous weapon");
+        Check(*config.Find(Firearm::M16)==ScenarioDamage{90,120},"Failed v4 transaction changed M16 balance");
+    }
+    Check(config.Parse(v3Json,error)&&!config.Find(Firearm::M16)&&config.Find(Firearm::MP5),
+        "Returning to v3 left stale M16 permission/data");
     Check(config.Parse(v2Json,error)&&!config.Find(Firearm::MP5)&&config.Find(Firearm::TMP),"Returning to v2 left stale MP5 permission/data");
     Check(config.Parse(json,error)&&!config.Find(Firearm::TMP)&&!config.Find(Firearm::MP5)&&config.Find(Pistol::VP70)->shot==80,
         "Returning to v1 left stale TMP permission/data");

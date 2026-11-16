@@ -1,0 +1,12 @@
+{
+  "version": 4,
+  "firearms": {
+    "glock": { "shot": 110, "melee": 120 },
+    "p345": { "shot": 165, "melee": 120 },
+    "revolver": { "shot": 100, "melee": 120, "penetration": 5 },
+    "vp70": { "shot": 80, "melee": 120 },
+    "tmp": { "shot": 55, "melee": 120 },
+    "mp5": { "shot": 60, "melee": 120 },
+    "m16": { "shot": 90, "melee": 120 }
+  }
+}

@@ -280,7 +280,7 @@ void PrepareWeaponCard(int id)
                     frames[0]=primary.id?primary:card.ammo;
                     if(frames[0].width!=32||frames[0].height!=32)
                         throw std::runtime_error("HUD ammunition frames require authored 32px art");
-                    for(unsigned i=1;i<frames.size();++i)
+                    for(unsigned i=1;i<frames.size()&&!image->second.ammoFrames[i].empty();++i)
                     {
                         frames[i]=Load(image->second.ammoFrames[i].c_str());
                         if(frames[i].width!=32||frames[i].height!=32)
@@ -317,7 +317,8 @@ void UsePreparedWeapon(int id, int ammoFrame = -1)
     if(!definition || !card || card->name!=definition->name || !card->equippedReady)
     {weaponImage=ammoImage=secondaryImage={};weaponName={};weaponTitle={};weaponTitleId=0;weaponTitleSlot=-1;return;}
     weaponImage=card->image;ammoImage=card->ammo;secondaryImage=card->secondary;
-    if(ammoFrame>=0)ammoImage=unsigned(ammoFrame)<card->ammoFrames.size()?card->ammoFrames[ammoFrame]:Texture{};
+    if(ammoFrame==hud::HiddenAmmoFrame)ammoImage={};
+    else if(ammoFrame>=0)ammoImage=unsigned(ammoFrame)<card->ammoFrames.size()?card->ammoFrames[ammoFrame]:Texture{};
     weaponName=card->name;weaponTitle=card->title;weaponTitleId=card->titleId;weaponTitleSlot=card->titleSlot;
 }
 void PrepareWeaponList()
@@ -717,8 +718,11 @@ bool HudStyleWeaponResourcesReady(int id, unsigned ammoFrames) noexcept
     if(!card||!card->equippedReady||!card->image.id||!card->ammo.id||!card->selectedKnown||
         (!card->selectedAbsent&&!card->selectedImage.id)||card->title.empty())return false;
     if(ammoFrames==1)return true;
-    return ammoFrames==hud::AmmoFrameCount&&std::all_of(card->ammoFrames.begin(),card->ammoFrames.end(),
-        [](const Texture& frame){return frame.id!=0;});
+    return ammoFrames>=2&&ammoFrames<=card->ammoFrames.size()&&
+        std::all_of(card->ammoFrames.begin(),card->ammoFrames.begin()+ammoFrames,
+            [](const Texture& frame){return frame.id!=0;})&&
+        std::all_of(card->ammoFrames.begin()+ammoFrames,card->ammoFrames.end(),
+            [](const Texture& frame){return frame.id==0;});
 }
 void BeginHudStyle(int hidden,int intermission)
 {

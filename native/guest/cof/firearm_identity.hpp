@@ -8,9 +8,9 @@ namespace guest::cof
 {
 // Stable host resource/transport indices, independent of original CoF IDs and
 // inventory categories. Adding an automatic never turns it into a pistol.
-enum class Firearm : unsigned char { Glock, P345, Revolver, VP70, TMP, MP5, Count };
+enum class Firearm : unsigned char { Glock, P345, Revolver, VP70, TMP, MP5, M16, Count };
 inline constexpr std::array<std::string_view,static_cast<unsigned>(Firearm::Count)> FirearmKeys{
-    "glock","p345","revolver","vp70","tmp","mp5"};
+    "glock","p345","revolver","vp70","tmp","mp5","m16"};
 constexpr std::uint32_t FirearmCapability(Firearm value) noexcept
 {
     const auto index=static_cast<unsigned>(value);

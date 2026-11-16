@@ -2669,7 +2669,9 @@
     "tests/cryoffear-m16-runtime/README.md",
     "docs/2026-11-16_接入-M16原生操作声音-report.md",
     "tests/cryoffear-m16-native-effects/README.md",
-    "docs/2026-11-16_接入-M16合作射击声与原版枪口-report.md"
+    "docs/2026-11-16_接入-M16合作射击声与原版枪口-report.md",
+    "docs/2026-11-16_接入-M16客户端目录与双帧弹药HUD-report.md",
+    "tests/cryoffear-m16-presentation/README.md"
   ],
   "trees": {
     "native": [

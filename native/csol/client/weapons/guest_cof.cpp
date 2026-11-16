@@ -202,4 +202,14 @@ bool GuestCofPrepareStudioModel(cl_entity_s* entity, int hostWeaponId) noexcept
     return guest::cof::client::ApplyRevolverCylinder(*entity, engine.GetViewModel(),
         state->originalWeapon, *state->revolverAngle);
 }
+bool GuestCofM16AmmoFrame(unsigned& output) noexcept
+{
+    if(!connection||!connectionGeneration||connection->generation()!=connectionGeneration)
+        return false;
+    const auto* state=receiver.Current();
+    if(!state||state->originalWeapon!=9||!state->m16Burst)
+        return false;
+    output=*state->m16Burst?1u:0u;
+    return true;
+}
 }

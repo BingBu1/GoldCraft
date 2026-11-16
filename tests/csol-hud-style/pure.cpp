@@ -46,6 +46,13 @@ int main()
     Check(framed.weapons.at("weapon_cannon").ammoFrames[5]=="resource/csol/hud/v1/ammo5.tga","six explicit frames retain order");
     const auto framedPaths=ResourcePaths(framed);
     Check(framedPaths.size()==ResourcePaths(parsed).size()+5,"all independent frames join deduplicated downloads");
+    const std::string pair="[\"resource/csol/hud/v1/ammo.tga\",\"resource/csol/hud/v1/ammo1.tga\"]";
+    const auto twoFrames=ParseCatalog(Replace(framedText,frameList,pair));
+    Check(twoFrames.weapons.at("weapon_cannon").ammoFrames[1]=="resource/csol/hud/v1/ammo1.tga"&&
+        twoFrames.weapons.at("weapon_cannon").ammoFrames[2].empty(),"two original mode frames do not invent extra states");
+    Check(ResourcePaths(twoFrames).size()==ResourcePaths(parsed).size()+1,"mode frame joins resource closure exactly once");
+    Reject(Replace(framedText,frameList,"[\"resource/csol/hud/v1/ammo.tga\"]"));
+    Reject(Replace(framedText,frameList,Replace(frameList,"]",",\"resource/csol/hud/v1/ammo6.tga\"]")));
     for(const auto& bad:{std::string("[]"),std::string("[\"../ammo.tga\"]"),std::string("{}"),std::string("6")})
         Reject(Replace(framedText,frameList,bad));
     Reject(Replace(framedText,"resource/csol/hud/v1/ammo5.tga","../ammo5.tga"));

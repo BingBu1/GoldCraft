@@ -63,8 +63,8 @@ constexpr Firearm FirearmIdentity(Pistol identity) noexcept
     const auto index=static_cast<unsigned>(identity);
     return index<Pistols.size()?static_cast<Firearm>(index):Firearm::Count;
 }
-inline constexpr std::array<FirearmDefinition,Pistols.size()+2> Firearms=[] {
-    std::array<FirearmDefinition,Pistols.size()+2> result{};
+inline constexpr std::array<FirearmDefinition,FirearmKeys.size()> Firearms=[] {
+    std::array<FirearmDefinition,FirearmKeys.size()> result{};
     for(std::size_t i=0;i<Pistols.size();++i)
     {
         const auto& source=Pistols[i];
@@ -78,6 +78,9 @@ inline constexpr std::array<FirearmDefinition,Pistols.size()+2> Firearms=[] {
     result[static_cast<unsigned>(Firearm::MP5)]={Firearm::MP5,901,27,30,300,2400,30,30,
         "weapon_cof_mp5","cof_mp5","客串武器·MP5A3",
         "models/guest/cof/mp5/v_mp5.mdl","models/guest/cof/mp5/p_mp5.mdl","models/guest/cof/mp5/w_mp5.mdl"};
+    result[static_cast<unsigned>(Firearm::M16)]={Firearm::M16,902,9,20,200,3100,40,20,
+        "weapon_cof_m16","cof_m16","客串武器·M16",
+        "models/guest/cof/m16/v_m16.mdl","models/guest/cof/m16/p_m16.mdl","models/guest/cof/m16/w_m16.mdl"};
     return result;
 }();
 constexpr const FirearmDefinition* FindFirearm(Firearm identity) noexcept
@@ -100,6 +103,7 @@ constexpr const FirearmDefinition* FindOriginalFirearm(int originalId) noexcept
     case 19:return FindFirearm(Firearm::VP70);
     case 14:return FindFirearm(Firearm::TMP);
     case 27:return FindFirearm(Firearm::MP5);
+    case 9:return FindFirearm(Firearm::M16);
     default:return nullptr;
     }
 }

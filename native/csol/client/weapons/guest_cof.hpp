@@ -18,4 +18,5 @@ void GuestCofVideoInit();
 int GuestCofUpdateClientData(client_data_s* data, float time);
 // Runs before native Studio bone setup; authority and HUD identity must agree.
 bool GuestCofPrepareStudioModel(cl_entity_s*, int hostWeaponId) noexcept;
+bool GuestCofM16AmmoFrame(unsigned& output) noexcept;
 }

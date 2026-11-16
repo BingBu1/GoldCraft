@@ -13,7 +13,8 @@ bool ValidState(const PresentationState& value) noexcept
     return Valid(value.key) && value.revision &&
         (!value.originalWeapon || OriginalFirearmId(value.originalWeapon)) &&
         (value.originalWeapon || !value.aimEnabled) &&
-        (value.revolverAngle.has_value() == (value.originalWeapon == 21));
+        (value.revolverAngle.has_value() == (value.originalWeapon == 21)) &&
+        (value.m16Burst.has_value() == (value.originalWeapon == 9));
 }
 
 void Store(std::span<std::byte> output, std::size_t offset, std::uint32_t word, std::size_t bytes) noexcept
@@ -46,7 +47,8 @@ bool EncodeState(const PresentationState& state, StatePacket& output) noexcept
 {
     if (!ValidState(state) || state.revolverAngle) return false;
     StatePacket encoded{};
-    encoded[0] = static_cast<std::byte>(StateProtocol);
+    encoded[0] = static_cast<std::byte>(state.m16Burst ? M16StateProtocol : StateProtocol);
+    if(state.m16Burst)encoded[3]=static_cast<std::byte>(*state.m16Burst);
     EncodeCommon(state, encoded);
     output = encoded;
     return true;
@@ -66,9 +68,12 @@ bool EncodeState(const PresentationState& state, RevolverStatePacket& output) no
 bool DecodeState(std::span<const std::byte> bytes, PresentationState& output) noexcept
 {
     const bool revolver = bytes.size() == RevolverStateBytes;
+    const bool m16 = bytes.size() == StateBytes && bytes[0] == static_cast<std::byte>(M16StateProtocol);
     if ((!revolver && bytes.size() != StateBytes) ||
-        bytes[0] != static_cast<std::byte>(revolver ? RevolverStateProtocol : StateProtocol) ||
-        std::to_integer<unsigned>(bytes[2]) > 1 || bytes[3] != std::byte{} ||
+        bytes[0] != static_cast<std::byte>(revolver ? RevolverStateProtocol : m16 ? M16StateProtocol : StateProtocol) ||
+        std::to_integer<unsigned>(bytes[2]) > 1 ||
+        (m16 ? std::to_integer<unsigned>(bytes[3]) > 1 : bytes[3] != std::byte{}) ||
+        ((bytes[1] == std::byte{9}) != m16) ||
         (bytes[1] == std::byte{21}) != revolver) return false;
     PresentationState decoded{
         {Load(bytes, 4, 4), Load(bytes, 8, 4), Load(bytes, 12, 4)}, Load(bytes, 16, 4),
@@ -76,6 +81,7 @@ bool DecodeState(std::span<const std::byte> bytes, PresentationState& output) no
         static_cast<std::uint16_t>(Load(bytes, 20, 2)),
         std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(Load(bytes, 22, 2)))};
     if (revolver) decoded.revolverAngle = std::bit_cast<float>(Load(bytes, StateBytes, 4));
+    if (m16) decoded.m16Burst = bytes[3] == std::byte{1};
     if (!ValidState(decoded)) return false;
     output = decoded;
     return true;
