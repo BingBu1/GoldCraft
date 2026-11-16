@@ -48,6 +48,30 @@ production sources or launching graphical clients.
 Passing this suite proves agreement of the two host PM implementations for its
 controlled command streams. It does **not** prove original CSO crouch fidelity:
 the low-speed weapon case records a2.94372-unit/s crawl with the current caps and
-test movevars. Original CSO's additional crouch field and its producer still
+test movevars. The original client attribute injection and mode movevars still
 require analysis. Full sprint remains closed. See [the evidence and
 boundaries](../../docs/2026-11-16_验证-绝命档案完整原生移动与蹲姿缺口-report.md).
+
+## Replay the original crouch scalar instructions
+
+```bash
+python -B tests/csol-standalone-prediction/original_crouch.py \
+  --client analysis/csol-standalone-stamina-20261115/samples/client32.dll \
+  --server analysis/csol-environment-implementation-20261114/samples/environment-mp.dll \
+  --client-evidence analysis/csol-standalone-stamina-20261115/native-pm-20261116/original-crouch-exact-query.json \
+  --server-evidence analysis/csol-standalone-stamina-20261115/crouch-20261116/mp-crouch-complete-exact-query.json \
+  --output build/standalone-original-crouch-new
+```
+
+The runner verifies both original PE identities and complete IDA instruction
+boundaries, then executes the original producer clamp, three-axis scalar and
+friction-mode predicate with Unicorn. Only the current-mode interface providers
+are ABI stubs; neither tested scalar body is replaced. The test covers finite,
+infinite and NaN attribute inputs, preserves the original float/double ordering,
+and confirms that the special friction gate selects mode53 rather than33.
+
+The extra value is an active attribute contribution capped at0.9, not a fixed
+compensation for native crouching. The earlier low-speed observation alone does
+not establish an original-game bug. Remaining client injection, input-lock and
+network boundaries are recorded in [the provenance
+report](../../docs/2026-11-16_分析-绝命档案蹲姿属性与摩擦分支-report.md).
