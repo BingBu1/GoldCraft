@@ -202,8 +202,8 @@ def stage(args):
     updater.write_text(text, 'utf-8-sig')
     readme = (
         '# 永夜紧急修复包\n\n适用已安装 20261115-Nightfall 的服务器。默认目录 '
-        '`E:\\cs_MineCraft\\GoldCraft-Servers`。\n\n停服后解压到服务器目录外，双击 '
-        '`Update-Server.cmd`，成功后用原 `Start.cmd` 启动。玩家用原受管启动器启动即可更新 DLL 和符号目录。\n\n'
+        '`E:\\cs_MineCraft\\GoldCraft-Servers`。\n\n解压到服务器目录外，双击 '
+        '`Update-Server.cmd`；预检通过后自动保存停服、安装并恢复原先运行的服务，原本已停服则保持停止。玩家用原受管启动器启动即可更新 DLL 和符号目录。\n\n'
         '修复 CSX 将怪物拥有者当玩家造成的崩溃，补齐导致整组客串武器拒购的服务端配置；'
         '资源修复升级为最多8路协程／128MiB总缓冲，后台校验落盘，暂停加载时维持原生连接，显示资源进度。\n\n'
         '只包含变化文件；省略的基线逐 SHA 检查。保留服务器端口、HTTP、管理员与数据库设置。'
@@ -212,6 +212,9 @@ def stage(args):
     if args.readme:
         readme = plain(args.readme).read_text('utf-8-sig')
     (package/'README.md').write_text(readme, 'utf-8')
+    # Share the graceful lifecycle before hashing or sealing new packages.
+    import runpy
+    runpy.run_path(str(ROOT/'tools/server-update-lifecycle/package.py'))['enable'](package, refresh_sums=True)
     archive = output/(package.name+'.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for source in sorted(package.rglob('*')):

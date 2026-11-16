@@ -3,9 +3,9 @@
 这是现有 GoldCraft-Servers 的服务端更新，不是完整独立服务端。
 默认目录是 `E:\cs_MineCraft\GoldCraft-Servers`，不用重新输入。
 
-1. 用原服务器的 `Stop.cmd` 停服，将本 ZIP 解压到服务器目录外。
+1. 将本 ZIP 解压到服务器目录外。
 2. 双击本包 `Update-Server.cmd`，等待显示 `Updated` 或 `Already current`。
-3. 用原服务器 `Start.cmd` 启动。玩家从冰桑启动器启动，以更新配套两份核心 DLL。
+3. 校验通过后自动保存停服、更新并按原脚本恢复原先运行的服务；原本已停服则保持停止。玩家从冰桑启动器启动，获取配套核心 DLL。
 
 本包包含完整 `payload/cs/launcher-public`：签名清单和全部19个核心DLL，
 其中CSOLSupport、GoldCraft为新版，其余17项保持已验版本。更新器会将
@@ -45,7 +45,7 @@
 .\Update-Server.cmd -TargetDirectory 'D:\GoldCraft-Servers'
 ```
 
-恢复：先用原 `Stop.cmd` 停服，再双击本包 `Restore-Server.cmd`。
+恢复：双击本包 `Restore-Server.cmd`，同样自动保存停服并恢复启动。`-NoRestart` 可要求完成后保持停止；预检失败不打断服务，完整回滚后恢复旧服务，回滚失败保持停止并保留备份。
 备份保存在服务器 `.bingsang-current-update\20261107`。
 恢复会拒绝覆盖更新后被其他工具修改的文件；中断的更新会在重跑时恢复
 已记录的事务后重新安装。更新及恢复均以独立临时文件原子替换，

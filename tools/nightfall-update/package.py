@@ -234,6 +234,7 @@ def build(plan_path, output, refresh=False):
     scripts = {
         'Update-Server.ps1': ROOT/'tools/current-server-update/Update-Server.ps1',
         'Files.ps1': ROOT/'tools/scenario-update/Files.ps1',
+        'Lifecycle.ps1': ROOT/'tools/server-update-lifecycle/Lifecycle.ps1',
         'Scenario.ps1': ROOT/'tools/scenario-update/Configure.ps1',
         'Configuration.ps1': ROOT/'tools/current-server-update/Configuration.ps1',
         'Publication.ps1': HERE/'Publication.ps1',
@@ -261,6 +262,9 @@ def build(plan_path, output, refresh=False):
                 raise ValueError('Configuration template changed')
             text = text.replace(old, '    Add-NightfallConfiguration $Root $changes\n'+old)
         (package/name).write_text(text, 'utf-8-sig' if name.endswith('.ps1') else 'utf-8', newline='\r\n')
+    # Share the graceful lifecycle before hashing or sealing new packages.
+    import runpy
+    runpy.run_path(str(ROOT/'tools/server-update-lifecycle/package.py'))['enable'](package)
     members = sorted(p for p in package.rglob('*') if p.is_file())
     sums = {p.relative_to(package).as_posix(): sha(p) for p in members}
     (package/'SHA256SUMS.txt').write_text(''.join(h+'  '+n+'\n' for n, h in sums.items()), 'utf-8')

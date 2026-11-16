@@ -100,6 +100,7 @@ def build(plan_path, publication, output, refresh=False, stage_only=False):
         'Publication.ps1':ROOT/'tools/current-server-update/Publication.ps1',
         'Scenario.ps1':ROOT/'tools/scenario-update/Configure.ps1',
         'Files.ps1':ROOT/'tools/scenario-update/Files.ps1',
+        'Lifecycle.ps1':ROOT/'tools/server-update-lifecycle/Lifecycle.ps1',
         'Update-Server.cmd':ROOT/'tools/release-package/Update-Server.cmd',
         'Restore-Server.cmd':ROOT/'tools/release-package/Restore-Server.cmd',
         'README.md':ROOT/'tools/current-server-update/README.md',
@@ -112,6 +113,9 @@ def build(plan_path, publication, output, refresh=False, stage_only=False):
         else:
             shutil.copy2(source,temp)
         os.replace(temp,dest)
+    # Share the graceful lifecycle before hashing or sealing new packages.
+    import runpy
+    runpy.run_path(str(ROOT/'tools/server-update-lifecycle/package.py'))['enable'](package)
     expected_payload={r['path'].lower() for r in changed}
     actual_payload={p.relative_to(package/'payload').as_posix().lower() for p in (package/'payload').rglob('*') if p.is_file()}
     if actual_payload!=expected_payload:raise ValueError('Unexpected staged payload files')

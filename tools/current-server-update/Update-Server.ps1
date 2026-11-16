@@ -1,8 +1,11 @@
-param([string]$TargetDirectory='E:\cs_MineCraft\GoldCraft-Servers',[switch]$Plan,[switch]$Restore)
+﻿param([string]$TargetDirectory='E:\cs_MineCraft\GoldCraft-Servers',[switch]$Plan,[switch]$Restore,[switch]$NoRestart)
 . (Join-Path $PSScriptRoot 'Files.ps1')
 . (Join-Path $PSScriptRoot 'Scenario.ps1')
 . (Join-Path $PSScriptRoot 'Configuration.ps1')
 . (Join-Path $PSScriptRoot 'Publication.ps1')
+# Automatic server lifecycle v1
+. (Join-Path $PSScriptRoot 'Lifecycle.ps1')
+$lifecycle=$null;$safeToStart=$false
 $lock=$null
 $scope='remote-deployed-delta'
 $pins=@{
@@ -105,11 +108,15 @@ try {
     if(Test-Path -LiteralPath $journalPath){$journal=Text $journalPath|ConvertFrom-Json;Check-Journal $journal}
     if($Restore){
         if(!$journal){throw 'No rollback record exists'}
+        $lifecycle=Begin-ServerUpdate $target -NoRestart:$NoRestart
+        $safeToStart=$true
         Stopped $target;Unlocked $journal.files
         $lock=[IO.File]::Open((Under $state 'operation.lock'),'OpenOrCreate','ReadWrite','None')
         $journal=Text $journalPath|ConvertFrom-Json;Check-Journal $journal
+        $safeToStart=$false
         if($journal.status -ne 'restored'){Restore-Files $target $state $journal}
-        Write-Host 'Previous files and configuration restored. Use the original Start.cmd.';exit 0
+        $safeToStart=$true
+        Write-Host 'Previous files and configuration restored. Previously running servers will restart automatically.';exit 0
     }
     Write-Host 'Checking release prerequisites...'
     foreach($name in $pins.Keys){
@@ -120,7 +127,6 @@ try {
             if((Hash $path) -cne $row.sha256){throw "Package integrity failure: $name"}
         }
     }
-    if(!$Plan){Stopped $target;Unlocked @($pins.Keys|ForEach-Object {[pscustomobject]@{path=$_}})}
     foreach($row in $manifest.requiredBaseline){
         if(!(Test-Path -LiteralPath (Under $target $row.path) -PathType Leaf)){
             throw "Missing/changed baseline. Apply $($row.baselineRelease) first: $($row.path)"
@@ -142,8 +148,6 @@ try {
     if($journal -and $journal.status -eq 'installed' -and $rows.Count){
         throw 'This release is already installed, but files or settings changed afterwards. Original backups are retained. Restore the recorded installation before applying it again.'
     }
-    # Check occupancy before the larger omitted-resource scan.
-    if(!$Plan){Stopped $target;Unlocked $rows}
     Write-Host 'Checking omitted resources from previously issued packages...'
     $i=0
     foreach($row in $manifest.requiredBaseline){
@@ -155,11 +159,16 @@ try {
     }
     if($Plan){[ordered]@{release=$manifest.release;changed=$rows.Count;baselineVerified=$i;pendingRecovery=($journal -and $journal.status -eq 'prepared');applied=$false}|ConvertTo-Json;exit 0}
     if(!$rows.Count -and (!$journal -or $journal.status -ne 'prepared')){Write-Host 'Already current. No files copied.';exit 0}
+    $lifecycle=Begin-ServerUpdate $target -NoRestart:$NoRestart
+    $safeToStart=$true
+    Stopped $target;Unlocked $rows
     [IO.Directory]::CreateDirectory($state)|Out-Null
     $lock=[IO.File]::Open((Under $state 'operation.lock'),'OpenOrCreate','ReadWrite','None')
     $journal=$null
     if(Test-Path -LiteralPath $journalPath){$journal=Text $journalPath|ConvertFrom-Json;Check-Journal $journal}
-    if($journal -and $journal.status -eq 'prepared'){Restore-Files $target $state $journal}
+    if($journal -and $journal.status -eq 'prepared'){
+        $safeToStart=$false;Restore-Files $target $state $journal;$safeToStart=$true
+    }
     $rows=@(Changes);Stopped $target;Unlocked $rows
     if($journal -and $journal.status -eq 'installed' -and $rows.Count){throw 'Installed transaction changed; original rollback retained. Restore before reapplying.'}
     if(!$rows.Count){Write-Host 'Already current. No files copied.';exit 0}
@@ -172,6 +181,7 @@ try {
     Json $journalPath $journal
     try {
         Stopped $target;Unlocked $rows;$i=0
+        $safeToStart=$false
         foreach($row in @($rows|Sort-Object @{Expression={if($_.path -ceq 'cs/launcher-public/manifest.json'){3}elseif($_.kind -ceq 'configuration'){2}elseif($_.path.EndsWith('.dll')){1}else{0}}},path)){
             $dest=Under $target $row.path
             if((Hash $dest) -cne $row.before){throw 'Destination changed before replacement'}
@@ -185,8 +195,13 @@ try {
             if((++$i % 100) -eq 0){Write-Host "Installed $i / $($rows.Count)"}
         }
         $journal.status='installed';Json $journalPath $journal
-    }catch{Restore-Files $target $state $journal;throw}
+        $safeToStart=$true
+    }catch{Restore-Files $target $state $journal;$safeToStart=$true;throw}
     Write-Host "Updated $($rows.Count) files. Verified $(@($manifest.requiredBaseline).Count) omitted baseline files."
     Write-Host 'Mode 2 / zs_deadend ready. Ports, HTTP settings, passwords, admins, database and Minecraft preserved.'
-    Write-Host 'Restart with the original Start.cmd. Players update the two core DLLs with Bingsang Launcher.'
-}catch{Write-Error ($_.ToString()+"`n"+$_.ScriptStackTrace) -ErrorAction Continue;exit 1}finally{if($lock){$lock.Dispose()}}
+    Write-Host 'Previously running servers will restart automatically. Players update through Bingsang Launcher.'
+}catch{Write-Error ($_.ToString()+"`n"+$_.ScriptStackTrace) -ErrorAction Continue;exit 1}finally{
+    if($lock){$lock.Dispose()}
+    try{End-ServerUpdate $lifecycle $safeToStart}
+    catch{Write-Error $_ -ErrorAction Continue;exit 1}
+}

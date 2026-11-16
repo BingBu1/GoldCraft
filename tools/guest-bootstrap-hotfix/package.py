@@ -93,7 +93,7 @@ def main():
         '# 客串武器资源补丁\n\n'
         '适用已安装 20261115-Nightfall-Hotfix1 的服务器。默认路径 '
         '`E:\\cs_MineCraft\\GoldCraft-Servers`。\n\n'
-        '停服，将本目录放在服务器目录之外，双击 Update-Server.cmd，成功后使用原 Start.cmd 启动。'
+        '将本目录放在服务器目录之外，双击 Update-Server.cmd；预检通过后自动保存停服、安装并恢复原先运行的服务，原本已停服则保持停止。'
         '重新进入地图后，缺少的六个资源会通过现有 HTTP 下载自动提供给玩家。无需手工安装客户端修复包。\n\n'
         '修复更新包漏发枪烟脚本和五份武器库存脚本，导致整组客串武器无法注册／购买的问题。'
         '六个文件之外的基线全部逐 SHA 验证；不重置服主设置，不替换 DLL 或重复发布客户端。'
@@ -102,6 +102,9 @@ def main():
     for name in ('Inspect-Runtime.ps1', 'Inspect-ScenarioState.ps1'):
         source = ROOT / 'tools/nightfall-hotfix' / name
         shutil.copy2(source, package / name)
+    # Share the graceful lifecycle before hashing or sealing new packages.
+    import runpy
+    runpy.run_path(str(ROOT/'tools/server-update-lifecycle/package.py'))['enable'](package, refresh_sums=True)
     archive = output / (package.name + '.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
         for path in sorted(package.rglob('*')):
