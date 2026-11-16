@@ -9,6 +9,7 @@
 #include "native/guest/cof/control_protocol.hpp"
 #include "native/guest/cof/server/effects_dispatch.hpp"
 #include "native/guest/cof/first_draw_lifecycle.hpp"
+#include "native/guest/cof/server/player_think.hpp"
 #include "shared-owner-runtime-sdk.inc"
 #include <map>
 
@@ -51,7 +52,7 @@ void Engine()
         Check(delay==0);
         if(flags==FEV_HOSTONLY)Check(index==36&&i==0&&j==0&&origin[0]==angles[0]);
         else if(i==21){Check(flags==0&&index==35&&j==19);++revolverFireEvents;return;}
-        else Check(flags==1&&index==35&&(i==7||i==19||i==14||i==27)&&j==19);
+        else Check(flags==1&&index==35&&(i==7||i==19||i==14||i==27||i==9)&&j==19);
         ++playbacks;
     };
 }
@@ -59,6 +60,31 @@ PresentationState State()
 {
     const auto& packet=packets.back();Check(packet.id==messages.at(StateMessage)&&packet.destination==MSG_ONE&&packet.target==player.edict());
     PresentationState value{};Check(DecodeState(packet.bytes,value));return value;
+}
+PresentationState LatestState()
+{
+    const auto found=std::find_if(packets.rbegin(),packets.rend(),[](const auto& p){return p.id==messages.at(StateMessage);});
+    Check(found!=packets.rend());PresentationState result{};Check(DecodeState(found->bytes,result));return result;
+}
+struct M16Context
+{
+    GlockEffects& effects;const M16Resources& resources;OwnerBinding binding;
+    M16OwnerFrame frame;
+};
+bool M16Current(void* p) noexcept
+{return GlockOwnerRuntime::BackendCurrent(&static_cast<M16Context*>(p)->binding)&&valid;}
+bool M16Frame(void* p,M16OwnerFrame& frame) noexcept
+{if(!M16Current(p))return false;frame=static_cast<M16Context*>(p)->frame;return true;}
+bool M16Dispatch(void* p,CBasePlayer& actor,CBasePlayerWeapon& item,const M16Event& event) noexcept
+{
+    auto& value=*static_cast<M16Context*>(p);
+    // Native sound and shot latch are separate, already-tested providers.
+    // Their controlled callbacks must not stand in for a presentation result.
+    constexpr auto native=(1u<<unsigned(M16Effect::EmptyClick))|(1u<<unsigned(M16Effect::Sleeve))|
+        (1u<<unsigned(M16Effect::PickupSound))|(1u<<unsigned(M16Effect::AmmoPickupSound))|
+        (1u<<unsigned(M16Effect::FireSound))|(1u<<unsigned(M16Effect::ShotLatch));
+    if((1u<<unsigned(event.kind))&native)return M16Current(p);
+    return value.effects.Dispatch(value.resources,value.binding,actor,item,event);
 }
 }
 void CBasePlayer::TabulateAmmo(){Check(this==&player);++dispatch_fixture::tabulates;}
@@ -349,6 +375,64 @@ int main(int argc,char** argv)
     Check(!effects.Dispatch(staleMP5,runtimeView.binding,player,mp5,kill)&&packets.size()==noCrossIdentity);
     retireBegin=true;Check(!effects.Dispatch(mp5Resources,runtimeView.binding,player,mp5,kill));
     Check(packets.back().bytes.size()==ParticleBytes);retireBegin=false;valid=true;
+    M16Resources m16Resources{};m16Resources.generation=glock.generation;m16Resources.events=glock.events;
+    m16Resources.viewModelString=prepared.viewModelString;m16Resources.models[unsigned(M16Model::Shell)]=31;
+    M16Prepared m16Cold{};Check(effects.FillPrepared(m16Resources,m16Cold));
+    Check(!m16Cold.pushbackReady&&m16Cold.world==MeleeWorld::Multiplayer&&m16Cold.particleReady&&m16Cold.deployPreludeReady);
+    Check((effects.M16Capabilities()&(1u<<unsigned(M16Effect::Aim)))&&
+        !(effects.M16Capabilities()&(1u<<unsigned(M16Effect::FireSound))));
+    M16Context m16Context{effects,m16Resources,runtimeView.binding,{}};
+    m16Context.frame.reserveLimit=60;m16Context.frame.stamina=100;
+    m16Context.frame.sourceMode=PistolSource::NormalMuzzle;m16Context.frame.bulletDamage=65;
+    PlayerAnimationAdapter m16Animations;
+    const auto m16Plan=RecommendedLongGunAnimationPlan(LongGun::M16,PistolAnimationRig::Stock);
+    Check(m16Plan&&m16Animations.Prepare(player,model,runtimeView.animationGeneration,LongGun::M16,*m16Plan,_stricmp,error));
+    PlayerThinkSlot m16Think;
+    Check(m16Think.Bind(player,{&m16Context,[](void* p,CBasePlayer&,std::uint64_t,std::uint64_t) noexcept{return M16Current(p);},
+        [](void*,CBasePlayer&,PlayerThinkKind) noexcept -> bool {std::abort();},runtimeView.binding.map,runtimeView.binding.life,
+        PlayerThinkBit(PlayerThinkKind::Pushback)}));
+    M16Weapon m16;edict_t m16Entity{};m16Entity.serialnumber=97;m16Entity.pvPrivateData=&m16;
+    m16Entity.v.pContainingEntity=&m16Entity;m16.pev=&m16Entity.v;m16.m_iPrimaryAmmoType=1;m16.m_iClip=20;
+    m16Cold.sequences.present=(std::uint64_t{1}<<38)-1;m16Cold.sequences.duration.fill(1);
+    m16Cold.ballistics.bubbleModel=prepared.ballistics.bubbleModel;m16Cold.pushbackReady=true;
+    m16Cold.modelsReady=m16Cold.soundsReady=m16Cold.aimMetadataReady=m16Cold.inventoryReady=m16Cold.pickupSoundReady=true;
+    m16Cold.viewModelString=prepared.viewModelString;m16Cold.playerModelString=prepared.playerModelString;
+    m16Cold.worldModelString=prepared.worldModelString;m16Cold.inventoryItemString=prepared.inventoryItemString;
+    m16Cold.shellModel=31;m16Cold.hostSlot=M16HudSlot;m16Cold.hostPosition=M16HudPosition;
+    m16Cold.aimOffset=prepared.aimOffset;m16Cold.aimZoom=50;
+    M16Backends m16Backend{&m16Context,M16Current,M16Frame,M16Dispatch,M16RequiredEffects,&m16Animations,
+        runtimeView.animationGeneration,runtimeView.binding.life,&m16Think};
+    Check(m16.Bind(player,m16Cold,m16Backend)==M16Status::Ready);player.m_pActiveItem=&m16;
+    globals.time=700;Check(m16.Deploy());
+    auto m16Presentation=LatestState();Check(m16Presentation.originalWeapon==9&&m16Presentation.m16Burst==true&&
+        !m16Presentation.revolverAngle&&m16Presentation.key.generation>mp5Presentation.key.generation);
+    const auto stableM16=packets.size();for(unsigned i=0;i<1000;++i)Check(effects.SynchronizeSelection(player));
+    Check(packets.size()==stableM16); // No repeated reliable traffic for unchanged mode.
+    globals.time=m16.ActionState().primary+1;m16.ToggleFireMode();Check(!m16.BurstMode());
+    Check(effects.SynchronizeSelection(player));auto singleM16=State();
+    Check(singleM16.m16Burst==false&&singleM16.revision>m16Presentation.revision&&singleM16.key==m16Presentation.key);
+    Check(!effects.Dispatch(m16Resources,runtimeView.binding,player,m16,{M16Effect::FireSound}));
+    M16Event m16View{M16Effect::ViewAnimation};m16View.value=37;Check(effects.Dispatch(m16Resources,runtimeView.binding,player,m16,m16View));
+    m16View.value=38;Check(!effects.Dispatch(m16Resources,runtimeView.binding,player,m16,m16View));
+    M16Event m16Shot{M16Effect::ShotState};m16Shot.a=3;Check(effects.Dispatch(m16Resources,runtimeView.binding,player,m16,m16Shot));
+    globals.time=m16.ActionState().primary+1;m16.ToggleFireMode();Check(m16.BurstMode()&&m16.Status()==M16Status::Applied);
+    const auto writer=g_engfuncs.pfnWriteByte;g_engfuncs.pfnWriteByte=nullptr;
+    const auto beforeModeRetry=packets.size();Check(!effects.SynchronizeSelection(player)&&packets.size()==beforeModeRetry);
+    g_engfuncs.pfnWriteByte=writer;Check(effects.SynchronizeSelection(player));
+    Check(State().m16Burst==true);const auto deliveredMode=packets.size();
+    Check(effects.SynchronizeSelection(player)&&packets.size()==deliveredMode);
+    Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    CrosshairSnapshot m16Spread{};Check(DecodeCrosshair(packets.back().bytes,m16Spread)&&m16Spread.key==singleM16.key);
+    m16.Holster();player.m_pActiveItem=nullptr;g_engfuncs.pfnWriteByte=nullptr;
+    const auto beforeReleaseRetry=packets.size();Check(!effects.SynchronizeSelection(player)&&packets.size()==beforeReleaseRetry);
+    g_engfuncs.pfnWriteByte=writer;Check(effects.SynchronizeSelection(player));
+    Check(State().originalWeapon==0&&!State().m16Burst);const auto releasedMode=packets.size();
+    Check(effects.SynchronizeSelection(player)&&packets.size()==releasedMode);
+    player.m_pActiveItem=&m16;Check(m16.Deploy());Check(LatestState().m16Burst==true);
+    m16.Holster();player.m_pActiveItem=nullptr;g_engfuncs.pfnWriteByte=nullptr;Check(!effects.SynchronizeSelection(player));
+    g_engfuncs.pfnWriteByte=writer;player.m_pActiveItem=&m16;Check(m16.Deploy());
+    const auto supersededRelease=packets.size();Check(effects.SynchronizeSelection(player)&&packets.size()==supersededRelease);
+    Check(LatestState().originalWeapon==9); // New current ownership replaces a failed old release.
     for(unsigned slot=1;slot<=32;++slot)
     {
         FirstDrawLifecycle ledger;FirstDrawConnection key{1,slot,0,int(slot),slot};bool drawn=true;

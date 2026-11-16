@@ -37,10 +37,16 @@ unsigned OriginalWeapon(const CBasePlayerWeapon& item) noexcept
     if(item.m_iId==Pistols[3].hostId&&dynamic_cast<const VP70Weapon*>(&item))return 19;
     if(item.m_iId==TMPHostId&&dynamic_cast<const TMPWeapon*>(&item))return 14;
     if(item.m_iId==MP5HostId&&dynamic_cast<const MP5Weapon*>(&item))return 27;
+    if(item.m_iId==M16HostId&&dynamic_cast<const M16Weapon*>(&item))return 9;
     return 0;
 }
 float Spread(const CBasePlayerWeapon& item) noexcept
 {
+    if(item.m_iId==M16HostId)
+    {
+        if(auto* weapon=dynamic_cast<const M16Weapon*>(&item))return weapon->Spread().scalar;
+        return -1;
+    }
     if(auto* weapon=dynamic_cast<const GlockWeapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const P345Weapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const RevolverWeapon*>(&item))return weapon->Spread().scalar;
@@ -60,6 +66,7 @@ struct GlockEffects::Lease
     edict_t *owner, *item;
     const int ownerSerial, itemSerial;
     std::optional<float> revolverAngle{};
+    std::optional<bool> m16Burst{};
 };
 bool GlockEffects::Active(void* context) noexcept
 {
@@ -211,6 +218,20 @@ bool GlockEffects::FillPrepared(const MP5Resources& resources,TMPPrepared& prepa
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     return Current();
 }
+std::uint32_t GlockEffects::M16Capabilities() const noexcept
+{
+    constexpr auto common=(1u<<unsigned(M16Effect::Count))-1u;
+    return P345Capabilities()&common&~(1u<<unsigned(M16Effect::FireSound));
+}
+bool GlockEffects::FillPrepared(const M16Resources& resources,M16Prepared& prepared) noexcept
+{
+    if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
+    prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
+    // Original long-gun pushback belongs to its independent player-life owner.
+    return Current();
+}
 std::uint32_t GlockEffects::RevolverCapabilities(const RevolverResources& resources) const noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||
@@ -261,6 +282,7 @@ bool GlockEffects::Presentation(Lease& lease, bool enabled, int fov, float speed
     const auto original=OriginalWeapon(lease.weapon);
     if (!std::isfinite(speed) || speed < 0 || speed > 4095 ||
         !original || (original==21)!=lease.revolverAngle.has_value() ||
+        (original==9)!=lease.m16Burst.has_value() ||
         (enabled && (fov < 1 || fov > 179))) return false;
     const auto slot = Slot(lease.player);
     if (!slot || lease.binding.map > UINT32_MAX || lease.binding.life > UINT32_MAX) return false;
@@ -273,31 +295,40 @@ bool GlockEffects::Presentation(Lease& lease, bool enabled, int fov, float speed
         static_cast<std::uint32_t>(lease.binding.life), instance ? client.nextInstance + 1 : client.key.generation};
     const auto fovMode=static_cast<std::uint16_t>(enabled?fov:0);
     const auto zoomSpeed=static_cast<std::int16_t>(speed*8.0F);
-    if(skipIdentical&&!instance&&client.aimEnabled==enabled&&client.fovMode==fovMode&&
-        client.zoomSpeedEighths==zoomSpeed&&client.revolverAngle&&lease.revolverAngle&&
-        std::bit_cast<std::uint32_t>(*client.revolverAngle)==std::bit_cast<std::uint32_t>(*lease.revolverAngle))
+    const bool sameAngle=client.revolverAngle.has_value()==lease.revolverAngle.has_value()&&
+        (!client.revolverAngle||std::bit_cast<std::uint32_t>(*client.revolverAngle)==
+            std::bit_cast<std::uint32_t>(*lease.revolverAngle));
+    if(skipIdentical&&!instance&&client.delivered&&client.aimEnabled==enabled&&client.fovMode==fovMode&&
+        client.zoomSpeedEighths==zoomSpeed&&sameAngle&&client.m16Burst==lease.m16Burst)
         return Active(&lease);
     const PresentationState state{key, client.revision + 1, static_cast<std::uint8_t>(original), enabled,
-        fovMode,zoomSpeed,lease.revolverAngle};
+        fovMode,zoomSpeed,lease.revolverAngle,lease.m16Burst};
     // Commit counters before the engine call so reentrant sends cannot reuse a
     // revision. A retired scope never publishes this row into another map.
     client.key = key; client.revision = state.revision; client.nextInstance = key.generation;
     client.weapon = &lease.weapon; client.ownerSerial = lease.ownerSerial; client.active = true;
     client.model = lease.binding.model;
     client.aimEnabled=enabled;client.fovMode=fovMode;client.zoomSpeedEighths=zoomSpeed;
-    client.revolverAngle=lease.revolverAngle;
-    return Sent(SendPresentationState(lease.player, state, presentation_, {&lease, Active})) && Active(&lease);
+    client.revolverAngle=lease.revolverAngle;client.m16Burst=lease.m16Burst;client.binding=lease.binding;
+    client.delivered=client.releasePending=false;
+    const bool sent=Sent(SendPresentationState(lease.player,state,presentation_,{&lease,Active}))&&Active(&lease);
+    if(sent&&client.active&&client.key==state.key&&client.revision==state.revision)client.delivered=true;
+    return sent;
 }
 bool GlockEffects::Release(CBasePlayer& player, const PlaySfxCall& call) noexcept
 {
     const auto slot = Slot(player);
     if (!slot || !call.current || !call.current(call.context)) return false;
     auto& client = clients_[slot];
-    if (!client.active) return true;
+    if (!client.active&&!client.releasePending) return true;
     if (client.ownerSerial != player.edict()->serialnumber || client.revision == UINT32_MAX) return false;
     const PresentationState state{client.key, client.revision + 1, 0, false, 0, 0};
     client.revision = state.revision; client.active = false; client.weapon = nullptr;client.revolverAngle.reset();
-    return Sent(SendPresentationState(player, state, presentation_, call));
+    client.m16Burst.reset();client.binding={};client.delivered=false;client.releasePending=true;
+    const bool sent=Sent(SendPresentationState(player,state,presentation_,call));
+    if(sent&&!client.active&&client.key==state.key&&client.revision==state.revision)
+    {client.releasePending=false;client.delivered=true;}
+    return sent;
 }
 bool GlockEffects::SynchronizeSelection(CBasePlayer& player) noexcept
 {
@@ -310,7 +341,19 @@ bool GlockEffects::SynchronizeSelection(CBasePlayer& player) noexcept
     }};
     if (!call.current(call.context)) return false;
     auto* item = player.IsAlive() ? dynamic_cast<CBasePlayerWeapon*>(player.m_pActiveItem) : nullptr;
-    return item&&OriginalWeapon(*item) ? item->m_pPlayer == &player : Release(player, call);
+    const auto original=item?OriginalWeapon(*item):0;
+    if(!original)return Release(player,call);
+    if(item->m_pPlayer!=&player)return false;
+    if(original!=9)return true;
+    const auto slot=Slot(player);if(!slot)return false;
+    auto& client=clients_[slot];
+    if(!client.active||client.weapon.Get<CBasePlayerWeapon>()!=item||client.ownerSerial!=player.edict()->serialnumber)
+        return false;
+    auto* m16=static_cast<M16Weapon*>(item);
+    auto* entity=item->edict();if(!entity)return false;
+    Lease lease{*this,client.binding,player,*item,player.edict(),entity,
+        player.edict()->serialnumber,entity->serialnumber,{},m16->BurstMode()};
+    return Presentation(lease,client.aimEnabled,client.fovMode,client.zoomSpeedEighths*.125F,true);
 }
 bool GlockEffects::RetirePlayer(CBasePlayer& player) noexcept
 {
@@ -372,6 +415,24 @@ bool GlockEffects::Dispatch(const P345Resources& resources,const OwnerBinding& b
         event.value,event.other,event.enabled,event.modelString};
     return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,resources.models[unsigned(P345Model::Shell)]},binding,player,weapon,
         translated,7,P345LocalWaves[6].original,P345Capabilities());
+}
+bool GlockEffects::Dispatch(const M16Resources& resources,const OwnerBinding& binding,
+    CBasePlayer& player,CBasePlayerWeapon& weapon,const M16Event& event) noexcept
+{
+    constexpr std::array mapping{GlockEffect::DeployPrelude,GlockEffect::ReserveHud,GlockEffect::InventoryChanged,
+        GlockEffect::ViewAnimation,GlockEffect::EmptyClick,GlockEffect::Shell,GlockEffect::Gunsmoke,
+        GlockEffect::FireEvent,GlockEffect::Recoil,GlockEffect::Shake,GlockEffect::Aim,GlockEffect::FireSound,
+        GlockEffect::ShotState,GlockEffect::ShotLatch,GlockEffect::PickupSound,GlockEffect::DeployReset,
+        GlockEffect::Sleeve,GlockEffect::AmmoPickupSound};
+    static_assert(mapping.size()==unsigned(M16Effect::Count));
+    static_assert([&]{for(unsigned i=0;i<mapping.size();++i)if(unsigned(mapping[i])!=i)return false;return true;}());
+    const auto index=unsigned(event.kind);if(index>=mapping.size()||OriginalWeapon(weapon)!=9)return false;
+    const auto& m16=static_cast<const M16Weapon&>(weapon);
+    const GlockEvent translated{mapping[index],event.first,event.second,event.a,event.b,event.c,
+        event.value,event.other,event.enabled,event.modelString};
+    return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,
+        resources.models[unsigned(M16Model::Shell)]},binding,player,weapon,translated,9,nullptr,
+        M16Capabilities(),{},m16.BurstMode());
 }
 bool GlockEffects::Dispatch(const VP70Resources& resources,const OwnerBinding& binding,
     CBasePlayer& player,CBasePlayerWeapon& weapon,const VP70Event& event,bool firstDrawn) noexcept
@@ -506,7 +567,7 @@ bool GlockEffects::Dispatch(const RevolverResources& resources,const OwnerBindin
 }
 bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBinding& binding,
     CBasePlayer& player,CBasePlayerWeapon& weapon,const GlockEvent& event,unsigned originalWeapon,
-    const char* fireSound,std::uint32_t capabilities,std::optional<float> revolverAngle) noexcept
+    const char* fireSound,std::uint32_t capabilities,std::optional<float> revolverAngle,std::optional<bool> m16Burst) noexcept
 {
     if (resources.generation != authority_.generation || resources.events!=resources_.events || !player.pev || !weapon.pev ||
         OriginalWeapon(weapon)!=originalWeapon ||
@@ -514,7 +575,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         !(capabilities & Bit(event.kind))) return false;
     auto* owner = player.edict(); auto* item = weapon.edict();
     if (!owner || !item) return false;
-    Lease lease{*this, binding, player, weapon, owner, item, owner->serialnumber, item->serialnumber,revolverAngle};
+    Lease lease{*this, binding, player, weapon, owner, item, owner->serialnumber, item->serialnumber,revolverAngle,m16Burst};
     if (!Active(&lease)) return false;
     const PlaySfxCall call{&lease, Active};
     const ControlCall control{&lease, Active};
@@ -544,7 +605,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         CSOL_UpdateWeaponInventory(&player);
         return Active(&lease);
     case GlockEffect::ViewAnimation:
-        if (event.value < 0 || event.value > (originalWeapon==14?15:(originalWeapon==21||originalWeapon==27)?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
+        if (event.value < 0 || event.value > (originalWeapon==9?37:originalWeapon==14?15:(originalWeapon==21||originalWeapon==27)?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
         weapon.SendWeaponAnim(event.value, 0);
         return Active(&lease);
     case GlockEffect::DeployReset:
@@ -555,7 +616,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
     case GlockEffect::Aim:
         return Presentation(lease, event.enabled, event.value, event.a);
     case GlockEffect::Shell:
-        return (originalWeapon==7||originalWeapon==19||originalWeapon==14||originalWeapon==27)&&event.value==resources.shellModel&&event.other==1&&
+        return (originalWeapon==9||originalWeapon==7||originalWeapon==19||originalWeapon==14||originalWeapon==27)&&event.value==resources.shellModel&&event.other==1&&
             Sent(EjectWeaponShell({event.first,event.second,event.a,event.value,event.other},call));
     case GlockEffect::Gunsmoke:
         if (!event.enabled || event.other != 0 || event.modelString != resources.viewModelString ||

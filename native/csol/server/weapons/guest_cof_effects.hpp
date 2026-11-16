@@ -32,12 +32,14 @@ public:
     std::uint32_t VP70Capabilities() const noexcept;
     std::uint32_t TMPCapabilities() const noexcept;
     std::uint32_t MP5Capabilities() const noexcept;
+    std::uint32_t M16Capabilities() const noexcept;
     std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
     bool FillPrepared(const VP70Resources&, guest::cof::server::VP70Prepared&) noexcept;
     bool FillPrepared(const TMPResources&, guest::cof::server::TMPPrepared&) noexcept;
     bool FillPrepared(const MP5Resources&, guest::cof::server::TMPPrepared&) noexcept;
+    bool FillPrepared(const M16Resources&, guest::cof::server::M16Prepared&) noexcept;
     bool FillPrepared(const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept;
     bool Dispatch(const GlockResources&, const OwnerBinding&, CBasePlayer&,
         CBasePlayerWeapon&, const guest::cof::server::GlockEvent&) noexcept;
@@ -49,6 +51,8 @@ public:
         CBasePlayerWeapon&,const guest::cof::server::TMPEvent&,bool firstDrawn) noexcept;
     bool Dispatch(const MP5Resources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::TMPEvent&) noexcept;
+    bool Dispatch(const M16Resources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::M16Event&) noexcept;
     bool Dispatch(const RevolverResources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&,RevolverOwnerState) noexcept;
     // Call after real native item processing, and on life/ownership retirement.
@@ -72,6 +76,9 @@ private:
         std::uint16_t fovMode{};
         std::int16_t zoomSpeedEighths{};
         std::optional<float> revolverAngle{};
+        std::optional<bool> m16Burst{};
+        OwnerBinding binding{};
+        bool delivered{},releasePending{};
     };
     struct Lease;
     struct WeaponResources
@@ -85,7 +92,7 @@ private:
         const guest::cof::server::TMPEvent&,unsigned originalWeapon,std::uint32_t capabilities,bool firstDrawn) noexcept;
     bool DispatchWeapon(const WeaponResources&,const OwnerBinding&,CBasePlayer&,CBasePlayerWeapon&,
         const guest::cof::server::GlockEvent&,unsigned originalWeapon,const char* fireSound,std::uint32_t capabilities,
-        std::optional<float> revolverAngle={}) noexcept;
+        std::optional<float> revolverAngle={},std::optional<bool> m16Burst={}) noexcept;
     static bool Active(void*) noexcept;
     static void MeleeRecoil(void*, CBasePlayer&, const Vector&) noexcept;
     bool Presentation(Lease&, bool enabled, int fov, float speed,bool skipIdentical=false) noexcept;
