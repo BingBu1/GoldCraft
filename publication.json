@@ -2677,7 +2677,9 @@
     "tests/cryoffear-flinch-activity/README.md",
     "docs/2026-11-16_接入-CoF死亡体力快照与生命退休-report.md",
     "docs/2026-11-16_实现-CoF小受击任务原始生命周期-report.md",
-    "tests/cryoffear-flinch-task/README.md"
+    "tests/cryoffear-flinch-task/README.md",
+    "docs/2026-11-16_实现-CoF原活动抽样与冷模型目录-report.md",
+    "tests/cryoffear-activity-catalog/README.md"
   ],
   "trees": {
     "native": [
