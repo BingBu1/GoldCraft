@@ -15,6 +15,11 @@ bool ready{}, abort_after_native{}, active_owner{}, provider=true;
 bool fail_before{}, fail_after{}, fail_reset{}, fail_native{}, fail_reload{};
 bool old_callback_live{}, interrupt_native{}, ordinary{}, reset_during_native{};
 bool sprite_readable=true;
+bool fail_session{};
+std::string progress_action;
+unsigned progress_starts{}, progress_steps{}, progress_point{};
+std::string progress_label;
+bool progress_reentered{};
 std::string scenario;
 resource_lifecycle::Observation observation{7,9,10,1,resource_lifecycle::Completion::returned,true};
 resource_update::Status status;
@@ -34,11 +39,36 @@ int Base(std::uint64_t,char*,std::uint32_t){Call("base-owner");active_owner=fals
 const char* Validate(model_s*const*,std::uint32_t){Call("validate");return nullptr;}
 const char* Release(model_s*const*,std::uint32_t){Call("release");return nullptr;}
 void Print(const char*,...){ }
-int Command(const char* value){Call(std::strstr(value,"retry")?"retry":"disconnect");return 1;}
+int Command(const char* value){Call(std::strstr(value,"retry")?"retry":std::strstr(value,"gc_resource_abort")?"abort-command":"disconnect");return 1;}
 void HostError(const char*,...){Call("host-error");throw Abort{};}
 int Original(void*){Call("native-original");return 1;}
 int Resolution(void*)noexcept{return 640;}
 void OriginalFrame(double){Call("original-frame");}
+void ProgressEvent(const char* operation, bool native) {
+    const std::string action = std::string(native ? "native-" : "") + operation;
+    Call(action.c_str());
+    if (progress_action == action + "-cancel") {
+        progress_action.clear(); resource_bridge::Cancel();
+    } else if (progress_action == "progress-stale") {
+        progress_action.clear(); ++observation.clear_epoch;
+    } else if (progress_action == "progress-reentrant" && !progress_reentered) {
+        progress_reentered = true; resource_bridge::Frame(0);
+    }
+}
+void LoadingStart(const char* type, int total) {
+    ++progress_starts; progress_steps = unsigned(total);
+    Expect(total > 0, "zero loading range");
+    ProgressEvent("progress-start", std::strcmp(type, "Connecting") == 0);
+}
+void LoadingText(const char* text) {
+    progress_label = text;
+    ProgressEvent("progress-text", std::strstr(text, "Precaching") != nullptr);
+}
+void LoadingAdvance(const char* type, int point, float fraction) {
+    progress_point = unsigned(point);
+    Expect(point >= 0 && unsigned(point) <= progress_steps && fraction == 0.f, "progress exceeds actual range");
+    ProgressEvent("progress-advance", std::strcmp(type, "ClientConnect") == 0);
+}
 }
 
 namespace goldcraft::resource_lifecycle {
@@ -102,8 +132,8 @@ namespace goldcraft::resource_update {
 struct Session::Impl {resource_overlay::Snapshot previous;bool transaction{};};
 Session::Session(std::string):impl_(std::make_unique<Impl>()){}
 Session::~Session()=default;
-bool Session::Begin(std::uint64_t,std::string,std::vector<Resource> value){fixture::Call("begin-session");impl_->previous=fixture::overlay;impl_->transaction=true;fixture::resources=std::move(value);fixture::status={Phase::checking};return true;}
-void Session::Pump(){fixture::Call("pump");if(fixture::ready){fixture::overlay={"verified",{{"models/csol/buymenu_v10.json","verified-object"}}};fixture::status={Phase::ready,1,0,1,1};}}
+bool Session::Begin(std::uint64_t,std::string,std::vector<Resource> value){fixture::Call("begin-session");impl_->previous=fixture::overlay;impl_->transaction=true;fixture::resources=std::move(value);fixture::status={Phase::checking};fixture::status.total=fixture::resources.size();return true;}
+void Session::Pump(){fixture::Call("pump");if(fixture::fail_session){fixture::status.phase=Phase::failed;fixture::status.error="models/test.mdl: unavailable HTTP 503";}else if(fixture::ready){fixture::overlay={"verified",{{"models/csol/buymenu_v10.json","verified-object"}}};fixture::status={Phase::ready,1,0,1,1};}}
 bool Session::Reset(){fixture::Call("reset-session");if(fixture::fail_reset)return false;if(impl_->transaction){fixture::overlay=impl_->previous;impl_->transaction=false;}fixture::status={};return true;}
 bool Session::Commit(){fixture::Call("commit-session");impl_->transaction=false;return true;}
 const Status& Session::GetStatus()const{return fixture::status;}
@@ -126,6 +156,7 @@ int main(int argc,char** argv){
     client_state=&fixture::state;uploading=&fixture::uploading;static char url[]="http://127.0.0.1/resources/";resource_url=url;
     original_frame=fixture::OriginalFrame;host_error=fixture::HostError;
     send_connection=[](){fixture::Call("keepalive");};
+    loading_start=fixture::LoadingStart;loading_text=fixture::LoadingText;loading_advance=fixture::LoadingAdvance;
     thread=GetCurrentThreadId();installed=true;session=std::make_unique<resource_update::Session>("unused");
     const resource_lifecycle::Entry natural{20,2,fixture::observation,true,true};
     const std::vector<resource_update::Resource> request{{"models/csol/buymenu_v10.json",{}}};
@@ -150,6 +181,55 @@ int main(int argc,char** argv){
             Expect(Has("base-owner"),"base owner reset missing");Expect(fixture::overlay.paths.empty(),"ordinary server inherited overlay");
             Expect(Has("resume-native")==(name=="base"),"wrong ordinary download resume");
             if(name=="disconnect-base"){Expect(paused(),"old disconnected HUD exposed");Expect(NativeInitialize(nullptr,natural)==1,"natural base recovery failed");Expect(!paused(),"natural base recovery stayed paused");}
+        }
+    }else if(name.starts_with("progress-")||name.starts_with("native-progress-")){
+        Expect(Begin(1,request)==nullptr,"loading setup rejected");
+        fixture::progress_action=name;
+        fixture::ready=name.starts_with("native-")||name=="progress-reentrant";
+        Frame(0);
+        if(name.ends_with("-cancel")){
+            Expect(!Has("resume-v4")&&!Has("retire"),"UI cancellation continued native resource work");
+            if(name.starts_with("progress-"))Expect(!Has("pump"),"UI cancellation continued verification");
+            Frame(0);Expect(Has("reset-session")&&Has("cancel-owner"),"UI cancel did not unwind owners");
+            Expect(!Has("host-error")&&!Has("abort-command"),"user cancel manufactured a transfer error");
+        }else if(name=="progress-stale"){
+            Expect(!Has("pump"),"replaced connection continued verification");Frame(0);Frame(0);
+            Expect(!Has("resume-v4")&&Has("cancel-owner"),"stale progress resumed a connection");
+        }else if(name=="progress-reentrant"){
+            Expect(fixture::progress_reentered,"loading UI did not exercise recursive frame");
+            Expect(std::count(fixture::calls.begin(),fixture::calls.end(),"pump")==1,"loading UI recursively pumped resource session");
+            Expect(Has("resume-v4"),"valid reentrant draw blocked native resume");
+        }else{
+            Expect(Has("progress-start")&&Position("before")<Position("progress-start"),"UI started before resource owners paused");
+            fixture::status.phase=resource_update::Phase::checking;fixture::status.total=100;fixture::status.checked=17;
+            next_loading_update={};Frame(0);Expect(fixture::progress_steps==100&&fixture::progress_point==17,"checking count not taken from actual session");
+            const auto starts=fixture::progress_starts;Frame(0);Expect(fixture::progress_starts==starts,"same phase reset loading dialog");
+            fixture::status.phase=resource_update::Phase::downloading;fixture::status.queued=8;fixture::status.downloaded=3;
+            next_loading_update={};Frame(0);Expect(fixture::progress_steps==8&&fixture::progress_point==3,"download count not taken from actual session");
+            fixture::status.phase=resource_update::Phase::verifying;fixture::status.checked=41;
+            next_loading_update={};Frame(0);Expect(fixture::progress_steps==100&&fixture::progress_point==41,"final VFS count not taken from actual session");
+            fixture::ready=true;Frame(0);
+            Expect(Has("resume-v4")&&fixture::progress_steps==12&&fixture::progress_point==6,"native loading range was not restored");
+            Expect(Position("native-progress-advance")<Position("retire"),"loading status followed blocking resource refresh");
+        }
+    }else if(name=="download-failure"||name=="failure-cancel"||name=="failure-reconnect"){
+        Expect(Begin(1,request)==nullptr,"failed-download setup rejected");
+        fixture::fail_session=true;Frame(0);
+        Expect(!Has("disconnect")&&!Has("abort-command"),"failure disconnected before owner cleanup");
+        Expect(!Has("resume-v4"),"failed body resumed admission");
+        AbortAdmission();Expect(!Has("host-error"),"error escaped before cleanup");
+        fixture::calls.clear();Frame(0);
+        Expect(Has("reset-session")&&Has("cancel-owner"),"failed transaction not restored");
+        Expect(Has("abort-command"),"failure did not schedule visible engine error");
+        Expect(Position("cancel-owner")<Position("abort-command"),"error command preceded cleanup");
+        if(name=="failure-cancel")Cancel();
+        if(name!="download-failure")++fixture::observation.clear_epoch;
+        try{AbortAdmission();}catch(const fixture::Abort&){}
+        Expect(Has("host-error")== (name=="download-failure"),"old failure affected a cancelled or replaced connection");
+        if(name!="download-failure"){
+            fixture::fail_session=false;fixture::ready=true;
+            Expect(Begin(2,request)==nullptr,"fresh manifest blocked after old error retired");Frame(0);
+            Expect(Has("resume-v4"),"fresh verified session did not resume");
         }
     }else{
         Expect(Begin(1,request)==nullptr,"valid manifest rejected");Expect(paused(),"manifest did not suspend native readers");

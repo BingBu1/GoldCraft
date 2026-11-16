@@ -108,7 +108,9 @@ def main():
         def do_GET(self):
             parts = urllib.parse.unquote(self.path).strip('/').split('/')
             case = parts[0]
-            with lock: requests.append(dict(path=self.path, case=case, time=time.monotonic(), headers=dict(self.headers)))
+            with lock:
+                attempt = 1 + sum(x['path'] == self.path for x in requests)
+                requests.append(dict(path=self.path, case=case, time=time.monotonic(), headers=dict(self.headers)))
             content = third if 'third' in parts or 'fresh' in parts else old if case == 'bad-sha' else body
             if case == 'parallel':
                 with lock:
@@ -116,6 +118,13 @@ def main():
                     parallel['peak'] = max(parallel['peak'], parallel['active'])
                     if parallel['active'] >= 8: parallel_ready.set()
             try:
+                if case == 'outage' and 'parallel_0.mdl' in parts and attempt <= 4:
+                    self.send_response(503)
+                    self.send_header('Content-Length', '0')
+                    self.send_header('Connection', 'close')
+                    self.end_headers()
+                    self.close_connection = True
+                    return
                 if case == 'parallel': parallel_ready.wait(4)
                 self.send_response(200); self.send_header('Content-Length', str(len(content)))
                 self.send_header('Connection', 'close'); self.end_headers()
@@ -149,7 +158,8 @@ def main():
              ('rollback-failure', 'rollback-failure', 'models/update.mdl', 0),
              ('lease', 'lease', 'models/update.mdl', 0),
              ('shadow', 'shadow', 'models/update.mdl', 0),
-             ('parallel', 'batch', 'models/update.mdl', 16)]
+             ('parallel', 'batch', 'models/update.mdl', 16),
+             ('outage', 'batch', 'models/update.mdl', 20)]
     if args.case: cases = [case for case in cases if case[0] == args.case]; assert cases
     results = []
     try:
@@ -184,7 +194,7 @@ def main():
             arguments += ['captured-corruption'] if mode == 'batch' else [mode, name, len(body), sha, third_sha]
             code = execute('case-' + label, arguments)
             with lock: count = sum(x['case'] == label for x in requests)
-            if mode == 'batch' and parallel['peak'] < 8:
+            if label == 'parallel' and parallel['peak'] < 8:
                 code = code or 1
             preserved = all(identity(x['path']) == x for x in before)
             temporary = list((base / 'cache').rglob('*.tmp-*')) if (base / 'cache').exists() else []

@@ -200,10 +200,12 @@ public:
         wchar_t text[96]{};
         if(repairing){
             using Phase=goldcraft::resource_progress::Phase;
-            const wchar_t* label=repair.phase==Phase::checking?L"校验":repair.phase==Phase::verifying?L"复核":
-                repair.phase==Phase::refreshing?L"加载":L"下载";
-            std::swprintf(text,std::size(text),L"%ls %u/%u  剩余 %u  已下载 %u",label,repair.completed,repair.total,
-                repair.total-std::min(repair.completed,repair.total),repair.downloaded);
+            if(repair.phase==Phase::refreshing)std::swprintf(text,std::size(text),L"正在加载资源…");
+            else{
+                const wchar_t* label=repair.phase==Phase::checking?L"校验":repair.phase==Phase::verifying?L"复核":L"下载";
+                std::swprintf(text,std::size(text),L"%ls %u/%u  剩余 %u  已下载 %u",label,repair.completed,repair.total,
+                    repair.total-std::min(repair.completed,repair.total),repair.downloaded);
+            }
         }else std::swprintf(text,std::size(text),L"%u/%u  剩余 %u",completed,unsigned(jobs.size()),unsigned(jobs.size())-settled);
         int width{},height{},tw{},th{};panel->GetSize(target,width,height);surface->GetTextSize(font,text,tw,th);
         surface->PushMakeCurrent(target,false);

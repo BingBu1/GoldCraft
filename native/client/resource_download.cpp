@@ -8,19 +8,25 @@
 namespace goldcraft::resource_download {
 namespace {
 namespace transport = async_download;
-struct Result { DWORD code{}; const char* message{}; };
+struct Result { DWORD code{}; const char* message{}; bool recoverable{}; unsigned status{}; };
+Result HttpError(DWORD code) { return {code, nullptr, transport::TransientHttpFailure(code)}; }
 bool Resize(Job& job, std::size_t size) noexcept {
     try { job.bytes.resize(size); return true; } catch (...) { return false; }
 }
 asio::awaitable<Result> Body(transport::Session& session, transport::Request& request, Job& job) {
     asio::error_code ioError;
     co_await request.Send(asio::redirect_error(asio::use_awaitable, ioError));
-    if (ioError) co_return Result{DWORD(ioError.value())};
+    if (ioError) co_return HttpError(DWORD(ioError.value()));
     co_await request.Receive(asio::redirect_error(asio::use_awaitable, ioError));
-    if (ioError) co_return Result{DWORD(ioError.value())};
+    if (ioError) co_return HttpError(DWORD(ioError.value()));
     const auto headers = transport::ReadHeaders(request, resource_sync::max_file_size);
-    if (headers.error) co_return Result{headers.error};
-    if (headers.status != 200) co_return Result{ERROR_WINHTTP_INVALID_SERVER_RESPONSE, "Resource server did not return HTTP 200"};
+    // Error responses commonly have an empty body. Classify their status
+    // before validating a successful resource body's required length.
+    if (headers.status && headers.status != 200) {
+        const bool transient = transport::TransientHttpFailure(0, headers.status);
+        co_return Result{ERROR_WINHTTP_INVALID_SERVER_RESPONSE, "Resource server did not return HTTP 200", transient, headers.status};
+    }
+    if (headers.error) co_return HttpError(headers.error);
     if (!headers.hasLength || headers.length != job.expected.size)
         co_return Result{ERROR_INVALID_DATA, "Resource response length differs from manifest"};
     if (!Resize(job, job.expected.size)) co_return Result{ERROR_NOT_ENOUGH_MEMORY};
@@ -29,7 +35,7 @@ asio::awaitable<Result> Body(transport::Session& session, transport::Request& re
         const auto read = co_await request.Read(job.bytes.data() + offset,
             DWORD(std::min<std::size_t>(128 * 1024, job.bytes.size() - offset)),
             asio::redirect_error(asio::use_awaitable, ioError));
-        if (ioError) co_return Result{DWORD(ioError.value())};
+        if (ioError) co_return HttpError(DWORD(ioError.value()));
         if (!read || read > job.bytes.size() - offset)
             co_return Result{ERROR_HANDLE_EOF, "Resource response was truncated"};
         offset += read; job.transferred.store(std::uint32_t(offset), std::memory_order_relaxed);
@@ -43,14 +49,14 @@ asio::awaitable<Result> Body(transport::Session& session, transport::Request& re
     if (code) co_return Result{code, "Resource SHA-256 differs from server manifest"};
     co_return Result{job.cancelled ? ERROR_CANCELLED : DWORD(0)};
 }
-asio::awaitable<Result> Transfer(transport::Session& session, Job& job) {
+asio::awaitable<Result> Transfer(transport::Session& session, Job& job, transport::Clock::time_point retryEnd) {
     job.transferred.store(0, std::memory_order_relaxed);
     if (!job.expected.required || !job.expected.size || job.expected.size > resource_sync::max_file_size)
         co_return Result{ERROR_INVALID_DATA, "Invalid resource update size"};
     DWORD error{};
     auto request = transport::Open(session, job.url, job.cancelled,
-        transport::Clock::now() + std::chrono::minutes(3), error);
-    if (!request) co_return Result{error};
+        std::min(retryEnd, transport::Clock::now() + std::chrono::minutes(3)), error);
+    if (!request) co_return HttpError(error);
     const auto result = co_await Body(session, *request, job);
     asio::error_code closeError;
     co_await request->Close(asio::redirect_error(asio::use_awaitable, closeError));
@@ -59,8 +65,13 @@ asio::awaitable<Result> Transfer(transport::Session& session, Job& job) {
 struct Policy {
     static void Active(Job&, bool) {}
     static asio::awaitable<void> Run(transport::Session& session, std::shared_ptr<Job> job) {
-        for (unsigned attempt = 0; attempt != 3 && !job->cancelled; ++attempt) {
-            const auto result = co_await Transfer(session, *job);
+        // Host adaptation: brief HTTP/service outages must not discard the
+        // entire admission after three tightly spaced requests. Bound recovery
+        // by both attempts and time, without retrying corrupt content forever.
+        auto retryEnd = transport::Clock::time_point::max();
+        for (unsigned attempt = 0; !job->cancelled; ++attempt) {
+            job->attempts.store(attempt + 1, std::memory_order_relaxed);
+            const auto result = co_await Transfer(session, *job, retryEnd);
             if (!result.code) {
                 if (!job->cacheRoot.empty()) {
                     const auto stored = co_await transport::Blocking(session, [&job]() -> DWORD {
@@ -83,16 +94,25 @@ struct Policy {
                 break;
             }
             job->error = result.message ? result.message : "Resource HTTP error " + std::to_string(result.code);
+            if (result.status) job->error += " (HTTP " + std::to_string(result.status) + ')';
             job->bytes.clear();
-            if (attempt != 2 && !job->cancelled) {
-                asio::steady_timer retry(session.io, std::chrono::milliseconds(200));
-                asio::error_code error;
-                co_await retry.async_wait(asio::redirect_error(asio::use_awaitable, error));
-            }
+            if (job->cancelled || attempt + 1 >= (result.recoverable ? 12u : 3u)) break;
+            const auto now = transport::Clock::now();
+            if (retryEnd == transport::Clock::time_point::max()) retryEnd = now + std::chrono::seconds(60);
+            if (now >= retryEnd) break;
+            const auto delay = transport::RetryDelay(attempt, result.recoverable);
+            asio::steady_timer retry(session.io, std::min(retryEnd, now + delay));
+            asio::error_code error;
+            job->retrying.store(true, std::memory_order_relaxed);
+            co_await retry.async_wait(asio::redirect_error(asio::use_awaitable, error));
+            job->retrying.store(false, std::memory_order_relaxed);
+            if (error) break;
         }
     }
     static void Finish(Job& job, std::exception_ptr failure) {
+        job.retrying.store(false, std::memory_order_relaxed);
         if (failure) { job.success = false; job.bytes.clear(); job.error = "Resource download failed"; }
+        if (job.cancelled) { job.success = false; job.bytes.clear(); job.error = "Resource download cancelled"; }
         job.done.store(true, std::memory_order_release);
     }
 };

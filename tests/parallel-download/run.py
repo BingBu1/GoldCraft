@@ -4,13 +4,17 @@ from pathlib import Path
 
 class Handler(http.server.BaseHTTPRequestHandler):
     active = peak = 0
+    attempts = {}
     lock = threading.Lock()
     def log_message(self, *args): pass
     def do_GET(self):
         with self.lock:
             Handler.active += 1
             Handler.peak = max(Handler.peak, Handler.active)
+            attempt = Handler.attempts[self.path] = Handler.attempts.get(self.path, 0) + 1
         try:
+            if self.path == '/flaky' and attempt <= 4:
+                self.send_response(503); self.send_header('Content-Length', '0'); self.end_headers(); return
             if self.path == '/hang': time.sleep(3); return
             if self.path == '/missing': self.send_error(404); return
             if self.path == '/redirect':
@@ -28,15 +32,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with self.lock: Handler.active -= 1
 
 def main():
-    p = argparse.ArgumentParser(); p.add_argument('exe', type=Path); p.add_argument('output', type=Path); p.add_argument('--bridge',action='store_true'); a = p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument('exe', type=Path); p.add_argument('output', type=Path); p.add_argument('--bridge',action='store_true'); p.add_argument('--recovery',action='store_true'); a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=True)
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
-        result = subprocess.run([str(a.exe.resolve()), f'http://127.0.0.1:{server.server_port}/', str(a.output/'temporary')], text=True, capture_output=True, timeout=30)
-        receipt = dict(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, peakRequests=Handler.peak)
+        command = [str(a.exe.resolve()), f'http://127.0.0.1:{server.server_port}/', str(a.output/'temporary')]
+        if a.recovery: command.append('recovery')
+        result = subprocess.run(command, text=True, capture_output=True, timeout=30)
+        receipt = dict(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, peakRequests=Handler.peak, requests=Handler.attempts)
         (a.output/'transport.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
-        print(json.dumps(receipt)); return result.returncode or (1 if not a.bridge and Handler.peak < 4 else 0)
+        print(json.dumps(receipt)); return result.returncode or (1 if not a.bridge and not a.recovery and Handler.peak < 4 else 0)
     finally: server.shutdown(); server.server_close()
 
 if __name__ == '__main__': raise SystemExit(main())

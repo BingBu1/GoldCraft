@@ -7,6 +7,7 @@ import copy
 import gzip
 import hashlib
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -48,22 +49,25 @@ def read(path):
 
 
 def prepare(args):
+    if not re.fullmatch(r'[0-9]{8}-[A-Za-z0-9-]+', args.release):
+        raise ValueError('Invalid release name')
     out, baseline = plain(args.evidence), plain(args.baseline)
     if out.exists() or not out.is_relative_to(ROOT/'build'):
         raise ValueError('Use a fresh evidence directory')
     prior = read(baseline/'update-manifest.json')
-    if prior['release'] != '20261115-Nightfall':
+    if prior['release'] != args.baseline_release:
         raise ValueError('Wrong issued baseline')
     envelope_path = baseline/'payload/cs/launcher-public/manifest.json'
     release = json.loads(base64.b64decode(read(envelope_path)['payload']))
-    if release['sequence'] != 2026111501 or release['schema'] != 2:
+    if release['sequence'] != args.baseline_sequence or release['schema'] != 2 or args.sequence <= release['sequence']:
         raise ValueError('Wrong signed client baseline')
     release = copy.deepcopy(release)
-    release.update(sequence=SEQUENCE, version='2026.11.15 Nightfall Hotfix 1')
+    release.update(sequence=args.sequence, version=args.version)
     replacements = {
         'cstrike/metahook/plugins/GoldCraft.dll': plain(args.goldcraft),
         'cstrike/metahook/plugins/ParallelDownload.dll': plain(args.parallel),
     }
+    core_baseline = plain(args.core_baseline) if args.core_baseline else None
     sources, audit = [], [identity(envelope_path), identity(baseline/'update-manifest.json')]
     for row in release['files']:
         source = replacements.get(row['path'])
@@ -71,6 +75,8 @@ def prepare(args):
             candidates = [baseline/'payload/cs/launcher-public/blobs'/row['sha256']/Path(row['path']).name,
                           ROOT/'sandbox/cs-server/Half-Life/launcher-public/blobs'/row['sha256']/Path(row['path']).name,
                           ROOT/'sandbox/cs-client-b/Half-Life'/row['path']]
+            if core_baseline:
+                candidates.append(core_baseline/'blobs'/row['sha256']/Path(row['path']).name)
             source = next((p for p in candidates if p.is_file() and digest(p) == row['sha256']), None)
             if source is None:
                 raise ValueError('Missing sealed client core: '+row['path'])
@@ -105,7 +111,8 @@ def prepare(args):
     plan = dict(release=release, sources=sources, auditFiles=audit)
     (out/'client-plan.json').write_text(json.dumps(plan, indent=2)+'\n', 'utf-8')
     (out/'inputs.json').write_text(json.dumps(dict(baseline=str(baseline), csx=identity(args.csx),
-        config=identity(config), revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
+        config=identity(config), release=args.release, sequence=args.sequence,
+        revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
         text=True).strip()), indent=2)+'\n', 'utf-8')
     print('Prepared reviewed client release and guest bootstrap closure', flush=True)
 
@@ -115,8 +122,14 @@ def stage(args):
     inputs = read(evidence/'inputs.json')
     baseline = plain(inputs['baseline'])
     old = read(baseline/'update-manifest.json')
+    release_name, sequence = inputs.get('release', RELEASE), inputs.get('sequence', SEQUENCE)
     rows = {row['path']: row for row in old['files']+old['requiredBaseline']}
-    package = output/('GoldCraft-Server-Update-'+RELEASE)
+    if len(rows) != len(old['files']) + len(old['requiredBaseline']):
+        raise ValueError('Duplicate baseline member')
+    package = output/('GoldCraft-Server-Update-'+release_name)
+    plain(package)
+    if not package.is_relative_to(output):
+        raise ValueError('Release escapes output directory')
     if package.exists():
         raise ValueError('Output already exists')
     package.mkdir(parents=True)
@@ -139,34 +152,55 @@ def stage(args):
     add('cs/cstrike/addons/amxmodx/modules/csx_amxx.dll', inputs['csx']['source'])
     add(CONFIG, inputs['config']['source'])
     release = json.loads(base64.b64decode(read(publication/'manifest.json')['payload']))
-    if release['sequence'] != SEQUENCE:
+    if release['sequence'] != sequence:
         raise ValueError('Wrong signed release sequence')
     for row in release['files']:
         add('cs/launcher-public/blobs/'+row['sha256']+'/'+Path(row['path']).name,
             publication/'blobs'/row['sha256']/Path(row['path']).name)
     add('cs/launcher-public/manifest.json', publication/'manifest.json')
+    if args.guest_bootstrap:
+        guest = plain(args.guest_bootstrap)
+        guest_manifest = read(guest/'update-manifest.json')
+        allowed = {'cs/cstrike/aurora/guest/cof/gunsmoke.aur'} | {
+            'cs/cstrike/inventoryitems/guest/cof/weapons/weapon_'+name+'.txt'
+            for name in ('glock', 'p345', 'revolver', 'vp70', 'tmp')}
+        if guest_manifest['release'] != '20261115-Nightfall-GuestBootstrap' or {
+                row['path'] for row in guest_manifest['files']} != allowed or len(guest_manifest['files']) != 6:
+            raise ValueError('Wrong sealed guest bootstrap')
+        for row in guest_manifest['files']:
+            source = guest/'payload'/row['path']
+            if source.stat().st_size != row['bytes'] or digest(source) != row['sha256']:
+                raise ValueError('Sealed guest script changed')
+            add(row['path'], source)
     omitted = [copy.deepcopy(row) for name, row in rows.items() if name not in changes]
-    manifest = dict(schema=1, release=RELEASE, scope=old['scope'], sourceRevision=inputs['revision'],
+    manifest = dict(schema=1, release=release_name, scope=old['scope'], sourceRevision=inputs['revision'],
         files=list(changes.values()), requiredBaseline=omitted, requiredPlugins=old['requiredPlugins'],
-        managedSequence=SEQUENCE, bundleId=release['bundleId'])
+        managedSequence=sequence, bundleId=release['bundleId'])
     (package/'update-manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', 'utf-8')
     for source in baseline.iterdir():
         if source.is_file() and source.name != 'update-manifest.json':
             shutil.copy2(source, package/source.name)
     updater = package/'Update-Server.ps1'
-    text = updater.read_text('utf-8-sig').replace('20261115-Nightfall', RELEASE)
+    text = updater.read_text('utf-8-sig').replace(old['release'], release_name)
     marker = "    if($Name -cin @('scripts/Start-Scenario.ps1'"
     if marker not in text:
         raise ValueError('Updater payload scope changed')
-    text = text.replace(marker, "    if($Name -ceq '"+CONFIG+"'){return $true}\n"+marker, 1)
+    config_scope = "    if($Name -ceq '"+CONFIG+"'){return $true}"
+    if config_scope not in text:
+        text = text.replace(marker, config_scope+"\n"+marker, 1)
+    if args.guest_bootstrap:
+        marker = 'function Payload-Path([string]$Name){'
+        if text.count(marker) != 1:
+            raise ValueError('Unexpected guest payload scope')
+        text = text.replace(marker, marker+"\n    if($Name -cmatch '^cs/cstrike/(?:aurora/guest/cof/[A-Za-z0-9_/-]+\\.aur|inventoryitems/guest/cof/[A-Za-z0-9_/-]+\\.txt)$'){return $true}", 1)
     configuration = '$script:configuration=Get-ConfigurationChanges $target $manifest'
-    if configuration not in text:
+    if configuration not in text and '$script:configuration=@{}' not in text:
         raise ValueError('Updater configuration contract changed')
     # The issued Nightfall baseline already owns mode and gameplay setup.
     # This repair changes only manifest payloads, preserving operator settings.
     text = text.replace(configuration, '$script:configuration=@{}', 1)
     updater.write_text(text, 'utf-8-sig')
-    (package/'README.md').write_text(
+    readme = (
         '# 永夜紧急修复包\n\n适用已安装 20261115-Nightfall 的服务器。默认目录 '
         '`E:\\cs_MineCraft\\GoldCraft-Servers`。\n\n停服后解压到服务器目录外，双击 '
         '`Update-Server.cmd`，成功后用原 `Start.cmd` 启动。玩家用原受管启动器启动即可更新 DLL 和符号目录。\n\n'
@@ -174,7 +208,10 @@ def stage(args):
         '资源修复升级为最多8路协程／128MiB总缓冲，后台校验落盘，暂停加载时维持原生连接，显示资源进度。\n\n'
         '只包含变化文件；省略的基线逐 SHA 检查。保留服务器端口、HTTP、管理员与数据库设置。'
         '未知旧文件会在覆盖前停止。恢复使用 `Restore-Server.cmd`。\n\n'
-        '满体力连跳晚一拍仍待定位，本包不宣称已修复。正式服与多人尚未验证。\n', 'utf-8')
+        '满体力连跳晚一拍仍待定位，本包不宣称已修复。正式服与多人尚未验证。\n')
+    if args.readme:
+        readme = plain(args.readme).read_text('utf-8-sig')
+    (package/'README.md').write_text(readme, 'utf-8')
     archive = output/(package.name+'.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for source in sorted(package.rglob('*')):
@@ -197,6 +234,8 @@ def sign(args):
     if output.exists() or key.is_relative_to(output):
         raise ValueError('Use a new publication and an external local signing key')
     plan = read(evidence/'client-plan.json')
+    if read(bundle)['bundleId'] != plan['release']['bundleId']:
+        raise ValueError('Signing bundle differs from issued client baseline')
     for row in plan['auditFiles']:
         if digest(row['source']) != row['sha256']:
             raise ValueError('Prepared publication input changed')
@@ -234,9 +273,17 @@ if __name__ == '__main__':
     p = sub.add_parser('prepare')
     for name in ('baseline', 'evidence', 'goldcraft', 'parallel', 'csx', 'gamedata', 'config'):
         p.add_argument('--'+name, type=Path, required=True)
+    p.add_argument('--baseline-release', default='20261115-Nightfall')
+    p.add_argument('--core-baseline', type=Path, help='Issued publication containing omitted immutable core blobs')
+    p.add_argument('--baseline-sequence', type=int, default=2026111501)
+    p.add_argument('--release', default=RELEASE)
+    p.add_argument('--sequence', type=int, default=SEQUENCE)
+    p.add_argument('--version', default='2026.11.15 Nightfall Hotfix 1')
     p = sub.add_parser('stage')
     for name in ('evidence', 'publication', 'output'):
         p.add_argument('--'+name, type=Path, required=True)
+    p.add_argument('--guest-bootstrap', type=Path)
+    p.add_argument('--readme', type=Path)
     p = sub.add_parser('sign')
     for name in ('evidence', 'publication', 'bundle', 'key'):
         p.add_argument('--'+name, type=Path, required=True)

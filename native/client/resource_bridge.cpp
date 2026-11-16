@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <metahook.h>
 #include <com_model.h>
+#include <IGameUI.h>
 #include "resource_bridge.hpp"
 #include "precache_client.hpp"
 #include "resource_lifecycle.hpp"
@@ -29,6 +30,10 @@ void (*original_frame)(double){};
 void (*send_connection)(){};
 std::chrono::steady_clock::time_point next_keepalive{};
 void (*host_error)(const char*, ...){};
+void (*loading_start)(const char*, int){};
+void (*loading_advance)(const char*, int, float){};
+void (*loading_text)(const char*){};
+IGameUI** game_ui{};
 int *client_state{}, *uploading{};
 char* resource_url{};
 const csol_resources::Api* csol{};
@@ -48,6 +53,12 @@ bool installed{}, in_frame{}, owner_started{}, cancelled{}, caches_changed{};
 bool base_needed{}, native_reset{}, retry_after_reset{};
 bool base_transaction{};
 bool verified_download{};
+bool abort_pending{}, abort_queued{};
+bool loading_dispatch{};
+std::uint64_t abort_epoch{}, abort_initial{};
+resource_update::Phase loading_phase{resource_update::Phase::idle};
+unsigned loading_total{}, loading_completed{};
+std::chrono::steady_clock::time_point next_loading_update{};
 resource_overlay::Snapshot base_previous;
 DWORD thread{};
 std::uint64_t frames{};
@@ -66,8 +77,8 @@ bool ReadProgress(resource_progress::Snapshot* output) {
     output->phase = stage == Stage::refreshing ? Phase::refreshing :
         downloading ? Phase::downloading : value.phase == resource_update::Phase::verifying ?
         Phase::verifying : Phase::checking;
-    output->completed = unsigned(downloading ? value.downloaded : value.checked);
-    output->total = unsigned(downloading ? value.queued : value.total);
+    output->completed = stage == Stage::refreshing ? 0u : unsigned(downloading ? value.downloaded : value.checked);
+    output->total = stage == Stage::refreshing ? 0u : unsigned(downloading ? value.queued : value.total);
     output->downloaded = unsigned(value.downloaded);
     return true;
 }
@@ -86,8 +97,28 @@ void Fail(const char* reason) {
     error = reason && *reason ? reason : "Resource refresh failed";
     engine->Con_Printf("GoldCraft resource update: %s\n", error.c_str());
     cancelled = true;
+    loading_dispatch = false;
     stage = Stage::cancelling;
-    engine->pfnClientCmd(const_cast<char*>("disconnect\n"));
+    abort_pending = *client_state == 3;
+    abort_queued = false;
+    abort_epoch = epoch; abort_initial = initial;
+}
+void AbortAdmission() {
+    // Runs as an engine command after C++ owner cleanup has returned. A
+    // cancelled/replaced connection must never receive an old queued error.
+    if (!installed || !abort_pending) return;
+    abort_queued = false;
+    if (stage != Stage::idle && stage != Stage::failed) return;
+    abort_pending = false;
+    const auto observed = resource_lifecycle::observe();
+    if (*client_state != 3 || !observed.valid || observed.clear_epoch != abort_epoch ||
+        observed.initial_vidinit != abort_initial) return;
+    host_error("GoldCraft resource update failed: %s", error.c_str());
+}
+void QueueAbort() {
+    if (!abort_pending || abort_queued) return;
+    abort_queued = true;
+    engine->pfnClientCmd(const_cast<char*>("gc_resource_abort\n"));
 }
 template<class T> bool Resolve(T& output, const char* name, mh_gamesymbol_kind_t kind) {
     void* address{};
@@ -189,13 +220,15 @@ Admission Admit(bool base_view = false) {
 }
 const char* Begin(std::uint64_t value, const std::vector<resource_update::Resource>& resources) {
     const auto observed = resource_lifecycle::observe();
-    if (!Available() || stage != Stage::idle || cancelled || native_reset || hud.pending() ||
+    if (!Available() || stage != Stage::idle || cancelled || abort_pending || native_reset || hud.pending() ||
         *client_state != 3 || *uploading || !observed.initial_vidinit || !Unwound(observed))
         return "Resource update requires an initialized, paused connection";
     try { incoming = resources; }
     catch (...) { return "Cannot retain resource update manifest"; }
     profile = {};
     generation = value; initial = observed.initial_vidinit; epoch = observed.clear_epoch;
+    loading_phase = resource_update::Phase::idle;
+    loading_total = loading_completed = 0; next_loading_update = {};
     stage = Stage::queued;
     resource_lifecycle::block_untracked_calls(true);
     return nullptr;
@@ -204,6 +237,8 @@ void Cancel() {
     // This runs inside CL_ClearState/Host_Error. Do not free, restore a mount,
     // query native arrays, or call GL here; the abandoned callback may be live.
     verified_download = false;
+    loading_dispatch = false;
+    abort_pending = abort_queued = false;
     if (stage != Stage::idle) {
         cancelled = true;
         stage = Stage::cancelling;
@@ -304,6 +339,53 @@ bool CurrentAdmission() {
     return !cancelled && observed.valid && observed.clear_epoch == epoch &&
         observed.initial_vidinit == initial && *client_state == 3 && !*uploading;
 }
+bool UpdateLoadingProgress() {
+    // Use the verified GameUI slots directly: the engine wrappers also run
+    // SCR_UpdateScreen. Normal frames paint this state without extra renders.
+    // Plugin UI callbacks can still cancel; retain only scalar progress.
+    const auto phase = session->GetStatus().phase;
+    const auto owner = token;
+    if (phase == resource_update::Phase::failed) return true;
+    const bool downloading = phase == resource_update::Phase::downloading;
+    const unsigned total = unsigned(downloading ? session->GetStatus().queued : session->GetStatus().total);
+    const unsigned completed = std::min(total, unsigned(downloading ? session->GetStatus().downloaded : session->GetStatus().checked));
+    const bool restart = phase != loading_phase || total != loading_total;
+    const auto now = std::chrono::steady_clock::now();
+    if (!restart && (completed == loading_completed || now < next_loading_update)) return true;
+    next_loading_update = now + std::chrono::milliseconds(33);
+    loading_phase = phase; loading_total = total; loading_completed = completed;
+    if (restart) {
+        loading_dispatch = true;
+        loading_start("GoldCraftResources", int(std::max(1u, total)));
+        loading_dispatch = false;
+        if (!CurrentAdmission() || owner != token || stage != Stage::checking) return false;
+        loading_dispatch = true;
+        loading_text(downloading ? "#GameUI_VerifyingAndDownloading" : "#GameUI_VerifyingResources");
+        loading_dispatch = false;
+        if (!CurrentAdmission() || owner != token || stage != Stage::checking) return false;
+    }
+    loading_dispatch = true;
+    loading_advance("GoldCraftResources", int(completed), 0.f);
+    loading_dispatch = false;
+    return CurrentAdmission() && owner == token && stage == Stage::checking;
+}
+bool RestoreNativeLoadingProgress() {
+    // Native connect starts Connecting/12 (101A1D01..10). Its resource
+    // precache/register consumers then advance ClientConnect at 7/8/9.
+    const auto owner = token;
+    loading_dispatch = true;
+    loading_start("Connecting", 12);
+    loading_dispatch = false;
+    if (!CurrentAdmission() || owner != token || stage != Stage::refreshing) return false;
+    loading_dispatch = true;
+    loading_text("#GameUI_PrecachingResources");
+    loading_dispatch = false;
+    if (!CurrentAdmission() || owner != token || stage != Stage::refreshing) return false;
+    loading_dispatch = true;
+    loading_advance("ClientConnect", 6, 0.f);
+    loading_dispatch = false;
+    return CurrentAdmission() && owner == token && stage == Stage::refreshing;
+}
 void Pump() {
     if (!installed || stage == Stage::failed) return;
     const auto observed = resource_lifecycle::observe();
@@ -312,8 +394,10 @@ void Pump() {
         if (!Cleanup()) {
             stage = Stage::failed;
             engine->Con_Printf("GoldCraft resource cleanup failed: %s %s\n", error.c_str(), owner_error.data());
+            QueueAbort();
             return;
         }
+        if (abort_pending) { QueueAbort(); return; }
     }
     if (stage == Stage::idle && base_needed && !native_reset && !hud.pending()) {
         base_needed = !resource_overlay::Capture().paths.empty();
@@ -341,6 +425,7 @@ void Pump() {
         next_keepalive = {};
     }
     if (!CurrentAdmission()) { Fail("Connection changed while pausing resource owners"); return; }
+    if (!UpdateLoadingProgress()) return;
     const auto now = std::chrono::steady_clock::now();
     if (now >= next_keepalive && send_connection) {
         next_keepalive = now + std::chrono::seconds(1);
@@ -352,8 +437,10 @@ void Pump() {
     session->Pump();
     const auto phase = session->GetStatus().phase;
     if (phase == resource_update::Phase::failed) { Fail(session->GetStatus().error.c_str()); return; }
+    if (!UpdateLoadingProgress()) return;
     if (phase != resource_update::Phase::ready) return;
     stage = Stage::refreshing;
+    if (!RestoreNativeLoadingProgress()) return;
     // Invalidate once per changed generation, not on unchanged map loads.
     if (!session->Changed().empty()) {
         if (!Retire() || !Reload(false)) { Fail(error.c_str()); return; }
@@ -383,6 +470,7 @@ void Pump() {
 void Frame(double time) {
     ++frames;
     original_frame(time);
+    if (loading_dispatch) return;
     client_precache::refresh_resource_capability();
     in_frame = true;
     try { Pump(); }
@@ -395,7 +483,7 @@ const char* install(metahook_api_s* incoming_api, mh_interface_s* interfaces,
                     mh_enginesave_s* saved, cl_enginefuncs_s* incoming_engine) {
     if (api) return "Resource bridge installation is one-shot";
     api = incoming_api; engine = incoming_engine; thread = GetCurrentThreadId();
-    if (!api || !engine || !saved || !saved->pExportFuncs || !api->GetPluginModuleHandleByBaseFileName)
+    if (!api || !engine || !engine->pfnAddCommand || !saved || !saved->pExportFuncs || !api->GetPluginModuleHandleByBaseFileName)
         return "Resource bridge SDK is incomplete";
     csol = Interface<csol_resources::Api>("CSOLSupport", csol_resources::interface_name, csol_resources::api_version);
     if (!csol) return "Resource bridge requires the coordinated CSOL HUD directory provider";
@@ -409,6 +497,7 @@ const char* install(metahook_api_s* incoming_api, mh_interface_s* interfaces,
         !Resolve(cache.cache_free, "GoldCraft_Cache_Free", MH_GAMESYMBOL_KIND_FUNCTION) ||
         !Resolve(cache.unload_sprite_textures, "GoldCraft_Mod_UnloadSpriteTextures", MH_GAMESYMBOL_KIND_FUNCTION) ||
         !Resolve(host_error, "GoldCraft_Host_Error", MH_GAMESYMBOL_KIND_FUNCTION) ||
+        !Resolve(game_ui, "GoldCraft_GameUI", MH_GAMESYMBOL_KIND_GLOBAL) ||
         !Resolve(send_connection, "GoldCraft_CL_SendMove", MH_GAMESYMBOL_KIND_FUNCTION))
         return "Resource bridge requires the verified host symbols";
     auto* frame = GetProcAddress(static_cast<HMODULE>(api->GetClientBase()), "HUD_Frame");
@@ -422,6 +511,10 @@ const char* install(metahook_api_s* incoming_api, mh_interface_s* interfaces,
         return "Cannot install inner HUD_Frame resource pump";
     session = std::make_unique<resource_update::Session>((std::filesystem::current_path() / "goldcraft-resource-cache").string());
     installed = true;
+    loading_start = [](const char* type, int steps) { if (*game_ui) (*game_ui)->StartProgressBar(type, steps); };
+    loading_advance = [](const char*, int point, float fraction) { if (*game_ui) (*game_ui)->ContinueProgressBar(point, fraction); };
+    loading_text = [](const char* text) { if (*game_ui) (*game_ui)->SetProgressBarStatusText(text); };
+    engine->pfnAddCommand(const_cast<char*>("gc_resource_abort"), AbortAdmission);
     client_precache::set_resource_sync({Available, Begin, Cancel});
     client_precache::set_native_download_gate(DeferNativeDownload);
     return nullptr;

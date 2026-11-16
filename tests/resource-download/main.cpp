@@ -16,8 +16,8 @@ using goldcraft::resource_download::Worker;
 namespace {
 int checks{};
 void Check(bool value, const char* message) { ++checks; if (!value) throw std::runtime_error(message); }
-void Wait(const std::shared_ptr<Job>& job) {
-    auto until = std::chrono::steady_clock::now() + 12s;
+void Wait(const std::shared_ptr<Job>& job, std::chrono::seconds limit = 12s) {
+    auto until = std::chrono::steady_clock::now() + limit;
     while (!job->done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < until)
         std::this_thread::sleep_for(2ms);
     Check(job->done.load(std::memory_order_acquire), "job completion timeout");
@@ -42,9 +42,9 @@ int main(int argc, char** argv) {
     const std::string mode = argv[1], url = argv[2], sha = argv[4];
     const auto size = std::uint32_t(std::stoul(argv[3]));
     try {
-        if (mode == "good" || mode == "bad") {
+        if (mode == "good" || mode == "bad" || mode == "unavailable") {
             Worker worker; auto job = Make(url, size, sha);
-            Check(worker.Submit(job), "submit accepted"); Wait(job);
+            Check(worker.Submit(job), "submit accepted"); Wait(job, mode == "unavailable" ? 65s : 12s);
             Check(job->success == (mode == "good"), "transfer outcome");
             if (mode == "good") {
                 std::ifstream f(argv[5], std::ios::binary);
@@ -64,17 +64,30 @@ int main(int argc, char** argv) {
             Check(std::chrono::steady_clock::now() - start < 2s, "cancellation bounded");
             auto fresh = Make(url.substr(0, url.rfind('/')) + "/good-after-cancel", size, sha);
             Check(worker.Submit(fresh), "worker accepts fresh job after Cancel"); Wait(fresh); Check(fresh->success, "post-cancel transfer succeeds");
+        } else if (mode == "retry-cancel") {
+            Worker worker; auto job = Make(url, size, sha); Check(worker.Submit(job), "retry submit");
+            const auto until = std::chrono::steady_clock::now() + 8s;
+            while ((job->attempts.load() < 4 || !job->retrying.load()) &&
+                   !job->done.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < until)
+                std::this_thread::sleep_for(2ms);
+            Check(job->attempts >= 4 && job->retrying && !job->done, "transient outage stays pending after three failures");
+            const auto start = std::chrono::steady_clock::now(); worker.Cancel(); Wait(job);
+            Check(!job->success && job->cancelled && job->bytes.empty() && !job->retrying, "backoff cancellation releases unverified bytes");
+            Check(std::chrono::steady_clock::now() - start < 500ms, "Asio cancellation interrupts backoff promptly");
+            auto fresh = Make(url.substr(0, url.rfind('/')) + "/good-after-backoff-cancel", size, sha);
+            Check(worker.Submit(fresh), "new transfer accepted after cancelling backoff"); Wait(fresh);
+            Check(fresh->success, "new generation is not cancelled by old signal");
         } else if (mode == "lifetime") {
             for (unsigned iteration = 0; iteration != 16; ++iteration) {
                 std::weak_ptr<Job> retained;
                 {
                     Worker worker; std::vector<std::shared_ptr<Job>> jobs;
-                    for (unsigned i = 0; i != 4; ++i) {
+                    for (unsigned i = 0; i != goldcraft::resource_download::Concurrency; ++i) {
                         auto job = Make(url + "-" + std::to_string(iteration) + "-" + std::to_string(i), size, sha);
-                        Check(worker.Submit(job), "bounded queue accepts four jobs"); jobs.push_back(job);
+                        Check(worker.Submit(job), "bounded queue accepts its capacity"); jobs.push_back(job);
                     }
-                    Check(!worker.Submit(Make(url, size, sha)), "fifth job rejected");
-                    Started(jobs[0]); Started(jobs[1]);
+                    Check(!worker.Submit(Make(url, size, sha)), "capacity overflow rejected");
+                    for (const auto& job : jobs) Started(job);
                     retained = jobs[0]; const auto start = std::chrono::steady_clock::now(); worker.Shutdown();
                     Check(std::chrono::steady_clock::now() - start < 2s, "shutdown joins async callbacks promptly");
                     for (const auto& job : jobs) {

@@ -8,6 +8,8 @@
 #endif
 #include <asio/awaitable.hpp>
 #include <asio/any_completion_handler.hpp>
+#include <asio/bind_cancellation_slot.hpp>
+#include <asio/cancellation_signal.hpp>
 #include <asio/co_spawn.hpp>
 #include <asio/detached.hpp>
 #include <asio/executor_work_guard.hpp>
@@ -19,6 +21,7 @@
 #include <asio/use_awaitable.hpp>
 #include <winhttp.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <deque>
@@ -37,6 +40,21 @@ using Clock = std::chrono::steady_clock;
 struct Failure { DWORD code; };
 inline void Require(bool valid, DWORD code = 0) {
     if (!valid) throw Failure{code ? code : GetLastError()};
+}
+inline bool TransientHttpFailure(DWORD code, unsigned status = 0) noexcept {
+    if (status) return status == 408 || status == 429 || status == 500 ||
+        status == 502 || status == 503 || status == 504;
+    switch (code) {
+    case ERROR_TIMEOUT: case ERROR_WINHTTP_TIMEOUT: case ERROR_WINHTTP_CANNOT_CONNECT:
+    case ERROR_WINHTTP_CONNECTION_ERROR: case ERROR_WINHTTP_NAME_NOT_RESOLVED:
+    case ERROR_WINHTTP_RESEND_REQUEST: case ERROR_CONNECTION_ABORTED:
+    case ERROR_CONNECTION_INVALID: case ERROR_CONNECTION_REFUSED:
+        return true;
+    default: return false;
+    }
+}
+inline std::chrono::milliseconds RetryDelay(unsigned attempt, bool transient) noexcept {
+    return std::chrono::milliseconds(transient ? std::min(4000u, 250u << std::min(attempt, 4u)) : 200u);
 }
 struct HttpHandle {
     HINTERNET value{};
@@ -355,14 +373,14 @@ public:
     }
     void Cancel() {
         std::lock_guard lock(mutex); CancelLocked();
-        if (thread.joinable()) asio::post(session.io, [this] { session.Poll(); });
+        if (thread.joinable()) asio::post(session.io, [this] { CancelRunning(); session.Poll(); });
     }
     void Shutdown() {
         {
             std::lock_guard lock(mutex);
             if (stopping) return;
             stopping = true; CancelLocked();
-            if (thread.joinable()) asio::post(session.io, [this] { session.Poll(); });
+            if (thread.joinable()) asio::post(session.io, [this] { CancelRunning(); session.Poll(); });
             guard.reset();
         }
         if (thread.joinable()) thread.join();
@@ -376,24 +394,46 @@ private:
     std::thread thread;
     std::mutex mutex;
     std::deque<std::shared_ptr<Job>> pending;
-    std::vector<std::shared_ptr<Job>> active;
+    struct Running {
+        explicit Running(std::shared_ptr<Job> value) : job(std::move(value)) {}
+        std::shared_ptr<Job> job;
+        asio::cancellation_signal cancellation;
+        bool cancelled{}; // Asio executor only.
+    };
+    std::vector<std::shared_ptr<Running>> active;
     bool stopping{}, ticking{};
     Policy policy;
     void CancelLocked() {
         for (auto& job : pending) { job->cancelled = true; job->done.store(true, std::memory_order_release); }
         pending.clear();
-        for (auto& job : active) job->cancelled = true;
+        for (auto& task : active) task->job->cancelled = true;
+    }
+    void CancelRunning() {
+        // Cancellation signals and coroutine frames belong to the IO executor.
+        // Snapshot under the queue mutex; emitting can dispatch completions.
+        std::array<std::shared_ptr<Running>, 16> snapshot{};
+        std::size_t count{};
+        {
+            std::lock_guard lock(mutex);
+            for (const auto& task : active)
+                if (task->job->cancelled && !task->cancelled) {
+                    task->cancelled = true; snapshot[count++] = task;
+                }
+        }
+        for (std::size_t i = 0; i < count; ++i)
+            snapshot[i]->cancellation.emit(asio::cancellation_type::terminal);
     }
     void Drain() {
         std::lock_guard lock(mutex);
         while (!stopping && !pending.empty() && active.size() < concurrency) {
-            auto job = std::move(pending.front()); pending.pop_front(); active.push_back(job);
-            Policy::Active(*job, true);
-            asio::co_spawn(session.io, policy.Run(session, job), [this, job](std::exception_ptr failure) {
-                Policy::Finish(*job, failure);
-                { std::lock_guard lock(mutex); std::erase(active, job); }
+            auto task = std::make_shared<Running>(std::move(pending.front())); pending.pop_front(); active.push_back(task);
+            Policy::Active(*task->job, true);
+            asio::co_spawn(session.io, policy.Run(session, task->job),
+                asio::bind_cancellation_slot(task->cancellation.slot(), [this, task](std::exception_ptr failure) {
+                Policy::Finish(*task->job, failure);
+                { std::lock_guard lock(mutex); std::erase(active, task); }
                 Drain();
-            });
+            }));
         }
         if (!active.empty() && !ticking) Tick();
     }
@@ -401,7 +441,7 @@ private:
         ticking = true; timer.expires_after(std::chrono::milliseconds(20));
         timer.async_wait([this](asio::error_code error) {
             if (error) return;
-            session.Poll();
+            CancelRunning(); session.Poll();
             std::lock_guard lock(mutex);
             if (!active.empty()) Tick(); else ticking = false;
         });

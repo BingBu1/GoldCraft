@@ -20,6 +20,9 @@ struct Job {
     std::atomic<bool> cancelled{}, done{}, submitted{};
     bool success{}; // Published by done(release); consumed after done(acquire).
     std::string error;
+    // Telemetry only; completion/bytes remain fenced by done(release/acquire).
+    std::atomic<unsigned> attempts{};
+    std::atomic<bool> retrying{};
 };
 // The worker owns network IO only. Filesystem mounting, model invalidation and
 // continuing the engine downloader remain on the client's main thread.

@@ -282,7 +282,11 @@ if(GOLDCRAFT_BUILD_CLIENT)
         target_link_libraries(goldcraft_resource_bridge_tests PRIVATE goldcraft_common)
         target_compile_definitions(goldcraft_resource_bridge_tests PRIVATE NOMINMAX NO_MALLOC_OVERRIDE _CRT_SECURE_NO_WARNINGS)
         foreach(resource_case not-ready active upload no-init callback-live normal unchanged cancel stale
-            before-failure after-failure native-failure native-unwind native-reset base base-failure disconnect-base)
+            before-failure after-failure native-failure native-unwind native-reset base base-failure disconnect-base
+            download-failure failure-cancel failure-reconnect
+            progress-values progress-start-cancel progress-text-cancel progress-advance-cancel
+            native-progress-start-cancel native-progress-text-cancel native-progress-advance-cancel
+            progress-stale progress-reentrant)
             add_test(NAME goldcraft_resource_bridge_${resource_case}
                 COMMAND goldcraft_resource_bridge_tests ${resource_case})
         endforeach()

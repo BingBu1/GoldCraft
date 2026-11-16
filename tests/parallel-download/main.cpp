@@ -17,17 +17,25 @@ int main(int argc,char** argv){
         for(auto path:{"models/v_test.mdl","sound/vox/hello world.wav","resource/a.txt"})Check(ValidPath(path),"valid path rejected");
         for(auto path:{"","../a","a/../b","a//b","/a","a\\b","C:a","a?x","a%2fb","a.","con.wav","x/LPT1.txt","a/b ","a/*"})Check(!ValidPath(path),"unsafe path accepted");
         std::filesystem::path root=argv[2];std::filesystem::create_directories(root);
-        Limits limits;limits.workers=argc==4?16:4;limits.timeout_ms=argc==4?1500:350;limits.total_ms=2000;limits.max_bytes=1024*1024;
+        const bool recovery=argc==4&&std::string(argv[3])=="recovery",burst=argc==4&&!recovery;
+        Limits limits;limits.workers=burst?16:4;limits.timeout_ms=burst?1500:350;limits.total_ms=recovery?10000:2000;limits.max_bytes=1024*1024;
         Pool pool(limits);unsigned id=0;
         auto submit=[&](const char* path){auto j=std::make_shared<Job>();j->url=std::string(argv[1])+path;j->temporary=root/(std::to_string(++id)+".part");Check(pool.Submit(j),"submit failed");return j;};
         std::vector<std::shared_ptr<Job>> jobs;
-        auto start=steady_clock::now();for(int i=0;i<(argc==4?32:8);++i)jobs.push_back(submit("ok"));
+        if(recovery){
+            auto job=submit("flaky");Wait(job);
+            Check(job->success&&job->attempts==5,"temporary outage fell back before service recovered");
+            std::ifstream file(job->temporary,std::ios::binary);std::string bytes(65536,'\0');file.read(bytes.data(),bytes.size());
+            Check(bytes==std::string(65536,'x'),"recovery body differs from server");
+            std::cout<<checks<<" recovery checks passed\n";return 0;
+        }
+        auto start=steady_clock::now();for(int i=0;i<(burst?32:8);++i)jobs.push_back(submit("ok"));
         for(auto& j:jobs){Wait(j);Check(j->success,"HTTP200 failed");Check(j->received==65536,"size wrong");Check(std::filesystem::file_size(j->temporary)==65536,"disk size wrong");std::ifstream f(j->temporary,std::ios::binary);std::string bytes(65536,'\0');f.read(bytes.data(),bytes.size());Check(bytes==std::string(65536,'x'),"body mismatch");}
         Check(steady_clock::now()-start<milliseconds(1300),"requests did not overlap");
-        if(argc==4){pool.Cancel();jobs.clear();std::cout<<checks<<" burst checks passed\n";return 0;}
+        if(burst){pool.Cancel();jobs.clear();std::cout<<checks<<" burst checks passed\n";return 0;}
         auto missing=submit("missing"),truncated=submit("truncated"),hang=submit("hang"),large=submit("large"),redirect=submit("redirect"),chunked=submit("chunked");
         for(auto& j:{missing,truncated,hang,large,redirect}){Wait(j);Check(!j->success,"bad response accepted");}
-        Check(missing->status==404&&missing->attempts==1,"404 retried");Check(hang->attempts==2,"retry bound wrong");
+        Check(missing->status==404&&missing->attempts==1,"404 retried");Check(hang->attempts>=2&&hang->attempts<=12,"retry bound wrong");
         Wait(chunked);Check(chunked->success&&chunked->received==65536,"chunked response failed");
         auto cancelled=submit("hang");std::this_thread::sleep_for(milliseconds(50));start=steady_clock::now();pool.Cancel();Wait(cancelled);Check(!cancelled->success&&cancelled->cancelled,"cancel ignored");Check(steady_clock::now()-start<milliseconds(500),"cancel blocked");
         auto next=submit("ok");Wait(next);Check(next->success,"next batch failed");

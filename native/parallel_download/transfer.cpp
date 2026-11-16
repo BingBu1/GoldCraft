@@ -96,15 +96,26 @@ struct Policy {
     static void Active(Job& job, bool value) { job.active = value; }
     asio::awaitable<void> Run(transport::Session& session, std::shared_ptr<Job> job) const {
         const auto deadline = Clock::now() + std::chrono::milliseconds(limits.total_ms);
-        for (unsigned attempt = 0; attempt <= limits.retries && !job->cancelled && Clock::now() < deadline; ++attempt) {
+        auto retryEnd = deadline;
+        for (unsigned attempt = 0; !job->cancelled && Clock::now() < retryEnd; ++attempt) {
             job->attempts = attempt + 1; job->status = 0;
-            job->error = co_await Transfer(session, *job, limits, deadline);
+            job->error = co_await Transfer(session, *job, limits, retryEnd);
             if (!job->error) { job->success = true; break; }
-            if (job->status >= 400 && job->status < 500) break;
+            const bool transient = transport::TransientHttpFailure(job->error, job->status);
+            if ((!transient && job->status >= 400 && job->status < 500) ||
+                attempt >= (transient ? 11u : limits.retries) || job->cancelled) break;
+            const auto now = Clock::now();
+            if (!attempt) retryEnd = std::min(deadline, now + std::chrono::seconds(60));
+            if (now >= retryEnd) break;
+            asio::steady_timer retry(session.io, std::min(retryEnd, now + transport::RetryDelay(attempt, transient)));
+            asio::error_code error;
+            co_await retry.async_wait(asio::redirect_error(asio::use_awaitable, error));
+            if (error) break;
         }
     }
     static void Finish(Job& job, std::exception_ptr failure) {
         if (failure) { job.success = false; job.error = ERROR_NOT_ENOUGH_MEMORY; }
+        if (job.cancelled) { job.success = false; job.error = ERROR_CANCELLED; }
         job.active = false; job.done.store(true, std::memory_order_release);
     }
 };

@@ -28,10 +28,11 @@ void __cdecl Close(){++closes;}
 void __cdecl Command(const char* value){Check(std::string(value)=="retry\n","bad command");++retries;}
 void Pump(){const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(12);while(!pd::jobs.empty()&&std::chrono::steady_clock::now()<deadline){pd::Tick();std::this_thread::sleep_for(std::chrono::milliseconds(10));}Check(pd::jobs.empty(),"batch hung");}
 int main(int argc,char**argv){try{
-    Check(argc==3,"URL and output required");FS fs(std::filesystem::absolute(argv[2]));mh_interface_t interfaces{};interfaces.FileSystem=&fs;pd::interfaces=&interfaces;
+    Check(argc==3||argc==4,"URL and output required");FS fs(std::filesystem::absolute(argv[2]));mh_interface_t interfaces{};interfaces.FileSystem=&fs;pd::interfaces=&interfaces;
     std::string url=argv[1];char server[]="test";pd::baseUrl=url.data();pd::serverName=server;
     pd::engine.Con_Printf=Print;pd::progress=Progress;pd::primaryProgress=Primary;pd::statusText=Text;pd::closeProgress=Close;pd::command=Command;
-    pd::Limits limits;limits.timeout_ms=300;limits.total_ms=1000;pd::pool=std::make_unique<pd::Pool>(limits);
+    pd::Limits limits;limits.timeout_ms=300;limits.total_ms=argc==4?10000:1000;pd::pool=std::make_unique<pd::Pool>(limits);
+    if(argc==4){pd::Queue("flaky");Pump();Check(retries==1&&closes==1,"recovery completed without one reconnect");Check(fs.FileExists("flaky")&&std::filesystem::file_size(fs.root/"flaky")==65536,"loading UI ended before failed file recovered");std::cout<<checks<<" recovery bridge checks passed\n";return 0;}
     pd::Queue("ok");pd::Queue("ok");pd::Queue("OK");Check(pd::Count()==1,"duplicate counted");Check(!fs.FileExists("ok"),"early final file");Pump();Check(retries==1&&closes==1,"completion retry missing");Check(std::filesystem::file_size(fs.root/"ok")==65536,"file not committed");
     pd::Queue("../escape");Check(pd::Count()==0,"traversal accepted");
     pd::Queue("missing");Pump();Check(retries==2,"failure fallback missing");Check(!fs.FileExists("missing"),"failure published");

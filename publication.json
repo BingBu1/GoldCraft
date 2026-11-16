@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_修复-下载中断恢复与换图进度-report.md",
+    "tools/nightfall-hotfix/download-recovery.md",
     "tools/nightfall-update/package.py",
     "tools/nightfall-update/Configuration.ps1",
     "tools/nightfall-update/Publication.ps1",

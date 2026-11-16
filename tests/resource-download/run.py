@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--compiler', type=pathlib.Path, required=True)
     parser.add_argument('--environment', type=pathlib.Path,
                         help='Optional JSON environment from the configured Windows toolchain')
+    parser.add_argument('--case', help='Run a single named transport case')
     args = parser.parse_args()
     out = args.output.resolve()
     assert out.is_relative_to(ROOT / 'build') and not out.exists()
@@ -35,11 +36,16 @@ def main():
     frozen = []
     asio_include = asio.prepare()
     for relative in ['native/client/resource_download.hpp', 'native/client/resource_download.cpp',
+                     'native/client/resource_cache.hpp', 'native/client/resource_cache.cpp',
+                     'native/client/resource_overlay.hpp', 'native/client/resource_overlay.cpp',
+                     'native/client/resource_timing.hpp', 'native/include/goldcraft/resource_stamp.hpp',
                      'native/include/goldcraft/resource_sync.hpp', 'tests/resource-download/main.cpp',
                      'tests/resource-download/run.py', 'native/include/goldcraft/async_download.hpp',
                      'tools/Prepare-Asio.py']:
         frozen.append(identity(ROOT / relative))
     frozen += [identity(path) for path in asio_include.rglob('*') if path.is_file()]
+    sdk = ROOT / 'external/MetaHookSv-20261007/MetaHook/include'
+    frozen += [identity(path) for path in sdk.rglob('*') if path.is_file()]
     def save(name, value): (out / name).write_text(json.dumps(value, ensure_ascii=False, indent=2), 'utf-8')
     save('inputs.json', frozen)
     (out / 'temp').mkdir()
@@ -49,8 +55,11 @@ def main():
     compiler = str(args.compiler.resolve(strict=True))
     flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/Zi', '/utf-8',
              '/clang:-O3', '/arch:AVX2', '/fp:precise', '/DASIO_STANDALONE', '/DASIO_NO_DEPRECATED',
-             '/D_WIN32_WINNT=0x0A00', '/I' + str(asio_include),
+             '/D_WIN32_WINNT=0x0A00', '/DNOMINMAX', '/D_CRT_SECURE_NO_WARNINGS', '/I' + str(asio_include),
              '/I' + str(ROOT / 'native/client'), '/I' + str(ROOT / 'native/include')]
+    flags += ['/I' + str(sdk / path) for path in
+              ('', 'Interface', 'HLSDK/common', 'HLSDK/cl_dll', 'HLSDK/engine', 'HLSDK/public',
+               'HLSDK/pm_shared', 'HLSDK/dlls', 'SourceSDK', 'SourceSDK/tier1')]
     steps = []
     def execute(name, command, limit=30):
         start = time.monotonic()
@@ -64,12 +73,14 @@ def main():
         steps.append(dict(name=name, argv=[str(a) for a in command], exit=code, seconds=time.monotonic() - start, log=identity(path)))
         save('steps.json', steps); print(name, code, flush=True)
         return code
-    for label, relative in [('worker', 'native/client/resource_download.cpp'), ('fixture', 'tests/resource-download/main.cpp')]:
+    for label, relative in [('worker', 'native/client/resource_download.cpp'),
+                            ('cache', 'native/client/resource_cache.cpp'),
+                            ('overlay', 'native/client/resource_overlay.cpp'), ('fixture', 'tests/resource-download/main.cpp')]:
         assert execute('compile-' + label, [compiler, *flags, '/c', '/Fo' + str(out / (label + '.obj')),
                                            ROOT / relative], 120) == 0
     exe = out / 'download.exe'
     assert execute('link', [compiler, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', out / 'worker.obj',
-                           out / 'fixture.obj', '/Fe' + str(exe), '/link', '/threads:1', '/DEBUG',
+                           out / 'cache.obj', out / 'overlay.obj', out / 'fixture.obj', '/Fe' + str(exe), '/link', '/threads:1', '/DEBUG',
                            '/PDB:' + str(out / 'download.pdb'), 'winhttp.lib', 'bcrypt.lib', 'ws2_32.lib', 'mswsock.lib']) == 0
     # Independent Python source bytes and hashlib establish the HTTP/manifest oracle.
     body = bytes(((i * 73 + 19) ^ (i >> 9)) & 255 for i in range(256 * 1024))
@@ -92,6 +103,8 @@ def main():
             elif path.startswith('/404'): status, content, length = 404, b'', 0
             elif path.startswith('/redirect'): status, content, length = 302, b'', 0
             elif path.startswith('/flaky') and count < 3: status, content, length = 503, b'', 0
+            elif path.startswith('/outage') and count <= 4: status, content, length = 503, b'', 0
+            elif path.startswith(('/retry-cancel', '/unavailable')): status, content, length = 503, b'', 0
             elif path.startswith('/length'): length -= 1
             elif path.startswith('/trunc'): content = body[:8192]
             try:
@@ -122,15 +135,22 @@ def main():
              ('not-found', 'bad', '/404', digest, 3),
              ('no-redirect', 'bad', '/redirect', digest, 3),
              ('retry', 'good', '/flaky', digest, 3),
+             ('outage-recovery', 'good', '/outage', digest, 5),
+             ('retry-cancel', 'retry-cancel', '/retry-cancel', digest, 4),
+             ('unavailable', 'unavailable', '/unavailable', digest, 12),
              ('completed-job-reuse', 'reuse', '/reuse', digest, 1),
              ('cancel', 'cancel', '/slow-cancel', digest, 1),
              ('pre-cancel', 'pre-cancel', '/never', digest, 0),
-             ('shutdown-lifetime', 'lifetime', '/slow-lifetime', digest, 32),
+             ('shutdown-lifetime', 'lifetime', '/slow-lifetime', digest, 128),
              ('destructor', 'destructor', '/slow-destructor', digest, 1)]
+    if args.case:
+        cases = [case for case in cases if case[0] == args.case]
+        assert cases, 'unknown case'
     results = []
     try:
         for name, mode, path, sha, expected_requests in cases:
-            code = execute(name, [exe, mode, base + path, len(body), sha, out / 'new-body.bin'], 75 if mode == 'lifetime' else 25)
+            code = execute(name, [exe, mode, base + path, len(body), sha, out / 'new-body.bin'],
+                           75 if mode in ('lifetime', 'unavailable') else 25)
             with lock:
                 matched = [x for x in requests if x['path'].startswith(path)]
                 redirects = [x for x in requests if x['path'] == '/redirect-target']
