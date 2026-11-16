@@ -358,6 +358,10 @@ int main(int argc,char** argv)
         Initialize();Ready();frame.stamina=stamina;events.clear();weapon.SecondaryAttack();
         Check(events.empty()&&!playerThink.Deadline()&&!weapon.m_pfnThink&&weapon.Status()==M16Status::Ineligible);
     }
+    Initialize();Ready();frame.stamina.reset();events.clear();weapon.SecondaryAttack();
+    Check(events.empty()&&!playerThink.Deadline()&&weapon.Status()==M16Status::Ineligible);
+    frame.pressed=1;weapon.PrimaryAttack();Drain();
+    Check(weapon.m_iClip==17&&State().burstShots==3);
     for(int order:{0,1})
     {
         Initialize();Ready();frame.pressed=1;const int before=meleeCalls;

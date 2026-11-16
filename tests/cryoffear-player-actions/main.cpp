@@ -97,6 +97,113 @@ StaminaCycleState ReadState()
 {StaminaCycleState s;StaminaCycleOwner o;Check(action.Read(s,o));return s;}
 void Command(float time)
 {globals.time=time;Check(action.BeginCommand());stage.Fire(&ownerEdict,0,time);}
+
+struct SharedLedger
+{
+    CBasePlayer* player{};
+    PlayerActionBinding binding;
+    float amount{100};
+    bool infinite{}, current{true}, readable{true};
+    unsigned dispatches{};
+    void (*duringRead)() noexcept {};
+    static bool Current(void* context,CBasePlayer& player,std::uint64_t map,std::uint64_t life) noexcept
+    {
+        const auto& self=*static_cast<SharedLedger*>(context);
+        return self.current&&self.player==&player&&map==9&&life==2;
+    }
+    static bool Read(void* context,float& amount,bool& infinite) noexcept
+    {
+        auto& self=*static_cast<SharedLedger*>(context);
+        amount=self.amount;infinite=self.infinite;
+        if(auto callback=self.duringRead){self.duringRead=nullptr;callback();}
+        return self.readable;
+    }
+    static bool Dispatch(void* context,CBasePlayer& player,PlayerThinkKind kind) noexcept
+    {
+        auto& self=*static_cast<SharedLedger*>(context);
+        Check(self.player==&player&&kind==PlayerThinkKind::Pushback);
+        ++self.dispatches;
+        float amount{};bool infinite{};
+        if(!self.binding.ReadStamina(amount,infinite))return false;
+        if(!infinite)self.amount=std::max(amount-15.F,0.F);
+        return true;
+    }
+    SharedPlayerActionBackend Backend() noexcept
+    {return {this,Current,Dispatch,Read,PlayerThinkBit(PlayerThinkKind::Pushback)};}
+};
+void SharedActions()
+{
+    InitializeActions();auto old=action;
+    Check(!runtime.PrepareShared(1,player,1,{}));
+    SharedLedger ledger;ledger.player=&player;
+    Check(!runtime.PrepareShared(1,player,1,ledger.Backend())&&old.Current());
+    ledger.binding=runtime.PrepareShared(1,player,2,ledger.Backend());
+    auto shared=ledger.binding;
+    Check(shared.Current()&&!old.Current());
+    Check(!runtime.Prepare(1,player,2,seed,originalOwner,actionBackend));
+    auto incomplete=ledger.Backend();incomplete.stamina=nullptr;
+    Check(!runtime.PrepareShared(1,player,3,incomplete)&&shared.Current());
+    float amount=-1;bool infinite=true;
+    Check(shared.ReadStamina(amount,infinite)&&amount==100&&!infinite);
+    Check(!shared.SetStamina(99)&&!shared.SetOwner(originalOwner)&&ledger.amount==100);
+    StaminaCycleState snapshot;snapshot.amount=999;StaminaCycleOwner owner;
+    Check(!shared.Read(snapshot,owner)&&snapshot.amount==999);
+    Check(shared.Spawn()==PlayerCycleResult::MissingBackend&&huds==0&&voices==0&&ledger.amount==100);
+    Check(!shared.EndSharedCommand());
+    Check(shared.BeginCommand());stage.Fire(&ownerEdict,-1,20);
+    Check(!shared.EndSharedCommand());stage.Fire(&ownerEdict,0,20);
+    Check(shared.PostThink()==PlayerCycleResult::MissingBackend);
+    Check(shared.EndSharedCommand()&&!shared.EndSharedCommand()&&ledger.amount==100&&huds==0&&voices==0);
+
+    // The real M16 schedules the same life-owned callback in shared mode.
+    backends.playerThink=shared.Think();backends.ownerLife=2;
+    std::string error;
+    const auto plan=RecommendedLongGunAnimationPlan(LongGun::M16,PistolAnimationRig::Stock);
+    Check(animations.Prepare(player,model,{9,1},LongGun::M16,*plan,_stricmp,error));
+    backends.playerModelGeneration={9,1};
+    Check(weapon.Bind(player,prepared,backends)==M16Status::Ready);Check(weapon.Deploy());Ready();
+    weapon.SecondaryAttack();const auto deadline=shared.Think()->Deadline();
+    Check(deadline==globals.time+.23F);weapon.Invalidate();++player.pev->modelindex;
+    Check(runtime.PrepareShared(1,player,2,ledger.Backend()).Think()==shared.Think());
+    Check(shared.BeginCommand());stage.Fire(&ownerEdict,0,deadline);
+    Check(ledger.dispatches==1&&ledger.amount==85&&shared.LastThink()==PlayerThinkResult::Dispatched);
+    Check(shared.EndSharedCommand()&&huds==0&&voices==0);
+    ledger.amount=5;Check(shared.ReadStamina(amount,infinite)&&amount==5);
+    ledger.infinite=true;Check(shared.ReadStamina(amount,infinite)&&infinite);
+    ledger.readable=false;amount=777;infinite=false;
+    Check(!shared.ReadStamina(amount,infinite)&&amount==777&&!infinite&&shared.Current());
+    ledger.readable=true;ledger.amount=NAN;
+    Check(!shared.ReadStamina(amount,infinite)&&amount==777&&shared.Current());
+    ledger.amount=37;ledger.duringRead=[]() noexcept {runtime.Reset();};
+    Check(!shared.ReadStamina(amount,infinite)&&amount==777&&!shared.Current());
+
+    InitializeActions();ledger={};ledger.player=&player;
+    ledger.binding=runtime.PrepareShared(1,player,2,ledger.Backend());
+    auto dead=ledger.binding;player.pev->health=0;
+    Check(!dead.CaptureAndRetire(snapshot)&&snapshot.amount==999&&!dead.Current()&&ledger.amount==100);
+
+    InitializeActions();runtime.Reset();Check(runtime.Install(stage,9));
+    std::array<edict_t,32> entities{};std::array<Player,32> people;
+    std::array<SharedLedger,32> ledgers;
+    g_engfuncs.pfnIndexOfEdict=[](const edict_t* e){return e->v.iuser1;};
+    for(int i=0;i<32;++i)
+    {
+        auto& e=entities[i];auto& p=people[i];e.serialnumber=i+1;e.v.iuser1=i+1;
+        e.pvPrivateData=&p;e.v.pContainingEntity=&e;p.pev=&e.v;p.pev->health=100;
+        p.has_disconnected=false;p.m_iNumSpawns=0;
+        auto& ledger=ledgers[i];ledger.player=&p;ledger.amount=float(i+1);
+        ledger.binding=runtime.PrepareShared(i+1,p,2,ledger.Backend());Check(ledger.binding.Current());
+    }
+    globals.time=0;const auto before=allocations;
+    for(unsigned n=0;n<10000;++n)
+    {
+        const auto i=n%32;auto& ledger=ledgers[i];float amount{};bool infinite{};
+        Check(ledger.binding.ReadStamina(amount,infinite)&&amount==float(i+1));
+        Check(ledger.binding.BeginCommand());stage.Fire(&entities[i],0,0);
+        Check(ledger.binding.EndSharedCommand()&&ledger.amount==float(i+1));
+    }
+    Check(before==allocations&&huds==0&&voices==0);runtime.Reset();
+}
 }
 int main(int argc,char** argv)
 {
@@ -295,5 +402,6 @@ int main(int argc,char** argv)
         Check(b.PostThink()==PlayerCycleResult::Applied);
     }
     Check(before==allocations);runtime.Reset();
+    SharedActions();
     std::cout<<checks<<" SDK checks; 32 life slots; 10000 hot commands without allocations; no deployment/gameplay claim\n";
 }

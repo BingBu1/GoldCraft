@@ -75,15 +75,16 @@ bool M16OwnerView::Read(M16OwnerBinding key, guest::cof::server::M16OwnerFrame& 
     if (!Local(key)) return false;
     const auto canonical = canonical_; const auto actions = actions_;
     guest::cof::server::GlockOwnerFrame shared;
-    guest::cof::StaminaCycleState stamina;
-    guest::cof::StaminaCycleOwner owner;
-    if (!canonical.runtime || !canonical.runtime->Read(canonical, shared) || !Local(key) ||
-        !actions.Read(stamina, owner) || !Local(key) || !Same(canonical, canonical_)) return false;
+    float stamina{}; bool infiniteStamina{};
+    if (!canonical.runtime || !canonical.runtime->Read(canonical, shared) || !Local(key)) return false;
+    const bool staminaAvailable=actions.ReadStamina(stamina,infiniteStamina);
+    if(!Local(key)||!actions.Current()||!Same(canonical,canonical_))return false;
     guest::cof::server::M16OwnerFrame value;
     value.activityBlock = shared.activityBlock; value.pendingGateTime = shared.pendingGateTime;
     value.condition3AA = shared.condition3AA; value.pendingGate = shared.pendingGate;
     value.toggleAim = rules_.toggleAim; value.infiniteAmmo = shared.infiniteAmmo; value.quietAudio = shared.quietAudio;
-    value.eventOwner2814 = shared.eventOwner2814; value.stamina = stamina.amount;
+    value.eventOwner2814 = shared.eventOwner2814;
+    if(staminaAvailable)value.stamina=stamina;
     value.originalFlags = shared.originalFlags; value.pressed = shared.pressed;
     value.released = shared.released; value.randomSeed = shared.randomSeed;
     value.bulletDamage = rules_.bulletDamage; value.reserveLimit = rules_.reserveLimit;

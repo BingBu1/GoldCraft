@@ -448,6 +448,24 @@ CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const Runtime& runtime, CBasePlaye
     if (token < state->token || !state->stamina.DebitKick(state->key)) return CSOLKickStaminaDebit::Declined;
     state->token = token; return CSOLKickStaminaDebit::Applied;
 }
+bool CSOL_DebitGuestCofPushbackStamina(const Runtime& runtime, CBasePlayer& player, float requestedAmount)
+{
+    if (operating || !std::isfinite(requestedAmount) || !Enabled()) return false;
+    Guard guard;
+    auto* state = Find(runtime, player);
+    if (!state || !state->settings) return false;
+    const auto view = state->stamina.View(state->key);
+    return view && requestedAmount == view->amount - 15.F &&
+        state->stamina.DebitExternalAction(state->key, view->amount, 15.F);
+}
+bool CSOL_ReadGuestCofPushbackStamina(const Runtime& runtime, CBasePlayer& player, float& amount, bool& infinite)
+{
+    const auto view=CSOL_ActionStaminaView(runtime,player);
+    if(!view)return false;
+    amount=view->infinite?view->maximum:view->amount;
+    infinite=view->infinite;
+    return true;
+}
 void CSOL_RetireActionStamina(CBasePlayer& player)
 {
     for (auto& state : states)

@@ -16,6 +16,17 @@ struct PlayerActionBackend
     StaminaCycleHost stamina;
     unsigned preparedTasks{};
 };
+// User-selected host adaptation: the current CSOL stamina service owns its
+// amount, recovery and HUD. The task owner only reads it; it never seeds,
+// restores or advances a second CoF stamina cycle.
+struct SharedPlayerActionBackend
+{
+    void* context{};
+    bool (*current)(void*, CBasePlayer&, std::uint64_t map, std::uint64_t life) noexcept {};
+    bool (*dispatch)(void*, CBasePlayer&, PlayerThinkKind) noexcept {};
+    bool (*stamina)(void*, float& amount, bool& infinite) noexcept {};
+    unsigned preparedTasks{};
+};
 enum class PlayerCycleResult : unsigned char { Applied, NotReady, Cancelled, MissingBackend, InvalidInput };
 class PlayerActionRuntime;
 class PlayerActionBinding;
@@ -29,12 +40,14 @@ private:
     friend class PlayerActionBinding;
     bool Current() noexcept;
     bool Read(StaminaCycleState&, StaminaCycleOwner&) noexcept;
+    bool ReadStamina(float&, bool&) noexcept;
     bool SetStamina(float) noexcept;
     bool SetOwner(const StaminaCycleOwner&) noexcept;
     PlayerThinkSlot* Think() noexcept { return Current() ? &think_ : nullptr; }
     bool BeginCommand() noexcept;
     PlayerCycleResult Spawn() noexcept;
     PlayerCycleResult PostThink() noexcept;
+    bool EndSharedCommand() noexcept;
     void Retire() noexcept;
     bool CaptureAndRetire(StaminaCycleState&) noexcept;
     PlayerThinkResult LastThink() const noexcept { return lastThink_; }
@@ -42,7 +55,8 @@ private:
     struct CycleCall;
     enum class Phase : unsigned char { None, AwaitThink, AwaitPost };
     bool Admit(CBasePlayer&, std::uint64_t life, const StaminaCycleState&,
-               const StaminaCycleOwner&, const PlayerActionBackend&) noexcept;
+               const StaminaCycleOwner&, const PlayerActionBackend&,
+               bool (*sharedStamina)(void*, float&, bool&) noexcept = nullptr) noexcept;
     bool LocalCurrent() const noexcept;
     bool LocalIdentityCurrent() const noexcept;
     void Stage(edict_t*, float, double) noexcept;
@@ -55,6 +69,7 @@ private:
     int serial_{}, spawn_{};
     std::uint64_t binding_{}, life_{}, latestLife_{}, map_{}, command_{};
     PlayerActionBackend backend_{};
+    bool (*sharedStamina_)(void*, float&, bool&) noexcept {};
     StaminaCycleState stamina_{};
     StaminaCycleOwner owner_{};
     StaminaCycleState* activeStamina_{};
@@ -77,12 +92,17 @@ public:
     }
     bool Read(StaminaCycleState& state, StaminaCycleOwner& owner) const noexcept
     { return Matches() && life_->Read(state, owner); }
+    bool ReadStamina(float& amount, bool& infinite) const noexcept
+    { return Matches() && life_->ReadStamina(amount, infinite); }
     bool SetStamina(float amount) const noexcept { return Matches() && life_->SetStamina(amount); }
     bool SetOwner(const StaminaCycleOwner& owner) const noexcept { return Matches() && life_->SetOwner(owner); }
     PlayerThinkSlot* Think() const noexcept { return Matches() ? life_->Think() : nullptr; }
     bool BeginCommand() const noexcept { return Matches() && life_->BeginCommand(); }
     PlayerCycleResult Spawn() const noexcept { return Matches() ? life_->Spawn() : PlayerCycleResult::Cancelled; }
     PlayerCycleResult PostThink() const noexcept { return Matches() ? life_->PostThink() : PlayerCycleResult::Cancelled; }
+    // Explicit phase completion when stamina is externally owned; never runs
+    // the original CoF recovery/voice/HUD consumer.
+    bool EndSharedCommand() const noexcept { return Matches() && life_->EndSharedCommand(); }
     PlayerThinkResult LastThink() const noexcept
     { return Current() ? life_->LastThink() : PlayerThinkResult::Cancelled; }
     void Retire() const noexcept { if (Matches()) life_->Retire(); }
@@ -114,6 +134,8 @@ public:
     // same living identity preserves its state, task, and original backend.
     PlayerActionBinding Prepare(int slot, CBasePlayer&, std::uint64_t life,
         const StaminaCycleState& seed, const StaminaCycleOwner&, const PlayerActionBackend&) noexcept;
+    PlayerActionBinding PrepareShared(int slot, CBasePlayer&, std::uint64_t life,
+        const SharedPlayerActionBackend&) noexcept;
     PlayerActionBinding Find(int slot, CBasePlayer&) noexcept;
 
 private:

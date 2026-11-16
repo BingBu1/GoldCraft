@@ -61,7 +61,8 @@ PlayerActionBinding PlayerActionRuntime::Prepare(int slot, CBasePlayer& player, 
         g_engfuncs.pfnIndexOfEdict(player.edict()) != slot) return {};
     const auto token = token_;
     auto& p = players_[slot];
-    if (p.player_ == &player && p.life_ == life && p.Current()) return PlayerActionBinding(p);
+    if (p.player_ == &player && p.life_ == life && p.Current())
+        return !p.sharedStamina_ ? PlayerActionBinding(p) : PlayerActionBinding{};
     if (token != token_ || !Current() || life <= p.latestLife_) return {};
     preparing_ = true;
     const bool accepted = p.Admit(player, life, seed, owner, backend);
@@ -73,6 +74,23 @@ PlayerActionBinding PlayerActionRuntime::Find(int slot, CBasePlayer& player) noe
     if (slot < 1 || slot > 32) return {};
     auto& p = players_[slot];
     return p.player_ == &player && p.Current() ? PlayerActionBinding(p) : PlayerActionBinding{};
+}
+PlayerActionBinding PlayerActionRuntime::PrepareShared(int slot, CBasePlayer& player, std::uint64_t life,
+    const SharedPlayerActionBackend& backend) noexcept
+{
+    if (preparing_ || slot < 1 || slot > 32 || !life || !Current() || !backend.current ||
+        !backend.dispatch || !backend.stamina || !backend.preparedTasks || (backend.preparedTasks & ~3U) ||
+        !player.pev || !player.edict() || g_engfuncs.pfnIndexOfEdict(player.edict()) != slot) return {};
+    const auto token = token_;
+    auto& p = players_[slot];
+    if (p.player_ == &player && p.life_ == life && p.Current())
+        return p.sharedStamina_ ? PlayerActionBinding(p) : PlayerActionBinding{};
+    if (token != token_ || !Current() || life <= p.latestLife_) return {};
+    preparing_ = true;
+    const PlayerActionBackend tasks{backend.context, backend.current, backend.dispatch, {}, backend.preparedTasks};
+    const bool accepted = p.Admit(player, life, {}, {}, tasks, backend.stamina);
+    preparing_ = false;
+    return accepted ? PlayerActionBinding(p) : PlayerActionBinding{};
 }
 void PlayerActionRuntime::Stage(void* context, edict_t* entity, float frameTime, double timebase) noexcept
 {
@@ -103,6 +121,7 @@ void PlayerActionLife::Retire() noexcept
 {
     ++binding_; think_.Invalidate();
     player_ = nullptr; entity_ = nullptr; backend_ = {};
+    sharedStamina_ = nullptr;
     life_ = map_ = 0; activeStamina_ = nullptr; activeOwner_ = nullptr;
     stamina_ = {}; owner_ = {}; phase_ = Phase::None; lastThink_ = PlayerThinkResult::Cancelled;
 }
@@ -113,6 +132,7 @@ bool PlayerActionLife::CaptureAndRetire(StaminaCycleState& output) noexcept
     // The engine stage's Current callback may synchronously replace this life.
     if (binding != binding_) return false;
     if (!current) { Retire(); return false; }
+    if (sharedStamina_) { Retire(); return false; } // The CSOL ledger owns death/rebirth.
     const auto state = activeStamina_ ? *activeStamina_ : stamina_;
     Retire();
     if (!Finite(state)) return false;
@@ -120,11 +140,13 @@ bool PlayerActionLife::CaptureAndRetire(StaminaCycleState& output) noexcept
     return true;
 }
 bool PlayerActionLife::Admit(CBasePlayer& player, std::uint64_t life, const StaminaCycleState& seed,
-    const StaminaCycleOwner& owner, const PlayerActionBackend& backend) noexcept
+    const StaminaCycleOwner& owner, const PlayerActionBackend& backend,
+    bool (*sharedStamina)(void*, float&, bool&) noexcept) noexcept
 {
     Retire(); latestLife_ = life; life_ = life; map_ = runtime_->map_;
     player_ = &player; entity_ = player.edict(); serial_ = entity_->serialnumber; spawn_ = player.m_iNumSpawns;
     backend_ = backend; stamina_ = seed; owner_ = owner;
+    sharedStamina_ = sharedStamina;
     if (think_.Bind(player, {this, TaskCurrent, TaskDispatch, map_, life_, backend.preparedTasks})) return true;
     Retire(); return false;
 }
@@ -142,20 +164,38 @@ bool PlayerActionLife::TaskDispatch(void* context, CBasePlayer& player, PlayerTh
 }
 bool PlayerActionLife::Read(StaminaCycleState& state, StaminaCycleOwner& owner) noexcept
 {
-    if (!Current()) return false;
+    if (!Current() || sharedStamina_) return false;
     state = activeStamina_ ? *activeStamina_ : stamina_;
     owner = activeOwner_ ? *activeOwner_ : owner_;
     return true;
 }
+bool PlayerActionLife::ReadStamina(float& amount, bool& infinite) noexcept
+{
+    if (!Current()) return false;
+    if (!sharedStamina_)
+    {
+        amount = (activeStamina_ ? *activeStamina_ : stamina_).amount;
+        infinite = (activeOwner_ ? *activeOwner_ : owner_).infinite;
+        return true;
+    }
+    const auto binding = binding_;
+    const auto read = sharedStamina_;
+    const auto context = backend_.context;
+    float value{}; bool unlimited{};
+    if (!read(context, value, unlimited) || binding != binding_ || !Current() ||
+        binding != binding_ || !std::isfinite(value) || value < 0) return false;
+    amount = value; infinite = unlimited;
+    return true;
+}
 bool PlayerActionLife::SetStamina(float value) noexcept
 {
-    if (!std::isfinite(value) || !Current()) return false;
+    if (!std::isfinite(value) || !Current() || sharedStamina_) return false;
     (activeStamina_ ? *activeStamina_ : stamina_).amount = value;
     return true; // Original debit can be negative until the PostThink clamp.
 }
 bool PlayerActionLife::SetOwner(const StaminaCycleOwner& owner) noexcept
 {
-    if (!Finite(owner) || !Current()) return false;
+    if (!Finite(owner) || !Current() || sharedStamina_) return false;
     (activeOwner_ ? *activeOwner_ : owner_) = owner; return true;
 }
 bool PlayerActionLife::BeginCommand() noexcept
@@ -218,6 +258,7 @@ PlayerCycleResult PlayerActionLife::Cycle(bool spawn) noexcept
 {
     if (activeStamina_) return PlayerCycleResult::NotReady;
     if (!Current()) return PlayerCycleResult::Cancelled;
+    if (sharedStamina_) return PlayerCycleResult::MissingBackend;
     const auto binding = binding_;
     auto state = stamina_; auto owner = owner_;
     CycleCall call{*this, binding, backend_.stamina};
@@ -235,8 +276,15 @@ PlayerCycleResult PlayerActionLife::Spawn() noexcept { return Cycle(true); }
 PlayerCycleResult PlayerActionLife::PostThink() noexcept
 {
     if (!Current()) return PlayerCycleResult::Cancelled;
+    if (sharedStamina_) return PlayerCycleResult::MissingBackend;
     if (phase_ != Phase::AwaitPost || activeStamina_) return PlayerCycleResult::NotReady;
     phase_ = Phase::None;
     return Cycle(false);
+}
+bool PlayerActionLife::EndSharedCommand() noexcept
+{
+    if (!Current() || !sharedStamina_ || phase_ != Phase::AwaitPost || activeStamina_) return false;
+    phase_ = Phase::None;
+    return true;
 }
 }

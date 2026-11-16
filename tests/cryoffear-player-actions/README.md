@@ -39,3 +39,5 @@ receive an old capture or be retired by it. Disconnect, entity reuse, changed
 spawn/private data, and map reset reject capture without fabricating a seed.
 The host must still authenticate the connection when using that explicit
 snapshot for a new life; production seed and target wiring are separate work.
+
+Human adaptation2026-11-16: the production host shares the current CSOL stamina ledger, recovery and HUD. `PrepareShared` admits only a life/task owner with an explicit external read endpoint. It never seeds/captures a CoF balance or invokes the CoF Spawn/PostThink recovery. `EndSharedCommand` completes only the verified command phase. The fixture also exercises actual M16 scheduling after removing its model/weapon binding, unavailable/invalid reads, synchronous map reset, and 32 external balances across 10000 hot commands without allocations. Historical independent-CoF cycle coverage remains a separate mode.

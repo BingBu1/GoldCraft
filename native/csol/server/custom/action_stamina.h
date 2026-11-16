@@ -46,6 +46,15 @@ std::optional<csol::scenario::custom::StaminaView> CSOL_ActionStaminaView(
 // increasing within a player life; repeating the last token never debits twice.
 CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, std::uint64_t actionToken);
+// Original CoF positive gate/debit15, explicitly on the existing CSOL ledger.
+// requestedAmount must equal its current amount minus15. This never grants
+// stamina, advances recovery, seeds a life, or publishes a second HUD.
+bool CSOL_DebitGuestCofPushbackStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, float requestedAmount);
+// Noon exposes available capacity to the original positive-amount gate while
+// preserving the stored native balance. This is a read, never a refill.
+bool CSOL_ReadGuestCofPushbackStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, float& amount, bool& infinite);
 void CSOL_RetireActionStamina(CBasePlayer& player);
 void CSOL_ResetActionStamina();
 // Only an actual authoritative phase owner may call available=true. Raw JSON

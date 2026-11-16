@@ -57,7 +57,9 @@ struct M16OwnerFrame
     float activityBlock{}, pendingGateTime{};
     bool condition3AA{}, pendingGate{}, toggleAim{}, infiniteAmmo{}, quietAudio{};
     int eventOwner2814{};
-    float stamina{}; // Original authoritative owner+21F0; not inferred from CS ammo/health.
+    // Original authoritative owner+21F0. Shared-host service unavailability is
+    // explicit: it disables this action, not unrelated gunfire or reloading.
+    std::optional<float> stamina;
     std::uint32_t originalFlags{}, pressed{}, released{}, randomSeed{};
     int bulletDamage{};
     // Exact 101202F0 rule result: original metadata200 or rules-v20 clip*3=60.

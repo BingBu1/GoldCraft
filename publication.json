@@ -2690,7 +2690,8 @@
     "tests/cryoffear-pushback-damage/README.md",
     "tests/cryoffear-pushback-damage/audit.py",
     "docs/2026-11-16_接入-CoF推搡独立灾变伤害-report.md",
-    "docs/2026-11-16_调整-CoF武器保留CSOL怪物AI-report.md"
+    "docs/2026-11-16_调整-CoF武器保留CSOL怪物AI-report.md",
+    "docs/2026-11-16_接入-M16生产宿主与共享CSOL体力-report.md"
   ],
   "trees": {
     "native": [

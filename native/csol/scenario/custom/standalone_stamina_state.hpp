@@ -69,6 +69,20 @@ public:
     { return CanKick(key) && Debit(config_.kickCost); }
     bool DebitJump(LifeKey key) noexcept
     { return CanJump(key) && Debit(config_.jumpCost); }
+    // Explicit host action, sharing this ledger and its normal recovery/HUD.
+    // CoF permits a positive balance below its cost; saturating that accepted
+    // debit keeps the native CSOL ledger nonnegative (human choice2026-11-16).
+    bool DebitExternalAction(LifeKey key, float expected, float cost) noexcept
+    {
+        if (!Current(key) || !std::isfinite(expected) || !(expected > 0) ||
+            expected != recovery_.amount || !std::isfinite(cost) || !(cost > 0)) return false;
+        if (phase_ != Phase::Noon)
+        {
+            recovery_.amount = std::max(expected - cost, 0.0f);
+            if (recovery_.amount == 0) depleted_ = true;
+        }
+        return true;
+    }
     bool RequestRun(LifeKey key, bool requested) noexcept
     {
         if (!Current(key)) return false;

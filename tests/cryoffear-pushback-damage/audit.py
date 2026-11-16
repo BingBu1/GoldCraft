@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[2]
-GROUPS = {'cof-damage', 'cof-death', 'cof-reentry', 'cof-cancel', 'cof-owner',
+GROUPS = {'cof-native', 'cof-damage', 'cof-death', 'cof-reentry', 'cof-cancel', 'cof-owner',
           'kick-damage', 'kick-stagger', 'kick-death', 'kick-reentry', 'kick-cancel', 'kick-owner'}
 spec = importlib.util.spec_from_file_location('sdk_inputs', ROOT / 'tests/csol-rebuy/run_sdk.py')
 sdk = importlib.util.module_from_spec(spec)

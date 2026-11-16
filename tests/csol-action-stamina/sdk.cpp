@@ -61,6 +61,35 @@ int main()
             Check(!CSOL_ActionStaminaCanKick({},c.player),"foreign runtime declines kick without manufacturing stamina");
             Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"actual registered live owner retains prepared stamina");
             Check(CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==100,"same real Session/player starts original100");
+            Check(!CSOL_DebitGuestCofPushbackStamina({},c.player,85)&&
+                !CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,101)&&
+                !CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,0)&&
+                !CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,NAN),
+                "guest cannot grant stamina, set arbitrary balances or use a foreign runtime");
+            Require(CSOL_TryDebitKickStamina(c.f.runtime,c.player,1)==CSOLKickStaminaDebit::Applied,
+                "real native kick debits the shared ledger first");
+            Check(CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,75)&&
+                CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==75,
+                "CoF push debits15 from the same native90 balance");
+            Check(!CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,75),
+                "stale requested balance cannot debit the same push twice");
+            for(float requested:{60.F,45.F,30.F,15.F,0.F})
+                Require(CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,requested),
+                    "successive real CoF actions consume only the shared native ledger");
+            Check(!CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,-15)&&
+                CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==0,
+                "zero shared balance rejects CoF debit without an independent refill");
+            c.f.players->PlayerSpawnStarted(EHANDLE(&c.player));++c.player.m_iNumSpawns;
+            Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"new actual native life restores its own balance");
+            // Leave a low positive balance: the original CoF positive gate
+            // accepts it, while the existing CSOL ledger saturates at zero.
+            for(float requested:{85.F,70.F,55.F,40.F,25.F,10.F})
+                Require(CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,requested),"real finite guest debit");
+            Check(CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,-5)&&
+                CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==0,
+                "low positive CoF debit is accepted without making native stamina negative");
+            c.f.players->PlayerSpawnStarted(EHANDLE(&c.player));++c.player.m_iNumSpawns;
+            Require(CSOL_TickActionStamina(c.f.runtime,c.player,100,error),"separate life for existing native regression");
             for(std::uint64_t token=1;token<=10;++token)
             {
                 Check(CSOL_TryDebitKickStamina(c.f.runtime,c.player,token)==CSOLKickStaminaDebit::Applied,"accepted action debit");
@@ -80,6 +109,9 @@ int main()
             Require(CSOL_TickActionStamina(c.f.runtime,c.player,102,error),"consume explicit phase");
             Check(CSOL_ActionStaminaCanKick(c.f.runtime,c.player)&&CSOL_ActionStaminaView(c.f.runtime,c.player)->infinite,"noon remains kick-capable");
             Check(CSOL_TryDebitKickStamina(c.f.runtime,c.player,1)==CSOLKickStaminaDebit::Applied&&CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==100,"accepted noon kick is infinite");
+            Check(CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,85)&&
+                CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==100,
+                "CoF shares the authoritative native noon infinity without an extra refill");
             Require(CSOL_SetChallengeStaminaPhase(c.f.runtime,custom::Phase::Dusk,true)&&CSOL_TickActionStamina(c.f.runtime,c.player,102,error),"explicit dusk phase");
             Check(CSOL_ActionStaminaView(c.f.runtime,c.player)->maximum==150&&CSOL_ActionStaminaView(c.f.runtime,c.player)->amount==100,"dusk expands without reset refill");
             auto* service=static_cast<csol::IGameplaySettingsService*>(CreateInterface(csol::GameplaySettingsServiceVersion,nullptr));
@@ -100,6 +132,7 @@ int main()
                 CSOL_ActionStaminaView(c.f.runtime,c.player)->maximum==150,
                 "saved time-off remains pending while this map retains its explicit dusk profile");
             c.player.has_disconnected=true;
+            Check(!CSOL_DebitGuestCofPushbackStamina(c.f.runtime,c.player,85),"disconnected CoF action cannot consume a reused balance");
             Check(!CSOL_ActionStaminaCanKick(c.f.runtime,c.player)&&CSOL_TryDebitKickStamina(c.f.runtime,c.player,2)==CSOLKickStaminaDebit::Retired,"disconnected native owner cannot debit");
             c.player.has_disconnected=false;
         }

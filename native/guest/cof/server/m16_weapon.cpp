@@ -528,7 +528,7 @@ bool M16Weapon::Check(M16OwnerFrame& frame, bool active) noexcept
     if (!backends_.ownerFrame(backends_.context, frame) || !Current(&l)) return false;
     if (!std::isfinite(frame.activityBlock) || !std::isfinite(frame.pendingGateTime) ||
         frame.bulletDamage < 0 || !Finite(m_pPlayer->pev->velocity) ||
-        (frame.reserveLimit != 60 && frame.reserveLimit != 200) || !std::isfinite(frame.stamina) ||
+        (frame.reserveLimit != 60 && frame.reserveLimit != 200) || (frame.stamina && !std::isfinite(*frame.stamina)) ||
         !Finite(m_pPlayer->pev->v_angle) || !Finite(m_pPlayer->pev->punchangle))
     { status_ = M16Status::InvalidInput; return false; }
     ReadAmmo();
@@ -713,7 +713,7 @@ void M16Weapon::SecondaryAttack()
     M16OwnerFrame frame{}; if (!Check(frame)) return;
     const float now = gpGlobals->time;
     if (action_.primary > now || action_.secondary > now || action_.action ||
-        action_.special || action_.aiming || frame.stamina <= 0)
+        action_.special || action_.aiming || !frame.stamina || *frame.stamina <= 0)
     { status_ = M16Status::Ineligible; return; }
     // Original100520BD/100520CE: the player owns this task. Dropping or
     // replacing the weapon must not cancel it or restore an older player task.
