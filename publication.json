@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-16_验证-绝命档案完整原生移动与蹲姿缺口-report.md",
     "tests/cryoffear-g43-runtime/README.md",
     "docs/2026-11-16_接入-G43地图运行时与共用玩家任务-report.md",
     "docs/2026-11-16_修复-疾跑探测早于HUD初始化-report.md",
