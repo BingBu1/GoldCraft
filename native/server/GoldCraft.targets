@@ -450,4 +450,27 @@
       <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_g43_factory.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_g43_owner.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <ClCompile Include="$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_g43_native_effects.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemGroup>
 </Project>

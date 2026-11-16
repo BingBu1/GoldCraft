@@ -330,6 +330,53 @@ inline constexpr ResourcePath M16Inventory{
 inline constexpr auto M16Particle = MP5Particle;
 inline constexpr auto M16ClipTexture = P345ClipTexture;
 
+enum class G43Model : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(G43Model::Count)> G43Models{{
+    {"models/weapons/g43/v_g43.mdl", "models/guest/cof/g43/v_g43.mdl"},
+    {"models/weapons/g43/w_g43.mdl", "models/guest/cof/g43/w_g43.mdl"},
+    {"police/models/weapons/g43/p_g43.mdl", "models/guest/cof/g43/p_g43.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shell.mdl", "models/guest/cof/common/shell.mdl"},
+    {"models/w_9mmclip.mdl", "models/guest/cof/common/w_9mmclip.mdl"},
+    {"sprites/bubble.spr", "sprites/guest/cof/bubble.spr"},
+    {"sprites/fog2.spr", "sprites/guest/cof/fog2.spr"},
+    {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
+    {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
+}};
+// Original local26 selects flash2/scale6; world G43 P keeps flash1/scale3.
+inline constexpr auto G43ClientModels = MP5ClientModels;
+enum class G43Sound : unsigned
+{
+    Fire, Cock, MagIn, MagOut, ItemGet, WeaponGet, Sleeve1, Sleeve2, Sleeve3,
+    PushSwing, PushHit, EmptyClick, EmptyNoClick, Count
+};
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(G43Sound::Count)> G43Sounds{{
+    {"weapons/g43/g43_fire.wav", "guest/cof/weapons/g43/g43_fire.wav"},
+    {"weapons/g43/g43_cock.wav", "guest/cof/weapons/g43/g43_cock.wav"},
+    {"weapons/g43/g43_magin.wav", "guest/cof/weapons/g43/g43_magin.wav"},
+    {"weapons/g43/g43_magout.wav", "guest/cof/weapons/g43/g43_magout.wav"},
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/weapon_get.wav", "guest/cof/weapons/weapon_get.wav"},
+    {"weapons/sleeve_generic1.wav", "guest/cof/weapons/sleeve_generic1.wav"},
+    {"weapons/sleeve_generic2.wav", "guest/cof/weapons/sleeve_generic2.wav"},
+    {"weapons/sleeve_generic3.wav", "guest/cof/weapons/sleeve_generic3.wav"},
+    {"weapons/melee_swing.wav", "guest/cof/weapons/melee_swing.wav"},
+    {"weapons/melee_hit.wav", "guest/cof/weapons/melee_hit.wav"},
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
+}};
+inline constexpr std::array<ResourcePath, 4> G43LocalWaves{{
+    {"weapons_new/g43/g43_fire.wav", "sound/guest/cof/weapons_new/g43/g43_fire.wav"},
+    {"weapons_new/g43/g43_cock.wav", "sound/guest/cof/weapons_new/g43/g43_cock.wav"},
+    {"weapons_new/g43/g43_magin.wav", "sound/guest/cof/weapons_new/g43/g43_magin.wav"},
+    {"weapons_new/g43/g43_magout.wav", "sound/guest/cof/weapons_new/g43/g43_magout.wav"}
+}};
+inline constexpr auto G43Events = MP5Events;
+inline constexpr ResourcePath G43Inventory{
+    "inventoryitems/weapons/weapon_g43.txt", "inventoryitems/guest/cof/weapons/weapon_g43.txt"};
+inline constexpr auto G43Particle = MP5Particle;
+inline constexpr auto G43ClipTexture = P345ClipTexture;
+
 enum class GlockModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
 inline constexpr std::array<ResourcePath, static_cast<unsigned>(GlockModel::Count)> GlockModels{{
     {"models/weapons/glock/v_glock.mdl", "models/guest/cof/glock/v_glock.mdl"},
@@ -469,6 +516,7 @@ constexpr std::string_view StudioLocalSoundResource(std::string_view model, int 
     if (model == TMPModels[static_cast<unsigned>(TMPModel::View)].host) return find(TMPLocalWaves);
     if (model == MP5Models[static_cast<unsigned>(MP5Model::View)].host) return find(MP5LocalWaves);
     if (model == M16Models[static_cast<unsigned>(M16Model::View)].host) return find(M16LocalWaves);
+    if (model == G43Models[static_cast<unsigned>(G43Model::View)].host) return find(G43LocalWaves);
     return {};
 }
 inline constexpr auto GlockEvents = P345Events;
@@ -516,6 +564,7 @@ inline constexpr auto VP70AudioResources = AudioResources(VP70LocalWaves, VP70So
 inline constexpr auto TMPAudioResources = AudioResources(TMPLocalWaves, TMPSounds);
 inline constexpr auto MP5AudioResources = AudioResources(MP5LocalWaves, MP5Sounds);
 inline constexpr auto M16AudioResources = AudioResources(M16LocalWaves, M16Sounds);
+inline constexpr auto G43AudioResources = AudioResources(G43LocalWaves, G43Sounds);
 // Actual engine resource_t/PF_precache_generic ABI includes the terminating NUL.
 template<std::size_t N>
 consteval bool ResourceNamesFit(const std::array<ResourcePath,N>& entries)
@@ -527,6 +576,7 @@ static_assert(ResourceNamesFit(P345Models)&&ResourceNamesFit(P345Sounds)&&Resour
 static_assert(ResourceNamesFit(GlockModels)&&ResourceNamesFit(GlockSounds)&&ResourceNamesFit(GlockLocalWaves)&&ResourceNamesFit(GlockEvents));
 static_assert(ResourceNamesFit(RevolverModels)&&ResourceNamesFit(RevolverSounds)&&ResourceNamesFit(RevolverLocalWaves)&&ResourceNamesFit(RevolverEvents));
 static_assert(ResourceNamesFit(TMPModels)&&ResourceNamesFit(TMPSounds)&&ResourceNamesFit(TMPLocalWaves)&&ResourceNamesFit(TMPEvents));
+static_assert(ResourceNamesFit(G43Models)&&ResourceNamesFit(G43ClientModels)&&ResourceNamesFit(G43Sounds)&&ResourceNamesFit(G43LocalWaves)&&ResourceNamesFit(G43Events));
 static_assert(ResourceNamesFit(M16Models)&&ResourceNamesFit(M16ClientModels)&&ResourceNamesFit(M16Sounds)&&ResourceNamesFit(M16LocalWaves)&&ResourceNamesFit(M16Events));
 static_assert(ResourceNamesFit(MP5Models)&&ResourceNamesFit(MP5ClientModels)&&ResourceNamesFit(MP5Sounds)&&ResourceNamesFit(MP5LocalWaves)&&ResourceNamesFit(MP5Events));
 static_assert(ResourceNamesFit(VP70Models)&&ResourceNamesFit(VP70Sounds)&&ResourceNamesFit(VP70LocalWaves)&&ResourceNamesFit(VP70Events));

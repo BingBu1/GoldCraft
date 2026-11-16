@@ -59,6 +59,7 @@ def main():
     parser.add_argument("--presentation",type=Path,help="Actual generated client HUD resources for both live pistols")
     parser.add_argument("--mp5-player",type=Path,help="Explicit authored MP5 P candidate; never a copied W or TMP P")
     parser.add_argument("--include-m16",action="store_true",help="Exercise original M16 cold closure; does not admit the gun")
+    parser.add_argument("--include-g43",action="store_true",help="Exercise original G43 closure without production admission")
     args = parser.parse_args()
     output = args.output.absolute()
     for part in (output, *output.parents):
@@ -144,6 +145,27 @@ def main():
         view_proof=m16_proof.parent/m16['originalViewEvents']
         if sha(view_proof)!=m16['originalViewEventsSha256']:raise ValueError('M16 view event evidence differs')
         m16_input_paths.update((m16_proof,m16_client_sample,view_proof))
+    g43_input_paths=set();g43_rows=[];g43_client_rows=[]
+    if args.include_g43:
+        g43_proof=ROOT/'analysis/cof-weapons-20261111/g43-20261116/reopened/PREEDIT-resource-host.json'
+        g43=json.loads(g43_proof.read_text('utf8'))
+        if not g43['beforeImplementation']:raise ValueError('G43 requires pre-edit resource evidence')
+        g43_rows=verify_original(args.sample,g43_proof)
+        client_sample=ROOT/'analysis/cof-weapons-20261111/samples/client.dll'
+        g43_client_rows=verify_original(client_sample,g43_proof,g43['clientRegions'],g43['clientSha256'])
+        parent=g43_proof.parent/g43['parentProof']
+        if sha(parent)!=g43['parentProofSha256']:raise ValueError('G43 parent evidence changed')
+        g43_input_paths.update((g43_proof,client_sample,parent))
+        for name,digest in g43['archives'].items():
+            archive=g43_proof.parent/name;g43_input_paths.add(archive)
+            if sha(archive)!=digest:raise ValueError('G43 IDA archive changed')
+        for record in g43['sharedArchives']:
+            archive=ROOT/record['path'];g43_input_paths.add(archive)
+            if sha(archive)!=record['sha256']:raise ValueError('G43 shared IDA archive changed')
+        for record in g43['resources']:
+            source=args.original/record['original'];g43_input_paths.add(source)
+            if source.stat().st_size!=record['bytes'] or sha(source)!=record['sha256']:
+                raise ValueError('G43 original resource changed')
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)
@@ -189,7 +211,7 @@ def main():
             source = args.original/('sound/' if original.endswith('.wav') else '')/original
         resources.append(dict(original=original, host=host, path=str(source.resolve()), sha256=sha(source)))
     for original in ('inventoryitems/weapons/weapon_p345.txt', 'inventoryitems/weapons/weapon_glock.txt', 'inventoryitems/weapons/weapon_revolver.txt', 'inventoryitems/weapons/weapon_vp70.txt',
-                     'inventoryitems/weapons/weapon_tmp.txt', 'inventoryitems/weapons/weapon_mp5.txt', 'inventoryitems/weapons/weapon_m16.txt', 'aurora/gunsmoke.aur'):
+                     'inventoryitems/weapons/weapon_tmp.txt', 'inventoryitems/weapons/weapon_mp5.txt', 'inventoryitems/weapons/weapon_m16.txt', 'inventoryitems/weapons/weapon_g43.txt', 'aurora/gunsmoke.aur'):
         path = args.original/original
         resources.append(dict(original=original, path=str(path.resolve()), sha256=sha(path)))
     resources.append(dict(original='models/w_9mmclipT.mdl', host='models/guest/cof/common/w_9mmclipT.mdl',
@@ -200,6 +222,7 @@ def main():
         ROOT/'external/ReHLDS/rehlds/engine/pr_cmds.cpp', ROOT/'external/ReHLDS/rehlds/engine/sv_main.cpp'}
     inputs.update(Path(r['path']) for r in resources)
     inputs.update(m16_input_paths)
+    inputs.update(g43_input_paths)
     if args.mp5_player:
         inputs.update((mp5_proof, args.mp5_player.resolve()))
         inputs.update(mp5_client_inputs)
@@ -253,6 +276,9 @@ def main():
             if not extra:extra=['']
             if len(extra)==1:extra.append('')
             extra.append('m16')
+        if args.include_g43:
+            while len(extra)<3:extra.append('')
+            extra.append('g43')
         test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve()),
                                str(args.clip_texture.resolve()), *extra],
                               cwd=output, capture_output=True, text=True, timeout=30)
@@ -261,7 +287,7 @@ def main():
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, m16Regions=m16_rows, m16ClientRegions=m16_client_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, m16Regions=m16_rows, m16ClientRegions=m16_client_rows, g43Regions=g43_rows, g43ClientRegions=g43_client_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')

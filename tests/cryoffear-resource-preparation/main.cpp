@@ -138,7 +138,7 @@ bool Unchanged(const Resources& a, const Resources& b)
 
 int main(int argc, char** argv)
 {
-    if (argc != 4 && argc != 5 && argc != 6 && argc != 7) return 2;
+    if (argc != 4 && argc != 5 && argc != 6 && argc != 7 && argc != 8) return 2;
     g_engfuncs.pfnGetFileSize = FileSize;
     g_engfuncs.pfnLoadFileForMe = Load; g_engfuncs.pfnFreeFile = Free;
     g_engfuncs.pfnPrecacheModel = Model; g_engfuncs.pfnPrecacheSound = Sound;
@@ -169,7 +169,8 @@ int main(int argc, char** argv)
         Check(fixture.loads == 3 && fixture.frees == 3, "three cold reads, all released");
         constexpr auto decalCount = std::is_same_v<Resources, GlockResources> ? ShotDecals.size() : 0;
         constexpr auto clientModelCount = std::is_same_v<Resources, MP5Resources> ? MP5ClientModels.size() :
-            std::is_same_v<Resources, M16Resources> ? M16ClientModels.size() : 0;
+            std::is_same_v<Resources, M16Resources> ? M16ClientModels.size() :
+            std::is_same_v<Resources, G43Resources> ? G43ClientModels.size() : 0;
         Check(fixture.models.size() == 10 + clientModelCount && fixture.generics.size() == waves.size() + 2 + decalCount &&
             !fixture.generics.contains(texturePath.host), "engine retains sole automatic companion registration");
         Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
@@ -294,6 +295,28 @@ int main(int argc, char** argv)
                 Check(guest::cof::resources::StudioLocalSoundResource(models[0].host, 5004, sample) == wave.host,
                     "M16 Studio5004 uses its original weapons_new route");
             }
+        }
+        if constexpr (std::is_same_v<Resources, G43Resources>)
+        {
+            Check(prepared.clientModels[0] == fixture.models.at(G43ClientModels[0].host) &&
+                !fixture.generics.contains(G43ClientModels[0].host), "G43 local flash2 has a real model ID");
+            Check(std::string_view(models[unsigned(G43Model::Shell)].original) == "models/shell.mdl" &&
+                std::string_view(models[unsigned(G43Model::Player)].original) == "police/models/weapons/g43/p_g43.mdl",
+                "G43 keeps its original small shell and cooperative P");
+            Check(waves.size() == 4 && sounds.size() == 13 && events.size() == 2,
+                "G43 original firing and model audio closures remain distinct");
+            Check(std::string_view(waves[0].original) == "weapons_new/g43/g43_fire.wav" &&
+                std::string_view(sounds[unsigned(G43Sound::Fire)].original) == "weapons/g43/g43_fire.wav",
+                "local new firing sample is independent from old native precache");
+            for(const auto& wave : waves)
+            {
+                const std::string_view original = wave.original;
+                const std::string sample = "weapons/" + std::string(original.substr(12));
+                Check(guest::cof::resources::StudioLocalSoundResource(models[0].host, 5004, sample) == wave.host,
+                    "G43 original26 Studio event resolves its local logical key");
+            }
+            Check(guest::cof::resources::StudioLocalSoundResource(models[0].host,5001,"weapons/g43/g43_cock.wav").empty(),
+                "G43 gunflash event never becomes audio");
         }
         for (std::size_t i = 0; i < events.size(); ++i)
             Check(fixture.events.at(events[i].host) == prepared.events[i], "actual event IDs preserved");
@@ -488,7 +511,7 @@ int main(int argc, char** argv)
                 MP5Inventory, MP5Particle, MP5ClipTexture, PrepareMP5Resources, 20, -4.25F, 2.F,
                 "weapon_mp5", "\"2.00\"", "MP5", "\"0.00\"", 0);
         }
-        if(argc==7)
+        if(argc>=7 && *argv[6])
         {
             fixture = Fixture{};
             Inputs(argv[1], argv[2], argv[3], M16Models, M16Sounds, M16LocalWaves, M16Events,
@@ -498,6 +521,17 @@ int main(int argc, char** argv)
             exercise.template operator()<M16Resources>(M16Models, M16Sounds, M16LocalWaves, M16Events,
                 M16Inventory, M16Particle, M16ClipTexture, PrepareM16Resources, 38, -4.25F, 2.F,
                 "weapon_m16", "\"2.000000\"", "M16", "\"0.000000\"", 0);
+        }
+        if(argc==8)
+        {
+            fixture = Fixture{};
+            Inputs(argv[1], argv[2], argv[3], G43Models, G43Sounds, G43LocalWaves, G43Events,
+                G43Inventory, G43Particle, G43ClipTexture);
+            for(const auto& resource : G43ClientModels)
+                fixture.files.emplace(resource.host, Read(std::filesystem::path(argv[1]) / resource.original));
+            exercise.template operator()<G43Resources>(G43Models, G43Sounds, G43LocalWaves, G43Events,
+                G43Inventory, G43Particle, G43ClipTexture, PrepareG43Resources, 38, -4.25F, 2.F,
+                "weapon_g43", "\"2.00\"", "G43", "\"0.00\"", 0);
         }
         if(argc>=5 && *argv[4])for(const auto& definition:guest::cof::Firearms)
         {

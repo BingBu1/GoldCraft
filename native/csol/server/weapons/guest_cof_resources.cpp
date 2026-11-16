@@ -374,6 +374,11 @@ ResourceResult PrepareM16Resources(const ResourceAuthority& authority, M16Resour
         M16Inventory, M16Particle, M16ClipTexture, 38, "weapon_m16", M16ClientModels);
 }
 
+ResourceResult PrepareG43Resources(const ResourceAuthority& authority, G43Resources& output) noexcept
+{
+    return PrepareResources(authority, output, G43Models, G43Sounds, G43LocalWaves, G43Events,
+        G43Inventory, G43Particle, G43ClipTexture, 38, "weapon_g43", G43ClientModels);
+}
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {
     return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,

@@ -2716,7 +2716,10 @@
     "docs/2026-11-16_接入-G43实际SDK生命周期-report.md",
     "tests/cryoffear-g43-weapon/README.md",
     "docs/2026-11-16_接入-G43权威玩家帧与共享体力-report.md",
-    "tests/cryoffear-g43-owner/README.md"
+    "tests/cryoffear-g43-owner/README.md",
+    "docs/2026-11-16_接入-G43原资源工厂与操作音效-report.md",
+    "tests/cryoffear-g43-native-effects/README.md",
+    "tests/cryoffear-g43-factory/README.md"
   ],
   "trees": {
     "native": [

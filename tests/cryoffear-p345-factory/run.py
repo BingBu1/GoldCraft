@@ -20,7 +20,7 @@ def body(path,signature,only=False):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp','mp5','m16'),default='p345',help='Actual native factory/subclass to exercise')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','tmp','mp5','m16','g43'),default='p345',help='Actual native factory/subclass to exercise')
     p.add_argument('--sample',type=Path,help='Required original CoF MP for M16 pre-edit proof')
     a=p.parse_args();output=a.output.absolute()
     gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
@@ -39,13 +39,16 @@ def main():
                         ROOT/'native/csol/server/weapons/guest_cof_tmp_factory.cpp'))
     if a.weapon=='m16':
         sources.extend((ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/m16_shot.cpp'))
+    if a.weapon=='g43':
+        sources.extend(ROOT/'native/guest/cof'/name for name in ('g43_control.cpp','g43_shot.cpp','g43_aim.cpp','g43_frame.cpp','m16_control.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}
     original={'boundary':'No original oracle; real SDK GetClassPtr/OnCreate/CCSPlayerWeapon host adaptation'}
-    if a.weapon=='m16':
-        if a.sample is None:p.error('--weapon m16 requires --sample')
-        proof=ROOT/'analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-factory.json'
+    if a.weapon in ('m16','g43'):
+        if a.sample is None:p.error('Long-gun factory requires --sample')
+        proof=ROOT/('analysis/cof-weapons-20261111/g43-20261116/reopened/PREEDIT-factory.json' if a.weapon=='g43' else
+                    'analysis/cof-weapons-20261111/m16-integration-20261115/PREEDIT-factory.json')
         value=json.loads(proof.read_text('utf8'));data=a.sample.read_bytes()
         if not value['beforeImplementation'] or sha(a.sample)!=value['sampleSha256']:raise ValueError('M16 original factory identity differs')
         nt=int.from_bytes(data[60:64],'little');opt=nt+24

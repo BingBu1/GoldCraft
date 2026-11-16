@@ -74,6 +74,9 @@ def main():
     m16_baseline = tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root,output=output/'m16'/'candidate',
         plan=output/'m16'/'plan.json',server_model_sounds='disabled',component='m16-and-shot-decals'))
+    g43_baseline=tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=args.inherited_game_root,output=output/'g43'/'candidate',
+        plan=output/'g43'/'plan.json',server_model_sounds='disabled',component='g43-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
@@ -81,7 +84,8 @@ def main():
               *(Path(p['source']) for p in vp70_baseline['assets']),
               *(Path(p['source']) for p in tmp_baseline['assets']),
               *(Path(p['source']) for p in mp5_baseline['assets']),
-              *(Path(p['source']) for p in m16_baseline['assets'])}
+              *(Path(p['source']) for p in m16_baseline['assets']),
+              *(Path(p['source']) for p in g43_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -358,12 +362,38 @@ def main():
     m16_view=next(row for row in m16_plan['assets'] if row['destination']=='models/guest/cof/m16/v_m16.mdl')
     check((output/'m16'/'candidate'/m16_view['destination']).read_bytes()==Path(m16_view['source']).read_bytes(),
           'all M16 original geometry animations and model events preserved')
+    g43_args=['--component','g43-and-shot-decals']
+    g43_dry=invoke('g43',g43_args,expected=0)
+    g43_plan_path=output/'g43'/'plan.json';g43_plan=json.loads(g43_plan_path.read_bytes())
+    check(g43_plan['weapon']=='G43' and g43_plan['primaryAssets']==37 and g43_plan['dependencyAssets']==1 and len(g43_plan['assets'])==38,
+          'G43 thirty-two resources, five decals and inherited texture companion')
+    check(len(g43_plan['studio5004'])==5 and len({e['localLogicalKey'] for e in g43_plan['studio5004']})==3,
+          'five real G43 reload events map to three new local sample keys')
+    g43_names={row['destination'] for row in g43_plan['assets']}
+    check('models/guest/cof/common/shell.mdl' in g43_names and 'models/guest/cof/common/556shell.mdl' not in g43_names,
+          'G43 retains original small shell and never inherits M16 shell')
+    check('models/guest/cof/common/flash1.mdl' in g43_names and 'models/guest/cof/common/flash2.mdl' in g43_names,
+          'G43 keeps independent original world and local flash models')
+    for suffix in ('fire','cock','magin','magout'):
+        check('sound/guest/cof/weapons_new/g43/g43_'+suffix+'.wav' in g43_names and
+              'sound/guest/cof/weapons/g43/g43_'+suffix+'.wav' in g43_names,'G43 native/local sample pair '+suffix)
+    g43_write=invoke('g43-write',[*g43_args,'--write','--expected-plan-sha256',json.loads(g43_dry.stdout)['planSha256']],expected=0,
+        candidate=output/'g43'/'candidate',plan_path=g43_plan_path)
+    check(json.loads(g43_write.stdout)['files']==38,'actual G43 resource candidate count')
+    for row in g43_plan['assets']:
+        copied=output/'g43'/'candidate'/row['destination']
+        check(copied.is_file() and copied.stat().st_nlink==1 and sha(copied)==row['sha256'] and copied.stat().st_size==row['bytes'],
+              'G43 actual independent candidate identity '+row['destination'])
+    view=next(row for row in g43_plan['assets'] if row['destination']=='models/guest/cof/g43/v_g43.mdl')
+    check((output/'g43'/'candidate'/view['destination']).read_bytes()==Path(view['source']).read_bytes(),
+          'G43 original geometry, animation channels and event records preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=327,
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=327+len(g43_plan['assets']),
+        g43PrimaryAssets=37,g43DependencyAssets=1,
         m16PrimaryAssets=44,m16DependencyAssets=1,
         mp5PrimaryAssets=44, mp5DependencyAssets=1,
         tmpPrimaryAssets=46, tmpDependencyAssets=1,
