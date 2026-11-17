@@ -8,10 +8,12 @@
 #include "goldcraft/resource_sync.hpp"
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <intrin.h>
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_set>
@@ -26,11 +28,19 @@ constexpr char FileSystemSha[] = "07a432b6214c6ea5ea4a988d5c8384d3ab35a531b49fe7
 struct Entry { std::string name, absolute; };
 std::map<std::string, Entry> paths;
 std::shared_mutex access;
+thread_local unsigned readDepth{};
+struct ReadAccess {
+    const bool outer = readDepth == 0;
+    ReadAccess() { if (outer) access.lock_shared(); ++readDepth; }
+    ~ReadAccess() { --readDepth; if (outer) access.unlock_shared(); }
+    ReadAccess(const ReadAccess&) = delete;
+    ReadAccess& operator=(const ReadAccess&) = delete;
+};
 std::string root, pathId, error;
 unsigned generation{};
 metahook_api_t* api{};
 IFileSystem* fs{};
-std::array<hook_t*, 5> hooks{};
+std::array<hook_t*, 8> hooks{};
 using OpenFn = FileHandle_t(__thiscall*)(void*, const char*, const char*, const char*);
 using ExistsFn = bool(__thiscall*)(void*, const char*);
 using SizeFn = unsigned(__thiscall*)(void*, const char*);
@@ -45,6 +55,19 @@ using FilenoFn = int(__cdecl*)(void*);
 using OsHandleFn = intptr_t(__cdecl*)(int);
 FilenoFn hostFileno{};
 OsHandleFn hostOsHandle{};
+using FopenFn = void*(__thiscall*)(void*, const char*, const char*, bool);
+using FcloseFn = void(__thiscall*)(void*, void*);
+using StatFn = int(__thiscall*)(void*, const char*, struct _stat64i32*);
+using FstatFn = int(__cdecl*)(int, struct _stat64i32*);
+FopenFn originalFopen{};
+FcloseFn originalFclose{};
+StatFn originalStat{};
+FstatFn hostFstat{};
+void** statImport{};
+void* nativeStatImport{};
+void* findFileStatReturn{};
+static_assert(sizeof(struct _stat64i32) == 48 && offsetof(struct _stat64i32, st_size) == 20 &&
+    offsetof(struct _stat64i32, st_mtime) == 32 && offsetof(struct _stat64i32, st_ctime) == 40);
 
 std::string Lower(std::string value) {
     for (auto& c : value) {
@@ -65,19 +88,72 @@ const Entry* Find(const char* name) {
 bool ReadMode(const char* mode) {
     return mode && (!std::strcmp(mode, "r") || !std::strcmp(mode, "rb") || !std::strcmp(mode, "rt"));
 }
+struct ReadOpen;
+thread_local ReadOpen* readOpen{};
+struct ReadOpen {
+    ReadOpen* previous;
+    void* stream{};
+    std::array<char, MAX_PATH> name;
+    ReadOpen() : previous(readOpen) { readOpen = this; }
+    ~ReadOpen() { readOpen = previous; }
+    void Remember(void* file, const char* path) {
+        stream = nullptr;
+        if (!file || !path) return;
+        const auto length = std::strlen(path);
+        if (length >= name.size()) return;
+        std::memcpy(name.data(), path, length + 1);
+        stream = file;
+    }
+    void* Take(const char* path) {
+        auto* file = stream;
+        stream = nullptr;
+        return file && path && !std::strcmp(name.data(), path) ? file : nullptr;
+    }
+};
+FileHandle_t NativeOpen(void* object, const char* name, const char* mode, const char* id) {
+    if (object != fs || !hostFstat || !ReadMode(mode)) return originalOpen(object, name, mode, id);
+    ReadOpen scope;
+    return originalOpen(object, name, mode, id);
+}
+void* __fastcall Fopen(void* object, void*, const char* name, const char* mode, bool cached) {
+    auto* scope = object == fs ? readOpen : nullptr;
+    if (scope) scope->stream = nullptr;
+    auto* stream = originalFopen(object, name, mode, cached);
+    if (scope && ReadMode(mode)) scope->Remember(stream, name);
+    return stream;
+}
+void __fastcall Fclose(void* object, void*, void* stream) {
+    if (object == fs) for (auto* scope = readOpen; scope; scope = scope->previous)
+        if (scope->stream == stream) scope->stream = nullptr;
+    originalFclose(object, stream);
+}
+int __fastcall Stat(void* object, void*, const char* name, struct _stat64i32* output) {
+    // Exact FindFile caller consumes only size/mtime/ctime after Trace_FOpen.
+    // Other callers and intervening hooks retain the native path query.
+    if (object == fs && _ReturnAddress() == findFileStatReturn && readOpen && output && *statImport == nativeStatImport)
+        if (auto* stream = readOpen->Take(name)) {
+            const auto descriptor = hostFileno(stream);
+            struct _stat64i32 value{};
+            if (descriptor >= 0 && !hostFstat(descriptor, &value) && (value.st_mode & _S_IFMT) == _S_IFREG) {
+                *output = value;
+                return 0;
+            }
+        }
+    return originalStat(object, name, output);
+}
 FileHandle_t OpenEntry(const Entry& entry, const char* mode) {
     // Original Open rejects absolute names. Its non-null pathID branch filters
     // the search list, so a tail-mounted private ID cannot read an older PAK.
-    return originalOpen(fs, entry.name.c_str(), mode, pathId.c_str());
+    return NativeOpen(fs, entry.name.c_str(), mode, pathId.c_str());
 }
 FileHandle_t __fastcall Open(void* object, void*, const char* name, const char* mode, const char* id) {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     if (object == fs && ReadMode(mode) && EligibleId(id))
         if (const auto* entry = Find(name)) return OpenEntry(*entry, mode);
-    return originalOpen(object, name, mode, id);
+    return NativeOpen(object, name, mode, id);
 }
 bool __fastcall Exists(void* object, void*, const char* name) {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     if (object == fs) if (const auto* entry = Find(name)) {
         auto handle = OpenEntry(*entry, "rb");
         if (!handle) return false;
@@ -86,7 +162,7 @@ bool __fastcall Exists(void* object, void*, const char* name) {
     return originalExists(object, name);
 }
 unsigned __fastcall Size(void* object, void*, const char* name) {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     if (object == fs) if (const auto* entry = Find(name)) {
         auto handle = OpenEntry(*entry, "rb");
         if (!handle) return unsigned(-1);
@@ -95,7 +171,7 @@ unsigned __fastcall Size(void* object, void*, const char* name) {
     return originalSize(object, name);
 }
 long __fastcall Time(void* object, void*, const char* name) {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     if (object == fs) if (const auto* entry = Find(name)) {
         struct _stat64 value{};
         // Original FindFile at 10002A9A..10002AB5 returns max(mtime, ctime).
@@ -104,7 +180,7 @@ long __fastcall Time(void* object, void*, const char* name) {
     return originalTime(object, name);
 }
 const char* __fastcall Local(void* object, void*, const char* name, char* out, int size) {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     if (object == fs) if (const auto* entry = Find(name)) {
         if (!out || size <= 0) return nullptr;
         out[0] = 0;
@@ -147,9 +223,10 @@ bool MatchModule(void** table) {
     HMODULE module{};
     if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         reinterpret_cast<const char*>(table[10]), &module)) return false;
-    constexpr std::array<std::pair<unsigned, uintptr_t>, 10> slots{{
+    constexpr std::array<std::pair<unsigned, uintptr_t>, 13> slots{{
         {4,0x1ad0}, {5,0x6470}, {8,0x2420}, {10,0x54a0}, {14,0x6f70},
-        {15,0x6f20}, {16,0x38f0}, {17,0x24b0}, {32,0x3990}, {53,0x1dd0}}};
+        {15,0x6f20}, {16,0x38f0}, {17,0x24b0}, {32,0x3990}, {53,0x1dd0},
+        {55,0x7640}, {56,0x75a0}, {66,0x7740}}};
     for (const auto& [slot, rva] : slots)
         if (uintptr_t(table[slot]) != uintptr_t(module) + rva) return false;
     std::array<char, MAX_PATH> name{};
@@ -171,6 +248,13 @@ bool MatchModule(void** table) {
         GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, reinterpret_cast<const char*>(hostFileno), &crt)) return false;
     hostOsHandle = reinterpret_cast<OsHandleFn>(GetProcAddress(crt, "_get_osfhandle"));
     if (!hostOsHandle) return false;
+    statImport = reinterpret_cast<void**>(uintptr_t(module) + 0xa0b0);
+    nativeStatImport = *statImport;
+    HMODULE statCrt{};
+    if (!nativeStatImport || !GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, static_cast<const char*>(nativeStatImport), &statCrt)) return false;
+    hostFstat = reinterpret_cast<FstatFn>(GetProcAddress(statCrt, "_fstat64i32"));
+    findFileStatReturn = reinterpret_cast<void*>(uintptr_t(module) + 0x2a82);
     return true;
 }
 void ClearLocked() {
@@ -223,11 +307,13 @@ bool Install(metahook_api_s* incoming, mh_interface_s* interfaces) {
     auto* object = interfaces->FileSystem;
     if (!MatchModule(*reinterpret_cast<void***>(object))) return Fail("Resource overlay filesystem identity differs");
     api = incoming; fs = object;
-    const std::array<int,5> slots{10,8,14,16,32};
-    const std::array<void*,5> replacements{reinterpret_cast<void*>(Open), reinterpret_cast<void*>(Exists),
-        reinterpret_cast<void*>(Size), reinterpret_cast<void*>(Time), reinterpret_cast<void*>(Local)};
-    const std::array<void**,5> originals{reinterpret_cast<void**>(&originalOpen), reinterpret_cast<void**>(&originalExists),
-        reinterpret_cast<void**>(&originalSize), reinterpret_cast<void**>(&originalTime), reinterpret_cast<void**>(&originalLocal)};
+    const std::array<int,8> slots{10,8,14,16,32,55,56,66};
+    const std::array<void*,8> replacements{reinterpret_cast<void*>(Open), reinterpret_cast<void*>(Exists),
+        reinterpret_cast<void*>(Size), reinterpret_cast<void*>(Time), reinterpret_cast<void*>(Local),
+        reinterpret_cast<void*>(Fopen), reinterpret_cast<void*>(Fclose), reinterpret_cast<void*>(Stat)};
+    const std::array<void**,8> originals{reinterpret_cast<void**>(&originalOpen), reinterpret_cast<void**>(&originalExists),
+        reinterpret_cast<void**>(&originalSize), reinterpret_cast<void**>(&originalTime), reinterpret_cast<void**>(&originalLocal),
+        reinterpret_cast<void**>(&originalFopen), reinterpret_cast<void**>(&originalFclose), reinterpret_cast<void**>(&originalStat)};
     for (size_t i=0; i<hooks.size(); ++i) {
         hooks[i] = api->VFTHook(fs, 0, slots[i], replacements[i], originals[i]);
         if (!hooks[i]) { Shutdown(); return Fail("Cannot install resource overlay filesystem hooks"); }
@@ -267,7 +353,7 @@ bool Begin(const std::string& directory, const Paths& verifiedPaths) {
     paths = std::move(candidate); error.clear(); return true;
 }
 Snapshot Capture() {
-    std::shared_lock lock(access);
+    ReadAccess lock;
     Snapshot value{root, {}};
     for (const auto& [name, entry] : paths) value.paths.emplace(name, entry.absolute);
     return value;

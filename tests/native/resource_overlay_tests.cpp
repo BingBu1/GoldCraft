@@ -3,6 +3,8 @@
 #include <IFileSystem.h>
 #include "../../native/client/resource_overlay.hpp"
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -10,19 +12,29 @@
 #include <string>
 #include <sys/utime.h>
 #include <sys/stat.h>
+#include <thread>
 #include <vector>
 
 namespace overlay = goldcraft::resource_overlay;
 namespace path = std::filesystem;
 int checks{}, failures{}, hookCalls{}, failHookAt{-1};
 #define CHECK(value) do { ++checks; if (!(value)) { ++failures; std::cerr << __LINE__ << ": " #value "\n"; } } while (false)
+using RawStat = int(__thiscall*)(void*, const char*, struct _stat64i32*);
+RawStat nativeStatCallback{};
+std::atomic<unsigned> pathStats{}, importStats{};
+int __fastcall CountNativeStat(void* object, void*, const char* name, struct _stat64i32* output) {
+    ++pathStats;
+    return nativeStatCallback(object,name,output);
+}
 struct Hook { void** slot; void* old; };
 hook_t* HookVft(void* object,int,int slot,void* replacement,void** original) {
     if (hookCalls++ == failHookAt) return nullptr;
     auto** at = *reinterpret_cast<void***>(object) + slot;
     DWORD before{};
     if (!VirtualProtect(at,sizeof(void*),PAGE_READWRITE,&before)) return nullptr;
-    auto* token = new Hook{at,*at}; *original=*at; *at=replacement;
+    auto* token = new Hook{at,*at}; *original=*at;
+    if(slot==66){nativeStatCallback=reinterpret_cast<RawStat>(*at);*original=reinterpret_cast<void*>(CountNativeStat);}
+    *at=replacement;
     DWORD ignored{}; VirtualProtect(at,sizeof(void*),before,&ignored);
     return reinterpret_cast<hook_t*>(token);
 }
@@ -31,6 +43,64 @@ BOOL UnHook(hook_t* token) {
     if(!VirtualProtect(hook->slot,sizeof(void*),PAGE_READWRITE,&before)) return FALSE;
     *hook->slot=hook->old; DWORD ignored{};VirtualProtect(hook->slot,sizeof(void*),before,&ignored);
     delete hook;return TRUE;
+}
+using RawOpen = FileHandle_t(__thiscall*)(void*, const char*, const char*, const char*);
+using RawFopen = void*(__thiscall*)(void*, const char*, const char*, bool);
+using RawFclose = void(__thiscall*)(void*, void*);
+using CrtStat = int(__cdecl*)(const char*, struct _stat64i32*);
+CrtStat crtStat{};
+RawFopen observedFopen{};
+RawOpen observedNativeOpen{};
+IFileSystem* observedFs{};
+int observeMode{};
+thread_local bool observing{};
+struct AbortOpen {};
+int __cdecl CountStat(const char* name, struct _stat64i32* value) {
+    ++importStats;
+    return crtStat(name, value);
+}
+void SwapPointer(void** slot, void* value) {
+    DWORD protection{};
+    CHECK(VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &protection));
+    *slot = value;
+    DWORD ignored{};
+    CHECK(VirtualProtect(slot, sizeof(void*), protection, &ignored));
+}
+void* __fastcall ObserveFopen(void* object, void*, const char* name, const char* mode, bool cached) {
+    auto* file = observedFopen(object, name, mode, cached);
+    if (!file || observing || !observeMode || !std::strstr(name, "unlisted.mdl")) return file;
+    observing = true;
+    if (observeMode == 1) {
+        auto nested = observedFs->Open("models/update.mdl", "rb", "GAMECONFIG");
+        CHECK(nested && observedFs->Size(nested) == 4);
+        if (nested) observedFs->Close(nested);
+    } else if (observeMode == 2 || observeMode == 3) {
+        const auto callback = reinterpret_cast<RawStat>((*reinterpret_cast<void***>(object))[66]);
+        auto query = [&] {
+            struct _stat64i32 value{};
+            return callback(object, name, &value) == 0 && value.st_size == 13;
+        };
+        bool valid{};
+        if (observeMode == 3) {
+            std::jthread worker([&] {
+                observing=true;
+                const auto before=pathStats.load();
+                auto nested=observedNativeOpen(object,"models/unlisted.mdl","rb","GAME");
+                valid=nested && observedFs->Size(nested)==13 && pathStats==before+1;
+                if(nested)observedFs->Close(nested);
+                observing=false;
+            });
+            worker.join();
+        }
+        else valid = query();
+        CHECK(valid);
+    } else if (observeMode == 4) {
+        reinterpret_cast<RawFclose>((*reinterpret_cast<void***>(object))[56])(object, file);
+        observing = false;
+        throw AbortOpen{};
+    }
+    observing = false;
+    return file;
 }
 void Write(const path::path& at,const std::string& bytes) {
     path::create_directories(at.parent_path());std::ofstream out(at,std::ios::binary);out.write(bytes.data(),bytes.size());
@@ -48,7 +118,7 @@ void Pak(const path::path& at) {
     out.write(bytes.data(),bytes.size());out.write(reinterpret_cast<char*>(&entry),sizeof(entry));
 }
 int main(int argc,char** argv) {
-    if(argc!=3)return 2;
+    if(argc!=3 && argc!=4)return 2;
     const path::path binary=path::absolute(argv[1]),base=path::absolute(argv[2]);
     if(!path::exists(binary)||path::exists(base))return 3;
     const auto game=base/"game",cacheRoot=base/"cache",other=base/"other",secondRoot=base/"second";
@@ -62,6 +132,8 @@ int main(int argc,char** argv) {
     auto module=LoadLibraryA(binary.string().c_str());CHECK(module);if(!module)return 4;
     auto factory=reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface"));CHECK(factory);
     auto* fs=static_cast<IFileSystem*>(factory("VFileSystem009",nullptr));CHECK(fs);if(!fs)return 5;
+    const auto nativeOpen = reinterpret_cast<RawOpen>((*reinterpret_cast<void***>(fs))[10]);
+    observedNativeOpen=nativeOpen;
     fs->Mount();fs->AddSearchPath(game.string().c_str(),"GAME");fs->AddSearchPath(game.string().c_str(),"GAMECONFIG");
     fs->AddSearchPath(other.string().c_str(),"OTHER");
     CHECK(Read(fs,"models/update.mdl")=="old!");CHECK(Read(fs,"sprites/packed.spr")=="PAK-OLD");
@@ -69,8 +141,40 @@ int main(int argc,char** argv) {
     CHECK(fs->Size("models/update.mdl")==4);CHECK(fs->GetFileTime("models/update.mdl")==long(std::max(oldStamp.st_mtime,oldStamp.st_ctime)));
     mh_interface_t interfaces{};interfaces.FileSystem=fs;
     metahook_api_t api{};api.VFTHook=HookVft;api.UnHook=UnHook;
-    failHookAt=2;CHECK(!overlay::Install(&api,&interfaces));CHECK(Read(fs,"models/update.mdl")=="old!");
+    for (int slot=0; slot<8; ++slot) {
+        hookCalls=0;failHookAt=slot;
+        CHECK(!overlay::Install(&api,&interfaces));CHECK(Read(fs,"models/update.mdl")=="old!");
+    }
     failHookAt=-1;CHECK(overlay::Install(&api,&interfaces));
+    auto** statImport = reinterpret_cast<void**>(reinterpret_cast<uintptr_t>(module) + 0xa0b0);
+    crtStat = reinterpret_cast<CrtStat>(*statImport);
+    pathStats=0;
+    auto legacy=nativeOpen(fs,"models/unlisted.mdl","rb","GAME");
+    CHECK(legacy && fs->Size(legacy)==13);if(legacy)fs->Close(legacy);
+    CHECK(pathStats==1);
+    pathStats=0;
+    CHECK(Read(fs,"models/unlisted.mdl","GAME")=="game-unlisted");
+    CHECK(pathStats==0);
+    CHECK(fs->GetFileTime("models/unlisted.mdl")>0);CHECK(pathStats>0);
+    SwapPointer(statImport,reinterpret_cast<void*>(CountStat));
+    pathStats=0;importStats=0;
+    CHECK(Read(fs,"models/unlisted.mdl","GAME")=="game-unlisted");CHECK(pathStats==1 && importStats==1);
+    SwapPointer(statImport,reinterpret_cast<void*>(crtStat));
+    pathStats=0;CHECK(Read(fs,"models/unlisted.mdl","GAME")=="game-unlisted");CHECK(pathStats==0);
+    observedFs=fs;
+    hook_t* observer=HookVft(fs,0,55,reinterpret_cast<void*>(ObserveFopen),reinterpret_cast<void**>(&observedFopen));
+    CHECK(observer);
+    for (int mode=1; mode<=3; ++mode) {
+        observeMode=mode;pathStats=0;
+        CHECK(Read(fs,"models/unlisted.mdl","GAME")=="game-unlisted");
+        CHECK(pathStats==unsigned(mode==1?0:1));
+    }
+    observeMode=4;bool aborted{};
+    try { fs->Open("models/unlisted.mdl","rb","GAME"); }
+    catch (const AbortOpen&) { aborted=true; }
+    CHECK(aborted);observeMode=0;
+    pathStats=0;CHECK(Read(fs,"models/unlisted.mdl","GAME")=="game-unlisted");CHECK(pathStats==0);
+    CHECK(UnHook(observer));
     overlay::Paths entries{{"models/update.mdl",(cache/"models/update.mdl").string()},
         {"sprites/packed.spr",(cache/"sprites/packed.spr").string()}, {"sound/sound.wav",(cache/"sound/sound.wav").string()}};
     CHECK(overlay::Begin(cacheRoot.string(),entries));
@@ -114,6 +218,41 @@ int main(int argc,char** argv) {
     CHECK(Read(fs,"models/update.mdl")=="next");
     path::remove(second/"models/update.mdl");CHECK(Read(fs,"models/update.mdl").empty());CHECK(!fs->FileExists("models/update.mdl"));
     CHECK(fs->Size("models/update.mdl")==unsigned(-1));CHECK(!fs->GetLocalPath("models/update.mdl",resolved,sizeof(resolved)));
+    if (argc==4) {
+        std::ifstream list(argv[3]);CHECK(list.good());std::vector<path::path> resources;std::string line;
+        while(std::getline(list,line)){if(!line.empty()&&line.back()=='\r')line.pop_back();if(!line.empty())resources.emplace_back(line);}
+        CHECK(!resources.empty());const auto resourceRoot=resources.front().string().substr(0,resources.front().string().find("cstrike")+7);
+        struct CorpusFile {std::string logical;unsigned size;long modified,accessed;std::array<char,4> bytes;int count;};
+        std::vector<CorpusFile> corpus;corpus.reserve(resources.size());
+        for(const auto& resource:resources){
+            struct _stat64i32 expected{};CHECK(crtStat(resource.string().c_str(),&expected)==0);
+            CorpusFile row{resource.lexically_relative(resourceRoot).generic_string(),unsigned(expected.st_size),
+                long(std::max(expected.st_mtime,expected.st_ctime)),long(expected.st_mtime),{},int(std::min(4L,expected.st_size))};
+            std::ifstream input(resource,std::ios::binary);CHECK(input.good());
+            input.read(row.bytes.data(),row.count);CHECK(input.gcount()==row.count);corpus.push_back(std::move(row));
+        }
+        fs->AddSearchPath(resourceRoot.c_str(),"CORPUS");
+        for(int round=0;round<3;++round){
+            const bool legacy=round==1;pathStats=0;
+            const auto began=std::chrono::steady_clock::now();
+            for(const auto& row:corpus){
+                auto file=legacy?nativeOpen(fs,row.logical.c_str(),"rb","CORPUS"):fs->Open(row.logical.c_str(),"rb","CORPUS");
+                CHECK(file);if(!file)continue;
+                CHECK(fs->Size(file)==row.size);
+                long modified{},accessed{};
+                std::memcpy(&modified,static_cast<const char*>(file)+24,sizeof(modified));
+                std::memcpy(&accessed,static_cast<const char*>(file)+28,sizeof(accessed));
+                CHECK(modified==row.modified);CHECK(accessed==row.accessed);
+                std::array<char,4> bytes{};CHECK(fs->Read(bytes.data(),row.count,file)==row.count);CHECK(bytes==row.bytes);
+                fs->Close(file);
+            }
+            const auto elapsed=std::chrono::duration<double>(std::chrono::steady_clock::now()-began).count();
+            CHECK(pathStats==unsigned(legacy?resources.size():0));
+            std::cout<<"{\"round\":"<<round<<",\"legacy\":"<<legacy<<",\"files\":"<<resources.size()
+                <<",\"pathStats\":"<<pathStats<<",\"seconds\":"<<elapsed<<"}\n";
+        }
+        fs->RemoveSearchPath(resourceRoot.c_str());
+    }
     overlay::Shutdown();CHECK(Read(fs,"models/update.mdl")=="EDIT");CHECK(fs->GetFileTime("models/update.mdl")!=1800000000);
     interfaces.FileSystem_HL25=reinterpret_cast<IFileSystem_HL25*>(fs);CHECK(!overlay::Install(&api,&interfaces));
     fs->RemoveAllSearchPaths();fs->Unmount();FreeLibrary(module);

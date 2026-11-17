@@ -1,6 +1,10 @@
 {
   "format": 1,
   "files": [
+    "tests/resource-open-metadata/run.py",
+    "tests/resource-open-metadata/README.md",
+    "docs/2026-11-17_优化-客户端打开文件元数据复用-report.md",
+
     "docs/2026-11-17_修复-CoF第二回合继承武器失效-report.md",
     "docs/2026-11-17_分析-全资源加载瓶颈与换图复核-report.md",
     "native/include/goldcraft/open_file_metadata.hpp",
