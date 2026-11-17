@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-sequence-safety/main.cpp",
+    "tests/csol-sequence-safety/run.py",
+    "tests/csol-sequence-safety/README.md",
+    "docs/2026-11-17_优化-动画RLE校验与原版换图路径-report.md",
+
     "docs/2026-11-17_接入-870生产购买与九枪客户端-report.md",
     "native/guest/cof/scenario_damage.v6.json",
     "tests/cryoffear-shotgun-presentation/run.py",

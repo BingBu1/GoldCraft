@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -49,14 +50,24 @@ inline bool Animation(std::span<const std::byte> bytes,std::uint32_t bones,
 {
     const auto tables=std::size_t(bones)*blends*12;
     if(bytes.size()<tables+4)return false;
-    std::vector<unsigned char> roles;
-    const auto mark=[&](std::size_t begin,std::size_t length,unsigned char role)
+    struct Roles { std::uint64_t headers{},samples{},starts{}; };
+    std::vector<Roles> roles;
+    const auto mark=[&](std::size_t begin,std::size_t length,bool header)
     {
-        if(roles.size()<begin+length)roles.resize(begin+length);
-        for(auto at=begin;at<begin+length;++at)
+        const auto end=begin+length;
+        const auto count=(end+63)/64;
+        if(roles.size()<count)roles.resize(count);
+        while(begin<end)
         {
-            if(roles[at] && roles[at]!=role)return false;
-            roles[at]=role;
+            const auto bit=begin%64;
+            const auto part=std::min<std::size_t>(64-bit,end-begin);
+            const auto mask=(~std::uint64_t{} >> (64-part)) << bit;
+            auto& word=roles[begin/64];
+            auto& same=header?word.headers:word.samples;
+            const auto opposite=header?word.samples:word.headers;
+            if(opposite&mask)return false;
+            same|=mask;
+            begin+=part;
         }
         return true;
     };
@@ -75,7 +86,15 @@ inline bool Animation(std::span<const std::byte> bytes,std::uint32_t bones,
             const auto total=std::to_integer<unsigned>(bytes[cursor+1]);
             const auto runBytes=(valid+1)*2;
             if(!valid || total<valid || !Range(bytes,cursor,runBytes+4))return false;
-            if(!mark(cursor,2,1) || !mark(cursor+2,valid*2,2))return false;
+            // Only the first byte identifies a previously complete run: its
+            // second header byte is not another start. Roles never change.
+            const bool seen=cursor/64<roles.size() &&
+                (roles[cursor/64].starts&(std::uint64_t{1}<<(cursor%64)));
+            if(!seen)
+            {
+                if(!mark(cursor,2,true) || !mark(cursor+2,valid*2,false))return false;
+                roles[cursor/64].starts|=std::uint64_t{1}<<(cursor%64);
+            }
             cursor+=runBytes;
             remaining-=total;
         }
