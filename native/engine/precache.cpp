@@ -162,11 +162,21 @@ void GC_SendResourceManifest(client_t* client) {
         return;
     }
     const auto total = static_cast<unsigned>(gc_precache.resources.size());
+    // Native clients parse consecutive svc messages within one reassembled
+    // payload. Retain the existing chunk format while avoiding one reliable
+    // waiting group per 128 entries. Public hooks can emit reliable messages;
+    // keep their original fragmentation boundaries and ordering unchanged.
+    const bool batch = g_RehldsHookchains.m_SV_SendResources.isEmpty() &&
+        g_RehldsHookchains.m_SV_ShouldSendConsistencyList.isEmpty();
+    byte groupedData[NET_MAX_PAYLOAD];
+    sizebuf_t grouped{};
+    grouped.buffername = "GoldCraftResourceGroup";
+    grouped.data = groupedData;
+    grouped.maxsize = sizeof(groupedData);
+    grouped.flags = SIZEBUF_CHECK_OVERFLOW;
     unsigned first = 0;
     manifestClient = client;
     do {
-        // A bounded group fits the existing reliable fragment and decompression
-        // limits. Multiple groups are queued in order; no enlarged UDP packet.
         byte data[NET_MAX_PAYLOAD];
         sizebuf_t msg{};
         msg.buffername = "GoldCraftResources";
@@ -177,8 +187,15 @@ void GC_SendResourceManifest(client_t* client) {
         // Keep the public ReHLDS hookchain on every bounded resource message.
         SV_SendResources(&msg);
         first += std::min(goldcraft::precache::chunk_entries, total - first);
-        Netchan_CreateFragments(TRUE, &client->netchan, &msg);
+        if (batch) {
+            if (msg.cursize > grouped.maxsize - grouped.cursize) {
+                Netchan_CreateFragments(TRUE, &client->netchan, &grouped);
+                SZ_Clear(&grouped);
+            }
+            SZ_Write(&grouped, msg.data, msg.cursize);
+        } else Netchan_CreateFragments(TRUE, &client->netchan, &msg);
     } while (first < total);
+    if (grouped.cursize) Netchan_CreateFragments(TRUE, &client->netchan, &grouped);
     manifestClient = nullptr;
     manifestFirst = 0;
     Netchan_FragSend(&client->netchan);

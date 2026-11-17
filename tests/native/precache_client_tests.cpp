@@ -1,6 +1,8 @@
 // Exercise production routing and reversible patches, not a second parser.
 #include "../../native/client/precache_client.cpp"
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 
 cl_enginefunc_t gEngfuncs{};
@@ -315,6 +317,88 @@ void resource_sync_tests() {
     clean();needed=nullptr;
     std::cout << "resource sync parser: " << sync_checks << " checks, 0 failures\n";
 }
+
+void resource_transport_tests(const std::filesystem::path& directory) {
+    unsigned assertions{};
+    const auto check = [&](bool value) { ++assertions; if (!value) throw std::runtime_error("transport consumer assertion"); };
+    resource_t list{}; needed = &list;
+    read_string = []() -> const char* {
+        static std::string text; text.clear();
+        for (unsigned i = 0; i != 64; ++i) {
+            const auto c = bits(8); if (truncated || !c) return text.c_str();
+            text.push_back(char(c));
+        }
+        throw std::runtime_error("transport string overflow");
+    };
+    read_data = [](void* output, int size) { for (int i = 0; i < size; ++i) static_cast<byte*>(output)[i] = byte(bits(8)); return size; };
+    zero_alloc = [](unsigned size) -> void* {
+        if (size != sizeof(resource_t)) throw std::runtime_error("unexpected resource allocation size");
+        allocated_resources.push_back(std::make_unique<resource_t>()); return allocated_resources.back().get();
+    };
+    for (bool v4 : {false, true}) {
+        reset_client(); list.pPrev = list.pNext = &list; allocated_resources.clear(); captured.clear();
+        sync_begins = 0; const auto before = downloads;
+        set_resource_sync({[] { return true; },
+            [](std::uint64_t generation, const std::vector<goldcraft::resource_update::Resource>& values) -> const char* {
+                if (receiving || !sync_waiting) throw std::runtime_error("update began before final chunk");
+                captured = values; captured_generation = generation; ++sync_begins; return nullptr;
+            }, [] { ++sync_cancels; }});
+        const std::string stem = v4 ? "v4" : "v3";
+        std::ifstream stream(directory / (stem + ".packets"), std::ios::binary); check(bool(stream));
+        unsigned groups{}, chunks{}, largestChunkGroup{};
+        for (std::uint32_t length; stream.read(reinterpret_cast<char*>(&length), 4);) {
+            check(length && length <= 65536); packet.resize(length);
+            check(bool(stream.read(reinterpret_cast<char*>(packet.data()), length)));
+            cursor = truncated = 0; unsigned chunkGroup{};
+            while (std::size_t(cursor) < packet.size()) {
+                const auto service = packet[cursor++];
+                if (service == 1) continue; // Native reliable svc_nop preceding the manifest.
+                if (service == 45) { check(packet.size() - cursor >= 8); cursor += 8; }
+                else if (service == 56) {
+                    do { check(std::size_t(cursor) < packet.size()); } while (packet[cursor++]);
+                } else if (service == 43) {
+                    check(downloads == before && sync_begins == 0);
+                    parse_resources(); ++chunks; ++chunkGroup;
+                    check(!truncated && std::size_t(cursor) <= packet.size());
+                    if (receiving) check(downloads == before && sync_begins == 0);
+                } else throw std::runtime_error("unexpected manifest service");
+            }
+            largestChunkGroup = (std::max)(largestChunkGroup, chunkGroup); ++groups;
+        }
+        check(stream.eof() && groups > 1 && chunks == 32 && largestChunkGroup > 1);
+        check(!receiving && manifest_next == 4057 && resources.size() == 4057);
+        check(v4 ? sync_begins == 1 && downloads == before && sync_waiting : sync_begins == 0 && downloads == before + 1);
+        check(checks.size() == (4056 / 97 + 1));
+        std::ifstream expected(directory / (stem + ".expected"), std::ios::binary); check(bool(expected));
+        const auto number = [&] { std::uint32_t value{}; check(bool(expected.read(reinterpret_cast<char*>(&value), 4))); return value; };
+        check(number() == resources.size());
+        std::size_t required{};
+        for (const auto* resource : resources) {
+            check(number() == unsigned(resource->type)); check(number() == unsigned(resource->nIndex));
+            check(number() == unsigned(resource->nDownloadSize)); check(number() == resource->ucFlags);
+            std::array<char, 64> name{}; std::array<byte, 16> md5{}; std::array<byte, 32> reserved{}, sha{};
+            check(bool(expected.read(name.data(), name.size())));
+            check(bool(expected.read(reinterpret_cast<char*>(md5.data()), md5.size())));
+            check(bool(expected.read(reinterpret_cast<char*>(reserved.data()), reserved.size())));
+            check(std::strcmp(name.data(), resource->szFileName) == 0);
+            if (resource->ucFlags & RES_CUSTOM) check(std::memcmp(md5.data(), resource->rgucMD5_hash, md5.size()) == 0);
+            check(std::memcmp(reserved.data(), resource->rguc_reserved, reserved.size()) == 0);
+            const bool hasIdentity = number() != 0; const auto fullSize = number();
+            check(bool(expected.read(reinterpret_cast<char*>(sha.data()), sha.size())));
+            if (hasIdentity) {
+                check(required < captured.size()); const auto& identity = captured[required++];
+                check(identity.name == name.data() && identity.expected.size == fullSize && identity.expected.sha256 == sha);
+            }
+        }
+        check(expected.peek() == EOF && required == captured.size());
+        if (v4) {
+            check(captured_generation == 0x1122334455667788ull && resume_resource_sync());
+            check(downloads == before + 1 && !resume_resource_sync());
+        }
+    }
+    reset_client(); allocated_resources.clear(); set_resource_sync({}); needed = nullptr;
+    std::cout << "production batched manifest consumer: " << assertions << " checks, 0 failures\n";
+}
 }
 
 void model_owner_tests() {
@@ -498,7 +582,7 @@ void native_download_gate_tests() {
     std::cout << "native download gate: " << checks << " checks, 0 failures\n";
 }
 
-int main(int argc, char**) {
+int main(int argc, char** argv) {
     metahook_api_t fake_api{};
     fake_api.WriteDWORD = [](void* address, DWORD value) { std::memcpy(address, &value, 4); };
     fake_api.WriteMemory = [](void* address, void* value, DWORD size) -> DWORD {
@@ -533,6 +617,10 @@ int main(int argc, char**) {
     const std::array<byte, 4> replacement{9, 8, 7, 6};
     prepare_patch(code.data() + 1, replacement.data(), unsigned(replacement.size()));
     assert(code == original_code && !extended); // Installation stays inert.
+    if (argc == 3 && std::string_view(argv[1]) == "--transport") {
+        resource_transport_tests(argv[2]);
+        return 0;
+    }
     if (argc > 1) {
         model_terminator_tests(model_operand, limits);
         std::cout << "model terminator: " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
