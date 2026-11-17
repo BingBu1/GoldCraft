@@ -87,6 +87,14 @@ using guest::cof::resources::G43Events;
 using guest::cof::resources::G43Inventory;
 using guest::cof::resources::G43Particle;
 using guest::cof::resources::G43ClipTexture;
+using guest::cof::resources::ShotgunModel;
+using guest::cof::resources::ShotgunModels;
+using guest::cof::resources::ShotgunSound;
+using guest::cof::resources::ShotgunSounds;
+using guest::cof::resources::ShotgunLocalWaves;
+using guest::cof::resources::ShotgunEvents;
+using guest::cof::resources::ShotgunInventory;
+using guest::cof::resources::ShotgunParticle;
 using guest::cof::resources::ShotDecals;
 struct ResourceAuthority
 {
@@ -225,6 +233,21 @@ struct G43Resources
     int inventoryItemString{}, particleScriptString{};
     int inventoryDownload{}, particleDownload{};
 };
+struct ShotgunResources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, ShotgunModels.size()> models{};
+    std::array<int, ShotgunSounds.size()> sounds{};
+    std::array<int, ShotgunLocalWaves.size()> localWaveDownloads{};
+    std::array<unsigned short, ShotgunEvents.size()> events{};
+    std::array<int, guest::cof::resources::ShotDecals.size()> decalDownloads{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{};
+    int inventoryDownload{}, particleDownload{};
+};
 enum class ResourceStatus : unsigned char
 { Prepared, InvalidAuthority, MissingEngine, MissingFile, InvalidMetadata, InvalidModel, EngineRejected, Cancelled };
 struct ResourceResult
@@ -251,6 +274,7 @@ ResourceResult PrepareMP5Resources(const ResourceAuthority&, MP5Resources&) noex
 ResourceResult PrepareM16Resources(const ResourceAuthority&, M16Resources&) noexcept;
 ResourceResult PrepareG43Resources(const ResourceAuthority&, G43Resources&) noexcept;
 ResourceResult PrepareShotgunCoreResources(const ResourceAuthority&, ShotgunCoreResources&) noexcept;
+ResourceResult PrepareShotgunResources(const ResourceAuthority&, ShotgunResources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }

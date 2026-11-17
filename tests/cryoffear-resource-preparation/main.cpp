@@ -138,7 +138,7 @@ bool Unchanged(const Resources& a, const Resources& b)
 
 int main(int argc, char** argv)
 {
-    if (argc < 4 || argc > 9) return 2;
+    if (argc < 4 || argc > 10) return 2;
     g_engfuncs.pfnGetFileSize = FileSize;
     g_engfuncs.pfnLoadFileForMe = Load; g_engfuncs.pfnFreeFile = Free;
     g_engfuncs.pfnPrecacheModel = Model; g_engfuncs.pfnPrecacheSound = Sound;
@@ -168,13 +168,31 @@ int main(int argc, char** argv)
         const auto calls = fixture.calls;
         const int coldReads = texturePath.host ? 3 : 2;
         Check(fixture.loads == coldReads && fixture.frees == coldReads, "all required cold reads released");
-        constexpr auto decalCount = std::is_same_v<Resources, GlockResources> ? ShotDecals.size() : 0;
+        constexpr auto decalCount = (std::is_same_v<Resources, GlockResources> ||
+            std::is_same_v<Resources, ShotgunResources>) ? ShotDecals.size() : 0;
         constexpr auto clientModelCount = std::is_same_v<Resources, MP5Resources> ? MP5ClientModels.size() :
             std::is_same_v<Resources, M16Resources> ? M16ClientModels.size() :
             std::is_same_v<Resources, G43Resources> ? G43ClientModels.size() : 0;
         Check(fixture.models.size() == models.size() + clientModelCount && fixture.generics.size() == waves.size() + 2 + decalCount &&
             (!texturePath.host || !fixture.generics.contains(texturePath.host)), "engine retains sole automatic companion registration");
-        if constexpr (!std::is_same_v<Resources, ShotgunCoreResources>)
+        if constexpr (std::is_same_v<Resources, ShotgunResources>)
+        {
+            Check(models.size()==9 && sounds.size()==14 && waves.size()==5 && events.size()==2 &&
+                std::string_view(models[unsigned(ShotgunModel::Shell)].original)=="models/shotgunshell.mdl" &&
+                std::string_view(models[unsigned(ShotgunModel::Flash)].original)=="models/flash1.mdl" &&
+                !fixture.files.contains("models/guest/cof/common/w_9mmclip.mdl"),
+                "full shotgun uses original shell/flash and no pistol magazine");
+            for(const auto& wave : waves)
+            {
+                const auto key=std::string_view(wave.original);
+                const auto options="weapons/"+std::string(key.substr(12));
+                Check(guest::cof::resources::StudioLocalSoundResource(models[0].host,5004,options)==wave.host,
+                    "existing shotgun local wave follows the original consumer");
+            }
+            Check(guest::cof::resources::StudioLocalSoundResource(models[0].host,5004,
+                "weapons/syringe/syringe_sleeve.wav").empty(), "missing original draw wave is not substituted");
+        }
+        else if constexpr (!std::is_same_v<Resources, ShotgunCoreResources>)
             Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
                 std::string_view(models[9].original) == "sprites/gunsmoke.spr" &&
                 prepared.models[8] > 0 && prepared.models[9] > 0,
@@ -545,7 +563,7 @@ int main(int argc, char** argv)
                 G43Inventory, G43Particle, G43ClipTexture, PrepareG43Resources, 38, -4.25F, 2.F,
                 "weapon_g43", "\"2.00\"", "G43", "\"0.00\"", 0);
         }
-        if(argc==9 && *argv[8])
+        if(argc>=9 && *argv[8])
         {
             using namespace guest::cof::resources;
             fixture = Fixture{};
@@ -555,6 +573,17 @@ int main(int argc, char** argv)
             exercise.template operator()<ShotgunCoreResources>(ShotgunCoreModels, ShotgunCoreSounds, empty, empty,
                 ShotgunCoreInventory, ShotgunCoreParticle, {}, PrepareShotgunCoreResources, 20, -3.5F, 2.75F,
                 "weapon_shotgun", "\"2.75\"", "870Core");
+        }
+        if(argc==10 && *argv[9])
+        {
+            fixture=Fixture{};
+            Inputs(argv[1],argv[2],argv[3],ShotgunModels,ShotgunSounds,ShotgunLocalWaves,ShotgunEvents,
+                ShotgunInventory,ShotgunParticle,{});
+            for(const auto& resource : ShotDecals)
+                fixture.files.emplace(resource.host,Read(std::filesystem::path(argv[1])/resource.original));
+            exercise.template operator()<ShotgunResources>(ShotgunModels,ShotgunSounds,ShotgunLocalWaves,ShotgunEvents,
+                ShotgunInventory,ShotgunParticle,{},PrepareShotgunResources,20,-3.5F,2.75F,
+                "weapon_shotgun","\"2.75\"","870");
         }
         if(argc>=5 && *argv[4])for(const auto& definition:guest::cof::Firearms)
         {

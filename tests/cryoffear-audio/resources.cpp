@@ -2,6 +2,7 @@
 #include "../../native/guest/cof/client/audio.hpp"
 
 #include <cstdio>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -15,12 +16,14 @@ float Random(void*, float, float) noexcept { return 0; }
 }
 int wmain(int argc, wchar_t** argv)
 {
-    if (argc != 2) return 2;
+    if (argc != 2 && (argc != 3 || std::wcscmp(argv[2],L"--shotgun"))) return 2;
+    const bool shotgun=argc==3;
     LocalAudio audio;
     if (audio.Initialize({64, 128, 32 * 1024 * 1024}, {nullptr, Volume, Random}) != AudioResult::Applied) return 3;
     std::vector<std::string> keys;
-    for (const auto* weapon : {L"glock", L"p345", L"revolver", L"vp70"})
+    for (const auto* weapon : {L"glock", L"p345", L"revolver", L"vp70", L"shotgun"})
     {
+        if((!std::wcscmp(weapon,L"shotgun"))!=shotgun)continue;
         const auto folder = std::filesystem::path(argv[1]) / weapon;
         for (const auto& entry : std::filesystem::directory_iterator(folder))
         {
@@ -40,6 +43,7 @@ int wmain(int argc, wchar_t** argv)
         if (audio.Play({key, 0, false, {0, 0, 0}}) != AudioResult::Applied) return 8;
     AudioState state;
     if (audio.Inspect(state) != AudioResult::Applied || state.preparedSamples != keys.size() || state.activeVoices != keys.size()) return 9;
+    if(shotgun && (keys.size()!=5 || audio.Play({"weapons_new/syringe/syringe_sleeve.wav",0,false,{}})!=AudioResult::NotPrepared))return 11;
     std::printf("%u private target PCM WAVs prepared, %u voices precreated, %u independent real source buffers submitted, %u retained PCM bytes; volume zero\n",
                 state.preparedSamples, state.preparedVoices, state.activeVoices, state.retainedPcmBytes);
     return audio.Shutdown() == AudioResult::Applied ? 0 : 10;

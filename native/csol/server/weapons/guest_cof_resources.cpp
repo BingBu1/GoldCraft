@@ -388,6 +388,12 @@ ResourceResult PrepareShotgunCoreResources(const ResourceAuthority& authority, S
         noClientResources, noClientResources, ShotgunCoreInventory, ShotgunCoreParticle,
         {}, 20, "weapon_shotgun");
 }
+ResourceResult PrepareShotgunResources(const ResourceAuthority& authority, ShotgunResources& output) noexcept
+{
+    return PrepareResources(authority, output, ShotgunModels, ShotgunSounds,
+        ShotgunLocalWaves, ShotgunEvents, ShotgunInventory, ShotgunParticle,
+        {}, 20, "weapon_shotgun");
+}
 
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {

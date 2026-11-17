@@ -77,6 +77,9 @@ def main():
     g43_baseline=tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
         inherited_game_root=args.inherited_game_root,output=output/'g43'/'candidate',
         plan=output/'g43'/'plan.json',server_model_sounds='disabled',component='g43-and-shot-decals'))
+    shotgun_baseline=tool.plan(SimpleNamespace(original_game_root=args.original_game_root,
+        inherited_game_root=None,output=output/'shotgun'/'candidate',
+        plan=output/'shotgun'/'plan.json',server_model_sounds='disabled',component='shotgun-and-shot-decals'))
     inputs = {Path(__file__).resolve(), Path(__file__).with_name('README.md'), TOOL, tool.HEADER,
               *(ROOT/p for p in tool.CONSUMERS), *(Path(p['source']) for p in baseline['assets']),
               *(Path(p['source']) for p in glock_baseline['assets']),
@@ -85,7 +88,8 @@ def main():
               *(Path(p['source']) for p in tmp_baseline['assets']),
               *(Path(p['source']) for p in mp5_baseline['assets']),
               *(Path(p['source']) for p in m16_baseline['assets']),
-              *(Path(p['source']) for p in g43_baseline['assets'])}
+              *(Path(p['source']) for p in g43_baseline['assets']),
+              *(Path(p['source']) for p in shotgun_baseline['assets'])}
     before = {str(p): sha(p) for p in sorted(inputs)}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
 
@@ -387,12 +391,43 @@ def main():
     view=next(row for row in g43_plan['assets'] if row['destination']=='models/guest/cof/g43/v_g43.mdl')
     check((output/'g43'/'candidate'/view['destination']).read_bytes()==Path(view['source']).read_bytes(),
           'G43 original geometry, animation channels and event records preserved')
+    shotgun_args=['--component','shotgun-and-shot-decals']
+    shotgun_dry=invoke('shotgun',shotgun_args,inherit=False,expected=0)
+    shotgun_path=output/'shotgun'/'plan.json';shotgun_plan=json.loads(shotgun_path.read_bytes())
+    check(shotgun_plan['weapon']=='Shotgun' and len(shotgun_plan['assets'])==37 and
+          shotgun_plan['primaryAssets']==37 and shotgun_plan['dependencyAssets']==0,
+          '870 thirty-two declared assets and five decals without pistol companion')
+    names={row['destination'] for row in shotgun_plan['assets']}
+    check('models/guest/cof/common/shotgunshell.mdl' in names and
+          'models/guest/cof/common/flash1.mdl' in names and
+          not any('w_9mmclip' in name or 'flash2' in name for name in names),
+          '870 uses exact shotgun shell and flash1 without magazine/flash2')
+    events=shotgun_plan['studio5004']
+    missing=[event for event in events if event.get('originalMissingLocalFile')]
+    check(len(events)==7 and len(missing)==1 and missing[0]['sequence']==6 and
+          missing[0]['frame']==1 and missing[0]['localAsset'] is None and missing[0]['remoteAsset'] is None and
+          missing[0]['localLogicalKey']=='weapons_new/syringe/syringe_sleeve.wav',
+          '870 raw draw request remains original failed local load without replacement asset')
+    check(all(event['localAsset'].startswith('sound/guest/cof/weapons_new/shotgun/') for event in events if not event.get('originalMissingLocalFile')),
+          '870 insert and pump events use existing original local consumers')
+    check(all('syringe' not in name for name in names),'870 never authors an unconsumed legacy draw WAV')
+    write=invoke('shotgun-write',[*shotgun_args,'--write','--expected-plan-sha256',json.loads(shotgun_dry.stdout)['planSha256']],
+        inherit=False,expected=0,candidate=output/'shotgun'/'candidate',plan_path=shotgun_path)
+    check(json.loads(write.stdout)['files']==37,'actual 870 resource candidate count')
+    for row in shotgun_plan['assets']:
+        copied=output/'shotgun'/'candidate'/row['destination']
+        check(copied.stat().st_nlink==1 and copied.stat().st_size==row['bytes'] and sha(copied)==row['sha256'],
+              '870 actual independent candidate '+row['destination'])
+    view=next(row for row in shotgun_plan['assets'] if row['destination']=='models/guest/cof/shotgun/v_shotgun.mdl')
+    check((output/'shotgun'/'candidate'/view['destination']).read_bytes()==Path(view['source']).read_bytes(),
+          '870 original model geometry animation and all events preserved')
     after = {str(p): sha(p) for p in sorted(inputs)}
     check(before == after, 'all original/source/tool/consumer inputs unchanged')
     receipt = dict(success=all(p['passed'] for p in checks), revision=revision,
         checks=checks, commands=commands, before=before, after=after, unchanged=before == after,
         planSha256=dry_result['planSha256'], candidateManifestSha256=sha(candidate/'manifest.json'),
-        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=327+len(g43_plan['assets']),
+        primaryAssets=48, dependencyAssets=1, sourceCopies=0, resourceCopies=327+len(g43_plan['assets'])+len(shotgun_plan['assets']),
+        shotgunPrimaryAssets=37,shotgunDependencyAssets=0,
         g43PrimaryAssets=37,g43DependencyAssets=1,
         m16PrimaryAssets=44,m16DependencyAssets=1,
         mp5PrimaryAssets=44, mp5DependencyAssets=1,

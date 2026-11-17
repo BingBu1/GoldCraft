@@ -21,7 +21,7 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--sample',type=Path,required=True)
-    p.add_argument('--weapon',choices=('p345','revolver','vp70','automatic','tmp','mp5','m16','g43'),default='p345')
+    p.add_argument('--weapon',choices=('p345','revolver','vp70','automatic','tmp','mp5','m16','g43','shotgun'),default='p345')
     p.add_argument('--automatic-proof',type=Path)
     a=p.parse_args();output=a.output.absolute()
     if a.weapon=='automatic' and a.automatic_proof is None:p.error('automatic requires its matched IDA byte proof')
@@ -45,6 +45,8 @@ def main():
         sources.extend((ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/m16_shot.cpp'))
     if a.weapon=='g43':
         sources.extend(ROOT/'native/guest/cof'/name for name in ('g43_control.cpp','g43_shot.cpp','g43_aim.cpp','g43_frame.cpp','m16_control.cpp'))
+    if a.weapon=='shotgun':
+        sources.extend(ROOT/'native/guest/cof'/name for name in ('shotgun_control.cpp','shotgun_shot.cpp','shotgun_aim.cpp','shotgun_frame.cpp','m16_control.cpp'))
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve()}

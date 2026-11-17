@@ -110,3 +110,15 @@ samples remain independent. Candidate generation never deploys to a game.
 The combined seven-family suite adds M16 CLI plan/write and verifies every
 independent copy. Use the existing run.py command and matching original roots
 plus the reviewed MP5 authored P; no separate M16 P argument is required.
+
+## 870 resource author
+
+The shotgun-and-shot-decals component produces37 files:32 reviewed resources
+and five decals, with the actual shotgun shell and flash1; it has no pistol
+magazine/texture or flash2. Seven original Studio5004 events remain unchanged.
+Six resolve to existing insert/pump local samples; the draw request names an
+absent original weapons_new/syringe/syringe_sleeve.wav. The plan records that
+original failed play2D load explicitly, without substituting the legacy WAV.
+This metadata does not grant runtime/client admission or bypass dependency
+checks. Original cooperative backend evidence and full Studio routing remain
+part of that separate integration.

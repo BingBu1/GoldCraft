@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 
@@ -25,11 +26,14 @@ def main():
     parser.add_argument("--environment", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--resources", type=Path, help="optional private sound/weapons_new directory, read only")
+    parser.add_argument("--shotgun", action="store_true", help="Exercise the five existing 870 PCM samples and missing draw request")
     parser.add_argument("--sample", type=Path, help="optional private original client.dll for parameter instruction differential")
     args = parser.parse_args()
+    if args.shotgun and not args.resources:parser.error("--shotgun requires --resources")
     out = args.output.resolve()
     assert out.is_relative_to(ROOT / "build")
-    out.mkdir(parents=True, exist_ok=True)
+    if out.exists():raise ValueError("Use a fresh workspace build directory")
+    out.mkdir(parents=True)
     config = json.loads((ROOT / ".tools/clang-toolchain.json").read_text(encoding="utf-8-sig"))
     compiler = Path(config["root"]) / "bin/clang-cl.exe"
     linker = compiler.with_name("lld-link.exe")
@@ -40,7 +44,31 @@ def main():
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     flags = ["/nologo", "/c", "/TP", "/W4", "/WX", "/utf-8", "/EHsc", "/MT", "/std:c++20",
              "--target=i686-pc-windows-msvc", "/arch:AVX2", "/O2", "/clang:-O3", "/clang:-flto=thin",
-             "/fp:precise", "/DNDEBUG"]
+             "/fp:precise", "/clang:-ffp-contract=off", "-Wno-overriding-option", "/DNDEBUG"]
+    dependencies={ROOT/p for p in INPUTS}|{args.environment.resolve(),ROOT/".tools/clang-toolchain.json"}
+    if args.sample:dependencies.add(args.sample.resolve())
+    resource_inputs={}
+    if args.resources:
+        families=("shotgun",) if args.shotgun else ("glock","p345","revolver","vp70")
+        for family in families:
+            for path in sorted((args.resources/family).iterdir()):
+                if path.is_file():resource_inputs[str(path.resolve())]=sha(path)
+        if args.shotgun and (args.resources/"syringe/syringe_sleeve.wav").exists():
+            raise ValueError("The original missing 870 draw request now exists; re-audit its consumer")
+    dependency_commands=[]
+    for index,source in enumerate(ROOT/p for p in INPUTS if p.endswith(".cpp")):
+        dep=out/f"headers-{index}.d"
+        command=[str(compiler),*(flag for flag in flags if flag!="/c"),"/clang:-M",
+                 "/clang:-MF","/clang:"+str(dep),str(source)]
+        dependency_commands.append(command)
+        result=subprocess.run(command,cwd=ROOT,env=environment,capture_output=True,text=True,timeout=60)
+        (out/f"headers-{index}.log").write_text(result.stdout+result.stderr,"utf-8")
+        result.check_returncode()
+        make=dep.read_text().replace(chr(92)+chr(10)," ")
+        dependencies.update(Path(path.replace(chr(92)+" "," ")).resolve() for path in
+                            re.findall(r"(?:\\ |[^\s])+",make.split(":",1)[1]))
+    dependencies_before={str(path):sha(path) for path in sorted(dependencies)}
+    compiler_before,linker_before=sha(compiler),sha(linker)
     commands = [[str(compiler), *flags, "/Fo" + str(out) + os.sep,
                  str(ROOT / "native/guest/cof/client/audio.cpp"),
                  str(ROOT / "tests/cryoffear-audio/main.cpp"), str(ROOT / "tests/cryoffear-audio/resources.cpp"),
@@ -59,7 +87,7 @@ def main():
         result.check_returncode()
     checks = [["lifecycle", str(out / "lifecycle.exe")]]
     if args.resources:
-        checks.append(["resources", str(out / "resources.exe"), str(args.resources.resolve())])
+        checks.append(["resources", str(out / "resources.exe"), str(args.resources.resolve()), *(["--shotgun"] if args.shotgun else [])])
     for label, *argv in checks:
         result = subprocess.run(argv, capture_output=True, text=True)
         (out / (label + ".txt")).write_text(result.stdout + result.stderr, encoding="utf-8")
@@ -77,7 +105,12 @@ def main():
         outputs[name] = hashlib.sha256(data).hexdigest()
     after = {p: sha(ROOT / p) for p in INPUTS}
     assert before == after
-    receipt = dict(revision=revision, sourcesBefore=before, sourcesAfter=after,
+    dependencies_after={str(path):sha(path) for path in sorted(dependencies)}
+    assert dependencies_before==dependencies_after and compiler_before==sha(compiler) and linker_before==sha(linker)
+    assert all(sha(path)==value for path,value in resource_inputs.items())
+    receipt = dict(success=True,revision=revision, sourcesBefore=before, sourcesAfter=after,
+                   dependenciesBefore=dependencies_before,dependenciesAfter=dependencies_after,
+                   dependencyCommands=dependency_commands,resourceInputs=resource_inputs,
                    compilerVersion=config["version"].splitlines()[0], compilerSha256=sha(compiler),
                    linkerSha256=sha(linker), flags=flags, architecture="PE32 x86", outputs=outputs,
                    realXAudio2=True, sourceSnapshots=False, gameplay=False, audibleAcceptance=False, performance=False)

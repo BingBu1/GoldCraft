@@ -399,6 +399,55 @@ inline constexpr ResourcePath G43Inventory{
 inline constexpr auto G43Particle = MP5Particle;
 inline constexpr auto G43ClipTexture = P345ClipTexture;
 
+// Full ordinary 870 consumers. Its shell and flash differ from the pistols;
+// neither the 9mm magazine texture nor flash2 belongs to this closure.
+enum class ShotgunModel : unsigned { View, World, Player, Null, Shell, Bubble, Fog, Flash, CheapSmoke, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(ShotgunModel::Count)> ShotgunModels{{
+    {"models/weapons/shotgun/v_shotgun.mdl", "models/guest/cof/shotgun/v_shotgun.mdl"},
+    {"models/weapons/shotgun/w_shotgun.mdl", "models/guest/cof/shotgun/w_shotgun.mdl"},
+    {"police/models/weapons/shotgun/p_shotgun.mdl", "models/guest/cof/shotgun/p_shotgun.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shotgunshell.mdl", "models/guest/cof/common/shotgunshell.mdl"},
+    {"sprites/bubble.spr", "sprites/guest/cof/bubble.spr"},
+    {"sprites/fog2.spr", "sprites/guest/cof/fog2.spr"},
+    {"models/flash1.mdl", "models/guest/cof/common/flash1.mdl"},
+    {"sprites/gunsmoke.spr", "sprites/guest/cof/gunsmoke.spr"}
+}};
+enum class ShotgunSound : unsigned
+{
+    Fire, Insert, PumpForward, PumpBack, PumpSequence, ItemGet, WeaponGet,
+    Sleeve1, Sleeve2, Sleeve3, PushSwing, PushHit, EmptyClick, EmptyNoClick, Count
+};
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(ShotgunSound::Count)> ShotgunSounds{{
+    {"weapons/shotgun/shoot.wav", "guest/cof/weapons/shotgun/shoot.wav"},
+    {"weapons/shotgun/insert.wav", "guest/cof/weapons/shotgun/insert.wav"},
+    {"weapons/shotgun/pump_forward.wav", "guest/cof/weapons/shotgun/pump_forward.wav"},
+    {"weapons/shotgun/pump_back.wav", "guest/cof/weapons/shotgun/pump_back.wav"},
+    {"weapons/shotgun/pump_seq.wav", "guest/cof/weapons/shotgun/pump_seq.wav"},
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/weapon_get.wav", "guest/cof/weapons/weapon_get.wav"},
+    {"weapons/sleeve_generic1.wav", "guest/cof/weapons/sleeve_generic1.wav"},
+    {"weapons/sleeve_generic2.wav", "guest/cof/weapons/sleeve_generic2.wav"},
+    {"weapons/sleeve_generic3.wav", "guest/cof/weapons/sleeve_generic3.wav"},
+    {"weapons/melee_swing.wav", "guest/cof/weapons/melee_swing.wav"},
+    {"weapons/melee_hit.wav", "guest/cof/weapons/melee_hit.wav"},
+    {"weapons/weapon_fire_empty.wav", "guest/cof/weapons/weapon_fire_empty.wav"},
+    {"weapons/weapon_fire_empty_noclick.wav", "guest/cof/weapons/weapon_fire_empty_noclick.wav"}
+}};
+inline constexpr std::array<ResourcePath, 5> ShotgunLocalWaves{{
+    {"weapons_new/shotgun/shoot.wav", "sound/guest/cof/weapons_new/shotgun/shoot.wav"},
+    {"weapons_new/shotgun/insert.wav", "sound/guest/cof/weapons_new/shotgun/insert.wav"},
+    {"weapons_new/shotgun/pump_forward.wav", "sound/guest/cof/weapons_new/shotgun/pump_forward.wav"},
+    {"weapons_new/shotgun/pump_back.wav", "sound/guest/cof/weapons_new/shotgun/pump_back.wav"},
+    {"weapons_new/shotgun/pump_seq.wav", "sound/guest/cof/weapons_new/shotgun/pump_seq.wav"}
+}};
+// The original draw requests a missing weapons_new/syringe/syringe_sleeve.wav.
+// Original10080410 returns on a null play2D result; do not substitute the
+// existing legacy WAV. Full Studio ownership/dependency handling is separate.
+inline constexpr auto ShotgunEvents = P345Events;
+inline constexpr auto ShotgunInventory = ShotgunCoreInventory;
+inline constexpr auto ShotgunParticle = ShotgunCoreParticle;
+
 enum class GlockModel : unsigned { View, World, Player, Null, Shell, Clip, Bubble, Fog, Flash, CheapSmoke, Count };
 inline constexpr std::array<ResourcePath, static_cast<unsigned>(GlockModel::Count)> GlockModels{{
     {"models/weapons/glock/v_glock.mdl", "models/guest/cof/glock/v_glock.mdl"},
@@ -539,6 +588,7 @@ constexpr std::string_view StudioLocalSoundResource(std::string_view model, int 
     if (model == MP5Models[static_cast<unsigned>(MP5Model::View)].host) return find(MP5LocalWaves);
     if (model == M16Models[static_cast<unsigned>(M16Model::View)].host) return find(M16LocalWaves);
     if (model == G43Models[static_cast<unsigned>(G43Model::View)].host) return find(G43LocalWaves);
+    if (model == ShotgunModels[static_cast<unsigned>(ShotgunModel::View)].host) return find(ShotgunLocalWaves);
     return {};
 }
 inline constexpr auto GlockEvents = P345Events;
@@ -587,6 +637,7 @@ inline constexpr auto TMPAudioResources = AudioResources(TMPLocalWaves, TMPSound
 inline constexpr auto MP5AudioResources = AudioResources(MP5LocalWaves, MP5Sounds);
 inline constexpr auto M16AudioResources = AudioResources(M16LocalWaves, M16Sounds);
 inline constexpr auto G43AudioResources = AudioResources(G43LocalWaves, G43Sounds);
+inline constexpr auto ShotgunAudioResources = AudioResources(ShotgunLocalWaves, ShotgunSounds);
 // Actual engine resource_t/PF_precache_generic ABI includes the terminating NUL.
 template<std::size_t N>
 consteval bool ResourceNamesFit(const std::array<ResourcePath,N>& entries)
@@ -599,6 +650,7 @@ static_assert(ResourceNamesFit(GlockModels)&&ResourceNamesFit(GlockSounds)&&Reso
 static_assert(ResourceNamesFit(RevolverModels)&&ResourceNamesFit(RevolverSounds)&&ResourceNamesFit(RevolverLocalWaves)&&ResourceNamesFit(RevolverEvents));
 static_assert(ResourceNamesFit(TMPModels)&&ResourceNamesFit(TMPSounds)&&ResourceNamesFit(TMPLocalWaves)&&ResourceNamesFit(TMPEvents));
 static_assert(ResourceNamesFit(G43Models)&&ResourceNamesFit(G43ClientModels)&&ResourceNamesFit(G43Sounds)&&ResourceNamesFit(G43LocalWaves)&&ResourceNamesFit(G43Events));
+static_assert(ResourceNamesFit(ShotgunModels)&&ResourceNamesFit(ShotgunSounds)&&ResourceNamesFit(ShotgunLocalWaves)&&ResourceNamesFit(ShotgunEvents));
 static_assert(ResourceNamesFit(M16Models)&&ResourceNamesFit(M16ClientModels)&&ResourceNamesFit(M16Sounds)&&ResourceNamesFit(M16LocalWaves)&&ResourceNamesFit(M16Events));
 static_assert(ResourceNamesFit(MP5Models)&&ResourceNamesFit(MP5ClientModels)&&ResourceNamesFit(MP5Sounds)&&ResourceNamesFit(MP5LocalWaves)&&ResourceNamesFit(MP5Events));
 static_assert(ResourceNamesFit(VP70Models)&&ResourceNamesFit(VP70Sounds)&&ResourceNamesFit(VP70LocalWaves)&&ResourceNamesFit(VP70Events));
