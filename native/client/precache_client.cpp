@@ -53,6 +53,7 @@ DWORD connection_owner_thread = 0;
 // Close the new token too while an original cleanup can reenter before clearing
 // its old tables. A non-returning original leaves this query unavailable.
 bool sound_query_retiring = false;
+unsigned model_scan_deferred = 0, model_scan_brushes = 0, model_scan_native = 0;
 bool precache_ready_hook_installed = false;
 GoldCraftPrecacheReadyCallback precache_ready_callback = nullptr;
 GoldCraftPrecacheReadyCallback precache_retired_callback = nullptr;
@@ -399,6 +400,31 @@ model_t* model_at(int index) {
 }
 int model_capacity() { return extended ? int(model_slots()) : 512; }
 
+uint32_t inspect_model_scan(uint64_t expected_generation, int index, model_t** brush) noexcept {
+    const auto generation = connection_generation();
+    if (brush) *brush = nullptr;
+    if (!brush || !enabled || !generation || generation != expected_generation ||
+        sound_query_retiring || receiving || index < 1 || index >= model_capacity())
+        return GoldCraftModelScanStop;
+    const auto* table = extended ? models.data() : legacy_model_precache;
+    const auto* model = table ? table[index] : nullptr;
+    if (!model) return GoldCraftModelScanStop;
+    // Host 10210 CL_GetModelByIndex, RVA 1a2fa0: only states 1/2 load.
+    // A new model's default type is brush, so it cannot classify a placeholder.
+    if (model->needload == 1 || model->needload == 2) {
+        if (extended && sync_verified && deferred_precache_name(model->name)) {
+            ++model_scan_deferred;
+            return GoldCraftModelScanSkip;
+        }
+        ++model_scan_native;
+        return GoldCraftModelScanNative;
+    }
+    if (model->type != mod_brush) return GoldCraftModelScanSkip;
+    *brush = table[index];
+    ++model_scan_brushes;
+    return GoldCraftModelScanBrush;
+}
+
 uint32_t inspect_sound_precache(uint64_t expected_generation, const char* name, uint32_t length) noexcept {
     // Check the owner before reading any engine or growable-table storage.
     const auto generation = connection_generation();
@@ -737,6 +763,7 @@ void reset_client(bool retire = true) {
     if (sync_callbacks.cancel) sync_callbacks.cancel();
     sync_resources.clear(); manifest_generation = 0; manifest_version = 0; sync_waiting = false;
     sync_verified = false; deferred_models = 0;
+    model_scan_deferred = model_scan_brushes = model_scan_native = 0;
     if (reset_observer) reset_observer();
     set_extension(false);
     resources.clear(); checks.clear();
@@ -1232,6 +1259,8 @@ void write_status(std::ostream& out) {
         << ",\"cachedSounds\":" << (enabled ? *original_sound_count + (extended ? extra_sounds.size() : 0) : 0)
         << ",\"checks\":" << (enabled ? *consistency_count : 0) << ",\"manifests\":" << manifests << ",\"resets\":" << resets
         << ",\"lazyPlayers\":" << (lazy_players ? lazy_players->value : 0.f) << ",\"deferredModels\":" << deferred_models
+        << ",\"modelScanDeferred\":" << model_scan_deferred << ",\"modelScanBrushes\":" << model_scan_brushes
+        << ",\"modelScanNative\":" << model_scan_native
         << ",\"highModelReads\":" << high_model_reads << ",\"highSoundReads\":" << high_sound_reads
         << ",\"highModelLookups\":" << high_model_lookups << ",\"lastModelRead\":" << last_model_read
         << ",\"lastSoundRead\":" << last_sound_read << ",\"lastModelLookup\":" << last_model_lookup
@@ -1270,6 +1299,13 @@ extern "C" const GoldCraftPrecacheAPI* GoldCraft_GetPrecacheAPI() {
     static const GoldCraftPrecacheAPI result{sizeof(GoldCraftPrecacheAPI), 1,
         model_count, model_index, model_at, model_capacity};
     return enabled ? &result : nullptr;
+}
+
+extern "C" const GoldCraftModelScanAPI* GoldCraft_GetModelScanAPI() {
+    using namespace goldcraft::client_precache;
+    static const GoldCraftModelScanAPI result{sizeof(GoldCraftModelScanAPI), 1,
+        connection_generation, inspect_model_scan};
+    return enabled && connection_hooks_ready ? &result : nullptr;
 }
 
 

@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_修复-Renderer建图强制加载延迟人物-report.md",
+    "tests/renderer-model-scan/README.md",
+    "tests/renderer-model-scan/main.cpp",
+    "tests/renderer-model-scan/run.py",
+
     "docs/2026-11-17_实测-跨图加载仍慢与Renderer强制模型加载-report.md",
     "docs/2026-11-17_验证-步枪原生材质穿透-report.md",
     "tests/cryoffear-rifle-penetration/README.md",

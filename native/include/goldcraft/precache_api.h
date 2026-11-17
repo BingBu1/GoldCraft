@@ -26,7 +26,39 @@ struct GoldCraftModelOwnersAPI {
 };
 typedef const GoldCraftModelOwnersAPI* (*GoldCraftGetModelOwnersAPI)();
 
+// Server media indices are a different namespace from model_at's known-model
+// indices. This cold scan does not load models or lend the growable slot table.
+enum GoldCraftModelScanResult : uint32_t {
+    GoldCraftModelScanStop = 0,
+    GoldCraftModelScanSkip = 1,
+    GoldCraftModelScanBrush = 2,
+    GoldCraftModelScanNative = 3
+};
+struct GoldCraftModelScanAPI {
+    uint32_t size;
+    uint32_t version;
+    uint64_t (*generation)();
+    // Main thread only. A brush pointer belongs to the current model owner;
+    // consumers must stop using it on retirement. Native requires the original getter;
+    // Stop includes stale/retiring queries and the dense table's terminator.
+    uint32_t (*inspect)(uint64_t generation, int server_index, model_s** brush);
+};
+typedef const GoldCraftModelScanAPI* (*GoldCraftGetModelScanAPI)();
+
 #ifdef _WINDOWS_
+inline const GoldCraftModelScanAPI* GoldCraftModelScanInterface() {
+    static const GoldCraftModelScanAPI* cached = nullptr;
+    if (!cached) {
+        const auto module = GetModuleHandleA("GoldCraft.dll");
+        const auto query = module ? reinterpret_cast<GoldCraftGetModelScanAPI>(
+            GetProcAddress(module, "GoldCraft_GetModelScanAPI")) : nullptr;
+        const auto candidate = query ? query() : nullptr;
+        if (candidate && candidate->version == 1 && candidate->size >= sizeof(GoldCraftModelScanAPI) &&
+            candidate->generation && candidate->inspect)
+            cached = candidate;
+    }
+    return cached;
+}
 inline const GoldCraftPrecacheAPI* GoldCraftPrecacheInterface() {
     static const GoldCraftPrecacheAPI* cached = nullptr;
     if (!cached) {
