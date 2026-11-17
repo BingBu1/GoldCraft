@@ -36,7 +36,7 @@
 - 触手四组：`build/scenario-visual-tentacle-component-20261117-01/receipt.json`，297 项行为、43,447 项 SDK、零失败。可选 writer false、缺失消息回调、伤害/音效/后续效果保持、一次激活、严格过期、必要实体模型错误与告警回调撤权均执行。
 - 泰迪七组：`build/scenario-visual-ground-component-20261117-01/receipt.json`，12,715 项行为、1,413,081 项 SDK、零失败；包括新增 visual-failure 及既有 attack/candy/ordering/targets-reentry/cancellation/models。两组去重合计 **13,012 / 1,456,528 / 0**。
 - 真实隔离专服：`build/scenario-visual-cold-20261117-06/receipt.json`，实际 `zs_trace` 冷启动、加载的 MP/PDB 身份、零玩家状态和实际拒绝文本为空均确认；随后正常 quit，原四份 DLL/PDB 状态完整恢复。没有接管游戏输入，没有更新主测试服或正式远端。它不是 BOSS 自主 AI、自然施法或多人画面验收。
-- 配套候选：`build/scenario-visual-runtime-20261117-01/plan.json`，两份独立文件与 PDB GUID/Age 已核同，主测试服完整 HUD 闭包通过。主服应用与自然对局仍待。
+- 本地部署：`build/scenario-visual-deployment-20261117-01/receipt.json`，完整 HUD 闭包与零玩家窗口预检通过，正常 quit 后原子更新 MP/PDB/部署登记，再经原启动脚本恢复。新 PID 36572 实载上述 f58 DLL，PDB 身份核同、实际拒图文本为空；引擎等五份既有文件 SHA 保持。正式远端与沙盒 B 未更新，未恢复 GUI 输入。自然对局仍待验收。
 
 实体测试期间出现五份其他领域源文件变化，最初整树回执 `build/scenario-visual-sdk-20261117-03/tentacle/receipt.json` 正确保留 `success=false`。逐项核对它们均未出现在夹具真实 `showIncludes` 依赖中；完整旧构建对象、链接库、编译器/环境、实际 870 项编译依赖与测试 EXE 身份重新验证后，再执行四组形成独立组件回执。地面组也按既有实际对象组件 runner 重新验证实际头文件 ABI 和输出。这不接受已漂移的当前整树，不把别人的后续资源/引擎改动混入候选 DLL；运行候选仍精确对应上述已封存构建。
 
@@ -47,3 +47,5 @@
 本轮直接修改项目生产源码。既有泰迪完整功能仍有大量独立未完成工作；其本轮改动另以 `patches/csol-optional-boss-visuals.patch` 窄登记。三份生产文件及触手夹具的修改前重建内容均与已封存 SHA 核对；地面夹具新增测试仅记录本轮明确差分，没有声称具备修改前封存。没有复制源码树或把旧功能整体冒充本轮完成。核心消息、共用控制和奥伯恩的已追踪文件只提交本轮对应修改，保留其他工作区改动。
 
 完整大灾变与自定义玩法目标继续开放；本轮不关闭泰迪全部技能、原 rules354 权限目录、跨图速度/进度条、公网或多人验收。
+
+源码修复已提交并推送 `main` 的 `5e3bea547482c5178fde27d59596fcf8f28a5dcc`，远端核同；精确 Git index 扫描 4,498 文件、35,233,903 字节、零问题，提交后暂存区为空。仅提交本轮窄差分，保留其他工作区改动。对应 `build/scenario-visual-publication-20261117-03/receipt.json`。运行 DLL 对应封存的完整构建输入，不包含后续其他领域源改动；计划另列 `compiledRevision`、`preparedAtRevision` 和 `sourcePublication`，不把提交号冒充整份 DLL 源树身份。
