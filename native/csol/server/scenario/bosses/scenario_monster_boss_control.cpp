@@ -214,7 +214,11 @@ bool CCSOLMonsterBossControl::Select(CSOLMonsterSpawnCall& call, csol::scenario:
         if (!Current(call, state) || state->row != selectedRow) return false;
         const bool sent = messages.SendBossSkillStart(row.startMessage);
         if (!Current(call, state) || state->row != selectedRow) return false;
-        if (!sent) { error.message = "Boss skill-start message failed"; return false; }
+        if (!sent)
+        {
+            messages.WarnVisualFailure(CSOLScenarioVisual::BossSkillStart);
+            if (!Current(call, state) || state->row != selectedRow) return false;
+        }
     }
     return true;
 }
@@ -298,13 +302,9 @@ CSOLBossBeginResult CCSOLMonsterBossControl::TryBegin(CSOLMonsterSpawnCall& call
     if (!current()) return Result::Cancelled;
     if (!notified)
     {
-        if (gpGlobals->time > state->hintDiagnosticAt && g_engfuncs.pfnAlertMessage)
-        {
-            state->hintDiagnosticAt = gpGlobals->time + 10.0f;
-            ALERT(at_console, "CSOL: Oberon skill hint unavailable: %s\n",
-                diagnostic.message.empty() ? "permission directory is unavailable" : diagnostic.message.c_str());
-            if (!current()) return Result::Cancelled;
-        }
+        services->BossMessages().WarnVisualFailure(CSOLScenarioVisual::BossSkillHint,
+            diagnostic.message.empty() ? "permission directory is unavailable" : diagnostic.message.c_str());
+        if (!current()) return Result::Cancelled;
     }
     return Result::Started;
 }

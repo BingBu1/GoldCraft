@@ -1182,18 +1182,22 @@ bool CCSOLScenarioMessages::SendTeddyTentacleDebris(const float* origin, int mod
         (count != 3 && count != 4) || !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
         !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort || !g_engfuncs.pfnWriteCoord)
         return false;
+    // The original MP passes the real entity origin to MSG_PVS, while the
+    // host codec truncates each payload coordinate to int32(origin * 8) and
+    // writes its low 16 bits.  Do not apply the old signed-short range guard:
+    // it rejects finite positions that the original client can receive.
+    std::int16_t coordinates[3]{};
     for (int axis = 0; axis != 3; ++axis)
-        if (!std::isfinite(origin[axis]) || origin[axis] < -4096.0f || origin[axis] > 4095.875f)
-            return false;
+        if (!csol::cso_tent::detail::Coord(origin[axis], coordinates[axis])) return false;
     // MP113E9760 -> 113E7810. The caller consumes RandomLong(3,4) at
     // its original position; serialization neither draws RNG nor looks up a model.
     const Vector position(origin);
     const ScenarioMessageScope scope;
     MESSAGE_BEGIN(MSG_PVS, SVC_TEMPENTITY, position);
     WRITE_BYTE(TE_BREAKMODEL);
-    WRITE_COORD(position.x);
-    WRITE_COORD(position.y);
-    WRITE_COORD(position.z);
+    WRITE_COORD(static_cast<float>(coordinates[0]) * .125f);
+    WRITE_COORD(static_cast<float>(coordinates[1]) * .125f);
+    WRITE_COORD(static_cast<float>(coordinates[2]) * .125f);
     WRITE_COORD(6);
     WRITE_COORD(6);
     WRITE_COORD(2);
@@ -1273,4 +1277,22 @@ bool CCSOLScenarioMessages::SendTeddyBlackholeSmoke(const float* origin) const
     WRITE_COORD(encoded.x); WRITE_COORD(encoded.y); WRITE_COORD(encoded.z);
     MESSAGE_END();
     return true;
+}
+
+void CCSOLScenarioMessages::WarnVisualFailure(CSOLScenarioVisual visual, const char* detail) const
+{
+    static constexpr const char* names[]{
+        "Boss skill hint", "Boss skill start", "Tentacle model", "Tentacle debris", "Tentacle shake",
+        "Boss impact", "Boss blood", "Boss blood screen", "Teddy ground", "Teddy attack model",
+        "Teddy sparks", "Teddy Meteor", "Teddy blackhole", "Teddy slide", "Oberon debris"
+    };
+    static_assert(std::size(names) == static_cast<unsigned>(CSOLScenarioVisual::Count) && std::size(names) <= 32);
+    const auto index = static_cast<unsigned>(visual);
+    if (index >= std::size(names) || !g_engfuncs.pfnAlertMessage) return;
+    const auto mask = std::uint32_t{1} << index;
+    if (m_visualWarnings & mask) return;
+    // Publish before ALERT: a plugin callback can recurse or retire this map.
+    m_visualWarnings |= mask;
+    ALERT(at_console, "CSOL: optional visual unavailable [%s]: %s; gameplay continues (reported once per map)\n",
+        names[index], detail ? detail : "effect message could not be sent");
 }

@@ -16,12 +16,23 @@ namespace csol::oberon_hint { struct Event; }
 namespace csol::frozen_death { struct IceEvent; }
 namespace csol::frozen_smoke { struct Event; }
 
+// Explicitly optional presentation only. Gameplay/state/resource failures must
+// never enter this recovery path. One message owner belongs to one map session.
+enum class CSOLScenarioVisual : std::uint8_t
+{
+    BossSkillHint, BossSkillStart, TentacleModel, TentacleDebris, TentacleShake,
+    BossImpact, BossBlood, BossBloodScreen, TeddyGround, TeddyAttackModel,
+    TeddySparks, TeddyMeteor, TeddyBlackhole, TeddySlide, OberonDebris, Count
+};
+
 // Register while preparing the selected scenario, before sending events. The
 // engine owns user-message IDs; never retain a guessed ID from the original DLL.
 class CCSOLScenarioMessages
 {
 public:
     bool Register();
+    // Optional cosmetic failures warn once per live map and never claim delivery.
+    void WarnVisualFailure(CSOLScenarioVisual visual, const char* detail = nullptr) const;
     bool SendAttackNumber(edict_s* recipient, CSOLDamageNumber message) const;
     bool SendWaveEvent(std::span<const std::uint8_t, 4> payload) const;
     // Original MP11385F80: 27/3, one-based round, total rounds, and a raw
@@ -184,4 +195,5 @@ private:
     int m_respawnTextMessageId{};
     int m_respawnHintMessageId{};
     int m_valueSyncMessageId{};
+    mutable std::uint32_t m_visualWarnings{};
 };

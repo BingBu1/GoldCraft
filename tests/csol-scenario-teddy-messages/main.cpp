@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdarg>
+#include <cstdio>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -40,6 +42,20 @@ std::vector<float> coordinates;
 std::map<std::string, int> registrations;
 std::string failedRegistration;
 std::function<void()> onBegin, onEnd;
+std::function<void()> onAlert;
+std::vector<std::string> alerts;
+
+void Alert(ALERT_TYPE, const char* format, ...)
+{
+    char text[1024];
+    va_list arguments;
+    va_start(arguments, format);
+    std::vsnprintf(text, sizeof(text), format, arguments);
+    va_end(arguments);
+    alerts.emplace_back(text);
+    const auto action = onAlert;
+    if (action) action();
+}
 
 void Check(bool condition, const std::source_location at = std::source_location::current())
 {
@@ -72,8 +88,9 @@ void Install()
     g_engfuncs = {}; g_engfuncs.pfnRegUserMsg = Register;
     g_engfuncs.pfnMessageBegin = Begin; g_engfuncs.pfnMessageEnd = End;
     g_engfuncs.pfnWriteByte = Byte; g_engfuncs.pfnWriteShort = Short; g_engfuncs.pfnWriteCoord = Coord;
+    g_engfuncs.pfnAlertMessage = Alert;
     gmsgShake = 111; nextId = 96; registrations.clear(); failedRegistration.clear();
-    onBegin = {}; onEnd = {}; Clear();
+    onBegin = {}; onEnd = {}; onAlert = {}; alerts.clear(); Clear();
 }
 void Payloads()
 {
@@ -118,7 +135,8 @@ void Invalid()
     for (int count : {-1, 0, 2, 5, 255}) Check(!messages.SendTeddyTentacleDebris(position, 1, count));
     for (int axis = 0; axis != 3; ++axis)
     {
-        for (float value : {-4096.125f, 4096.f, std::numeric_limits<float>::infinity(),
+        for (float value : {268435456.f, -268435488.f, std::numeric_limits<float>::max(),
+            -std::numeric_limits<float>::max(), std::numeric_limits<float>::infinity(),
             -std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()})
         {
             position[axis] = value; Check(!messages.SendTeddyTentacleDebris(position, 1, 3));
@@ -152,6 +170,69 @@ void Invalid()
     }
     failedRegistration.clear(); nextId = 96; Check(messages.Register());
     Clear(); Check(messages.SendBloodScreen(&player) && begins == 1 && ends == 1);
+}
+void TentacleDebrisCoordinates()
+{
+    struct Case { float input, decoded; unsigned short wire; };
+    constexpr Case cases[]{
+        {4095.875f, 4095.875f, 0x7fff}, {4096.f, -4096.f, 0x8000},
+        {-4096.f, -4096.f, 0x8000}, {-4096.125f, 4095.875f, 0x7fff},
+        {-4518.875f, 3673.125f, 0x72c9}, {8192.25f, .25f, 0x0002},
+        {-8192.25f, -.25f, 0xfffe}, {4095.99f, 4095.875f, 0x7fff},
+        {-.01f, 0.f, 0x0000}, {-268435456.f, 0.f, 0x0000},
+        {268435440.f, -16.f, 0xff80}
+    };
+    Install(); CCSOLScenarioMessages messages;
+    for (const auto& value : cases)
+        for (unsigned axis = 0; axis != 3; ++axis)
+            for (int count : {3, 4})
+            {
+                float position[]{1.1875f, -2.1875f, 3.1875f};
+                position[axis] = value.input;
+                const std::array original{position[0], position[1], position[2]};
+                Clear();
+                Check(messages.SendTeddyTentacleDebris(position, 123, count));
+                Check(begins == 1 && ends == 1 && destination == MSG_PVS && message == SVC_TEMPENTITY);
+                Check(pvs == original && bytes.size() == 25 && bytes[0] == TE_BREAKMODEL);
+                Check(bytes[1 + axis * 2] == (value.wire & 255) && bytes[2 + axis * 2] == (value.wire >> 8));
+                Check(coordinates[axis] == value.decoded && coordinates[3] == 6 && coordinates[8] == 40);
+                Check(bytes[19] == 5 && bytes[20] == 123 && bytes[21] == 0 &&
+                    bytes[22] == count && bytes[23] == 3 && bytes[24] == 64);
+                Check(std::equal(original.begin(), original.end(), position));
+            }
+    auto owner = std::make_unique<CCSOLScenarioMessages>();
+    float position[]{8192.25f, -4096.125f, 4096.f};
+    onBegin = [&] { std::fill_n(position, 3, 99.f); owner.reset(); };
+    Clear(); Check(owner->SendTeddyTentacleDebris(position, 123, 4));
+    Check(!owner && pvs == std::array{8192.25f, -4096.125f, 4096.f});
+    Check(coordinates[0] == .25f && coordinates[1] == 4095.875f && coordinates[2] == -4096.f);
+    onBegin = {};
+}
+void VisualWarnings()
+{
+    Install(); CCSOLScenarioMessages messages;
+    for (int i = 0; i != 10000; ++i)
+        messages.WarnVisualFailure(CSOLScenarioVisual::BossSkillHint, "missing original directory");
+    Check(alerts.size() == 1 && alerts[0].find("gameplay continues") != std::string::npos);
+    messages.WarnVisualFailure(CSOLScenarioVisual::TentacleDebris);
+    Check(alerts.size() == 2 && alerts[1].find("Tentacle debris") != std::string::npos);
+    Check(messages.Register()); // retrying a registration does not start another map
+    messages.WarnVisualFailure(CSOLScenarioVisual::BossSkillHint);
+    Check(alerts.size() == 2);
+    CCSOLScenarioMessages nextMap;
+    nextMap.WarnVisualFailure(CSOLScenarioVisual::BossSkillHint);
+    Check(alerts.size() == 3);
+    onAlert = [&] { nextMap.WarnVisualFailure(CSOLScenarioVisual::TentacleModel); };
+    nextMap.WarnVisualFailure(CSOLScenarioVisual::TentacleModel);
+    Check(alerts.size() == 4);
+    onAlert = {};
+    auto owner = std::make_unique<CCSOLScenarioMessages>();
+    onAlert = [&] { owner.reset(); };
+    owner->WarnVisualFailure(CSOLScenarioVisual::BossSkillHint);
+    Check(!owner && alerts.size() == 5);
+    onAlert = {};
+    nextMap.WarnVisualFailure(static_cast<CSOLScenarioVisual>(255));
+    Check(alerts.size() == 5 && begins == 0 && ends == 0);
 }
 void Reentry()
 {
@@ -272,7 +353,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc == 2) Oracle(argv[1]); else { Payloads(); Invalid(); Reentry(); CompactCoordinateWire(); }
+        if (argc == 2) Oracle(argv[1]); else { Payloads(); Invalid(); Reentry(); CompactCoordinateWire(); TentacleDebrisCoordinates(); VisualWarnings(); }
         std::cout << "teddy messages " << checks << " checks passed\n"; return 0;
     }
     catch (const std::exception& error) { std::cerr << error.what() << " after " << checks << " checks\n"; return 1; }

@@ -22,12 +22,20 @@
 #include "../../native/csol/server/scenario/core/scenario_death_services.h"
 #include "../../native/csol/server/scenario/monsters/scenario_monster_damage.h"
 #include "../../native/csol/server/scenario/monsters/scenario_monster_services.h"
+#include "../../native/csol/scenario/core/human_kick.hpp"
+#include "../../native/csol/scenario/custom/stamina_audio.hpp"
 
 namespace teddy_sdk_test
 {
 using namespace sdk_test;
 inline void FixtureResources(std::map<std::string,std::string>& files)
 {
+    files[csol::scenario::human_kick::FootModel]="explicit foot model existence fixture";
+    files[std::string("sound/")+csol::scenario::human_kick::SwingSound]="explicit kick sound existence fixture";
+    for(const auto* sound:csol::scenario::human_kick::HitSounds)
+        files[std::string("sound/")+sound]="explicit kick impact existence fixture";
+    for(const auto* sound:csol::scenario::custom::RecoverySounds)
+        files[std::string("sound/")+sound]="explicit recovery sound existence fixture";
     // Explicit existence fixtures for the complete server08 resource gate.
     // The SDK test does not claim to decode/render any of these asset bytes.
     namespace ui=csol::scenario_respawn_ui;

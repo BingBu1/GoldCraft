@@ -179,8 +179,11 @@ bool CCSOLOberonBehavior::Debris(CSOLMonsterSpawnCall& call, const StatePtr& sta
         monster->pev->origin.y + (forward[1] * pitch[0]) * 200.0f,
         landing ? monster->pev->origin.z - 100.0f : monster->pev->origin.z - pitch[1] * 200.0f);
     const Vector size = landing ? monster->pev->size : Vector(60, 60, 20);
-    return Step(call, state, services->BossMessages().SendOberonDebris(origin, size, landing, model),
-        "Oberon debris message failed");
+    const bool sent = services->BossMessages().SendOberonDebris(origin, size, landing, model);
+    if (!Current(call, state)) return false;
+    if (sent) return true;
+    services->BossMessages().WarnVisualFailure(CSOLScenarioVisual::OberonDebris);
+    return Current(call, state) != nullptr;
 }
 bool CCSOLOberonBehavior::Effects(CSOLMonsterSpawnCall& call, const StatePtr& state,
     const std::shared_ptr<CCSOLScenarioRuntime>& runtime)

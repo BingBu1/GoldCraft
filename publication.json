@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_修复-可选BOSS特效失败不再拒图-report.md",
+    "patches/csol-optional-boss-visuals.patch",
+    "tests/csol-scenario-teddy-messages/legacy_debris.cpp",
+    "tests/csol-scenario-teddy-messages/run_legacy_debris.py",
+
     "docs/2026-11-17_修复-870原版缺失拔枪音效依赖-report.md",
     "docs/2026-11-17_接入-870实际效果与附件消息-report.md",
     "tests/cryoffear-shotgun-effects/README.md",

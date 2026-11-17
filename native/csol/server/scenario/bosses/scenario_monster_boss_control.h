@@ -20,7 +20,6 @@ struct CSOLBossControlState
     csol::scenario::BossSkillTimer knownGoodClock{0.0f, -1.0f, -1.0f};
     Vector knownGood{}, previousKnownGood{}, launchVelocity{};
     float deltaX{}, deltaY{}, motionRemainder{}, launchOriginZ{-999999.0f}, solidAfter{};
-    float hintDiagnosticAt{-1.0f};
     int repeatCount{};
     bool knownGoodValid{}, previousKnownGoodValid{}, busy{};
 };

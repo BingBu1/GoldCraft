@@ -1,0 +1,437 @@
+--- a/native/csol/server/scenario/bosses/scenario_teddy_tentacle.cpp
++++ b/native/csol/server/scenario/bosses/scenario_teddy_tentacle.cpp
+@@ -135,6 +135,15 @@
+ 
+ namespace
+ {
++bool ContinueVisual(const std::shared_ptr<CSOLTeddyTentacleState>& state,
++    const CSOLScenarioSdkScope& sdk, bool sent, CSOLScenarioVisual visual, const char* detail = nullptr)
++{
++    if (!state->Current(sdk)) return false;
++    if (sent) return true;
++    state->session->Messages().WarnVisualFailure(visual, detail);
++    return state->Current(sdk) != nullptr;
++}
++
+ struct Operation
+ {
+     std::shared_ptr<CSOLTeddyTentacleState> state;
+@@ -227,9 +236,9 @@
+         if (!state->Current(sdk)) return false;
+         currentTarget = target.Current();
+         if (!currentTarget) continue;
+-        if (!state->session->Messages().SendOberonImpact(currentTarget->edict(), false))
+-        { error.message = "Teddy tentacle view-kick message failed"; return false; }
+-        if (!state->Current(sdk)) return false;
++        if (!ContinueVisual(state, sdk,
++            state->session->Messages().SendOberonImpact(currentTarget->edict(), false),
++            CSOLScenarioVisual::BossImpact)) return false;
+         currentTarget = target.Current();
+         if (!currentTarget) continue;
+         const auto effects = state->effects.lock();
+@@ -244,14 +253,12 @@
+         const auto forward = csol::scenario::oberon::Forward(yaw);
+         const Vector position(currentTarget->pev->origin.x + forward[0] * 20.0f,
+             currentTarget->pev->origin.y + forward[1] * 20.0f, currentTarget->pev->origin.z + 20.0f);
+-        if (!state->session->Messages().SendMonsterHit(position, false, 8))
+-        { error.message = "Teddy tentacle world blood message failed"; return false; }
+-        if (!state->Current(sdk)) return false;
++        if (!ContinueVisual(state, sdk, state->session->Messages().SendMonsterHit(position, false, 8),
++            CSOLScenarioVisual::BossBlood)) return false;
+         currentTarget = target.Current();
+         if (!currentTarget) continue;
+-        if (!effects->BloodScreen(currentTarget->edict()))
+-        { error.message = "Teddy tentacle screen blood message failed"; return false; }
+-        if (!state->Current(sdk)) return false;
++        if (!ContinueVisual(state, sdk, effects->BloodScreen(currentTarget->edict()),
++            CSOLScenarioVisual::BossBloodScreen)) return false;
+     }
+     return state->Current(sdk) != nullptr;
+ }
+@@ -274,9 +281,8 @@
+         const Vector delta = current->pev->origin - player->pev->origin;
+         const float square = (delta.y * delta.y + delta.x * delta.x) + delta.z * delta.z;
+         if (!(static_cast<float>(std::sqrt(static_cast<double>(square))) < 300.0f)) continue;
+-        if (!state->effects.lock()->Shake(player->edict()))
+-        { error.message = "Teddy tentacle radius shake failed"; return false; }
+-        if (!state->Current(sdk)) return false;
++        if (!ContinueVisual(state, sdk, state->effects.lock()->Shake(player->edict()),
++            CSOLScenarioVisual::TentacleShake)) return false;
+     }
+     return state->Current(sdk) != nullptr;
+ }
+@@ -314,21 +320,14 @@
+     tent.life = 10; tent.framerate = 25; tent.fade = 1;
+     tent.renderamt = 200; tent.rendermode = 4; tent.follow = -1;
+     const char* messageFailure{};
+-    if (!state->session->Messages().SendCsoTent(tent, position, &messageFailure))
+-    {
+-        error.message = "scenario tentacle model effect message failed: " + std::string(messageFailure) +
+-            " (type=" + std::to_string(state->type) + ", model=" + std::to_string(tent.model) +
+-            ", origin=" + std::to_string(tent.origin[0]) + "," + std::to_string(tent.origin[1]) +
+-            "," + std::to_string(tent.origin[2]) + ", yaw=" + std::to_string(tent.angles[1]) + ")";
+-        return false;
+-    }
+-    if (!state->Current(sdk)) return false;
++    const bool modelSent = state->session->Messages().SendCsoTent(tent, position, &messageFailure);
++    if (!ContinueVisual(state, sdk, modelSent, CSOLScenarioVisual::TentacleModel, messageFailure)) return false;
+     const int count = RANDOM_LONG(3, 4);
+     current = state->Current(sdk);
+     if (!current) return false;
+-    if (!state->effects.lock()->Debris(current->pev->origin, state->resources.models[3], count))
+-    { error.message = "Teddy tentacle debris message failed"; return false; }
+-    if (!state->Current(sdk)) return false;
++    if (!ContinueVisual(state, sdk,
++        state->effects.lock()->Debris(current->pev->origin, state->resources.models[3], count),
++        CSOLScenarioVisual::TentacleDebris)) return false;
+     if (!Shake(state, sdk, error)) return false;
+     state->Current(sdk)->SetTouch(&CCSOLTeddyTentacle::CandyTouch);
+     return true;
+--- a/native/csol/server/scenario/bosses/scenario_teddy_bear.cpp
++++ b/native/csol/server/scenario/bosses/scenario_teddy_bear.cpp
+@@ -98,6 +98,16 @@
+     if (!result && state->error.message.empty()) state->error.message = failure;
+     return result && state->error.message.empty();
+ }
++bool CCSOLTeddyBearBehavior::Visual(CSOLMonsterSpawnCall& call, const StatePtr& state,
++    bool sent, CSOLScenarioVisual visual, const char* detail)
++{
++    if (!Current(call, state) || !state->error.message.empty()) return false;
++    if (sent) return true;
++    const auto runtime = m_services->Runtime();
++    if (!runtime || !runtime->session) return false;
++    runtime->session->Messages().WarnVisualFailure(visual, detail);
++    return Current(call, state) != nullptr && state->error.message.empty();
++}
+ bool CCSOLTeddyBearBehavior::Unsupported(CSOLMonsterSpawnCall& call, const StatePtr& state, const char* what)
+ {
+     // Host safety: an omitted attack must not be reported as successful.
+@@ -389,7 +399,8 @@
+         if (!ordinary) return false;
+         const bool sent = ordinary->Messages().SendBossSkillStart(row.startMessage);
+         if (!Current(call, state)) return false;
+-        if (!sent) return Step(call, state, false, "TeddyBear skill-start message failed");
++        if (!sent && !Visual(call, state, sent, CSOLScenarioVisual::BossSkillStart,
++            "TeddyBear skill-start message failed")) return false;
+     }
+     selected = true;
+     return Current(call, state) != nullptr;
+@@ -447,16 +458,20 @@
+         if (!Current(call, state)) return false;
+         auto* recipient = handle.Get<CBaseEntity>();
+         if (!recipient) continue;
+-        if (!ordinary->Messages().SendOberonImpact(recipient->edict(), false))
+-            return Step(call, state, false, "TeddyBear view-kick message failed");
++        if (!Visual(call, state, ordinary->Messages().SendOberonImpact(recipient->edict(), false),
++            CSOLScenarioVisual::BossImpact, "TeddyBear view-kick message failed")) return false;
+         recipient = handle.Get<CBaseEntity>();
+         if (!Current(call, state)) return false;
+-        if (recipient && !ordinary->Messages().SendMonsterSkillShake(recipient->edict()))
+-            return Step(call, state, false, "TeddyBear screen-shake message failed");
+-        if (!Current(call, state)) return false;
+-        if (auto* hitPlayer = dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>());
+-            hitPlayer && !CSOL_BossHitEffect(ordinary->Messages(), *hitPlayer, state->error))
+-            return Step(call, state, false, "TeddyBear hit effect failed");
++        if (recipient && !Visual(call, state, ordinary->Messages().SendMonsterSkillShake(recipient->edict()),
++            CSOLScenarioVisual::TentacleShake, "TeddyBear screen-shake message failed")) return false;
++        if (!Current(call, state)) return false;
++        if (auto* hitPlayer = dynamic_cast<CBasePlayer*>(handle.Get<CBaseEntity>()))
++        {
++            csol::scenario::ConfigError visualError;
++            const bool sent = CSOL_BossHitEffect(ordinary->Messages(), *hitPlayer, visualError);
++            if (!Visual(call, state, sent, CSOLScenarioVisual::BossBlood,
++                visualError.message.empty() ? "TeddyBear hit effect failed" : visualError.message.c_str())) return false;
++        }
+     }
+     return Current(call, state) != nullptr;
+ }
+@@ -652,7 +667,8 @@
+     const Vector position(forward[0] * distance + origin.x, forward[1] * distance + origin.y,
+         0.0f * distance + origin.z);
+     const auto& messages = runtime->session->Messages();
+-    if (!Step(call, state, messages.SendTeddyGroundDebris(position, models[0]), "TeddyBear ground debris message failed"))
++    if (!Visual(call, state, messages.SendTeddyGroundDebris(position, models[0]),
++        CSOLScenarioVisual::TeddyGround, "TeddyBear ground debris message failed"))
+         return false;
+ 
+     // 1148E500 uses the CRT stream, independently of engine RANDOM_FLOAT.
+@@ -668,7 +684,8 @@
+     sign.fade = 1;
+     sign.renderamt = 200;
+     sign.rendermode = 4;
+-    if (!Step(call, state, messages.SendCsoTent(sign, position), "TeddyBear ground tentacle message failed"))
++    if (!Visual(call, state, messages.SendCsoTent(sign, position),
++        CSOLScenarioVisual::TeddyGround, "TeddyBear ground tentacle message failed"))
+         return false;
+ 
+     // MP115302F0->115303C0 normal zero-velocity TE145. Its compact fields
+@@ -694,7 +711,8 @@
+     effect.model.scale = effect.model.fadeIn = 0;
+     effect.model.renderMode = 5;
+     effect.flags = 0;
+-    if (!Step(call, state, messages.SendWorldEffect(effect), "TeddyBear ground attack message failed"))
++    if (!Visual(call, state, messages.SendWorldEffect(effect),
++        CSOLScenarioVisual::TeddyGround, "TeddyBear ground attack message failed"))
+         return false;
+ 
+     if (!g_engfuncs.pfnRandomFloat)
+@@ -710,7 +728,8 @@
+     explosion.framerate = 30;
+     explosion.flags = 0;
+     explosion.sound = csol::cso_tent::MooncakeSound;
+-    return Step(call, state, messages.SendCsoTent(explosion, position), "TeddyBear ground explosion message failed");
++    return Visual(call, state, messages.SendCsoTent(explosion, position),
++        CSOLScenarioVisual::TeddyGround, "TeddyBear ground explosion message failed");
+ }
+ 
+ bool CCSOLTeddyBearBehavior::AttackModelEffect(CSOLMonsterSpawnCall& call, const StatePtr& state,
+@@ -723,7 +742,7 @@
+     const auto effect = teddy::AttackModelEffect(blackhole ? teddy::AttackModelVisual::Blackhole2 :
+         teddy::AttackModelVisual::Attack2, Array(monster->pev->origin), Array(monster->pev->angles), model);
+     if (!effect) return Unsupported(call, state, "TeddyBear attack model effect cannot be encoded");
+-    return Step(call, state, runtime->session->Messages().SendWorldEffect(*effect),
++    return Visual(call, state, runtime->session->Messages().SendWorldEffect(*effect), CSOLScenarioVisual::TeddyAttackModel,
+         "TeddyBear attack model effect message failed");
+ }
+ 
+@@ -760,7 +779,8 @@
+         effect.byte9 = 16 + static_cast<int>(index); effect.byte10 = 5;
+         effect.alpha = 240; effect.spread = 30; effect.size = 180;
+         effect.gravity = .1f; effect.fade = .1f; effect.growth = 2;
+-        if (!Step(call, state, session->Messages().SendTempEmit(effect), "TeddyBear spawn spark message failed"))
++        if (!Visual(call, state, session->Messages().SendTempEmit(effect),
++            CSOLScenarioVisual::TeddySparks, "TeddyBear spawn spark message failed"))
+             return false;
+     }
+     return Current(call, state) != nullptr;
+@@ -799,7 +819,8 @@
+         effect.byte10 = 5;
+         effect.alpha = 250;
+         effect.red = effect.green = effect.blue = 255;
+-        if (!Step(call, state, session->Messages().SendTempEmit(effect), "TeddyBear Meteor burn message failed"))
++        if (!Visual(call, state, session->Messages().SendTempEmit(effect),
++            CSOLScenarioVisual::TeddyMeteor, "TeddyBear Meteor burn message failed"))
+             return false;
+     }
+     return Current(call, state) != nullptr;
+@@ -825,7 +846,7 @@
+     const Vector origin = monster->pev->origin;
+     const int model = session->Models().TeddyGroundModelIndices()[0];
+     const auto& messages = session->Messages();
+-    if (!Step(call, state, messages.SendTeddyBlackholeDebris(origin, model),
++    if (!Visual(call, state, messages.SendTeddyBlackholeDebris(origin, model), CSOLScenarioVisual::TeddyBlackhole,
+         "TeddyBear blackhole debris message failed")) return false;
+     // MP11532710 ignores its origin argument; only free/private/grounded
+     // gates apply. Dead, same-team and dormant grounded clients remain eligible.
+@@ -836,10 +857,10 @@
+         auto* recipient = INDEXENT(slot);
+         if (!Current(call, state)) return false;
+         if (!recipient || recipient->free || !recipient->pvPrivateData || !(recipient->v.flags & FL_ONGROUND)) continue;
+-        if (!Step(call, state, messages.SendTeddyTentacleShake(recipient),
++        if (!Visual(call, state, messages.SendTeddyTentacleShake(recipient), CSOLScenarioVisual::TeddyBlackhole,
+             "TeddyBear blackhole screen-shake message failed")) return false;
+     }
+-    return Step(call, state, messages.SendTeddyBlackholeSmoke(origin),
++    return Visual(call, state, messages.SendTeddyBlackholeSmoke(origin), CSOLScenarioVisual::TeddyBlackhole,
+         "TeddyBear blackhole smoke message failed");
+ }
+ 
+@@ -867,7 +888,7 @@
+         if (!BaseEvent(call, state, runtime, id)) return false;
+         if (id != 2) return Current(call, state) != nullptr;
+         if (!runtime || m_services->Runtime() != runtime || !runtime->session) return false;
+-        return Step(call, state, runtime->session->Messages().SendTempEmitStop(2, 0),
++        return Visual(call, state, runtime->session->Messages().SendTempEmitStop(2, 0), CSOLScenarioVisual::TeddyMeteor,
+             "TeddyBear Meteor stop message failed");
+     case teddy::Skill::Sliding:    // 10997F20
+         if (id != 0) return BaseEvent(call, state, runtime, id);
+@@ -1045,11 +1066,11 @@
+         state->skill = row->type; // map[row.type]; AddState(2) runs TimerState Init
+         state->timer.Reset();
+         // GameRules v354 permission-directory notification is not rebuilt.
+-        if (gpGlobals->time > state->hintDiagnosticAt && g_engfuncs.pfnAlertMessage)
+-        {
+-            state->hintDiagnosticAt = gpGlobals->time + 10.0f;
+-            ALERT(at_console, "CSOL: TeddyBear skill hint (GameRules v354) is not implemented\n");
+-        }
++        const auto runtime = m_services->Runtime();
++        if (!runtime || !runtime->session) return false;
++        runtime->session->Messages().WarnVisualFailure(CSOLScenarioVisual::BossSkillHint,
++            "original rules354 permission directory is not yet implemented");
++        if (!Current(call, state)) return false;
+         if (!(0.0f < row->forceAttackTime)) { machine.pending = TopSkill; state->move.pending = MoveStop; }
+         else machine.pending = TopChase;
+         return Current(call, state) != nullptr;
+@@ -1092,7 +1113,7 @@
+             effect.flags = 0x30; effect.byte9 = 30; effect.byte10 = 5;
+             effect.alpha = effect.red = effect.green = effect.blue = 255;
+             effect.size = 50; effect.fade = effect.growth = .2f;
+-            if (!Step(call, state, runtime->session->Messages().SendTempEmit(effect),
++            if (!Visual(call, state, runtime->session->Messages().SendTempEmit(effect), CSOLScenarioVisual::TeddySlide,
+                 "TeddyBear Sliding emitter message failed")) return false;
+         }
+         state->push.Reset();
+--- a/native/csol/server/scenario/bosses/scenario_teddy_bear.h
++++ b/native/csol/server/scenario/bosses/scenario_teddy_bear.h
+@@ -15,6 +15,7 @@
+ class CCSOLScenarioMonsterServices;
+ class CCSOLScenarioMessages;
+ class CCSOLMonsterNavigation;
++enum class CSOLScenarioVisual : std::uint8_t;
+ 
+ // CSO TeddyBear (MP 39f962f3..., factory 113E5400 branch 113E5D09, ctor
+ // 10995960, vtable 118091DC): FSMBasedImprov over CZombiBossImprov.
+@@ -85,13 +86,13 @@
+         bool knownGoodValid{}, previousKnownGoodValid{};
+         Vector knownGood{}, previousKnownGood{};
+         csol::scenario::BossSkillTimer knownGoodClock{0.0f, -1.0f, -1.0f};
+-        float hintDiagnosticAt{-1.0f};
+         bool thinking{}, eventing{};
+         csol::scenario::ConfigError error;
+     };
+     using StatePtr = std::shared_ptr<State>;
+     CCSOLScenarioMonster* Current(CSOLMonsterSpawnCall&, const StatePtr&) const;
+     bool Step(CSOLMonsterSpawnCall&, const StatePtr&, bool, const char*);
++    bool Visual(CSOLMonsterSpawnCall&, const StatePtr&, bool, CSOLScenarioVisual, const char*);
+     const csol::scenario::BossSkillRow* Row(const StatePtr&) const;
+     bool ValidateTarget(CSOLMonsterSpawnCall&, const StatePtr&, CCSOLOrdinaryMonsterServices&);
+     bool MoveTo(CSOLMonsterSpawnCall&, const StatePtr&, const Vector&);
+--- a/tests/csol-scenario-teddy-bear/tentacle_sdk.cpp
++++ b/tests/csol-scenario-teddy-bear/tentacle_sdk.cpp
+@@ -61,6 +61,7 @@
+     entvars_t* lastInflictor{};
+     entvars_t* lastAttacker{};
+     bool exhaust{}, failEffects{};
++    std::string failEffect;
+     DWORD oldProtection{};
+     void* protectedPage{};
+ 
+@@ -182,19 +183,22 @@
+         Require(false, "same-edict creator was reused");
+     }
+ };
++void RevokeFromVisualWarning(ALERT_TYPE,const char*,...)
++{auto& c=*Case::active;c.f.runtime->RequestClose();c.Protect();}
++
+ bool Effects::RedBloodEnabled() const
+ { const bool result = blood; owner.Edge("redblood-policy"); return result; }
+ bool Effects::BloodScreen(edict_t* receiver)
+-{ Expect(receiver && !receiver->free, "screen receiver is valid"); ++owner.bloodScreens; owner.Edge("blood-screen"); return !owner.failEffects; }
++{ Expect(receiver && !receiver->free, "screen receiver is valid"); ++owner.bloodScreens; owner.Edge("blood-screen"); return !owner.failEffects && owner.failEffect != "blood-screen"; }
+ bool Effects::Debris(const Vector& origin, int model, int count)
+ {
+     ++owner.debris;
+     Expect(origin == Vector(10,20,30) && model == owner.resources.models[3] && count == 4,
+         "debris uses live origin and distinct concretegibs index");
+-    owner.Edge("debris"); return !owner.failEffects;
++    owner.Edge("debris"); return !owner.failEffects && owner.failEffect != "debris";
+ }
+ bool Effects::Shake(edict_t* receiver)
+-{ owner.shaken.push_back(Engine::Index(receiver)); owner.Edge("shake"); return !owner.failEffects; }
++{ owner.shaken.push_back(Engine::Index(receiver)); owner.Edge("shake"); return !owner.failEffects && owner.failEffect != "shake"; }
+ 
+ void Startup()
+ {
+@@ -305,8 +309,37 @@
+       Expect(!CSOL_PrecacheTeddyTentacleResources(c.effects->access,output,c.error)&&!output.Ready()&&!c.error.message.empty(),
+         "failed sound precache reports error and cannot publish model-only readiness"); }
+     { Case c;c.Player();Require(c.Create(),"writer failure create");c.failEffects=true;
+-      c.Think(100.7f);Expect(CSOL_RulesRejected()&&c.Retired()&&c.sounds==0,
+-        "failed required effect writer rejects explicitly and stops activation tail"); }
++      c.Think(100.7f);Expect(!CSOL_RulesRejected()&&!c.Retired()&&c.damages==1&&c.sounds==1&&c.debris==1&&c.shaken.size()==1,
++        "optional writers fail without rejecting map or skipping damage, sound and activation tail");
++      const int count=c.damages; c.Think(100.8f);
++      Expect(c.damages==count&&c.debris==1,"failed visual does not repeat one-shot activation");
++      c.Think(102.2f); Expect(c.Retired(),"visual omission preserves original strict expiry"); }
++    for (const std::string edge : {"blood-screen", "debris", "shake"})
++    {
++      Case c;c.Player();Require(c.Create(),"individual cosmetic failure create");c.failEffect=edge;
++      c.Think(100.7f);Expect(!CSOL_RulesRejected()&&!c.Retired()&&c.sounds==1&&c.damages==1&&c.debris==1,
++        "individual cosmetic false result leaves entity active");
++    }
++    for (int missing = 0; missing != 5; ++missing)
++    {
++      Case c;c.Player();Require(c.Create(),"native visual callback failure create");
++      if (missing==0) g_engfuncs.pfnMessageBegin=nullptr;
++      if (missing==1) g_engfuncs.pfnMessageEnd=nullptr;
++      if (missing==2) g_engfuncs.pfnWriteByte=nullptr;
++      if (missing==3) g_engfuncs.pfnWriteShort=nullptr;
++      if (missing==4) g_engfuncs.pfnWriteCoord=nullptr;
++      c.Think(100.7f);
++      Expect(!CSOL_RulesRejected()&&!c.Retired()&&c.damages==1&&c.sounds==1&&c.debris==1&&c.shaken.size()==1,
++        "native optional packet rejection preserves gameplay and later effects");
++    }
++    { Case c;c.Player();Require(c.Create(),"required model identity failure create");
++      g_engfuncs.pfnSetModel=[](edict_t* ed,const char*){ed->v.modelindex=0;};
++      c.Think(100.7f);Expect(CSOL_RulesRejected()&&c.Retired()&&c.damages==0,
++        "required entity model failure still rejects instead of pretending gameplay succeeded"); }
++    { Case c;c.Player();Require(c.Create(),"warning callback revocation create");c.failEffect="debris";
++      g_engfuncs.pfnAlertMessage=RevokeFromVisualWarning;
++      c.Think(100.7f);Expect(c.f.runtime->Closing(),
++        "visual warning callback revocation is rechecked before touch or later effects"); }
+ }
+ 
+ class Creature final : public CBaseEntity
+--- a/tests/csol-scenario-teddy-bear/ground_sdk.cpp
++++ b/tests/csol-scenario-teddy-bear/ground_sdk.cpp
+@@ -94,7 +94,7 @@
+     int randomFloats{}, tentacleRandomFloats{}, angleCalls{}, named{}, damages{};
+     unsigned seed{17};
+     bool open{}, nested{};
+-    bool spawnMode{}, slidingMode{}, meteorMode{};
++    bool spawnMode{}, slidingMode{}, meteorMode{}, optionalFailure{};
+     int slidingOwner{}, slidingOwnerCalls{}, blackholeLookups{};
+     std::array<int,8> spawnLongs{};
+     std::array<float,2> spawnIntervals{};
+@@ -177,8 +177,8 @@
+             if(low==0&&high==180){++c.tentacleRandomFloats;c.Edge("tentacle-random-float");return 90;}
+             Expect(low==-16&&high==16,"explosion engine RNG range -16..16");
+             csol::skillfx::WorldEffect completed;
+-            Expect(!c.packets.empty()&&c.packets.back().complete&&
+-                csol::skillfx::Decode(c.packets.back().bytes,completed),
++            Expect(c.optionalFailure||(!c.packets.empty()&&c.packets.back().complete&&
++                csol::skillfx::Decode(c.packets.back().bytes,completed)),
+                 "both explosion RNG draws follow the completed TE145 packet");
+             const float result=c.randomFloats++?7.8125f:-3.8125f;c.Edge("random-float");return result;
+         };
+@@ -467,6 +467,31 @@
+         Expect(static_cast<int>(c.packets.size())==packetsAtStop,"cancelled callback never starts another packet");
+         for(const auto& packet:c.packets)Expect(packet.complete,"copied open payload finishes after owner cancellation");
+     }
++}
++
++void CancelFromVisualWarning(ALERT_TYPE,const char*,...)
++{Case::active->f.runtime->RequestClose();}
++
++void VisualFailure()
++{
++    for (const auto skill : {teddy::Skill::Attack1, teddy::Skill::Attack2})
++        for (int missing=0;missing!=5;++missing)
++        {
++            Case c(skill);c.optionalFailure=true;
++            if(missing==0)g_engfuncs.pfnMessageBegin=nullptr;
++            if(missing==1)g_engfuncs.pfnMessageEnd=nullptr;
++            if(missing==2)g_engfuncs.pfnWriteByte=nullptr;
++            if(missing==3)g_engfuncs.pfnWriteShort=nullptr;
++            if(missing==4)g_engfuncs.pfnWriteCoord=nullptr;
++            Require(c.Event(skill==teddy::Skill::Attack1?1000:0),"cosmetic failure keeps actual Teddy event alive");
++            Expect(c.state->error.message.empty()&&!CSOL_RulesRejected(),"visual send error never becomes a map failure");
++            Expect(!c.state->eventing,"visual omission releases the event guard");
++            if(skill==teddy::Skill::Attack1)Expect(c.randomFloats==2,"both original explosion RNG draws remain after a dropped cosmetic packet");
++        }
++    { Case c;c.optionalFailure=true;g_engfuncs.pfnMessageBegin=nullptr;
++      g_engfuncs.pfnAlertMessage=CancelFromVisualWarning;
++      Expect(!c.Event()&&c.f.runtime->Closing()&&c.state->error.message.empty(),
++        "warning callback cancellation stops the old event without reporting a gameplay failure"); }
+ }
+ 
+ void CheckAttackModel(Case& c,const Vector& origin,const Vector& angles,bool blackhole)
+@@ -1648,7 +1673,7 @@
+ {
+     const std::string group=argc>1?argv[1]:"attack";
+     try { if(group=="attack")Attack();else if(group=="candy")Candy();else if(group=="ordering")Ordering();
+-        else if(group=="targets-reentry")TargetsAndReentry();else if(group=="cancellation")Cancellation();else if(group=="models")Models();
++        else if(group=="targets-reentry")TargetsAndReentry();else if(group=="cancellation")Cancellation();else if(group=="models")Models();else if(group=="visual-failure")VisualFailure();
+         else if(group=="spawn")Spawn(argc>2?argv[2]:nullptr);else if(group=="sliding")Sliding(argc>2?argv[2]:nullptr);else if(group=="blackhole")Blackhole(argc>2?argv[2]:nullptr);else if(group=="meteor")Meteor(argc>2?argv[2]:nullptr);else if(group=="cache-owners")BossRoomOwners();else if(group=="meteor-rooms")MeteorRooms();else if(group=="meteor-entities")MeteorEntities();else if(group=="meteor-entity-cancellation")MeteorEntityCancellation();else if(group=="gift-fireworks")GiftFireworks();else if(group=="gift-damage")GiftDamage();else throw std::runtime_error("unknown group"); }
+     catch(const std::exception& error){++observationFailures;std::cerr<<"ERROR "<<error.what()<<'\n';}
+     std::cout<<"behaviorChecks="<<observations<<" checks="<<sdk_test::checks<<" failures="<<observationFailures+sdk_test::failures<<'\n';
