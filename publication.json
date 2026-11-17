@@ -1,6 +1,12 @@
 {
   "format": 1,
   "files": [
+    "native/include/goldcraft/open_file_metadata.hpp",
+    "tests/filesystem-open-metadata/main.cpp",
+    "tests/filesystem-open-metadata/run.py",
+    "tests/filesystem-open-metadata/README.md",
+    "docs/2026-11-17_优化-文件打开元数据与原版声音缓存-report.md",
+
     "tests/csol-sequence-safety/main.cpp",
     "tests/csol-sequence-safety/run.py",
     "tests/csol-sequence-safety/README.md",

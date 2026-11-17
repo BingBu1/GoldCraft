@@ -3203,10 +3203,18 @@ index e82d5ff..99e9e1d 100644
  	${PROJECT_PUBLIC_DIR}
  )
 diff --git a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
-index 85c04cb..42936a6 100644
+index 85c04cb..4c5b53d 100644
 --- a/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
 +++ b/rehlds/filesystem/FileSystem_Stdio/src/BaseFileSystem.cpp
-@@ -295,7 +295,7 @@ bool CBaseFileSystem::IsDirectory(const char *pFileName)
+@@ -27,6 +27,7 @@
+ */
+ 
+ #include "precompiled.h"
++#include "goldcraft/open_file_metadata.hpp"
+ 
+ float g_flDummyFloat = 1.0f;
+ CBaseFileSystem *CBaseFileSystem::s_pFileSystem;
+@@ -295,7 +296,7 @@ bool CBaseFileSystem::IsDirectory(const char *pFileName)
  }
  
  // The base file search goes through here
@@ -3215,7 +3223,7 @@ index 85c04cb..42936a6 100644
  {
  	CFileHandle *fh = nullptr;
  	if (path->IsPackFile())
-@@ -317,7 +317,8 @@ FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName,
+@@ -317,7 +318,8 @@ FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName,
  		}
  
  		CPackFileEntry result = path->m_PackFiles[searchresult];
@@ -3225,7 +3233,16 @@ index 85c04cb..42936a6 100644
  
  		fh                  = new CFileHandle;
  		fh->m_pFile         = path->m_hPackFile->m_pFile;
-@@ -936,7 +937,7 @@ bool CBaseFileSystem::AddPackFileFromPath(const char *pPath, const char *pakfile
+@@ -342,7 +344,7 @@ FileHandle_t CBaseFileSystem::FindFile(CSearchPath *path, const char *pFileName,
+ 		}
+ 
+ 		struct _stat buf;
+-		if (FS_stat(pTmpFileName, &buf) == -1) {
++		if (!goldcraft::filesystem::OpenFileMetadata(fp, buf) && FS_stat(pTmpFileName, &buf) == -1) {
+ 			Warning(FILESYSTEM_WARNING, "_stat on file %s which appeared to exist failed!!!\n", pTmpFileName);
+ 		}
+ 
+@@ -936,7 +938,7 @@ bool CBaseFileSystem::AddPackFileFromPath(const char *pPath, const char *pakfile
  		FS_fseek(fh->m_pFile, -signed(sizeof(appended)), FILESYSTEM_SEEK_TAIL);
  		FS_fread(&appended, 1, sizeof(appended), fh->m_pFile);
  
@@ -3234,7 +3251,7 @@ index 85c04cb..42936a6 100644
  		{
  			m_SearchPaths.Remove(newIndex);
  			return false;
-@@ -992,7 +993,7 @@ bool CBaseFileSystem::PreparePackFile(CSearchPath &packfile, int64_t offsetofpac
+@@ -992,7 +994,7 @@ bool CBaseFileSystem::PreparePackFile(CSearchPath &packfile, int64_t offsetofpac
  		}
  
  		FS_fseek(packfile.m_hPackFile->m_pFile, packfile.m_hPackFile->m_nStartOffset + header.dirofs + offsetofpackinmetafile, FILESYSTEM_SEEK_HEAD);
@@ -3243,7 +3260,7 @@ index 85c04cb..42936a6 100644
  
  		for (int i = 0; i < numpackfiles; i++)
  		{
-@@ -1042,7 +1043,7 @@ bool CBaseFileSystem::Prepare64BitPackFile(CSearchPath &packfile, int64_t offset
+@@ -1042,7 +1044,7 @@ bool CBaseFileSystem::Prepare64BitPackFile(CSearchPath &packfile, int64_t offset
  		}
  
  		FS_fseek(packfile.m_hPackFile->m_pFile, packfile.m_hPackFile->m_nStartOffset + header.dirofs + offsetofpackinmetafile, FILESYSTEM_SEEK_HEAD);
@@ -3252,7 +3269,7 @@ index 85c04cb..42936a6 100644
  
  		for (int i = 0; i < numpackfiles; i++)
  		{
-@@ -1367,7 +1368,7 @@ bool CBaseFileSystem::FindNextFileHelper(FindData_t *pFindData)
+@@ -1367,7 +1369,7 @@ bool CBaseFileSystem::FindNextFileHelper(FindData_t *pFindData)
  
  		if (pFindData->m_LimitedPathID != -1)
  		{
@@ -3261,7 +3278,7 @@ index 85c04cb..42936a6 100644
  				return false;
  			}
  		}
-@@ -1671,6 +1672,6 @@ CBaseFileSystem::CSearchPath::~CSearchPath()
+@@ -1671,6 +1673,6 @@ CBaseFileSystem::CSearchPath::~CSearchPath()
  	if (m_bIsPackFile && m_hPackFile)
  	{
  		BaseFileSystem()->m_PackFileHandles.FindAndRemove(m_hPackFile->m_pFile);
