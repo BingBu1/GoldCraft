@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_接入-870生产购买与九枪客户端-report.md",
+    "native/guest/cof/scenario_damage.v6.json",
+    "tests/cryoffear-shotgun-presentation/run.py",
+    "tests/cryoffear-shotgun-presentation/README.md",
+
     "tests/engine-manifest-transport/server.cpp",
     "tests/engine-manifest-transport/run.py",
     "tests/engine-manifest-transport/README.md",

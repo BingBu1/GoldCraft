@@ -9,6 +9,7 @@
 #include "guest_cof_mp5_native_effects.hpp"
 #include "guest_cof_m16_native_effects.hpp"
 #include "guest_cof_g43_native_effects.hpp"
+#include "guest_cof_shotgun_native_effects.hpp"
 #include "guest_cof_pushback.hpp"
 #include "native/guest/cof/first_draw_lifecycle.hpp"
 #include "guest_cof_sound_field.hpp"
@@ -62,9 +63,11 @@ struct Map
         std::uint64_t actionRound{};
         int actionSpawn{};
         NativeOwnerPersistentState persistent{};
+        ShotgunOwnerState shotgun{};
         RevolverLifecycle revolver;
         FirstDrawLifecycle vp70FirstDraw,tmpFirstDraw;
         bool persistentCaptured{};
+        bool shotgunCaptured{};
         bool capable{}, prepared{}, spawning{};
         std::uint32_t weapons{};
     };
@@ -77,7 +80,7 @@ struct Map
     SoundField sounds;
     ScenarioDamageConfig damage;
     PlayerActionRuntime actions;
-    bool m16Enabled{},g43Enabled{};
+    bool m16Enabled{},g43Enabled{},shotgunEnabled{};
     std::uint32_t configuredWeapons{};
     std::array<Player, GlockOwnerRuntime::SlotCount> players{};
     unsigned calls{};
@@ -172,6 +175,13 @@ bool DispatchAction(void* context,CBasePlayer& player,PlayerThinkKind kind) noex
         sounds={G43Sounds[unsigned(G43Sound::PushSwing)].host,G43Sounds[unsigned(G43Sound::PushHit)].host};
         event=resources->events[1];
     }
+    else if(definition->identity==Firearm::Shotgun)
+    {
+        const auto* resources=host.runtime.PreparedShotgunResources();
+        if(!resources||resources->generation!=map.epoch)return false;
+        sounds={ShotgunSounds[unsigned(ShotgunSound::PushSwing)].host,ShotgunSounds[unsigned(ShotgunSound::PushHit)].host};
+        event=resources->events[1];
+    }
     else return false;
     const float damage=rules->melee;
     struct Lease
@@ -196,7 +206,7 @@ bool PrepareActions(void* context,CBasePlayer& player,std::uint64_t map,std::uin
     if(!slot||!Current(&owner)||owner.epoch!=map||!owner.actions.Current())return false;
     auto& row=owner.players[slot];
     if(!Entity(player,row)||row.spawning)return false;
-    if(!owner.m16Enabled&&!owner.g43Enabled)return false;
+    if(!owner.m16Enabled&&!owner.g43Enabled&&!owner.shotgunEnabled)return false;
     const auto runtime=Scenario(owner);
     if(!runtime||!runtime->session)return false;
     row.actionRuntime=runtime;row.actionRound=runtime->session->Map().RoundGeneration();
@@ -228,6 +238,8 @@ bool PlayerAuthority(CBasePlayer& player,PlaySfxCall& output) noexcept
     if(M16Backends backend{};host.runtime.Backend(player,backend))
     {output={backend.context,backend.current};return true;}
     if(G43Backends backend{};host.runtime.Backend(player,backend))
+    {output={backend.context,backend.current};return true;}
+    if(ShotgunBackends backend{};host.runtime.Backend(player,backend))
     {output={backend.context,backend.current};return true;}
     return false;
 }
@@ -297,6 +309,14 @@ bool PrepareRevolver(void* context,const RevolverResources& resources,RevolverPr
     if(!rules)return false;
     output.csPenetration=rules->penetration;
     return Current(&map);
+}
+bool PrepareShotgun(void* context,const ShotgunResources& resources,ShotgunPrepared& output) noexcept
+{
+    auto& map=*static_cast<Map*>(context);
+    if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
+        g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
+    return output.pushbackReady;
 }
 bool Effect(void* context, const GlockResources& resources, const OwnerBinding& binding,
     CBasePlayer& player, CBasePlayerWeapon& weapon, const GlockEvent& event) noexcept
@@ -473,6 +493,13 @@ bool EffectG43(void* context,const G43Resources& resources,const OwnerBinding& b
     }
     return map.effects.Dispatch(resources,binding,player,weapon,event);
 }
+bool EffectShotgun(void* context,const ShotgunResources& resources,const OwnerBinding& binding,
+    CBasePlayer& player,CBasePlayerWeapon& weapon,const ShotgunEvent& event) noexcept
+{
+    auto& map=*static_cast<Map*>(context);MapCall call(map);const auto slot=Slot(player);
+    return slot&&Current(&map)&&binding.runtime&&binding.runtime->Current(binding)&&
+        Entity(player,map.players[slot])&&map.effects.Dispatch(resources,binding,player,weapon,event);
+}
 bool ReleaseRetired() noexcept
 {
     for (auto it = host.maps.begin(); it != host.maps.end();)
@@ -518,6 +545,13 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
     const auto previousRevision = row.revision;
     NativeOwnerPersistentState persistent = !spawn && row.persistentCaptured ? row.persistent : NativeOwnerPersistentState{};
     if (!spawn && !row.persistentCaptured) host.runtime.PersistentState(player, persistent);
+    ShotgunOwnerState shotgun{};
+    bool shotgunCaptured=spawn;
+    if(!spawn)
+    {
+        if(row.shotgunCaptured){shotgun=row.shotgun;shotgunCaptured=true;}
+        else shotgunCaptured=host.runtime.PersistentState(player,shotgun);
+    }
     const auto admission=Capability(player,*map);
     const bool capable = admission.weapons!=0;
     if (!Current(map) || owner.Get<CBasePlayer>() != &player || row.revision != previousRevision) return;
@@ -527,6 +561,10 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
         row.modelIndex == player.pev->modelindex && row.modelString == static_cast<int>(player.pev->model) &&
         row.capable == capable&&row.weapons==admission.weapons) return;
     if (row.revision == UINT64_MAX) return;
+    // A previously admitted same-life 870 must retain its actual reload clock.
+    // New lives and a newly admitted weapon have no earlier clock to restore.
+    if(!spawn&&(row.weapons&FirearmCapability(Firearm::Shotgun))&&
+        (admission.weapons&FirearmCapability(Firearm::Shotgun))&&!shotgunCaptured)return;
     // Capability changes retire the old authority just like a model change.
     // Capture while its old mask is still authoritative, including withdrawal.
     if (!spawn && row.prepared && Entity(player, row) && row.userid == userid &&
@@ -541,6 +579,7 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
     row.capable = capable; row.prepared = false;
     row.weapons=admission.weapons;
     row.persistent = persistent; row.persistentCaptured = false;
+    row.shotgun = shotgun; row.shotgunCaptured = shotgunCaptured;
     const auto current = [&] {
         return Current(map) && owner.Get<CBasePlayer>() == &player && row.revision == revision;
     };
@@ -616,6 +655,13 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
             if(!g43||g43->shot!=std::trunc(g43->shot)||g43->melee!=std::trunc(g43->melee))return;
             request.g43Rules=NativeOwnerRules{true,int(g43->shot),int(g43->melee),30};
         }
+        if(admission.weapons&FirearmCapability(Firearm::Shotgun))
+        {
+            const auto* rules=map->damage.Find(Firearm::Shotgun);
+            if(!rules||rules->shot!=std::trunc(rules->shot)||rules->melee!=std::trunc(rules->melee))return;
+            request.shotgun=GlockPlayerPreparation::ShotgunPreparation{
+                {true,int(rules->shot),int(rules->melee),15},shotgun};
+        }
         std::string error;
         const bool prepared = spawn ? host.runtime.PlayerSpawned(player, request, error) :
             host.runtime.PlayerModelChanged(player, request, error);
@@ -623,11 +669,12 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
         row.prepared = prepared;
         if(prepared)
         {
+            row.shotgunCaptured=false;
             int remaining=gpGlobals->maxEntities;
             for(const int inventorySlot:{PISTOL_SLOT,PRIMARY_WEAPON_SLOT})
             {
             if(inventorySlot==PRIMARY_WEAPON_SLOT&&
-                !(row.weapons&(FirearmCapability(Firearm::TMP)|FirearmCapability(Firearm::MP5)|FirearmCapability(Firearm::M16)|FirearmCapability(Firearm::G43))))continue;
+                !(row.weapons&(FirearmCapability(Firearm::TMP)|FirearmCapability(Firearm::MP5)|FirearmCapability(Firearm::M16)|FirearmCapability(Firearm::G43)|FirearmCapability(Firearm::Shotgun))))continue;
             for(auto* item=player.m_rgpPlayerItems[inventorySlot];item&&remaining-->0;)
             {
                 const EHANDLE next(item->m_pNext);
@@ -671,6 +718,12 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
                 else if(auto* g43=dynamic_cast<G43Weapon*>(item);g43&&g43->m_pPlayer==&player&&g43->m_iId==G43HostId)
                 {
                     const bool rebound=g43->RestoreInventoryBinding(player);
+                    if(!current())return;
+                    if(!rebound){row.prepared=false;return;}
+                }
+                else if(auto* shotgun=dynamic_cast<ShotgunWeapon*>(item);shotgun&&shotgun->m_pPlayer==&player&&shotgun->m_iId==ShotgunHostId)
+                {
+                    const bool rebound=shotgun->RestoreInventoryBinding(player);
                     if(!current())return;
                     if(!rebound){row.prepared=false;return;}
                 }
@@ -745,18 +798,20 @@ void CSOL_PrecacheGuestCof()
         std::string error;
         const bool config = size > 0 && map->damage.Parse({reinterpret_cast<const char*>(file.get()), std::size_t(size)}, error);
         if (!config) { ALERT(at_error, "[CoF] Guest weapons disabled: %s\n", error.c_str()); return; }
-        if(map->damage.Find(Firearm::M16)||map->damage.Find(Firearm::G43))
+        if(map->damage.Find(Firearm::M16)||map->damage.Find(Firearm::G43)||map->damage.Find(Firearm::Shotgun))
         {
             const auto factory=Sys_GetFactory("swds.dll");
             auto* stage=factory?static_cast<goldcraft::IPlayerThinkStage*>(factory(goldcraft::PlayerThinkStageVersion,nullptr)):nullptr;
             const bool installed=stage&&map->actions.Install(*stage,map->epoch);
             map->m16Enabled=installed&&map->damage.Find(Firearm::M16);
             map->g43Enabled=installed&&map->damage.Find(Firearm::G43);
+            map->shotgunEnabled=installed&&map->damage.Find(Firearm::Shotgun);
             if(!installed)ALERT(at_error,"[CoF] Long guns disabled: actual player Think stage is unavailable\n");
         }
         for(const auto& definition:Firearms)
             if((definition.identity!=Firearm::M16||map->m16Enabled)&&
-                (definition.identity!=Firearm::G43||map->g43Enabled)&&map->damage.Find(definition.identity))
+                (definition.identity!=Firearm::G43||map->g43Enabled)&&
+                (definition.identity!=Firearm::Shotgun||map->shotgunEnabled)&&map->damage.Find(definition.identity))
                 map->configuredWeapons|=FirearmCapability(definition.identity);
         host.maps.push_back(std::move(map));
         host.active = host.maps.back().get(); host.active->active = true;
@@ -776,6 +831,10 @@ void CSOL_PrecacheGuestCof()
             M16RequiredEffects&~(M16NativeSoundEffects|(1u<<unsigned(M16Effect::FireSound))),PlaySfxRules::Cooperative};
         if(current.g43Enabled)callbacks.g43={PrepareG43,EffectG43,PrepareActions,
             G43RequiredEffects&~(G43NativeSoundEffects|(1u<<unsigned(G43Effect::FireSound))),PlaySfxRules::Cooperative};
+        constexpr auto shotgunRuntimeEffects=ShotgunNativeSoundEffects|(1u<<unsigned(ShotgunEffect::FireSound))|
+            (1u<<unsigned(ShotgunEffect::ReloadStage))|(1u<<unsigned(ShotgunEffect::AmmoWarning));
+        if(current.shotgunEnabled)callbacks.shotgun={PrepareShotgun,EffectShotgun,PrepareActions,
+            ShotgunRequiredEffects&~shotgunRuntimeEffects,PlaySfxRules::Cooperative};
         callbacks.weaponCurrent=[](void* p,CBasePlayer& player,int id) noexcept {
             auto& map=*static_cast<Map*>(p);const auto index=Slot(player);const auto* definition=FindFirearm(id);
             return definition&&index&&Current(&map)&&Entity(player,map.players[index])&&
@@ -792,6 +851,7 @@ void CSOL_PrecacheGuestCof()
         const auto* mp5Resources=host.runtime.PreparedMP5Resources();
         const auto* m16Resources=host.runtime.PreparedM16Resources();
         const auto* g43Resources=host.runtime.PreparedG43Resources();
+        const auto* shotgunResources=host.runtime.PreparedShotgunResources();
         if (!resources || !revolverResources || !current.effects.Prepare(authority, *resources, {true, true, true}) ||
             !current.sounds.BeginMap(authority) ||
             ((current.effects.Capabilities() | EffectBit(GlockEffect::ShotLatch)) & HostEffects) != HostEffects||
@@ -803,6 +863,8 @@ void CSOL_PrecacheGuestCof()
                 (1u<<unsigned(M16Effect::FireSound))|(1u<<unsigned(M16Effect::ShotLatch)))&M16RequiredEffects)!=M16RequiredEffects))||
             (current.g43Enabled&&(!g43Resources||((current.effects.G43Capabilities()|G43NativeSoundEffects|
                 (1u<<unsigned(G43Effect::FireSound))|(1u<<unsigned(G43Effect::ShotLatch)))&G43RequiredEffects)!=G43RequiredEffects))||
+            (current.shotgunEnabled&&(!shotgunResources||
+                ((current.effects.ShotgunCapabilities()|shotgunRuntimeEffects)&ShotgunRequiredEffects)!=ShotgunRequiredEffects))||
             ((current.effects.RevolverCapabilities(*revolverResources)|RevolverNativeSoundEffects|(1u<<unsigned(RevolverEffect::ShotLatch)))&RevolverRequiredEffects)!=RevolverRequiredEffects)
         { CSOL_EndGuestCofMap(); ALERT(at_error, "[CoF] Actual Glock consumers were not prepared\n"); return; }
         for(const auto& definition:Firearms)
@@ -844,6 +906,7 @@ void CSOL_GuestCofSpawnStarted(CBasePlayer& player) noexcept
     if (!Current(map) || entity.Get<CBasePlayer>() != &player) return;
     auto& row = map->players[slot];
     row.spawning = true; row.persistent = {}; row.persistentCaptured = false;
+    row.shotgun = {}; row.shotgunCaptured = false;
 }
 void CSOL_GuestCofSpawned(CBasePlayer& player) noexcept
 {
@@ -864,6 +927,10 @@ void CSOL_GuestCofModelChanging(CBasePlayer& player) noexcept
     const bool captured = host.runtime.PersistentState(player, persistent);
     if (!Current(map) || entity.Get<CBasePlayer>() != &player) return;
     if (captured) { row.persistent = persistent; row.persistentCaptured = true; }
+    ShotgunOwnerState shotgun{};
+    const bool shotgunCaptured=host.runtime.PersistentState(player,shotgun);
+    if(!Current(map)||entity.Get<CBasePlayer>()!=&player)return;
+    if(shotgunCaptured){row.shotgun=shotgun;row.shotgunCaptured=true;}
     Retire(player, false, true);
 }
 void CSOL_GuestCofModelChanged(CBasePlayer& player) noexcept { PreparePlayer(player, false); }
@@ -917,6 +984,7 @@ bool CSOL_GuestCofCanUse(CBasePlayer& player, int id) noexcept
     if(id==MP5HostId){TMPBackends backend{};return host.runtime.MP5Backend(player,backend);}
     if(id==M16HostId){M16Backends backend{};return host.runtime.Backend(player,backend);}
     if(id==G43HostId){G43Backends backend{};return host.runtime.Backend(player,backend);}
+    if(id==ShotgunHostId){ShotgunBackends backend{};return host.runtime.Backend(player,backend);}
     GlockBackends backend{};return host.runtime.Backend(player,backend);
 }
 bool CSOL_GuestCofPreserveReload(CBasePlayer& player,int playerAnimation,int& desiredSequence) noexcept
@@ -924,7 +992,8 @@ bool CSOL_GuestCofPreserveReload(CBasePlayer& player,int playerAnimation,int& de
     auto* map=host.active;
     if(!map||!Current(map)||!map->ready)return false;
     MapCall call(*map);
-    return host.runtime.PreserveRevolverReload(player,playerAnimation,desiredSequence);
+    return host.runtime.PreserveRevolverReload(player,playerAnimation,desiredSequence)||
+        host.runtime.PreserveShotgunReload(player,playerAnimation,desiredSequence);
 }
 bool CSOL_IsGuestCof(const CBasePlayerWeapon& weapon) noexcept
 {
@@ -936,7 +1005,8 @@ bool CSOL_IsGuestCof(const CBasePlayerWeapon& weapon) noexcept
         (weapon.m_iId==TMPId&&dynamic_cast<const TMPWeapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::TMP)->classname.data()))||
         (weapon.m_iId==MP5HostId&&dynamic_cast<const MP5Weapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::MP5)->classname.data()))||
         (weapon.m_iId==M16HostId&&dynamic_cast<const M16Weapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::M16)->classname.data()))||
-        (weapon.m_iId==G43HostId&&dynamic_cast<const G43Weapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::G43)->classname.data()));
+        (weapon.m_iId==G43HostId&&dynamic_cast<const G43Weapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::G43)->classname.data()))||
+        (weapon.m_iId==ShotgunHostId&&dynamic_cast<const ShotgunWeapon*>(&weapon)&&FClassnameIs(weapon.pev,FindFirearm(Firearm::Shotgun)->classname.data()));
 }
 const char* CSOL_GuestCofWorldModel(const CBasePlayerItem& item) noexcept
 {
@@ -948,7 +1018,8 @@ bool CSOL_DeliverGuestCof(CBasePlayer& player,int id)
 {
     const auto* definition=FindFirearm(id);
     if(!definition || !CSOL_GuestCofCanUse(player,id))return false;
-    const bool primary=definition->identity==Firearm::TMP||definition->identity==Firearm::MP5||definition->identity==Firearm::M16||definition->identity==Firearm::G43;
+    const bool primary=definition->identity==Firearm::TMP||definition->identity==Firearm::MP5||
+        definition->identity==Firearm::M16||definition->identity==Firearm::G43||definition->identity==Firearm::Shotgun;
     const CSOLGunPurchaseAdapter adapter{id,primary?PRIMARY_WEAPON_SLOT:PISTOL_SLOT,definition->classname.data(),CSOL_GuestCofCanUse,
         [](const CBasePlayerWeapon& weapon,int wanted) noexcept {
             return weapon.m_iId==wanted&&CSOL_IsGuestCof(weapon);
@@ -967,11 +1038,13 @@ bool CSOL_DeliverGuestCof(CBasePlayer& player,int id)
             const auto* mp5=dynamic_cast<const MP5Weapon*>(&weapon);
             const auto* m16=dynamic_cast<const M16Weapon*>(&weapon);
             const auto* g43=dynamic_cast<const G43Weapon*>(&weapon);
+            const auto* shotgun=dynamic_cast<const ShotgunWeapon*>(&weapon);
             return weapon.m_pPlayer==owner&&owner->m_pActiveItem==&weapon&&
                 ((glock&&glock->Status()==GlockStatus::Applied)||(p345&&p345->Status()==P345Status::Applied)||
                     (revolver&&revolver->Status()==RevolverStatus::Applied)||(vp70&&vp70->Status()==VP70Status::Applied)||
                     (tmp&&tmp->Status()==TMPStatus::Applied)||(mp5&&mp5->Status()==TMPStatus::Applied)||
-                    (m16&&m16->Status()==M16Status::Applied)||(g43&&g43->Status()==G43Status::Applied));
+                    (m16&&m16->Status()==M16Status::Applied)||(g43&&g43->Status()==G43Status::Applied)||
+                    (shotgun&&shotgun->Status()==ShotgunStatus::Applied));
         },true};
     return CSOL_DeliverAdaptedGun(player,adapter);
 }

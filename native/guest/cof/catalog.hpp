@@ -84,6 +84,10 @@ inline constexpr std::array<FirearmDefinition,FirearmKeys.size()> Firearms=[] {
     result[static_cast<unsigned>(Firearm::G43)]={Firearm::G43,903,26,10,100,3500,50,10,
         "weapon_cof_g43","cof_g43","客串武器·G43",
         "models/guest/cof/g43/v_g43.mdl","models/guest/cof/g43/p_g43.mdl","models/guest/cof/g43/w_g43.mdl"};
+    result[static_cast<unsigned>(Firearm::Shotgun)]={Firearm::Shotgun,904,4,5,50,3000,65,5,
+        "weapon_cof_shotgun","cof_shotgun","客串武器·Remington 870",
+        "models/guest/cof/shotgun/v_shotgun.mdl","models/guest/cof/shotgun/p_shotgun.mdl",
+        "models/guest/cof/shotgun/w_shotgun.mdl"};
     return result;
 }();
 constexpr const FirearmDefinition* FindFirearm(Firearm identity) noexcept
@@ -108,6 +112,7 @@ constexpr const FirearmDefinition* FindOriginalFirearm(int originalId) noexcept
     case 27:return FindFirearm(Firearm::MP5);
     case 9:return FindFirearm(Firearm::M16);
     case 26:return FindFirearm(Firearm::G43);
+    case 4:return FindFirearm(Firearm::Shotgun);
     default:return nullptr;
     }
 }

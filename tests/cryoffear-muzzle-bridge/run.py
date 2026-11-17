@@ -28,6 +28,7 @@ def main():
     parser.add_argument('--mp5-model',type=Path)
     parser.add_argument('--m16-model',type=Path)
     parser.add_argument('--g43-model',type=Path)
+    parser.add_argument('--shotgun-model',type=Path)
     parser.add_argument('--vp70-attachment-proof',type=Path)
     args = parser.parse_args()
     output = args.output.absolute()
@@ -46,6 +47,8 @@ def main():
         raise ValueError('Use the reviewed resident MP5 P with its authored muzzle attachment and all five earlier models')
     if args.m16_model and (not args.mp5_model or sha(args.m16_model)!='69e88ff618b4000e572a067712247f0e5f9f7ea4e886d51080ee0d6dc00a5fd9'):
         raise ValueError('Use original police M16 P together with the earlier six models')
+    if args.shotgun_model and (not args.g43_model or sha(args.shotgun_model)!='60911831719dc57cca1bcb34801c8b74e24443372afe13d5230e336316a5a5bc'):
+        raise ValueError('Use original police 870 P together with the earlier eight models')
     vp70_inputs=[]
     if args.g43_model and (not args.m16_model or sha(args.g43_model)!='e5a2a3e637a8e1234a4a53b90b85b9a347203a442aa5b6722623ad465c101613'):
         raise ValueError('Use original police G43 P together with the earlier seven models')
@@ -107,6 +110,7 @@ def main():
     if args.mp5_model:inputs.add(args.mp5_model.resolve())
     if args.m16_model:inputs.add(args.m16_model.resolve())
     if args.g43_model:inputs.add(args.g43_model.resolve())
+    if args.shotgun_model:inputs.add(args.shotgun_model.resolve())
     inputs.update(vp70_inputs)
     environment = os.environ|json.loads(args.environment.read_text('utf-8-sig'))
     temp = output/'temp';temp.mkdir();environment.update(TEMP=str(temp),TMP=str(temp))
@@ -136,6 +140,7 @@ def main():
         if args.mp5_model:arguments.append(str(args.mp5_model.resolve()))
         if args.m16_model:arguments.append(str(args.m16_model.resolve()))
         if args.g43_model:arguments.append(str(args.g43_model.resolve()))
+        if args.shotgun_model:arguments.append(str(args.shotgun_model.resolve()))
         tested = subprocess.run(arguments,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     after = {str(p):sha(p) for p in sorted(inputs)}

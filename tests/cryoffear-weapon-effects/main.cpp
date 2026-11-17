@@ -164,7 +164,7 @@ int main(int argc, char** argv)
     engine.pEfxAPI = &effects;
     event.event = 5004;
     std::strcpy(event.options, "weapons/p345_shoot.wav");
-    for (const auto weapon : {Weapon::Glock,Weapon::P345,Weapon::Vp70,Weapon::Revolver,Weapon::Tmp,Weapon::Mp5,Weapon::M16})
+    for (const auto weapon : {Weapon::Glock,Weapon::P345,Weapon::Vp70,Weapon::Revolver,Weapon::Tmp,Weapon::Mp5,Weapon::M16,Weapon::G43,Weapon::Shotgun})
     {
         CHECK(service.StudioEvent(event, entity, weapon) == EffectResult::Dispatched);
         CHECK(std::strcmp(sample,"weapons_new/p345_shoot.wav") == 0);
@@ -183,6 +183,18 @@ int main(int argc, char** argv)
         char expected[128];std::snprintf(expected,sizeof(expected),"weapons_new/m16/%s.wav",name);
         CHECK(std::strcmp(sample,expected)==0);
     }
+    for(const char* name:{"insert","pump_forward","pump_back","pump_seq"})
+    {
+        std::snprintf(event.options,sizeof(event.options),"weapons/shotgun/%s.wav",name);
+        CHECK(service.StudioEvent(event,entity,Weapon::Shotgun)==EffectResult::Dispatched);
+        char expected[128];std::snprintf(expected,sizeof(expected),"weapons_new/shotgun/%s.wav",name);
+        CHECK(std::strcmp(sample,expected)==0);
+    }
+    std::strcpy(event.options,"weapons/syringe/syringe_sleeve.wav");
+    backendSuccess=false;
+    CHECK(service.StudioEvent(event,entity,Weapon::Shotgun)==EffectResult::BackendFailed);
+    CHECK(std::strcmp(sample,"weapons_new/syringe/syringe_sleeve.wav")==0&&spatialCount==0);
+    backendSuccess=true;
     std::strcpy(event.options,"prefix\\weapons/p345.wav");
     CHECK(service.StudioEvent(event, entity, Weapon::P345) == EffectResult::Dispatched);
     CHECK(std::strcmp(sample,"weapons_new/weapons/p345.wav") == 0);

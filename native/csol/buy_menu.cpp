@@ -22,6 +22,7 @@ constexpr Item items[]{
     {17,1,"glock","Glock 18","glock18",0},{26,1,"deagle","沙漠之鹰","deagle",0},
     {5,2,"xm1014","XM1014","xm1014",0},{21,2,"m3","M3","m3",0},
     {203,2,"balrog11","龙炎Balrog-Ⅺ","balrog11",5750},
+    {904,2,"cof_shotgun","客串武器·Remington 870","cof_shotgun",3000},
     {7,3,"mac10","MAC-10","mac10",0},{12,3,"ump45","UMP45","ump45",0},
     {900,3,"cof_tmp","客串武器·MP9","cof_tmp",2000},
     {901,3,"cof_mp5","客串武器·MP5A3","cof_mp5",2400},

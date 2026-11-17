@@ -39,5 +39,10 @@
   "sound/weapons_new/g43/g43_fire.wav": "5e4f1d08c61ecd83eed995b62550841ec6ea7096d2bdec51e42783e8fcc6c0b1",
   "sound/weapons_new/g43/g43_cock.wav": "55e635ee6a15c8fa795296807d93e4ae9571ae94884340d0b35f7f1aab0cf6cc",
   "sound/weapons_new/g43/g43_magin.wav": "57ea49fb15808e92275c3421d6da6c2f7d321c3027d532589017605731f91750",
-  "sound/weapons_new/g43/g43_magout.wav": "24f4f9882e38240f70431417b569e1b2e6f5495de80c6ca904a409ff41eb3bd0"
+  "sound/weapons_new/g43/g43_magout.wav": "24f4f9882e38240f70431417b569e1b2e6f5495de80c6ca904a409ff41eb3bd0",
+  "sound/weapons_new/shotgun/shoot.wav": "2a3dfba015f7aa3a82e1d223729d4a3c855c221a67def6f4dca0f0625e559221",
+  "sound/weapons_new/shotgun/insert.wav": "66e189b139ef7b2c19043ce41d301a75dafd45247e453e45ad87c23d23d5d9c4",
+  "sound/weapons_new/shotgun/pump_forward.wav": "014e6e6bc2b10db75e2ca57985fe30d2f53aa1ffb359979cc2bc177454797e98",
+  "sound/weapons_new/shotgun/pump_back.wav": "c0d01b3e8b35e8db31714cec253fc6ba9ca276cffca269d21a311916791bcfb6",
+  "sound/weapons_new/shotgun/pump_seq.wav": "e8851caf210083cb58894c236f8d7e5efc863de1a229108fb485924f37125262"
 }

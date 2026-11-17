@@ -76,5 +76,12 @@ constinit const WeaponModule g43Module{
     .ammoSprite="sprites/guest/cof/g43_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false};
 const WeaponModuleRegistration g43Registration{g43Module};
+constexpr int shotgunIds[]{guest::cof::FindFirearm(guest::cof::Firearm::Shotgun)->hostId};
+constinit const WeaponModule shotgunModule{
+    .ids=shotgunIds,.order=98,
+    .ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/shotgun_ammo.spr",.ammoRect={0,32,0,32},
+    .dynamicCrosshair=false};
+const WeaponModuleRegistration shotgunRegistration{shotgunModule};
 }
 }
