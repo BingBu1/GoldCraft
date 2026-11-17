@@ -90,7 +90,6 @@ bool VP70Weapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
     const EHANDLE owner(&player);VP70Backends backend{};
     const bool found=cold.ownerBackends(cold.context,player,backend);
     if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found||!sameInventory()||
-        (backends_.ownerLife&&backends_.ownerLife!=backend.ownerLife)||
         (pending&&(!backend.ownerLife||pending->life!=backend.ownerLife)))return false;
     if(Bind(player,prepared,backend)!=VP70Status::Ready)return false;
     const auto lease=lease_;AttachToPlayer(&player);

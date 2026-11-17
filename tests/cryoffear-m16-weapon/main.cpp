@@ -116,8 +116,9 @@ Player player;
 M16Weapon weapon;
 PlayerThinkSlot playerThink;
 PlayerThinkKind lastPlayerThinkKind{};
+std::uint64_t taskLife=17;
 bool TaskCurrent(void*,CBasePlayer& owner,std::uint64_t map,std::uint64_t life) noexcept
-{return current&&&owner==&player&&map==1&&life==17;}
+{return current&&&owner==&player&&map==1&&life==taskLife;}
 // Controlled target/damage boundary, separate from the player scheduler.
 bool TaskDispatch(void*,CBasePlayer& owner,PlayerThinkKind kind) noexcept
 {
@@ -181,7 +182,7 @@ void Initialize()
     prepared.inventoryItemString=prepared.worldModelString+int(std::strlen(strings+prepared.worldModelString))+1;
     weapon.pev->classname=prepared.inventoryItemString+int(std::strlen(strings+prepared.inventoryItemString))+1;
     prepared.world=MeleeWorld::Multiplayer;
-    Check(playerThink.Bind(player,{nullptr,TaskCurrent,TaskDispatch,1,17,3}));
+    taskLife=17;Check(playerThink.Bind(player,{nullptr,TaskCurrent,TaskDispatch,1,taskLife,3}));
     backends={nullptr,Current,OwnerFrame,Effect,M16RequiredEffects,&animations,{1,1},17,&playerThink};
     weapon.Spawn();weapon.m_iPrimaryAmmoType=1;player.m_rgAmmo[1]=40;weapon.m_iClip=20;
     Check(weapon.Bind(player,prepared,backends)==M16Status::Ready);
@@ -277,6 +278,14 @@ int main(int argc,char** argv)
     std::ifstream file(argv[1],std::ios::binary);if(!file)return 1;
     std::vector<char> bytes{std::istreambuf_iterator<char>(file),{}};
     model.resize(bytes.size());std::memcpy(model.data(),bytes.data(),bytes.size());
+    Prime();weapon.AttachToPlayer(&player);frame.pressed=1;weapon.PrimaryAttack();
+    const int survivorClip=weapon.m_iClip;goldcraft::inventory::Snapshot survivorSnapshot{};
+    Check(weapon.SaveInventorySnapshot(survivorSnapshot));weapon.Invalidate();
+    playerThink.Invalidate();++player.m_iNumSpawns;++taskLife;backends.ownerLife=taskLife;
+    Check(playerThink.Bind(player,{nullptr,TaskCurrent,TaskDispatch,1,taskLife,3}));
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.m_iClip==survivorClip&&!weapon.m_pfnThink);
+    Check(!weapon.RestoreInventorySnapshot(survivorSnapshot));
+    Check(weapon.Deploy());Ready(20);weapon.PrimaryAttack();Check(weapon.m_iClip==survivorClip-1);
     {
         M16Weapon fresh;ItemInfo info{};
         Check(fresh.GetItemInfo(&info)&&info.iId==902&&info.iMaxClip==20&&info.iMaxAmmo1==200&&

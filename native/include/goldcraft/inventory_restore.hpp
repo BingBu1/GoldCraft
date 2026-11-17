@@ -18,6 +18,8 @@ class RestorableWeapon
 {
 public:
     virtual bool SaveInventorySnapshot(Snapshot&) const noexcept=0;
+    // Renew authority for the current native inventory, including survivors of
+    // Spawn. Pending tasks and transaction snapshots still require their life.
     virtual bool RestoreInventoryBinding(CBasePlayer&) noexcept=0;
     virtual bool RestoreInventorySnapshot(const Snapshot&) noexcept=0;
 protected:

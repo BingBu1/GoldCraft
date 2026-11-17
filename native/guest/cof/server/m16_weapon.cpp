@@ -93,7 +93,6 @@ bool M16Weapon::RestoreInventoryBinding(CBasePlayer& player) noexcept
     const EHANDLE owner(&player);M16Backends backend{};
     const bool found=cold.ownerBackends(cold.context,player,backend);
     if(!WorldCurrent(world)||owner.Get<CBaseEntity>()!=&player||!found||!sameInventory()||
-        (backends_.ownerLife&&backends_.ownerLife!=backend.ownerLife)||
         (pending&&(!backend.ownerLife||pending->life!=backend.ownerLife)))return false;
     if(Bind(player,prepared,backend)!=M16Status::Ready)return false;
     const auto lease=lease_;AttachToPlayer(&player);

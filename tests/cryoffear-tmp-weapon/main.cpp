@@ -355,6 +355,13 @@ int main(int argc,char** argv)
     Check(weapon.SaveInventorySnapshot(snapshot));const auto gate=weapon.ActionState().primary;
     weapon.Holster();Check(weapon.RestoreInventoryBinding(player)&&weapon.RestoreInventorySnapshot(snapshot));
     Check(weapon.m_iClip==29&&weapon.ActionState().primary==gate);
+    owned();weapon.PrimaryAttack();const int survivorClip=weapon.m_iClip;
+    Check(weapon.SaveInventorySnapshot(snapshot));weapon.Invalidate();
+    ++player.m_iNumSpawns;++backends.ownerLife;
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.m_iClip==survivorClip&&!weapon.m_pfnThink);
+    Check(!weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.Deploy());globals.time=20;weapon.PrimaryAttack();Check(weapon.m_iClip==survivorClip-1);
+    owned();weapon.PrimaryAttack();Check(weapon.SaveInventorySnapshot(snapshot));
     auto wrong=snapshot;++wrong.kind;Check(!weapon.RestoreInventorySnapshot(wrong)&&weapon.m_iClip==29);
     wrong=snapshot;--wrong.bytes;Check(!weapon.RestoreInventorySnapshot(wrong)&&weapon.m_iClip==29);
     for(unsigned bit=0;bit<unsigned(TMPEffect::Count);++bit)

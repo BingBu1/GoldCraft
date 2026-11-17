@@ -257,6 +257,13 @@ void InventoryRestoreCases()
         if(melee)Check(meleeCalls==oldMelee+1&&!weapon.m_pfnThink);
         else Check(weapon.m_iClip==clip-1);
     }
+    // Native CS survivors keep this exact inventory entity across Spawn.
+    prime();weapon.PrimaryAttack();const int survivorClip=weapon.m_iClip;
+    Check(weapon.SaveInventorySnapshot(snapshot));
+    weapon.Invalidate();++player.m_iNumSpawns;++backends.ownerLife;
+    Check(weapon.RestoreInventoryBinding(player)&&weapon.m_iClip==survivorClip&&!weapon.m_pfnThink);
+    Check(!weapon.RestoreInventorySnapshot(snapshot));
+    Check(weapon.Deploy());globals.time=20;weapon.PrimaryAttack();Check(weapon.m_iClip==survivorClip-1);
     prime();weapon.PrimaryAttack();weapon.OwnerModelChanging();++backends.ownerLife;
     Check(!weapon.RestoreInventoryBinding(player)&&!weapon.m_pfnThink);
     prime();weapon.SecondaryAttack();weapon.OwnerModelChanging();++player.m_iNumSpawns;
