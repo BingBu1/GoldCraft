@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_分析-全资源加载瓶颈与换图复核-report.md",
     "native/include/goldcraft/open_file_metadata.hpp",
     "tests/filesystem-open-metadata/main.cpp",
     "tests/filesystem-open-metadata/run.py",
