@@ -139,12 +139,11 @@ struct ResourceBatch
 std::unique_ptr<ResourceBatch> resourceBatch;
 }
 
-const char* GoldCraftStudioSoundResource(const char* model,int event,const char* sample)
+guest::cof::StudioSoundDependency GoldCraftStudioSoundResource(const char* model,int event,const char* sample)
 {
-    if(!model || !sample)return nullptr;
-    const auto resource=guest::cof::resources::StudioLocalSoundResource(model,event,
+    if(!model || !sample)return {};
+    return guest::cof::resources::StudioLocalSoundDependency(model,event,
         std::string_view(sample,strnlen(sample,64)));
-    return resource.empty()?nullptr:resource.data();
 }
 
 void GoldCraftBeginCsolResources()

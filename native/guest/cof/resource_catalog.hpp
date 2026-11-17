@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "studio_sound.hpp"
 #include <array>
 #include <cstddef>
 #include <string_view>
@@ -561,22 +562,28 @@ inline constexpr ResourcePath RevolverParticle{
     "aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
 inline constexpr auto RevolverClipTexture = P345ClipTexture;
 
-// Original Studio5004 rebuilds these pistol keys as weapons_new/<suffix>.
+// Original Studio5004 rebuilds these firearm keys as weapons_new/<suffix>.
 // Cold dependency discovery must follow the actual local audio consumer rather
 // than require a second, unconsumed copy at sound/weapons/<suffix>.
-constexpr std::string_view StudioLocalSoundResource(std::string_view model, int event,
-                                                   std::string_view sample) noexcept
+constexpr StudioSoundDependency StudioLocalSoundDependency(std::string_view model, int event,
+                                                         std::string_view sample) noexcept
 {
     if (event != 5004 || sample.find("weapons/") == sample.npos) return {};
     const auto separator = sample.find_first_of("/\\");
     if (separator == sample.npos) return {};
     const auto suffix = sample.substr(separator + 1);
-    const auto find = [suffix](const auto& waves) -> std::string_view {
+    // Original client10080410 returns after the absent rewritten draw sample
+    // fails to load. Its legacy WAV is not a dependency of that consumer.
+    if (model == ShotgunModels[static_cast<unsigned>(ShotgunModel::View)].host &&
+        sample == "weapons/syringe/syringe_sleeve.wav")
+        return {StudioSoundKind::OriginalMissing};
+    const auto find = [suffix](const auto& waves) -> StudioSoundDependency {
         constexpr std::string_view prefix = "weapons_new/";
         for (const auto& wave : waves)
         {
             const std::string_view key = wave.original;
-            if (key.starts_with(prefix) && key.substr(prefix.size()) == suffix) return wave.host;
+            if (key.starts_with(prefix) && key.substr(prefix.size()) == suffix)
+                return {StudioSoundKind::LocalResource, wave.host};
         }
         return {};
     };
@@ -590,6 +597,11 @@ constexpr std::string_view StudioLocalSoundResource(std::string_view model, int 
     if (model == G43Models[static_cast<unsigned>(G43Model::View)].host) return find(G43LocalWaves);
     if (model == ShotgunModels[static_cast<unsigned>(ShotgunModel::View)].host) return find(ShotgunLocalWaves);
     return {};
+}
+constexpr std::string_view StudioLocalSoundResource(std::string_view model, int event,
+                                                   std::string_view sample) noexcept
+{
+    return StudioLocalSoundDependency(model, event, sample).resource;
 }
 inline constexpr auto GlockEvents = P345Events;
 inline constexpr ResourcePath GlockInventory{

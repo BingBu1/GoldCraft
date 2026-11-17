@@ -1,15 +1,37 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Compile the current production loader/collector directly; retain actual inputs."""
-import argparse,hashlib,json,os,re,subprocess
+import argparse,hashlib,json,os,re,struct,subprocess
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def main():
  p=argparse.ArgumentParser();p.add_argument('--environment',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
- p.add_argument('--runtime-root',type=Path);p.add_argument('--candidate-root',type=Path);a=p.parse_args()
+ p.add_argument('--runtime-root',type=Path);p.add_argument('--candidate-root',type=Path)
+ p.add_argument('--shotgun-root',type=Path);p.add_argument('--original-client',type=Path);p.add_argument('--shotgun-proof',type=Path);a=p.parse_args()
  if bool(a.runtime_root)!=bool(a.candidate_root):raise ValueError('Both real resource roots are required')
+ if any((a.shotgun_root,a.original_client,a.shotgun_proof)) and not all((a.shotgun_root,a.original_client,a.shotgun_proof)):raise ValueError('Shotgun resources, original client and pre-edit proof must be supplied together')
+ if a.shotgun_root and a.runtime_root:raise ValueError('Run real hand and real shotgun resource modes separately')
  if a.runtime_root and (not a.runtime_root.resolve().is_relative_to(ROOT/'sandbox') or not a.candidate_root.resolve().is_relative_to(ROOT/'build')):raise ValueError('Use workspace resource roots')
+ proof_check=None
+ if a.shotgun_root:
+  if not a.shotgun_root.resolve().is_relative_to(ROOT/'build') or not a.original_client.resolve().is_relative_to(ROOT/'analysis') or not a.shotgun_proof.resolve().is_relative_to(ROOT/'analysis'):raise ValueError('Use workspace authored resources and private evidence copies')
+  proof=json.loads(a.shotgun_proof.read_text('utf8'));model=a.shotgun_root/'models/guest/cof/shotgun/v_shotgun.mdl'
+  if not proof['beforeImplementation'] or sha(a.original_client)!=proof['clientSha256'] or sha(model)!=proof['model']['sha256']:raise ValueError('Original sample/model identity changed')
+  parent=ROOT/Path(proof['parent']['path'].replace(chr(92),'/'))
+  if sha(parent)!=proof['parent']['sha256']:raise ValueError('Parent original consumer evidence changed')
+  raw=a.original_client.read_bytes();pe=struct.unpack_from('<I',raw,0x3c)[0];count=struct.unpack_from('<H',raw,pe+6)[0];optional=pe+24
+  if raw[pe:pe+4]!=b'PE\0\0' or struct.unpack_from('<H',raw,pe+4)[0]!=0x14c or struct.unpack_from('<H',raw,optional)[0]!=0x10b:raise ValueError('Expected original PE32/x86 client')
+  base=struct.unpack_from('<I',raw,optional+28)[0];section=optional+struct.unpack_from('<H',raw,pe+20)[0]
+  for region in proof['clientRegions']:
+   rva=int(region['va'],0)-base;data=None
+   for i in range(count):
+    at=section+i*40;size,va,length,offset=struct.unpack_from('<IIII',raw,at+8)
+    if va<=rva and rva+region['size']<=va+length:data=raw[offset+rva-va:offset+rva-va+region['size']];break
+   if data is None or hashlib.sha256(data).hexdigest()!=region['sha256'] or not region['idaEqualsPE']:raise ValueError('Original IDA/PE consumer region changed')
+  for missing in ('sound/weapons/syringe/syringe_sleeve.wav','sound/guest/cof/weapons_new/syringe/syringe_sleeve.wav'):
+   if (a.shotgun_root/missing).exists():raise ValueError('Unexpected substitute for originally missing draw cue')
+  proof_check=dict(clientSha256=sha(a.original_client),modelSha256=sha(model),regions=len(proof['clientRegions']),bytes=sum(r['size'] for r in proof['clientRegions']),preEdit=True)
  out=a.output.absolute()
  if out.exists() or not out.resolve().is_relative_to(ROOT/'build'):raise ValueError('Fresh workspace output required')
  out.mkdir(parents=True);(out/'temp').mkdir()
@@ -33,6 +55,9 @@ def main():
  flags+=['/imsvc'+str(ROOT/x) for x in include]+['/I'+str(out)]
  sources=[ROOT/'tests/csol-hand-precache/main.cpp']+[ROOT/('native/csol/'+n+'.cpp') for n in ('dependencies','model_codec','sprite_codec','texture_model','model_json','events','model_source','sequences')]
  inputs=set(sources)|{Path(__file__).resolve(),a.environment.resolve(),compiler,compiler.with_name('lld-link.exe'),ROOT/'external/ReHLDS/rehlds/lib/libacof32.lib',native,out/'native_studio_sounds.inc'}
+ if a.shotgun_root:
+  inputs.update(p.resolve() for p in a.shotgun_root.rglob('*') if p.is_file())
+  inputs.update({a.original_client.resolve(),a.shotgun_proof.resolve(),parent.resolve()})
  if a.runtime_root:
   for relative in ('models/guest/cof','sound/guest/cof','events/guest/cof','aurora/guest/cof','gfx/guest/cof','gfx/tattoo','sprites/guest/cof','inventoryitems/guest/cof'):
    inputs.update(p.resolve() for p in (a.runtime_root/relative).rglob('*') if p.is_file())
@@ -54,11 +79,11 @@ def main():
   proc=subprocess.run(cmd,cwd=out,env=env,capture_output=True,text=True,timeout=150);(out/'link.log').write_text(proc.stdout+proc.stderr,'utf8')
   if proc.returncode:print(proc.stdout+proc.stderr)
   proc.check_returncode()
-  arguments=[str(exe)]+([str(a.runtime_root.resolve()),str(a.candidate_root.resolve())] if a.runtime_root else [])
+  arguments=[str(exe)]+(['--shotgun-root',str(a.shotgun_root.resolve())] if a.shotgun_root else [str(a.runtime_root.resolve()),str(a.candidate_root.resolve())] if a.runtime_root else [])
   proc=subprocess.run(arguments,cwd=out,capture_output=True,text=True,timeout=30);(out/'test.log').write_text(proc.stdout+proc.stderr,'utf8');print(proc.stdout+proc.stderr);proc.check_returncode()
  except Exception as e:error=str(e)
  after={str(x):sha(x) for x in sorted(inputs)}
- receipt=dict(success=error is None and before==after,error=error,commands=commands,before=before,after=after,inputsUnchanged=before==after,sourceCopies=0,gameplay=False,performance=False,boundary='Current complete loader/collector/cache with actual ReHLDS SDK; VFS and model registry doubled; no full engine/gameplay')
+ receipt=dict(success=error is None and before==after,error=error,commands=commands,before=before,after=after,inputsUnchanged=before==after,originalProof=proof_check,realShotgunModel=bool(a.shotgun_root),sourceCopies=0,gameplay=False,performance=False,boundary='Current complete loader/collector/cache with actual ReHLDS SDK; VFS and model registry doubled; no full engine/gameplay')
  (out/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf8')
  raise SystemExit(0 if receipt['success'] else 1)
 if __name__=='__main__':main()

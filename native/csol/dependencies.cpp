@@ -198,8 +198,10 @@ WeaponDependencyPlan WeaponPresentationDependencies(const std::string& model,con
                 {
                     if(SkipStudioSound(name,id,options))continue;
                     if(id==5005 && options.size()<=3)throw std::runtime_error("invalid event5005 sound");
-                    const auto local=guest::cof::resources::StudioLocalSoundResource(name,id,options);
-                    add(local.empty()?"sound/"+(id==5005?options.substr(3):options):std::string(local));
+                    const auto local=guest::cof::resources::StudioLocalSoundDependency(name,id,options);
+                    if(local.kind==guest::cof::StudioSoundKind::OriginalMissing)continue;
+                    add(local.kind==guest::cof::StudioSoundKind::LocalResource?std::string(local.resource):
+                        "sound/"+(id==5005?options.substr(3):options));
                 }
             }
         }

@@ -12,6 +12,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <vector>
 #include "../../native/engine/csol_loader.cpp"
 #include "native_studio_sounds.inc"
@@ -52,8 +53,8 @@ void CofSoundCases(){
  CHECK(StudioLocalSoundResource("models/v_glock18.mdl",5004,sample).empty());
  CHECK(StudioLocalSoundResource(view,5005,sample).empty());
  CHECK(StudioLocalSoundResource(view,5004,"weapons/glock/unknown.wav").empty());
- CHECK(GoldCraftStudioSoundResource(nullptr,5004,sample)==nullptr);
- CHECK(GoldCraftStudioSoundResource(view,5004,nullptr)==nullptr);
+ CHECK(GoldCraftStudioSoundResource(nullptr,5004,sample).kind==guest::cof::StudioSoundKind::Native);
+ CHECK(GoldCraftStudioSoundResource(view,5004,nullptr).kind==guest::cof::StudioSoundKind::Native);
  for(const auto& wave:GlockLocalWaves){
   const std::string original="weapons/"+std::string(std::string_view(wave.original).substr(12));
   CHECK(StudioLocalSoundResource(view,5004,original)==wave.host);
@@ -78,6 +79,99 @@ void CofSoundCases(){
  files.erase(mapped);bool rejected=false;GoldCraftBeginCsolResources();
  try{Precache(view);}catch(const std::exception&){rejected=true;}
  CHECK(rejected);resourceBatch.reset();
+}
+Bytes SoundModel(int event,std::string_view sample){
+ auto model=Model();const auto at=model.size();model.resize(at+sizeof(mstudioevent_t));
+ Put(model,72,int(model.size()));Put(model,356+48,1);Put(model,356+52,int(at));
+ Put(model,at+4,event);CHECK(sample.size()<64);std::memcpy(model.data()+at+12,sample.data(),sample.size());return model;
+}
+void ShotgunSoundCases(){
+ using namespace guest::cof;using namespace guest::cof::resources;
+ constexpr char view[]="models/guest/cof/shotgun/v_shotgun.mdl";
+ constexpr char missing[]="weapons/syringe/syringe_sleeve.wav";
+ const auto absent=StudioLocalSoundDependency(view,5004,missing);
+ CHECK(absent.kind==StudioSoundKind::OriginalMissing&&absent.resource.empty());
+ CHECK(GoldCraftStudioSoundResource(view,5004,missing).kind==StudioSoundKind::OriginalMissing);
+ for(const auto& wave:ShotgunLocalWaves){
+  const auto sample="weapons/"+std::string(std::string_view(wave.original).substr(12));
+  const auto dependency=GoldCraftStudioSoundResource(view,5004,sample.c_str());
+  CHECK(dependency.kind==StudioSoundKind::LocalResource&&dependency.resource==wave.host);
+ }
+ // Only this exact original cue is optional. Similar paths and other events
+ // retain the native required-resource behavior in the real dependency reader.
+ for(const auto& [model,event,sample]:std::vector<std::tuple<std::string,int,std::string>>{
+     {"models/v_m3.mdl",5004,missing},{view,5005,missing},
+     {view,5004,"weapons/syringe/unknown.wav"},{view,5004,"weapons/shotgun/unknown.wav"},
+     {"models/guest/cof/shotgun/w_shotgun.mdl",5004,missing}}){
+  CHECK(StudioLocalSoundDependency(model,event,sample).kind==StudioSoundKind::Native);
+  Setup();files[model]=SoundModel(event,sample);
+  files[model.substr(0,model.size()-4)+"_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+  GoldCraftBeginCsolResources();bool rejected=false;try{Precache(model.c_str());}catch(const std::exception&){rejected=true;}
+  CHECK(rejected&&models.empty());resourceBatch.reset();
+ }
+ Setup();files[view]=SoundModel(5004,missing);
+ files["models/guest/cof/shotgun/v_shotgun_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+ for(int pass=0;pass<2;++pass){
+  models.clear();generic.clear();GoldCraftBeginCsolResources();Precache(view);Precache(view);
+  CHECK(resourceBatch->rebuilt==(pass?0u:1u)&&resourceBatch->hits==(pass?2u:1u));
+  CHECK(generic==std::vector<std::string>{"models/guest/cof/shotgun/v_shotgun_hands.json"});
+  CHECK(!reads.contains("sound/weapons/syringe/syringe_sleeve.wav"));
+  CHECK(!reads.contains("sound/guest/cof/weapons_new/syringe/syringe_sleeve.wav"));
+  GoldCraftEndCsolResources();
+ }
+ auto model=files.at(view);generic.clear();PrecacheModelSoundsForFile(view,reinterpret_cast<studiohdr_t*>(model.data()));
+ CHECK(generic.empty());
+ PrecacheModelSounds(reinterpret_cast<studiohdr_t*>(model.data()));
+ CHECK(generic==std::vector<std::string>{"sound/weapons/syringe/syringe_sleeve.wav"});
+}
+void RealShotgunSoundCases(const char* resourceRoot){
+ namespace fs=std::filesystem;
+ Reset();const fs::path root(resourceRoot);
+ // The runner seals the original model identity and actual authored resources.
+ for(const auto& entry:fs::recursive_directory_iterator(root))if(entry.is_regular_file()){
+  CHECK(!entry.is_symlink()&&entry.file_size()<=64*1024*1024);
+  const auto relative=entry.path().lexically_relative(root).generic_string();
+  if(relative=="manifest.json")continue;
+  std::ifstream stream(entry.path(),std::ios::binary);CHECK(stream.good());
+  const std::vector<char> raw{std::istreambuf_iterator<char>(stream),{}};
+  Bytes data(raw.size());std::memcpy(data.data(),raw.data(),raw.size());files[relative]=std::move(data);
+ }
+ constexpr char view[]="models/guest/cof/shotgun/v_shotgun.mdl";
+ auto model=files.at(view);const auto* header=reinterpret_cast<const studiohdr_t*>(model.data());CHECK(header->numseq==20);
+ const auto* sequences=reinterpret_cast<const mstudioseqdesc_t*>(model.data()+header->seqindex);
+ unsigned draw=0,events=0;
+ for(int i=0;i<header->numseq;++i){
+  const auto* sounds=reinterpret_cast<const mstudioevent_t*>(model.data()+sequences[i].eventindex);
+  for(int j=0;j<sequences[i].numevents;++j)if(sounds[j].event==5004){
+   ++events;if(std::string_view(sounds[j].options)=="weapons/syringe/syringe_sleeve.wav"){
+    CHECK(i==6&&sounds[j].frame==1);++draw;
+   }
+  }
+ }
+ CHECK(events==7&&draw==1);
+ // A minimal explicit donor activates the complete production collector. This
+ // fixture does not claim to validate real hand retargeting or model rendering.
+ files["models/csol/hands/declared.mdl"]=Model();
+ files["models/guest/cof/shotgun/v_shotgun_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+ const std::set<std::string> expected{
+  "sound/guest/cof/weapons_new/shotgun/insert.wav",
+  "sound/guest/cof/weapons_new/shotgun/pump_forward.wav",
+  "sound/guest/cof/weapons_new/shotgun/pump_back.wav",
+  "sound/guest/cof/weapons_new/shotgun/pump_seq.wav"};
+ CHECK(!files.contains("sound/weapons/syringe/syringe_sleeve.wav"));
+ CHECK(!files.contains("sound/guest/cof/weapons_new/syringe/syringe_sleeve.wav"));
+ for(int pass=0;pass<2;++pass){
+  models.clear();generic.clear();GoldCraftBeginCsolResources();Precache(view);Precache(view);
+  CHECK(resourceBatch->rebuilt==(pass?0u:1u)&&resourceBatch->hits==(pass?2u:1u));
+  std::set<std::string> actual;for(const auto& file:generic)if(file.starts_with("sound/"))actual.insert(file);
+  CHECK(actual==expected);GoldCraftEndCsolResources();
+  generic.clear();PrecacheModelSoundsForFile(view,reinterpret_cast<studiohdr_t*>(model.data()));
+  CHECK(std::set<std::string>(generic.begin(),generic.end())==expected&&generic.size()==6);
+ }
+ // A required mapped wave disappearing invalidates the warm dependency plan.
+ files.erase(*expected.begin());models.clear();GoldCraftBeginCsolResources();
+ bool rejected=false;try{Precache(view);}catch(const std::exception&){rejected=true;}
+ CHECK(rejected&&models.empty()&&opens==closes);resourceBatch.reset();
 }
 void RealCofHandCases(const char* runtimeRoot,const char* candidateRoot){
  namespace fs=std::filesystem;
@@ -186,7 +280,8 @@ void NORETURN Sys_Error(const char* format,...){char b[2048];va_list a;va_start(
 void Mem_Free(void*){throw std::runtime_error("unexpected owned-model release");}
 byte* COM_LoadFileForMe(const char*,int*){throw std::runtime_error("unexpected model file load");}
 void* Hunk_AllocName(int,const char*){throw std::runtime_error("unexpected sprite allocation");}
+void GoldCraftLoadStudioOwned(model_t*,std::span<std::byte>){throw std::runtime_error("unexpected model ownership transfer");}
 double Sys_FloatTime(){return 0;}
 char loadname[MAX_MODEL_NAME]{};
 char* va(char* format,...){static char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);return text;}
-int main(int argc,char** argv){try{CHECK(argc==1||argc==3);fixture::Cases();fixture::CofSoundCases();if(argc==3)fixture::RealCofHandCases(argv[1],argv[2]);std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}
+int main(int argc,char** argv){try{CHECK(argc==1||argc==3);fixture::Cases();fixture::CofSoundCases();fixture::ShotgunSoundCases();if(argc==3){if(std::string_view(argv[1])=="--shotgun-root")fixture::RealShotgunSoundCases(argv[2]);else fixture::RealCofHandCases(argv[1],argv[2]);}std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}
