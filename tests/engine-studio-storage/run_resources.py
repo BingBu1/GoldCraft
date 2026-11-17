@@ -76,7 +76,7 @@ def main():
     extracts.append(dict(source=loader,ranges=[[0,end],[data.index(b"void GoldCraftPrecacheCsolResources("),data.index(b"\nbool GoldCraftLoadCsolSprite(")]],sha256=hashlib.sha256(code).hexdigest()))
     code+=b"\nextern cvar_t sv_auto_precache_sounds_in_models;\n"
     svmain="external/ReHLDS/rehlds/engine/sv_main.cpp"
-    for name in ("PrecacheModelTexture","PrecacheModelSeqGroups","PrecacheModelSounds","PrecacheModelSpecifiedFiles"):
+    for name in ("PrecacheModelTexture","PrecacheModelSeqGroups","PrecacheModelSoundsForFile","PrecacheModelSounds","PrecacheModelSpecifiedFiles"):
         code+=b"\n"+extract(svmain,f"void {name}(")
     code+=b"\n"+extract("external/ReHLDS/rehlds/engine/model.cpp","void* EXT_FUNC Mod_Extradata(")
     # Recover the old function from the committed patch's new side. This is
@@ -101,7 +101,7 @@ def main():
     fixture=fixture.replace(b"// RESOURCE_PRODUCTION_EXTRACTS",code)
     compiler=args.compiler.resolve(strict=True)
     sdk=ROOT/"external/ReHLDS/rehlds"
-    includes=[ROOT,ROOT/"native/engine",ROOT/"native/csol",ROOT/"native/include"]
+    includes=[HERE,ROOT,ROOT/"native/engine",ROOT/"native/csol",ROOT/"native/include"]
     includes += [sdk/p for p in ("","metamod/include","public/rehlds","common","engine","public","pm_shared","rehlds","testsuite")]
     includes += [ROOT/"external/ReHLDS/dep/bzip2/include",ROOT/"external/ReHLDS/dep/cppunitlite/include",ROOT/"external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include"]
     defines=["REHLDS_API","REHLDS_FIXES","REHLDS_SSE","REHLDS_OPT_PEDANTIC","REHLDS_SELF","REHLDS_CHECKS","HAVE_OPT_STRTOOLS","USE_BREAKPAD_HANDLER","DEDICATED","SWDS","NDEBUG","NOMINMAX","_CRT_SECURE_NO_WARNINGS"]
@@ -120,7 +120,7 @@ def main():
     for directory in (ROOT/"native/engine",ROOT/"native/csol",ROOT/"native/include"):
         for path in directory.rglob("*"):
             if path.suffix in (".h",".hpp"):read(path.relative_to(ROOT).as_posix())
-    for relative in ("external/ReHLDS/rehlds/engine/l_studio.cpp","native/engine/csol_sequence_guard.cpp","native/csol/sequences.cpp","tests/engine-studio-storage/run_resources.py"):
+    for relative in ("external/ReHLDS/rehlds/engine/l_studio.cpp","native/engine/csol_sequence_guard.cpp","native/csol/sequences.cpp","tests/engine-studio-storage/run_resources.py","tests/engine-studio-storage/safety_counter.hpp"):
         read(relative)
     plan=dict(sources=list(sources.values()),extractions=extracts,stdinSha256=hashlib.sha256(fixture).hexdigest(),commands=commands,compiler=identity(compiler),snapshotSources=False)
     (out/"plan.json").write_text(json.dumps(plan,indent=2),encoding="utf8")

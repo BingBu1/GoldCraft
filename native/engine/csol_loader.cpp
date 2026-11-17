@@ -1,5 +1,6 @@
 #include "precompiled.h"
 #include "csol_loader.h"
+#include "csol_sequence_guard.h"
 #include "model_load_profile.h"
 #include "csol_studio_resources.h"
 #include "csol_dependency_cache.hpp"
@@ -258,16 +259,21 @@ void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)
     catch(const std::exception& error){Sys_Error("CSOL dependency preparation failed: %s: %s",name,error.what());}
 }
 
-std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name)
+namespace
+{
+// Routing and conversion only. Both private callers immediately run complete
+// safety preparation before exposing a header or publishing a cache owner.
+std::vector<std::byte> DecodeStudioForLoad(std::span<std::byte> bytes, const char* name)
 {
     goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Decode);
     try
     {
         if (csol::DecodeStudioModel(bytes))
             Con_DPrintf("CSOL: decoded model %s\n", name);
+        // A marker is not a proof. The complete consumer validates even a
+        // partial/corrupt marker; packed numbering must not trigger SEQ append.
+        if(csol::HasSequenceSafetyMarker(bytes))return {};
         csol::SequenceSafetyView safety;
-        // Mod_LoadModel passes this owned result to GoldCraftLoadStudioOwned;
-        // all supported engine/GameDLL samplers check the selected track.
         constexpr auto policy=csol::SequenceReadPolicy::AllowUnsupportedTracks;
         const auto stored=[&] {
             goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::DecodeSafety);
@@ -275,9 +281,6 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
         }();
         if(stored==csol::SequenceSafetyStatus::Invalid)
             throw std::runtime_error("invalid studio sequence safety data");
-        // Already packed files retain their sequence numbering even when the
-        // original SEQ files are still present next to them.
-        if(stored==csol::SequenceSafetyStatus::Ready)return {};
         const auto files=csol::SequenceFiles(name,[](const std::string& path){return FS_FileExists(path.c_str())!=0;});
         if(files.empty())return {};
         std::vector<std::vector<std::byte>> sequences;
@@ -292,8 +295,8 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
             FS_Close(file);sequences.push_back(std::move(data));
         }
         auto result=csol::AppendSequences(bytes,sequences,policy);
-        if(csol::ReadSequenceSafety(result,safety,policy)!=csol::SequenceSafetyStatus::Ready)
-            throw std::runtime_error("converted studio model lacks valid sequence safety data");
+        if(!csol::HasSequenceSafetyMarker(result))
+            throw std::runtime_error("converted studio model lacks sequence safety data");
         Con_DPrintf("CSOL: %s appended %u SEQ files\n",name,unsigned(files.size()));
         return result;
     }
@@ -302,6 +305,13 @@ std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const c
         Sys_Error("CSOL: cannot load model %s: %s", name, error.what());
     }
     return {};
+}
+}
+
+void GoldCraftDecodeAndLoadStudio(model_t* model,std::span<std::byte> bytes)
+{
+    auto expanded=DecodeStudioForLoad(bytes,model->name);
+    GoldCraftLoadStudioOwned(model,expanded.empty()?bytes:std::span<std::byte>(expanded));
 }
 
 GoldCraftStudioResourceFile::~GoldCraftStudioResourceFile()
@@ -321,7 +331,7 @@ bool GoldCraftStudioResourceFile::Load(model_t* model)
     try
     {
         auto bytes=std::span<std::byte>(reinterpret_cast<std::byte*>(file_),std::size_t(length));
-        expanded_=GoldCraftDecodeStudio(bytes,model->name);
+        expanded_=DecodeStudioForLoad(bytes,model->name);
         if(!expanded_.empty())bytes=expanded_;
         const auto prepared=[&] {
             goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Prepare);

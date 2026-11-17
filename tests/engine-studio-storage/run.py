@@ -123,9 +123,12 @@ def main() -> int:
     parser.add_argument("--model", type=Path, action="append", default=[], help="actual authored MDL to load with source/cache guard pages")
     parser.add_argument("--expect-legacy", action="store_true", help="require the old allocation assertion to fail")
     parser.add_argument("--expect-double-plan", action="store_true", help="require the old duplicate-plan assertion to fail")
+    parser.add_argument("--expect-redundant-validation", action="store_true", help="run the pinned former guard and require its duplicate RLE validation failure")
+    parser.add_argument("--guard-baseline-ref", default="b245e0999dbffba7be1d838b8ff949cb7c921bfe",
+                        help="Git revision providing the former complete load function")
     parser.add_argument("--prepare-only", action="store_true", help="write include adapters and commands without compiling")
     args = parser.parse_args()
-    if args.expect_legacy and args.expect_double_plan:
+    if sum((args.expect_legacy,args.expect_double_plan,args.expect_redundant_validation))>1:
         parser.error("choose only one expected regression")
 
     output = args.out.resolve()
@@ -160,6 +163,15 @@ def main() -> int:
     inputs.add(Path(__file__))
     extra_sources = []
     extractions = []
+    if args.expect_redundant_validation:
+        revision=subprocess.check_output(["git","rev-parse",args.guard_baseline_ref+"^{commit}"],cwd=REPOSITORY,text=True).strip()
+        previous=subprocess.check_output(["git","show",revision+":native/engine/csol_sequence_guard.cpp"],cwd=REPOSITORY)
+        start,end=function_span(previous,"GoldCraftLoadStudioOwned")
+        original=previous[start:end]
+        extracted=output/"legacy-guard-under-test.inc"
+        extracted.write_bytes(original.replace(b"void GoldCraftLoadStudioOwned(",b"void LegacyGoldCraftLoadStudioOwned(",1))
+        extractions.append(dict(gitRevision=revision,source="native/engine/csol_sequence_guard.cpp",start=start,end=end,
+                                sha256=hashlib.sha256(original).hexdigest(),output=identity(extracted)))
     if not args.loader_only:
         original = args.dependency_loader or dependency_source / "native/engine/csol_loader.cpp"
         selected_path = inputs.add(original, "native/engine/csol_loader.cpp")
@@ -198,6 +210,8 @@ def main() -> int:
                "NDEBUG", "NOMINMAX", "_CRT_SECURE_NO_WARNINGS"]
     if not args.loader_only:
         defines.append("CHECK_DEPENDENCIES")
+    if args.expect_redundant_validation:
+        defines.append("CHECK_LEGACY_VALIDATION")
     includes = [output, storage.parent, *(source / d for d in NATIVE_INCLUDE_DIRS)]
     includes += [sdk / d for d in ("", "metamod/include", "public/rehlds", "common", "engine",
                                    "public", "pm_shared", "rehlds", "testsuite")]
@@ -228,6 +242,7 @@ def main() -> int:
     plan = {"commands": commands, "sources": list(inputs.records.values()), "extractions": extractions,
             "generatedInputs": generated_inputs, "compiler": identity(compiler), "prepareOnly": args.prepare_only,
             "expectedLegacyFailure": args.expect_legacy, "expectedDoublePlanFailure": args.expect_double_plan,
+            "expectedRedundantValidationFailure": args.expect_redundant_validation,
             "singleCompileJob": True, "liveGame": False}
     if args.environment_json:
         plan["environmentInput"] = identity(args.environment_json)
@@ -254,7 +269,7 @@ def main() -> int:
             log.write_text(run.stdout + run.stderr, encoding="utf-8")
             result["results"].append({"name": command["name"], "exit": run.returncode,
                                       "seconds": time.monotonic() - started, "log": identity(log)})
-            expected = 1 if command["name"] == "test" and (args.expect_legacy or args.expect_double_plan) else 0
+            expected = 1 if command["name"] == "test" and (args.expect_legacy or args.expect_double_plan or args.expect_redundant_validation) else 0
             if run.returncode != expected:
                 raise RuntimeError(f"{command['name']} exited {run.returncode}; see {log}")
         log = (output / "test.log").read_text(encoding="utf-8")
@@ -262,6 +277,8 @@ def main() -> int:
             raise RuntimeError("old version failed for a different reason")
         if args.expect_double_plan and "unhooked load must plan exactly once" not in log:
             raise RuntimeError("old version failed for a different reason")
+        if args.expect_redundant_validation and "former guard repeats tagged RLE validation" not in log:
+            raise RuntimeError("former guard failed for a different reason")
         data = executable.read_bytes()
         offset = struct.unpack_from("<I", data, 0x3C)[0]
         if data[offset:offset + 4] != b"PE\0\0" or struct.unpack_from("<H", data, offset + 4)[0] != 0x14C:

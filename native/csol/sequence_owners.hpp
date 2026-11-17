@@ -152,6 +152,19 @@ public:
     bool CompleteLoad(std::uintptr_t owner,LoadToken token,PreparedSequenceModel model,
         std::uintptr_t liveBase,std::size_t expectedAllocation)
     {
+        return CompleteLoadImpl(owner,token,std::move(model),liveBase,expectedAllocation,false);
+    }
+    // Hooks can change either source or cached bytes. Validate the actual
+    // retained copy only after its allocation and metadata receipt is proven.
+    bool CompleteHookedLoad(std::uintptr_t owner,LoadToken token,PreparedSequenceModel model,
+        std::uintptr_t liveBase,std::size_t expectedAllocation)
+    {
+        return CompleteLoadImpl(owner,token,std::move(model),liveBase,expectedAllocation,true);
+    }
+private:
+    bool CompleteLoadImpl(std::uintptr_t owner,LoadToken token,PreparedSequenceModel model,
+        std::uintptr_t liveBase,std::size_t expectedAllocation,bool hooked)
+    {
         const auto found=owners_.find(owner);if(found==owners_.end())return false;
         auto& entry=found->second;
         if(!token || entry.load!=token || entry.allocationLoad!=token || !entry.allocation || entry.allocationConflict ||
@@ -161,9 +174,17 @@ public:
         // actual prefix. Never derive its length from an unchecked live header.
         const std::span<const std::byte> prefix(reinterpret_cast<const std::byte*>(liveBase),model.RetainedBytes());
         if(!model.CopiedMetadataMatches(prefix))return false;
+        if(hooked)
+        {
+            SequenceSafetyView view;
+            const auto state=ReadSequenceSafety(prefix,view,SequenceReadPolicy::AllowUnsupportedTracks);
+            if(state==SequenceSafetyStatus::Invalid ||
+                (state==SequenceSafetyStatus::Ready)!=model.Tagged())return false;
+        }
         entry.model=std::move(model);entry.content=Next();entry.load=0;entry.loaded=true;
         return true;
     }
+public:
     void CancelLoad(std::uintptr_t owner,LoadToken token)
     {
         const auto found=owners_.find(owner);

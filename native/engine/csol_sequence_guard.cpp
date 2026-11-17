@@ -48,29 +48,27 @@ void GoldCraftLoadStudioOwned(model_t* model,std::span<std::byte> bytes)
     {
         // Selection and sampling are guarded in both the engine fallback and
         // the matching GameDLL. Unselected unsupported tracks remain inert.
-        auto prepared=[&] {
+        auto preparation=[&] {
             goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Prepare);
-            return csol::PreparedSequenceModel::Read(bytes,csol::SequenceReadPolicy::AllowUnsupportedTracks);
+            return csol::PrepareStudioLoad(bytes,g_bIsDedicatedServer!=0);
         }();
-        const auto* header=reinterpret_cast<const studiohdr_t*>(bytes.data());
-        if(header->numtextures<0 || header->numtextures>4096)
-            throw std::runtime_error("invalid studio texture count");
-        const auto storage=[&] {
-            goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Storage);
-            return csol::PlanStudioStorage(bytes,g_bIsDedicatedServer!=0);
-        }();
+        const auto storage=preparation.storage;
         token=owners.BeginLoad(Owner(model));
         // No hook can change the validated bytes on this direct path. A
         // populated chain retains the original loader's independent plan.
+        const bool hooked=!g_RehldsHookchains.m_Mod_LoadStudioModel.isEmpty();
         {
             goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Copy);
-            if(g_RehldsHookchains.m_Mod_LoadStudioModel.isEmpty())
+            if(!hooked)
                 Mod_LoadStudioModelPlanned(model,bytes.data(),storage);
             else
                 Mod_LoadStudioModel(model,bytes.data());
         }
         goldcraft::model_profile::Scope profile(goldcraft::model_profile::Stage::Commit);
-        if(!owners.CompleteLoad(Owner(model),token,std::move(prepared),Base(model),std::size_t(storage.bytes)))
+        const bool complete=hooked?
+            owners.CompleteHookedLoad(Owner(model),token,std::move(preparation.sequences),Base(model),std::size_t(storage.bytes)):
+            owners.CompleteLoad(Owner(model),token,std::move(preparation.sequences),Base(model),std::size_t(storage.bytes));
+        if(!complete)
             throw std::runtime_error("studio allocation/copy receipt mismatch");
     }
     catch(const std::exception& e)

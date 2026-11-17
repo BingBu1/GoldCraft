@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // run_resources.py supplies exact production function extracts through stdin.
 #include "precompiled.h"
+#include "safety_counter.hpp"
 #include "precache.h"
 #include "map_load_timing.h"
 #include "csol_studio_resources.h"
@@ -277,7 +278,15 @@ void FailuresAndFreshness()
 void Run()
 {
     static_assert(sizeof(void*)==4 && sizeof(studiohdr_t)==244);
-    ComparePasses(); Gates(); Incompatible(); TimingAndUnsupported(); FailuresAndFreshness(); Reset();
+    ComparePasses(); Gates(); Incompatible(); TimingAndUnsupported(); FailuresAndFreshness();
+    Reset();model_t model{};AddModel(model,"models/single-validation.mdl","models/single-validation.mdl",Tagged());
+    safety_counter::reads=0;
+    {GoldCraftStudioResourceFile file;Require(file.Load(&model),"tagged temporary model failed");}
+    Require(safety_counter::reads==1,"temporary tagged resource read must validate RLE exactly once");
+    safety_counter::reads=0;Mod_LoadModel(&model,TRUE,FALSE);
+    Require(safety_counter::reads==1,"actual tagged decode/load boundary must validate RLE exactly once");
+    Require(GoldCraftStudioTagged(&model,static_cast<studiohdr_t*>(model.cache.data)),"single validation lost published owner");
+    Reset();
 }
 }
 
@@ -316,8 +325,7 @@ model_t* Mod_LoadModel(model_t* model,qboolean crash,qboolean trackCRC)
     try
     {
         auto bytes=std::span<std::byte>(reinterpret_cast<std::byte*>(raw),std::size_t(length));
-        auto expanded=GoldCraftDecodeStudio(bytes,model->name);
-        GoldCraftLoadStudioOwned(model,expanded.empty()?bytes:std::span<std::byte>(expanded));
+        GoldCraftDecodeAndLoadStudio(model,bytes);
         if(g_modfuncs.m_pfnModelLoad)g_modfuncs.m_pfnModelLoad(model,raw);
     }
     catch(...){Mem_Free(raw); throw;}
@@ -351,6 +359,8 @@ int PF_precache_generic_I(const char* name)
     if(resource_test::genericCallback)resource_test::genericCallback();
     return int(resource_test::advertisements.size());
 }
+int PF_precache_model_I(const char* name)
+{throw std::runtime_error(std::string("unexpected model registration in synthetic resource fixture: ")+name);}
 void ForwardSlashes(char* name){for(;*name;++name)if(*name=='\\')*name='/';}
 char* va(char* format,...){static char buffer[1024]; va_list args; va_start(args,format); std::vsnprintf(buffer,sizeof(buffer),format,args); va_end(args); return buffer;}
 void Con_Printf(const char*,...){} void Con_DPrintf(const char*,...){}

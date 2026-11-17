@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_优化-服务端模型加载单事务校验-report.md",
+    "tests/engine-studio-storage/safety_counter.hpp",
+
     "docs/2026-11-17_修复-SKULL5开镜枪身遮挡-report.md",
     "docs/2026-11-17_接入-870冷资源与原版声音-report.md",
     "tests/cryoffear-shotgun-native-effects/README.md",

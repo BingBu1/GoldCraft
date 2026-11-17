@@ -3,8 +3,9 @@
 #include <span>
 #include <vector>
 
-// Called after CRC validation, with the actual loaded byte count.
-std::vector<std::byte> GoldCraftDecodeStudio(std::span<std::byte> bytes, const char* name);
+// Called after CRC validation, with the actual loaded byte count. Decoding and
+// complete safety preparation stay inside the same load boundary.
+void GoldCraftDecodeAndLoadStudio(model_t* model,std::span<std::byte> bytes);
 bool GoldCraftLoadCsolSprite(model_t* model, std::span<const std::byte> bytes);
 void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header);
 void GoldCraftBeginCsolResources();

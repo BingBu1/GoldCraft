@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
-#include "../csol/sequence_safety.hpp"
+#include "../csol/sequence_owners.hpp"
 #include <limits>
 #include <stdexcept>
 
@@ -15,7 +15,10 @@ struct StudioStorage
 // CSO hw c7bddfda, VA 378B08EC/378B090D/378B0D46: cache the
 // non-pixel prefix; VA 378B03E3 skips textures on the dedicated server.
 // Eligibility below is a host adapter, not an alteration of the MDL header.
-inline StudioStorage PlanStudioStorage(std::span<const std::byte> bytes,bool dedicated)
+namespace studio_storage_detail
+{
+template<class Validate>
+StudioStorage Plan(std::span<const std::byte> bytes,bool dedicated,Validate&& validate)
 {
     if(bytes.size()<sizeof(studiohdr_t))throw std::runtime_error("truncated studio storage header");
     studiohdr_t h;
@@ -48,8 +51,7 @@ inline StudioStorage PlanStudioStorage(std::span<const std::byte> bytes,bool ded
         h.numskinfamilies<0 || h.numskinref<0 || (h.numskinfamilies &&
             !array(h.skinindex,h.numskinref,std::size_t(h.numskinfamilies)*2)))return legacy;
 
-    SequenceSafetyView safety;
-    const auto tagged=ReadSequenceSafety(prefix,safety,SequenceReadPolicy::AllowUnsupportedTracks);
+    const auto tagged=validate(prefix);
     if(tagged==SequenceSafetyStatus::Invalid)return legacy;
     for(int index=0;index<h.numseq;++index)
     {
@@ -69,6 +71,36 @@ inline StudioStorage PlanStudioStorage(std::span<const std::byte> bytes,bool ded
                 h.numbones,seq.numblends,seq.numframes))return legacy;
     }
     return {h.texturedataindex,true};
+}
+}
+
+inline StudioStorage PlanStudioStorage(std::span<const std::byte> bytes,bool dedicated)
+{
+    return studio_storage_detail::Plan(bytes,dedicated,[](std::span<const std::byte> prefix)
+    {
+        SequenceSafetyView safety;
+        return ReadSequenceSafety(prefix,safety,SequenceReadPolicy::AllowUnsupportedTracks);
+    });
+}
+
+struct PreparedStudioLoad
+{
+    PreparedSequenceModel sequences;
+    StudioStorage storage;
+};
+
+// One callback-free transaction over the same input. The proof never escapes
+// as a pointer ticket or caller-supplied flag; the result owns metadata only.
+inline PreparedStudioLoad PrepareStudioLoad(std::span<const std::byte> bytes,bool dedicated)
+{
+    auto sequences=PreparedSequenceModel::Read(bytes,SequenceReadPolicy::AllowUnsupportedTracks);
+    const auto storage=studio_storage_detail::Plan(bytes,dedicated,[&](std::span<const std::byte> prefix)
+    {
+        if(prefix.size()!=sequences.RetainedBytes())
+            throw std::runtime_error("studio preparation and storage prefix differ");
+        return sequences.Tagged()?SequenceSafetyStatus::Ready:SequenceSafetyStatus::Absent;
+    });
+    return {std::move(sequences),storage};
 }
 }
 

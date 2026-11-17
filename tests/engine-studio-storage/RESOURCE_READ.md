@@ -11,7 +11,7 @@
 - 读取名称使用 `model->name`，广告名称仍为 `gc_precache.modelNames[i]`；两者可能不同。
 - 每个模型仍按外部 T 模型、序列组、CSOL 依赖闭包、5004 声音的顺序处理，保留批内去重与文件系统实时查询。
 - 声音开关在 CSOL 广告后读取；generic 回调存在时必须走原路径。
-- 真实 `GoldCraftDecodeStudio`、`AppendSequences`、`PreparedSequenceModel::Read` 和 `AllowUnsupportedTracks` 继续执行。
+- 真实私有 `DecodeStudioForLoad`、完整 `GoldCraftDecodeAndLoadStudio` 边界、`AppendSequences`、`PreparedSequenceModel::Read` 和 `AllowUnsupportedTracks` 继续执行。2026-11-17 合并同一事务的重复安全扫描；临时资源读取和实际加载仍各自完整验证，不共享跨读取的证明。
 - 数组和字符串必须完整位于原加载器保留的前缀；不是只在整份文件内即可。负偏移、过大计数、无 NUL 和尾部元数据在广告前退回。
 - 纹理数量上限及 `length + 1280 * numtextures` 整数溢出门保留。无效输入不能变成空资源成功结果。
 

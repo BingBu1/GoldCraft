@@ -395,7 +395,7 @@ index 5dcf5d8..2c27738 100644
  	g_RehldsHookchains.m_Mod_LoadStudioModel.callChain(&Mod_LoadStudioModel_internal, mod, buffer);
  }
 diff --git a/rehlds/engine/model.cpp b/rehlds/engine/model.cpp
-index e69d2c9..ca3907b 100644
+index ad9fa47..6c3f2b2 100644
 --- a/rehlds/engine/model.cpp
 +++ b/rehlds/engine/model.cpp
 @@ -27,6 +27,11 @@
@@ -530,7 +530,7 @@ index e69d2c9..ca3907b 100644
  			CRC32_Init(&currentCRC);
  			CRC32_ProcessBuffer(&currentCRC, buf, length);
  			currentCRC = CRC32_Final(currentCRC);
-@@ -348,11 +328,16 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
+@@ -348,11 +328,14 @@ model_t *Mod_LoadModel(model_t *mod, qboolean crash, qboolean trackCRC)
  		Mod_LoadAliasModel(mod, buf);
  		break;
  	case IDSPRITEHEADER:
@@ -541,15 +541,13 @@ index e69d2c9..ca3907b 100644
  	case IDSTUDIOHEADER:
 -		Mod_LoadStudioModel(mod, buf);
 +	{
-+		auto expanded = GoldCraftDecodeStudio({reinterpret_cast<std::byte*>(buf), (size_t)length}, mod->name);
-+		GoldCraftLoadStudioOwned(mod, expanded.empty() ?
-+			std::span<std::byte>(reinterpret_cast<std::byte*>(buf), (size_t)length) : std::span<std::byte>(expanded));
++		GoldCraftDecodeAndLoadStudio(mod, {reinterpret_cast<std::byte*>(buf), (size_t)length});
  		break;
 +	}
  	default:
  		Mod_LoadBrushModel(mod, buf);
  		break;
-@@ -1122,6 +1107,18 @@ void Mod_LoadClipnodes(lump_t *l)
+@@ -1122,6 +1105,18 @@ void Mod_LoadClipnodes(lump_t *l)
  	hull->clip_maxs[0] = 32;
  	hull->clip_maxs[1] = 32;
  	hull->clip_maxs[2] = 32;
@@ -568,7 +566,7 @@ index e69d2c9..ca3907b 100644
  
  	hull = &loadmodel->hulls[3];
  	hull->clipnodes = out;
-@@ -1888,8 +1885,9 @@ void Mod_Print(void)
+@@ -1888,8 +1883,9 @@ void Mod_Print(void)
  	int i;
  	model_t *mod;
  	Con_Printf("Cached models:\n");
@@ -579,7 +577,7 @@ index e69d2c9..ca3907b 100644
  		Con_Printf("%8p : %s", mod->cache.data, mod->name);
  		if (mod->needload & NL_UNREFERENCED)
  			Con_Printf(" (!R)");
-@@ -1908,7 +1906,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1908,7 +1904,7 @@ NOXREF void Mod_ChangeGame(void)
  
  	for (i = 0; i < mod_numknown; i++)
  	{
@@ -588,7 +586,7 @@ index e69d2c9..ca3907b 100644
  
  		if (mod->type == mod_studio)
  		{
-@@ -1916,7 +1914,7 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1916,7 +1912,7 @@ NOXREF void Mod_ChangeGame(void)
  				Cache_Free(&mod->cache);
  		}
  
@@ -597,7 +595,7 @@ index e69d2c9..ca3907b 100644
  
  		p->firstCRCDone = FALSE;
  		p->initialCRC = 0;
-@@ -1926,12 +1924,12 @@ NOXREF void Mod_ChangeGame(void)
+@@ -1926,12 +1922,12 @@ NOXREF void Mod_ChangeGame(void)
  model_t *Mod_Handle(int modelindex)
  {
  #ifdef REHLDS_FIXES

@@ -2,6 +2,7 @@
 // Production loader/guard compile directly from the selected working tree.
 // Cache allocation and public hook dispatch are explicit host boundaries.
 #include "precompiled.h"
+#include "safety_counter.hpp"
 #include <functional>
 #include <fstream>
 #include <map>
@@ -16,6 +17,8 @@ namespace csol
 {
 StudioStorage CountedPlanStudioStorage(std::span<const std::byte> bytes,bool dedicated)
 { ++single_plan_test::plans; return PlanStudioStorage(bytes,dedicated); }
+PreparedStudioLoad CountedPrepareStudioLoad(std::span<const std::byte> bytes,bool dedicated)
+{ auto result=PrepareStudioLoad(bytes,dedicated); ++single_plan_test::plans; return result; }
 }
 
 namespace loader_test
@@ -64,11 +67,16 @@ struct HookBoundary{HookRegistry m_Mod_LoadStudioModel;} hooks;
 // The actual public wrapper and internal loader body run unchanged. Only the
 // external registry object is supplied by this controlled host boundary.
 #define PlanStudioStorage CountedPlanStudioStorage
+#define PrepareStudioLoad CountedPrepareStudioLoad
 #define g_RehldsHookchains loader_test::hooks
 #include "loader-under-test.inc"
 #include "guard-under-test.inc"
+#ifdef CHECK_LEGACY_VALIDATION
+#include "legacy-guard-under-test.inc"
+#endif
 #undef g_RehldsHookchains
 #undef PlanStudioStorage
+#undef PrepareStudioLoad
 #include "sequences-under-test.inc"
 #ifdef CHECK_DEPENDENCIES
 #include "dependency-loader-under-test.inc"
@@ -341,6 +349,21 @@ void SinglePlanPaths()
     Require(plans==2 && outer.flags==0x4567 && Header(outer)->flags==0x4567,"hook pre-original mutation was bypassed");
     beforeLoad=[](model_t*,void* p){++static_cast<studiohdr_t*>(p)->numseq;};
     Rejected([&]{Load(outer,plain);},"hook metadata mutation escaped receipt check");beforeLoad={};
+    beforeLoad=[](model_t*,void* p)
+    {
+        auto* h=static_cast<studiohdr_t*>(p);
+        auto* seq=reinterpret_cast<mstudioseqdesc_t*>(static_cast<std::byte*>(p)+h->seqindex);
+        // Make a ready record's first RLE run invalid without changing metadata.
+        static_cast<std::byte*>(p)[seq->animindex+h->numbones*seq->numblends*sizeof(mstudioanim_t)]=std::byte{};
+    };
+    Rejected([&]{Load(outer,safe);},"hook RLE source corruption escaped independent validation");beforeLoad={};
+    duringLoad=[&]
+    {
+        auto* seq=Descriptor(outer);
+        static_cast<std::byte*>(outer.cache.data)[seq->animindex+Header(outer)->numbones*seq->numblends*sizeof(mstudioanim_t)]=std::byte{};
+    };
+    Rejected([&]{Load(outer,safe);},"hook RLE cache corruption escaped independent validation");
+    Rejected([&]{GoldCraftStudioTagged(&outer,Header(outer));},"hook failure published a cache owner");
     skipOriginal=true;Rejected([&]{Load(outer,plain);},"hook skip-original escaped receipt check");skipOriginal=false;
     redirectModel=&inner;Rejected([&]{Load(outer,plain);},"hook changed destination escaped receipt check");redirectModel=nullptr;
     for(bool hooked:{false,true})for(unsigned mode=0;mode<3;++mode)
@@ -375,8 +398,32 @@ void SinglePlanPaths()
     hookPresent=true;GoldCraftStudioMemoryReset();
 }
 
+void SingleValidationPaths()
+{
+    const auto safe=Tagged();model_t model{};g_bIsDedicatedServer=TRUE;
+#ifdef CHECK_LEGACY_VALIDATION
+    hookPresent=false;Guarded source(safe.size());std::memcpy(source.data,safe.data(),safe.size());
+    std::strcpy(model.name,"models/legacy-tagged-fixture.mdl");safety_counter::reads=0;
+    LegacyGoldCraftLoadStudioOwned(&model,{source.data,safe.size()});
+    Require(safety_counter::reads==1,"former guard repeats tagged RLE validation");
+#endif
+    hookPresent=false;safety_counter::reads=0;Load(model,safe);
+    Require(safety_counter::reads==1,"unhooked tagged load must validate RLE exactly once");
+    hookPresent=true;safety_counter::reads=0;Load(model,safe);
+    Require(safety_counter::reads==3,"hooked tagged load must independently validate planning and copied tracks");
+    auto bad=safe;
+    Put(bad,Word(bad,168)-24,99u);
+    for(bool hooked:{false,true})
+    {
+        hookPresent=hooked;
+        Rejected([&]{Load(model,bad);},"corrupt marker was trusted instead of validated");
+    }
+    hookPresent=true;GoldCraftStudioMemoryReset();
+}
+
 void Run()
 {
+    SingleValidationPaths();
     static_assert(sizeof(void*)==4 && sizeof(studiohdr_t)==244);
     static_assert(sizeof(mstudiobone_t)==112 && sizeof(mstudiobonecontroller_t)==24);
     static_assert(sizeof(mstudiobbox_t)==32 && sizeof(mstudioseqgroup_t)==104);
