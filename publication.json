@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_接入-870原生工厂与权威玩家状态-report.md",
+    "tests/cryoffear-shotgun-owner/README.md",
+    "tests/cryoffear-shotgun-factory/README.md",
     "docs/2026-11-17_接入-870实际SDK与装填生命周期-report.md",
     "tests/cryoffear-shotgun-weapon/README.md",
     "docs/2026-11-17_优化-模型加载纹理调试标签-report.md",

@@ -29,7 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
-    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5","m16","g43"),default="p345")
+    parser.add_argument("--weapon",choices=("p345","revolver","vp70","tmp","mp5","m16","g43","shotgun"),default="p345")
     parser.add_argument('--sample',type=Path)
     parser.add_argument('--proof',type=Path)
     args = parser.parse_args(); output = args.output.resolve()
@@ -59,19 +59,24 @@ def main():
         ROOT / 'native/guest/cof/magazine_actions.cpp',
         ROOT / 'native/guest/cof/magazine_reload.cpp', ROOT / 'native/guest/cof/spread.cpp',
         ROOT / 'native/guest/cof/server/player_animation.cpp', ROOT / 'native/guest/cof/player_actions.cpp']
+    if args.weapon=='shotgun':
+        sources.extend(ROOT/'native/guest/cof'/name for name in ('server/shotgun_weapon.cpp','shotgun_control.cpp','shotgun_shot.cpp','shotgun_aim.cpp','shotgun_frame.cpp','m16_control.cpp'))
     if args.weapon=='revolver':sources.append(ROOT/'native/guest/cof/server/revolver_weapon.cpp')
     if args.weapon=='mp5':sources.append(ROOT/'native/csol/server/weapons/guest_cof_tmp_owner.cpp')
     inputs = set(sources) | set(models) | {Path(__file__).resolve(), model_runner,
         args.environment.resolve(), SDK / 'msvc/ReGameDLL.vcxproj',canonical_fixture}
     original=None
-    if args.weapon in ('m16','g43'):
+    if args.weapon in ('m16','g43','shotgun'):
         if args.sample is None or args.proof is None:parser.error('Long-gun owner requires original --sample and --proof')
         sources.extend((ROOT/'native/guest/cof/server/player_action_runtime.cpp',ROOT/'native/guest/cof/stamina_cycle.cpp'))
         inputs.update(sources);inputs.update((args.sample.resolve(),args.proof.resolve()))
         proof=json.loads(args.proof.read_text('utf-8-sig'))
         if not proof['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256']:
             raise ValueError('Long-gun original identity mismatch')
-        regions=[]
+        regions=list(proof.get('regions',[]))
+        for name,digest in proof.get('archives',{}).items():
+            path=args.proof.parent/name;inputs.add(path)
+            if sha(path)!=digest:raise ValueError('Owner pre-edit archive changed')
         for record in proof['proofs']:
             path=ROOT/record['path'];inputs.add(path)
             if sha(path)!=record['sha256']:raise ValueError('Long-gun pre-edit evidence changed')
