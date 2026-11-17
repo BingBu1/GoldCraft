@@ -522,6 +522,14 @@ int main(int argc, char** argv)
     CHECK(GuestCofMuzzleModelsReady(4)&&GuestCofMuzzleModelsReady(3));
     Begin();shotgunRegistrations.fill(3);shotgunRegistrations[1]=0;Complete();
     CHECK(GuestCofResourcesState().status==GuestCofResourceStatus::NativeSoundUnavailable);
+    Begin();tmpRegistrations.fill(3);mp5Registrations.fill(3);m16Registrations.fill(3);g43Registrations.fill(3);shotgunRegistrations.fill(3);
+    limits={32,16u*1024u*1024u};Initialize(); // Match the real plugin budget for all simultaneously advertised groups.
+    before=reads;Complete();Prepared(39);CHECK(reads==before+45&&GuestCofResourcesState().weapons==499);
+    CHECK(GuestCofMuzzleModelsReady(3)&&GuestCofMuzzleModelsReady(7)&&GuestCofMuzzleModelsReady(14)&&
+          GuestCofMuzzleModelsReady(27)&&GuestCofMuzzleModelsReady(9)&&GuestCofMuzzleModelsReady(26)&&GuestCofMuzzleModelsReady(4));
+    // These real groups share one bounded decoded-PCM owner. The controlled
+    // revolver/VP70 event adapters remain absent; this is not whole-gun admission.
+    Disconnect();CHECK(!GuestCofAudioReady()&&!GuestCofEffectsReady());
     ShutdownGuestCofResources();ShutdownGuestCofAudio();ShutdownGuestCofParticles();ShutdownGuestCofEffects();
     std::printf("checks=%u failures=%u realWaves=39 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
     return failures ? 1 : 0;
