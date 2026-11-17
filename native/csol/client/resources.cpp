@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "resource_refresh.hpp"
 #include "gl_state.hpp"
 #include "sequence_guard.hpp"
 #include "model_crc.hpp"
@@ -17,22 +18,73 @@ namespace
 {
 void (*loadStudio)(model_t*,void*);
 void (*loadSprite)(model_t*,void*);
+const void* nativeStudioReturn{};
+DWORD nativeStudioThread{};
+const void* nativeStudioReadReturn{};
+int (__cdecl* studioRead)(void*,int,int,void*);
+struct StudioReadReceipt { const void* frame{};const void* bytes{};int size{},actual{}; };
+StudioReadReceipt studioReadReceipt;
+int __cdecl StudioRead(void* bytes,int size,int count,void* file,const void* caller,const void* frame)
+{
+    const int actual=studioRead(bytes,size,count,file);
+    if(caller==nativeStudioReadReturn && nativeStudioThread==GetCurrentThreadId() && count==1)
+        studioReadReceipt={frame,bytes,size,actual};
+    return actual;
+}
+__declspec(naked) void StudioReadEntry(void*,int,int,void*)
+{
+    __asm {
+        mov eax, [esp]
+        push ebp
+        push eax
+        push dword ptr [esp+24]
+        push dword ptr [esp+24]
+        push dword ptr [esp+24]
+        push dword ptr [esp+24]
+        call StudioRead
+        add esp, 24
+        ret
+    }
+}
 // Matched GoldSrc client ABI, distinct from ReHLDS' software sprite structure.
 struct SpriteFrame { int width,height; float up,down,left,right; int texture; };
 struct SpriteFrameDesc { int type; SpriteFrame* frame; };
 struct SpriteHeader { short type,format; int width,height,frames,palette; float beam; void* cache; SpriteFrameDesc frame[1]; };
 static_assert(sizeof(SpriteHeader)==36 && sizeof(SpriteFrame)==28);
 void Put32(std::vector<std::byte>& out,size_t offset,uint32_t n){memcpy(out.data()+offset,&n,4);}
-void LoadStudio(model_t* model,void* bytes)
+void __cdecl LoadStudio(model_t* model,void* bytes,const void* caller=nullptr,const void* frame=nullptr)
 {
-    const auto* header=(const studiohdr_t*)bytes;
-    if(header->version!=10 && header->version!=20 && header->version!=21){loadStudio(model,bytes);return;}
     try
     {
-        // Inspect the actual file span even for v10: an already converted model
-        // can carry safety records without adjacent SEQ files. A naked buffer
-        // and its declared length do not establish the file's readable bounds.
-        auto owned=ReadResource(model->name);
+        const bool owner=nativeStudioThread==GetCurrentThreadId();
+        const bool native=owner && caller && caller==nativeStudioReturn;
+        const auto read=owner?studioReadReceipt:StudioReadReceipt{};
+        if(owner)studioReadReceipt={};
+        int nativeSize{};bool reuse{};
+        if(native)
+        {
+            // HL10210 Mod_LoadModel retains the actual file size in its frame
+            // through this synchronous call. A header length is not this bound.
+            std::memcpy(&nativeSize,static_cast<const std::byte*>(frame)-0x110,sizeof(nativeSize));
+            if(nativeSize<8 || nativeSize>128*1024*1024)
+                throw std::runtime_error("invalid native studio file span");
+            reuse=read.frame==frame && read.bytes==bytes && read.size==nativeSize;
+            if(reuse && read.actual!=nativeSize)throw std::runtime_error("short native studio read");
+        }
+        const auto* header=static_cast<const studiohdr_t*>(bytes);
+        if(header->version!=10 && header->version!=20 && header->version!=21)
+        {loadStudio(model,bytes);return;}
+        if(!ResourceContentReadsAllowed())throw std::runtime_error("CSOL resource generation is changing");
+        std::vector<std::byte> owned;
+        if(reuse)
+        {
+            // Copy once without zero-filling or reopening a potentially new VFS
+            // file. Never mutate native bytes or retain their pointer.
+            if(nativeSize<int(sizeof(studiohdr_t)))throw std::runtime_error("short native studio header");
+            const auto* begin=static_cast<const std::byte*>(bytes);
+            owned.assign(begin,begin+nativeSize);
+        }
+        else owned=ReadResource(model->name);
         DecodeStudioModel(owned);
         if(owned.size()<sizeof(studiohdr_t))throw std::runtime_error("short studio header");
         const auto* source=reinterpret_cast<const studiohdr_t*>(owned.data());
@@ -64,6 +116,21 @@ void LoadStudio(model_t* model,void* bytes)
         engine.Con_DPrintf("CSOLSupport: MDL decoded %s\n",model->name);
     }
     catch(const std::exception& e){api->SysError("CSOLSupport: %s: %s",model->name,e.what());std::abort();}
+}
+// Capture the caller frame before the compiler establishes our own frame.
+// Ordinary plugin/direct calls carry a different return and use the VFS path.
+__declspec(naked) void LoadStudioEntry(model_t*,void*)
+{
+    __asm {
+        mov eax, [esp]
+        push ebp
+        push eax
+        push dword ptr [esp+16]
+        push dword ptr [esp+16]
+        call LoadStudio
+        add esp, 16
+        ret
+    }
 }
 void LoadSprite(model_t* model,void* bytes)
 {
@@ -151,7 +218,17 @@ void InstallLoaders()
     void* mdl=Resolve("Mod_LoadStudioModel",MH_GAMESYMBOL_KIND_FUNCTION);
     void* spr=Resolve("Mod_LoadSpriteModel",MH_GAMESYMBOL_KIND_FUNCTION);
     hostTextureCache=static_cast<int*>(Resolve("currenttexture",MH_GAMESYMBOL_KIND_GLOBAL));
-    Hook(mdl,(void*)LoadStudio,(void**)&loadStudio);
+    const auto* call=static_cast<const std::byte*>(Resolve("CSOL_StudioNativeCall",MH_GAMESYMBOL_KIND_PATCH));
+    constexpr unsigned char expected[]{0x56,0x57,0xe8,0x80,0x7c,0xf9,0xff,0xeb,0x10};
+    if(std::memcmp(call,expected,sizeof(expected)))throw std::runtime_error("native studio caller changed");
+    nativeStudioReturn=call+7;
+    nativeStudioThread=GetCurrentThreadId();
+    const auto* readCall=static_cast<const std::byte*>(Resolve("CSOL_StudioReadCall",MH_GAMESYMBOL_KIND_PATCH));
+    constexpr unsigned char expectedRead[]{0xe8,0x60,0x7d,0xf8,0xff};
+    if(std::memcmp(readCall,expectedRead,sizeof(expectedRead)))throw std::runtime_error("native studio read caller changed");
+    nativeStudioReadReturn=readCall+5;studioReadReceipt={};
+    Hook(Resolve("CSOL_StudioRead",MH_GAMESYMBOL_KIND_FUNCTION),(void*)StudioReadEntry,(void**)&studioRead);
+    Hook(mdl,(void*)LoadStudioEntry,(void**)&loadStudio);
     Hook(spr,(void*)LoadSprite,(void**)&loadSprite);
     InstallModelCrc();
 }

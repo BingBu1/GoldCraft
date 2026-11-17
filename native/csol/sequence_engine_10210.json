@@ -5,6 +5,34 @@
     {
       "platform": "windows",
       "module": "engine",
+      "symbolName": "CSOL_StudioRead",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1c80f0",
+        "func_size": "0x5f"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "CSOL_StudioReadCall",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x24038b"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "CSOL_StudioNativeCall",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x240559"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
       "symbolName": "CSOL_Cache_Alloc",
       "kind": "function",
       "payload": {
@@ -149,6 +177,14 @@
     }
   ],
   "verification": [
+    {
+      "rva": "0x1c80f0",
+      "bytes": "55 8b ec 8b 0d 48 88 4b 10 85 c9 75 1e 68 85 00 00 00 68 70 c1 2b 10 68 04 c2 2b 10 ff 15 9c 24 2b 10 8b 0d 48 88 4b 10 83 c4 0c 83 7d 10 01 74 1e 68 86 00 00 00 68 70 c1 2b 10 68 20 c2 2b 10 ff 15 9c 24 2b 10 8b 0d 48 88 4b 10 83 c4 0c ff 75 14 8b 01 ff 75 0c ff 75 08 ff 50 54 5d c3"
+    },
+    {
+      "rva": "0x240290",
+      "bytes": "55 8b ec 81 ec 14 01 00 00 a1 34 47 32 10 33 c5 89 45 fc 53 56 57 8b 7d 08 8b 47 44 83 f8 02 0f 84 ed 01 00 00 83 f8 03 0f 84 e4 01 00 00 8b 47 40 85 c0 0f 84 c0 02 00 00 83 f8 03 0f 84 b7 02 00 00 68 64 63 2b 10 e8 a4 72 f7 ff 83 c4 04 85 c0 74 3f 80 3f 2f 75 3a 8b c7 66 0f 1f 44 00 00 40 80 38 2f 74 fa 8b 35 20 25 2b 10 68 03 01 00 00 50 8d 85 f8 fe ff ff 50 ff d6 6a 3f 8d 85 f8 fe ff ff c6 45 fb 00 50 57 ff d6 83 c4 18 c6 47 3f 00 68 28 64 30 10 57 e8 e3 7c f8 ff 8b d8 83 c4 08 85 db 0f 84 62 02 00 00 8d 85 f0 fe ff ff 50 53 e8 d9 7b f8 ff 8b f0 83 c4 08 85 f6 74 1c ff 36 ff 15 90 c9 24 11 83 c4 04 3d 49 44 53 54 75 41 56 53 e8 27 7e f8 ff 83 c4 08 53 e8 ee 7f f8 ff 89 85 f0 fe ff ff 40 50 e8 11 83 ff ff 53 6a 01 ff b5 f0 fe ff ff 8b f0 56 e8 60 7d f8 ff 53 e8 fa 77 f8 ff 83 c4 1c 33 db 85 f6 0f 84 f9 01 00 00 83 7d 10 00 0f 84 3f 01 00 00 8b cf b8 9d 82 97 53 81 e9 40 5e dd 10 f7 e9 c1 fa 07 8b c2 c1 e8 1f 03 c2 8d 04 40 83 3c 85 f0 60 98 10 00 89 85 ec fe ff ff 0f 84 0f 01 00 00 8d 85 f4 fe ff ff 50 e8 57 c0 f7 ff ff b5 f0 fe ff ff 8d 85 f4 fe ff ff 56 50 e8 54 c0 f7 ff ff b5 f4 fe ff ff e8 29 c0 f7 ff 8b c8 83 c4 14 8b 85 ec fe ff ff 89 8d f4 fe ff ff 83 3c 85 f4 60 98 10 00 0f 85 ad 00 00 00 c7 04 85 f4 60 98 10 01 00 00 00 89 0c 85 f8 60 98 10 e8 f3 04 fd ff 68 e0 e6 2b 10 e8 49 4a fc ff 83 c4 04 85 c0 0f 85 9a 00 00 00 39 05 3c 11 53 10 0f 84 8e 00 00 00 57 ff b5 f4 fe ff ff e8 26 de f7 ff 83 c4 08 85 c0 74 7b 83 3d e0 8d 40 11 00 74 72 57 68 a8 cc 2c 10 6a 01 e8 29 73 f7 ff 83 c4 0c e8 c1 25 f6 ff 5f 5e 33 c0 5b 8b 4d fc 33 cd e8 69 b2 06 00 8b e5 5d c3 8d 8f 84 01 00 00 51 e8 d2 79 ff ff 83 c4 04 85 c0 0f 84 19 fe ff ff c7 47 40 00 00 00 00 8b c7 5f 5e 5b 8b 4d fc 33 cd e8 38 b2 06 00 8b e5 5d c3 3b 0c 85 f8 60 98 10 74 10 57 68 e0 cc 2c 10 e8 39 f7 fd ff e9 e0 00 00 00 f3 0f 10 05 4c b5 31 10 0f 2f 05 a8 64 30 10 76 0e 57 68 84 1a 2c 10 e8 b8 b3 f7 ff 83 c4 08 68 40 7e e3 10 57 e8 ca 73 f7 ff 89 3d 60 7e e3 10 c7 47 40 00 00 00 00 ff 36 ff 15 90 c9 24 11 83 c4 0c 3d 49 44 50 4f 74 36 3d 49 44 53 50 74 26 3d 49 44 53 54 74 16 68 40 7e e3 10 e8 a3 2e f8 ff 56 57 e8 0c eb ff ff 83 c4 0c eb 1c 56 57 e8 80 7c f9 ff eb 10 56 57 e8 07 08 00 00 eb 07 56 57 e8 de e3 ff ff 83 c4 08 85 db 74 10 56 53 e8 10 7c f8 ff 53 e8 0a 76 f8 ff 83 c4 0c 8b c7 5f 5e 5b 8b 4d fc 33 cd e8 6f b1 06 00 8b e5 5d c3 83 7d 0c 00 75 11 f3 0f 10 05 4c b5 31 10 0f 2f 05 10 66 30 10 76 0e 57 68 68 cc 2c 10 e8 62 f6 fd ff 83 c4 08 57 68 88 cc 2c 10 e8 a4 ba f7 ff 8b 4d fc 83 c4 08 33 cd 33 c0 5f 5e 5b e8 29 b1 06 00 8b e5 5d c3"
+    },
     {
       "rva": "0x237d60",
       "bytes": "55 8b ec 53 8b 5d 08 56 57 83 3b 00 74 0d 68 24 ba 2c 10 e8 a8 7e fe ff 83 c4 04 8b 7d 0c 85 ff 7f 0e 57 68 44 ba 2c 10 e8 93 7e fe ff 83 c4 08 83 c7 67 83 e7 f0 6a 00 57 e8 72 03 00 00 8b f0 83 c4 08 85 f6 75 40 66 0f 1f 84 00 00 00 00 00 a1 10 ae f6 10 3d c0 ad f6 10 75 12 68 5c ba 2c 10 e8 5a 7e fe ff a1 10 ae f6 10 83 c4 04 ff 70 04 e8 2a 02 00 00 6a 00 57 e8 32 03 00 00 8b f0 83 c4 0c 85 f6 74 c9 6a 3f ff 75 10 8d 46 08 50 e8 1b 35 f8 ff c6 46 47 00 8d 46 58 89 03 83 c4 0c 89 5e 04 8b 3b 85 ff 75 07 5f 5e 33 c0 5b 5d c3 8b 47 fc 8d 77 a8 85 c0 74 07 8b 4e 50 85 c9 75 13 68 24 b9 2c 10 e8 f4 7d fe ff 8b 46 54 83 c4 04 8b 4f f8 89 48 50 8b 4e 50 8b 46 54 5f 89 41 54 c7 46 54 00 00 00 00 c7 46 50 00 00 00 00 a1 14 ae f6 10 89 70 50 a1 14 ae f6 10 89 46 54 c7 46 50 c0 ad f6 10 89 35 14 ae f6 10 8b 03 5e 5b 5d c3"

@@ -11,6 +11,10 @@ def main():
     parser.add_argument('--seed',type=pathlib.Path,required=True,help='Verified run_current_client.py plan')
     parser.add_argument('--output',type=pathlib.Path,required=True)
     parser.add_argument('--baseline-ref',help='Compile prior loader directly from Git via stdin; expect duplicate-scan rejection')
+    parser.add_argument('--baseline-blob',help='Read the actual pre-edit loader from a Git blob; expect redundant IO failure')
+    parser.add_argument('--resource-refresh',type=int,choices=(0,1),default=0)
+    parser.add_argument('--loader-blob',help='Verify a narrowed source-only publication directly from a Git blob')
+    parser.add_argument('--extra-source',type=pathlib.Path,action='append',default=[],help='Additional in-place host adapter source, when present')
     args=parser.parse_args();out=args.output.resolve()
     if not out.is_relative_to(ROOT/'build') or out.exists():raise ValueError('Fresh workspace build output required')
     seed=json.loads(args.seed.read_text(encoding='utf-8-sig'))
@@ -20,17 +24,24 @@ def main():
     env['VSLANG']='1033';out.mkdir(parents=True)
     compile_row=next(c for c in seed['commands'] if c['name']=='compile-sequence-client')
     flags=compile_row['argv'][:compile_row['argv'].index('/c')]
+    flags=[f'/DCSOL_RESOURCE_REFRESH={args.resource_refresh}' if x.startswith('/DCSOL_RESOURCE_REFRESH=') else x for x in flags]
+    if sum(bool(x) for x in (args.baseline_ref,args.baseline_blob,args.loader_blob))>1:raise ValueError('Only one Git loader source')
+    if args.baseline_blob:flags.append('/DCSOL_TEST_OLD_STUDIO_SOURCE')
     sources=[ROOT/'tests/csol-studio-loader'/s for s in ('main.cpp','loader.cpp','append.cpp')]+[ROOT/'native/csol/model_codec.cpp',ROOT/'native/csol/sprite_codec.cpp']
+    for source in args.extra_source:
+        source=source.resolve(strict=True)
+        if not source.is_relative_to(ROOT) or source.is_relative_to(ROOT/'build'):raise ValueError('Extra source must be in-place')
+        sources.append(source)
     watched={p.resolve():ident(p) for root in (ROOT/'native/csol',ROOT/'tests/csol-studio-loader',ROOT/'tests/vgui-resource-refresh') for p in root.rglob('*') if p.suffix in ('.cpp','.hpp')}
     watched[pathlib.Path(__file__).resolve()]=ident(__file__)
     result={'success':False,'sourceTreesCopied':False,'liveGameplay':False,'commands':[],'head':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'seed':ident(args.seed)}
     def save(): (out/'result.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     baseline=None
-    if args.baseline_ref:
-        old=subprocess.check_output(['git','show',args.baseline_ref+':native/csol/client/resources.cpp'],cwd=ROOT)
+    if args.baseline_ref or args.baseline_blob or args.loader_blob:
+        old=subprocess.check_output(['git','cat-file','blob',args.baseline_blob or args.loader_blob] if (args.baseline_blob or args.loader_blob) else ['git','show',args.baseline_ref+':native/csol/client/resources.cpp'],cwd=ROOT)
         wrapper=(ROOT/'tests/csol-studio-loader/loader.cpp').read_text(encoding='utf-8').split('void LoadFixture',1)[1]
         baseline=('#include "'+str(ROOT/'tests/csol-studio-loader/validation.hpp').replace('\\','/')+'"\n').encode()+old+('\nvoid LoadFixture'+wrapper).encode()
-        result['baseline']={'ref':args.baseline_ref,'loaderSha256':hashlib.sha256(old).hexdigest(),'stdinSourceOnly':True}
+        result['baseline']={'ref':args.baseline_ref,'blob':args.baseline_blob or args.loader_blob,'loaderSha256':hashlib.sha256(old).hexdigest(),'stdinSourceOnly':True}
     def source_args(i,src):
         return ['/I'+str(ROOT/'native/csol/client'),'/TP','-'] if baseline and i==1 else [str(src)]
     def run(name,cmd,stdin=None):
@@ -40,8 +51,9 @@ def main():
         (out/(name+'.log')).write_text(log,encoding='utf-8')
         result['commands'].append({'name':name,'argv':cmd,'exit':done.returncode,'seconds':time.monotonic()-start});save()
         print(name,done.returncode,flush=True)
-        if name=='test' and baseline:
-            if done.returncode!=1 or 'packed model validated more than once' not in output:raise RuntimeError('Baseline did not reproduce duplicate scan')
+        if name=='test' and baseline and not args.loader_blob:
+            expected='native source reread the VFS' if args.baseline_blob else 'packed model validated more than once'
+            if done.returncode!=1 or expected not in output:raise RuntimeError('Baseline did not reproduce '+expected)
             result['baselineFailureReproduced']=True
         elif done.returncode:raise RuntimeError('See '+str(out/(name+'.log')))
         return output
