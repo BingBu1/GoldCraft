@@ -6,6 +6,7 @@
 #include "../shotgun_aim.hpp"
 #include "../shotgun_frame.hpp"
 #include "../shotgun_shot.hpp"
+#include "../spread.hpp"
 #include "ballistics.hpp"
 #include "owner_frame_weapon.hpp"
 #include "player_animation.hpp"
@@ -142,6 +143,7 @@ public:
     void OwnerModelChanging() noexcept override;
     ShotgunStatus Status() const noexcept { return status_; }
     const ShotgunActionState& ActionState() const noexcept { return shot_.action; }
+    const SpreadState& Spread() const noexcept { return spread_; }
 
 private:
     struct Lease
@@ -205,6 +207,8 @@ private:
     ShotgunColdHost cold_{};
     ShotgunBackends backends_{};
     ShotgunShotState shot_{};
+    SpreadState spread_{};
+    SpreadTransitions transitions_{};
     float actionDeadline_{}, wearDeadline_{}, taskDeadline_{};
     int reserveHud_{}, wearMaximum_{}, wear_{};
     WeaponTask task_{};

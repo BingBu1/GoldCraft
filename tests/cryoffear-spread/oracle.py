@@ -14,7 +14,7 @@ def bits(value):
     return struct.unpack('<I', struct.pack('<f', value))[0]
 
 
-def generate(sample, destination):
+def generate(sample, destination, *, shotgun_trace=False):
     binary = sample.read_bytes()
     if hashlib.sha256(binary).hexdigest() != SAMPLE_SHA256:
         raise ValueError('Original sample identity mismatch')
@@ -85,6 +85,25 @@ def generate(sample, destination):
         destination.write(' '.join(f'{value & 0xffffffff:08x}' for value in row + result) + '\n')
         count += 1
         return result
+
+    if shotgun_trace:
+        # The 870 uses the same player-frame updater while its pellet cone is
+        # fixed. Preserve one weapon's ordered state, including owner absence.
+        state = [0] * 10
+        flags = (0x200, 0x200, 0x40200, 0x4200, 0, 0x4000, 0x44000, 0x200)
+        for i in range(640):
+            phase = (i // 8) % len(flags)
+            state = execute(state + [bits(200 if phase % 2 else 0), bits(30 if phase == 2 else 0),
+                bits(i / 60), flags[phase], 4, i % 29 != 0])
+        required = (0x1011BBF0, 0x1011BC61, 0x1011BCAB, 0x1011BD21,
+                    0x1011BD95, 0x1011BF4B, 0x1011BF6B, 0x1011BF9C, 0x1011BFAC)
+        if not all(address in visited for address in required):
+            raise ValueError('Incomplete original 870 player-frame branch coverage')
+        return dict(sampleSha256=SAMPLE_SHA256, functionVA='1011BB50', functionRVA='11BB50',
+                    functionSize=1132, functionSha256=code_sha, cases=count,
+                    visitedInstructions=len(visited), originalInstructions=[f'{x:08x}' for x in sorted(visited)],
+                    requiredInstructions=[f'{x:08x}' for x in required], originalWeapon=4,
+                    oracle='Unmodified original x86 player-frame instructions; sequential 870 trace')
 
     # Every bin edge, adjacent float, speed edge, flag combination and decay equality.
     scalars = [bits(float(i)) + delta for i in range(1, 12) for delta in (-1, 0, 1)]

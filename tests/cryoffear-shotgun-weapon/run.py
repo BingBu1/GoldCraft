@@ -20,7 +20,7 @@ def body(path,signature,only=False):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    for name in ('sample','proof','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
+    for name in ('sample','proof','spread-proof','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();output=a.output.absolute()
     gitBefore=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     for path in (output,*output.parents):
@@ -31,7 +31,7 @@ def main():
         ROOT/'native/guest/cof/shotgun_control.cpp',ROOT/'native/guest/cof/shotgun_shot.cpp',
         ROOT/'native/guest/cof/shotgun_aim.cpp',ROOT/'native/guest/cof/shotgun_frame.cpp',
         ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',
-        ROOT/'native/guest/cof/player_actions.cpp']
+        ROOT/'native/guest/cof/player_actions.cpp',ROOT/'native/guest/cof/spread.cpp']
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),a.proof.resolve(),a.sample.resolve()}
@@ -68,6 +68,8 @@ def main():
         path=(a.proof.parent/inherited['path']).resolve();inputs.add(path)
         if sha(path)!=inherited['sha256']:raise ValueError('Inherited pre-edit changed')
         verify(json.loads(path.read_text('utf-8-sig')),path.parent)
+    inputs.add(a.spread_proof.resolve());spread_proof=json.loads(a.spread_proof.read_text('utf8'))
+    verify(spread_proof,a.spread_proof.parent)
     shared=ROOT/proof['sharedProof'];inputs.add(shared)
     if sha(shared)!=proof['sharedProofSha256']:raise ValueError('Shared lifecycle proof changed')
     with (output/'cases.txt').open('w') as cases,(output/'expected.txt').open('w') as expected:
@@ -77,6 +79,11 @@ def main():
         raise ValueError('Executed original instruction lacks frozen evidence')
     inputs.update((output/'cases.txt',output/'expected.txt'))
     original=dict(sampleSha256=sampleSha,verifiedRegions=len(verified),proofSha256=sha(a.proof),fidget=replay)
+    spread_oracle=ROOT/'tests/cryoffear-spread/oracle.py';inputs.add(spread_oracle)
+    spec=importlib.util.spec_from_file_location('original_spread',spread_oracle);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    with (output/'spread.txt').open('w') as rows:spread_replay=module.generate(a.sample,rows,shotgun_trace=True)
+    if any(not any(start<=int(at,16)<end for start,end in covered)for at in spread_replay['originalInstructions']):raise ValueError('Executed spread instruction lacks frozen pre-edit evidence')
+    original['spread']=spread_replay;original['spreadProofSha256']=sha(a.spread_proof);inputs.add(output/'spread.txt')
     scheduler=actionOwnership=None
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
@@ -139,7 +146,7 @@ def main():
     compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=120)
     (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
     if not compiled.returncode:
-        testArgs=[str(exe),str(model),str(output/'cases.txt'),str(output/'expected.txt')]
+        testArgs=[str(exe),str(model),str(output/'cases.txt'),str(output/'expected.txt'),str(output/'spread.txt')]
         if scheduler is not None:testArgs.extend((str(output/'cases.txt'),str(output/'expected.txt')))
         tested=subprocess.run(testArgs,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
@@ -149,7 +156,7 @@ def main():
         wrong=lines.copy();wrong[0]='999999\n'
         for name,value in (('empty',''),('truncated',''.join(lines[:-1])),('extra',text+'0\n'),('wrong',''.join(wrong))):
             path=output/('bad-'+name+'.txt');path.write_text(value)
-            run=subprocess.run([str(exe),str(model),str(output/'cases.txt'),str(path)],cwd=output,capture_output=True,text=True,timeout=30)
+            run=subprocess.run([str(exe),str(model),str(output/'cases.txt'),str(path),str(output/'spread.txt')],cwd=output,capture_output=True,text=True,timeout=30)
             (output/('bad-'+name+'.log')).write_text(run.stdout+run.stderr,'utf-8')
             negative.append(dict(name=name,exit=run.returncode,passed=run.returncode==2))
     after={str(v):sha(v) for v in sorted(deps)}

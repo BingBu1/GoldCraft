@@ -259,12 +259,14 @@ bool SawView(int sequence)
         if(events[at]==unsigned(ShotgunEffect::ViewAnimation)&&events[at+1]==1&&events[at+2]==unsigned(sequence))return true;
     return false;
 }
+std::array<std::uint32_t,5> SpreadBits(const SpreadState& spread)
+{return {Bits(spread.scalar),Bits(spread.recoveryDeadline),Bits(spread.vector[0]),Bits(spread.vector[1]),Bits(spread.vector[2])};}
 
 }
 
 int main(int argc, char** argv)
 {
-    if (argc != 4) return 1;
+    if (argc != 5) return 1;
     std::ifstream file(argv[1], std::ios::binary); if (!file) return 1;
     std::vector<char> bytes{std::istreambuf_iterator<char>(file), {}};
     model.resize(bytes.size()); std::memcpy(model.data(), bytes.data(), bytes.size());
@@ -286,6 +288,29 @@ int main(int argc, char** argv)
     State().aiming = true; player.pev->fov = 50; events.clear(); weapon.Holster();
     Check(SawView(7) && State().aiming && player.pev->fov == 50 && State().ownerAttack == 10.5F);
     Check(weapon.Deploy()); Check(!State().aiming && SawView(6));
+    // The original player updater drives HUD spread independently of the fixed
+    // shotgun pellet cone. DefaultDeploy resets only scalar and recovery time.
+    Prime(); Check(weapon.Spread().scalar==0&&weapon.Spread().recoveryDeadline==0);
+    frame.originalFlags=0x200;player.pev->velocity={200,0,0};weapon.AdvanceOwnerFrame();
+    Check(weapon.Spread().scalar==3.5F&&weapon.Spread().recoveryDeadline==float(double(globals.time)+.1));
+    const auto moving=SpreadBits(weapon.Spread());frame.pressed=1;weapon.PrimaryAttack();
+    Check(pelletTransactions==1&&SpreadBits(weapon.Spread())==moving);
+    weapon.Holster();player.m_pActiveItem=nullptr;globals.time=11;weapon.AdvanceOwnerFrame();
+    Check(SpreadBits(weapon.Spread())==moving);player.m_pActiveItem=&weapon;Check(weapon.Deploy());
+    Check(weapon.Spread().scalar==0&&weapon.Spread().recoveryDeadline==11);
+    Check(weapon.Spread().vector[0]==Float(moving[2]));
+    // Rollback and an authenticated model change retain the live spread state.
+    Prime();frame.originalFlags=0x200;player.pev->velocity={200,0,0};weapon.AdvanceOwnerFrame();
+    goldcraft::inventory::Snapshot spreadSnapshot{};Check(weapon.SaveInventorySnapshot(spreadSnapshot));
+    const auto savedSpread=SpreadBits(weapon.Spread());frame.originalFlags=0;globals.time=11;weapon.AdvanceOwnerFrame();
+    Check(SpreadBits(weapon.Spread())!=savedSpread&&weapon.RestoreInventorySnapshot(spreadSnapshot));
+    Check(SpreadBits(weapon.Spread())==savedSpread);
+    weapon.OwnerModelChanging();++player.pev->modelindex;
+    {std::string error;auto plan=RecommendedLongGunAnimationPlan(LongGun::Shotgun,PistolAnimationRig::Stock);
+     Check(plan&&animations.Prepare(player,model,{1,2},LongGun::Shotgun,*plan,_stricmp,error));}
+    backends.playerModelGeneration={1,2};Check(weapon.RestoreInventoryBinding(player));
+    Check(SpreadBits(weapon.Spread())==savedSpread);player.pev->health=0;weapon.AdvanceOwnerFrame();
+    Check(SpreadBits(weapon.Spread())==savedSpread);
     // Primary needs an attack edge; pump is installed before smoke and uses the later geometry.
     Prime(); frame.pressed = 0; events.clear(); weapon.PrimaryAttack(); Check(weapon.m_iClip == 5 && events.empty());
     frame.pressed = 1; weapon.PrimaryAttack();
@@ -417,5 +442,22 @@ int main(int argc, char** argv)
         Check(actual == wanted); ++rowCount;
     }
     Check(rowCount != 0 && !std::getline(answers,answer));
-    std::cout<<"870 actual SDK lifecycle "<<checks<<" checks; original fidget "<<rowCount<<" cases passed\n";
+    // Sequential original x86 output checks the actual weapon entry point,
+    // including transitions across movement, crouch, sprint, air and absence.
+    Prime();std::ifstream spreadRows(argv[4]);if(!spreadRows)return 2;unsigned spreadCount{};
+    while(std::getline(spreadRows,row))
+    {
+        std::istringstream fields(row);std::array<std::uint32_t,26> values{};
+        for(auto& value:values)if(!(fields>>std::hex>>value))return 2;
+        std::string extra;if(fields>>extra)return 2;
+        Check(values[14]==4);
+        const auto initial=SpreadBits(weapon.Spread());for(unsigned i=0;i<5;++i)Check(initial[i]==values[i]);
+        player.pev->velocity={Float(values[10]),Float(values[11]),0};globals.time=Float(values[12]);
+        frame.originalFlags=values[13];current=values[15]!=0;weapon.AdvanceOwnerFrame();current=true;
+        const auto actual=SpreadBits(weapon.Spread());for(unsigned i=0;i<5;++i)Check(actual[i]==values[i+16]);
+        ++spreadCount;
+    }
+    Check(spreadCount==640);
+    std::cout<<"870 actual SDK lifecycle "<<checks<<" checks; original fidget "<<rowCount
+        <<" cases; original player-frame spread "<<spreadCount<<" cases passed\n";
 }

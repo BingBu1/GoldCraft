@@ -60,6 +60,7 @@ float Spread(const CBasePlayerWeapon& item) noexcept
     if(auto* weapon=dynamic_cast<const VP70Weapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const TMPWeapon*>(&item))return weapon->Spread().scalar;
     if(auto* weapon=dynamic_cast<const MP5Weapon*>(&item))return weapon->Spread().scalar;
+    if(auto* weapon=dynamic_cast<const ShotgunWeapon*>(&item))return weapon->Spread().scalar;
     return -1;
 }
 }

@@ -59,6 +59,13 @@ void CheckShotgunEffects(GlockEffects& effects,const GlockResources& glock)
     globals.time=900;player.pev->button=0;Check(gun.Deploy());
     auto initial=LatestState();Check(initial.originalWeapon==4&&!initial.aimEnabled&&!initial.m16Burst&&
         !initial.revolverAngle&&initial.zoomSpeedEighths==0);
+    Check(effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    CrosshairSnapshot spread{};Check(DecodeCrosshair(packets.back().bytes,spread)&&
+        spread.key==initial.key&&spread.presentationRevision==initial.revision&&spread.scalar==0);
+    globals.time+=.125F;context.frame.originalFlags=0x200;player.pev->velocity={200,0,0};gun.AdvanceOwnerFrame();
+    Check(gun.Spread().scalar==3.5F&&effects.CrosshairSnapshot(player,{nullptr,PacketCurrent}));
+    Check(DecodeCrosshair(packets.back().bytes,spread)&&spread.scalar==3&&spread.key==initial.key);
+    player.pev->velocity={};
     const auto stable=packets.size();for(unsigned i=0;i<1000;++i)Check(effects.SynchronizeSelection(player));
     Check(packets.size()==stable);
     globals.time=gun.ActionState().primary+1;player.pev->button=0x40;context.frame.pressed=0x40;

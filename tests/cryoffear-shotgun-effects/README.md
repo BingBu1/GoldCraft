@@ -1,7 +1,9 @@
 # 870 实际效果验证
 
-通过共用的 tests/cryoffear-p345-effect-dispatch/run.py 接入实际 ShotgunWeapon、GlockEffects、原生消息发送器与协议。必须传入 --shotgun-proof 及匹配的原 MP/client 样本；原版证据在运行前重新按字节核对。
+通过共用的 tests/cryoffear-p345-effect-dispatch/run.py 接入实际 ShotgunWeapon、GlockEffects、原生消息发送器与协议。必须传入 --shotgun-proof、--shotgun-spread-proof 及匹配的原 MP/client 样本；原版证据在运行前重新按字节核对。
 
 核对 ID4、抽壳类型2、附件1枪烟、ShotState5、20个视模序列和两条机瞄消息的顺序；缺写入端点后可恢复。实际音频、装填owner和目标伤害属于明确的受控端点，分别由已有专项验证。本测试不授予购买能力，也不表示游戏画面、多人与性能已经通过。
 
 本阶段实际组合4586 SDK检查通过，其中870新增1076；消息codec另有198946项通过。见[领域报告](../../docs/2026-11-17_接入-870实际效果与附件消息-report.md)，不替代完整网络、画面、多人与性能验收。
+
+动态准星增补验证实际武器的初始0及移动后的3.5标量，并解码实际快照为原协议量化后的3，保留正确的生命、武器实例和显示修订身份。该标量不参与870固定八霰弹锥计算。

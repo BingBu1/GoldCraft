@@ -30,6 +30,7 @@ def main():
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--shotgun-proof',type=Path)
+    parser.add_argument('--shotgun-spread-proof',type=Path)
     parser.add_argument('--g43-proof',type=Path)
     parser.add_argument('--g43-aurora-proof',type=Path)
     parser.add_argument('--sample',type=Path)
@@ -109,8 +110,8 @@ def main():
         original=dict(sampleSha256=sha(args.sample),clientSha256=sha(args.client_sample),g43ProofSha256=sha(args.g43_proof),
             auroraProofSha256=sha(args.g43_aurora_proof),mpRegions=len(proof['mpRegions']),clientRegions=len(proof['clientRegions'])+1)
     if args.shotgun_proof is not None:
-        if args.g43_proof is None:
-            parser.error('870 runs with the existing G43 evidence and both matched samples')
+        if args.g43_proof is None or args.shotgun_spread_proof is None:
+            parser.error('870 requires G43 evidence, both matched samples and its player-frame spread proof')
         proof=json.loads(args.shotgun_proof.read_text('utf-8-sig'))
         if not proof['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256'] or sha(args.client_sample)!=proof['clientSha256']:
             raise ValueError('870 original identity/pre-edit proof mismatch')
@@ -123,6 +124,14 @@ def main():
             for row in regions:
                 if region_sha(image,row)!=row['sha256']:raise ValueError('Original 870 region mismatch')
         original.update(shotgunProofSha256=sha(args.shotgun_proof),shotgunMpRegions=len(proof['mpRegions']),shotgunClientRegions=len(proof['clientRegions']))
+        spread=json.loads(args.shotgun_spread_proof.read_text('utf8'));inputs.add(args.shotgun_spread_proof.resolve())
+        if not spread['beforeImplementation'] or spread['sampleSha256']!=sha(args.sample):raise ValueError('870 player-frame evidence mismatch')
+        for row in spread['regions']:
+            if region_sha(args.sample.read_bytes(),row)!=row['sha256']:raise ValueError('Original 870 player-frame region mismatch')
+        for path,digest in spread['archives'].items():
+            path=args.shotgun_spread_proof.parent/path;inputs.add(path.resolve())
+            if sha(path)!=digest:raise ValueError('Original 870 player-frame archive changed')
+        original.update(shotgunSpreadProofSha256=sha(args.shotgun_spread_proof),shotgunSpreadRegions=len(spread['regions']))
     for name, path, sig, only in (
         ('sdk-sequence-info.inc', SDK / 'dlls/animation.cpp', 'void GetSequenceInfo(', False),
         ('sdk-sequence-flags.inc', SDK / 'dlls/animation.cpp', 'int GetSequenceFlags(', False),

@@ -36,6 +36,8 @@ constexpr std::uint64_t InventoryKind = 0x434f463837300001ULL;
 struct ShotgunWeapon::InventoryState
 {
     ShotgunShotState shot;
+    SpreadState spread;
+    SpreadTransitions transitions;
     float actionDeadline{}, wearDeadline{}, nextThink{}, taskDeadline{};
     float armor{}, primary{}, secondary{}, idle{}, ownerAttack{};
     int body{}, reserveHud{}, wearMaximum{}, wear{}, clip{}, inReload{}, fireOnEmpty{};
@@ -53,6 +55,7 @@ bool ShotgunWeapon::SaveInventorySnapshot(goldcraft::inventory::Snapshot& output
     static_assert(std::is_trivially_copyable_v<InventoryState> && sizeof(InventoryState) <= 512);
     InventoryState s{};
     s.shot = shot_;
+    s.spread = spread_; s.transitions = transitions_;
     // Scenario skills can update native ammo before another weapon frame.
     // A purchase rollback must preserve that grant, not the last mirror.
     s.shot.action.clip = m_iClip;
@@ -111,7 +114,8 @@ bool ShotgunWeapon::RestoreInventorySnapshot(const goldcraft::inventory::Snapsho
         s.ownerSpawn != m_pPlayer->m_iNumSpawns || s.map != reinterpret_cast<std::uintptr_t>(worldLease_.context) ||
         s.ownerContext != reinterpret_cast<std::uintptr_t>(lease.context) ||
         (s.selected && m_pPlayer->m_pActiveItem != this)) return false;
-    shot_ = s.shot; actionDeadline_ = s.actionDeadline; wearDeadline_ = s.wearDeadline;
+    shot_ = s.shot; spread_ = s.spread; transitions_ = s.transitions;
+    actionDeadline_ = s.actionDeadline; wearDeadline_ = s.wearDeadline;
     task_ = s.task; taskDeadline_ = s.taskDeadline;
     pev->body = s.body; pev->armorvalue = s.armor; m_pfnThink = s.think; pev->nextthink = s.nextThink;
     m_flNextPrimaryAttack = s.primary; m_flNextSecondaryAttack = s.secondary; m_flTimeWeaponIdle = s.idle;
@@ -255,7 +259,7 @@ ShotgunStatus ShotgunWeapon::Bind(CBasePlayer& owner, const ShotgunPrepared& p,
 
 void ShotgunWeapon::Spawn()
 {
-    modelRebind_.reset(); shot_ = {};
+    modelRebind_.reset(); shot_ = {}; spread_ = {}; transitions_ = {};
     actionDeadline_ = wearDeadline_ = taskDeadline_ = 0;
     reserveHud_ = wearMaximum_ = wear_ = 0; task_ = WeaponTask::None;
     m_iDefaultAmmo = 5; m_iSecondaryAmmoType = -1; m_iClip = 0;
@@ -568,6 +572,7 @@ BOOL ShotgunWeapon::Deploy()
     shot_.action.action = 0;
     if (!Emit({ShotgunEffect::DeployPrelude})) return FALSE;
     shot_.action.aiming = false;
+    spread_.scalar = 0; spread_.recoveryDeadline = gpGlobals->time;
     if (!Emit({ShotgunEffect::DeployReset})) return FALSE;
     if (reserveHud_ != shot_.action.reserve)
     {
@@ -837,8 +842,11 @@ void ShotgunWeapon::PrimaryAttack()
 
 void ShotgunWeapon::AdvanceOwnerFrame() noexcept
 {
-    ShotgunOwnerFrame frame{}; Check(frame);
-    // Original shotgun uses its fixed eight-pellet spread, not rifle recovery.
+    ShotgunOwnerFrame frame{}; if (!Check(frame)) return;
+    // Player100EF7B2 updates every active firearm, including the 870. This is
+    // its HUD scalar; ShotFrame keeps the original fixed eight-pellet cone.
+    UpdateSpread(spread_, transitions_, {m_pPlayer->pev->velocity.x, m_pPlayer->pev->velocity.y,
+        gpGlobals->time, frame.originalFlags, 4, true});
 }
 
 void ShotgunWeapon::GuardExpandedReload() noexcept
