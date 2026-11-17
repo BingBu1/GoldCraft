@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -23,11 +24,43 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--environment", required=True, type=Path)
     parser.add_argument("--sample", required=True, type=Path)
+    parser.add_argument("--shotgun-proof", type=Path, help="Frozen original 870 client evidence")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     out = args.output.resolve()
-    assert out.is_relative_to(ROOT / "build")
-    out.mkdir(parents=True, exist_ok=True)
+    assert out.is_relative_to(ROOT / "build") and not out.exists()
+    for path in (out, *out.parents):
+        if path.is_symlink() or os.path.isjunction(path):
+            raise ValueError("Linked output directory rejected")
+    out.mkdir(parents=True)
+    proof_inputs = set()
+    original = None
+    if args.shotgun_proof:
+        proof = json.loads(args.shotgun_proof.read_text("utf-8-sig"))
+        assert proof["beforeImplementation"] and sha(args.sample) == proof["sampleSha256"]
+        image = args.sample.read_bytes()
+        nt = struct.unpack_from("<I", image, 60)[0]
+        optional = nt + 24
+        base = struct.unpack_from("<I", image, optional + 28)[0]
+        table = optional + struct.unpack_from("<H", image, nt + 20)[0]
+        for region in proof["regions"]:
+            rva = int(region["va"], 16) - base
+            found = False
+            for index in range(struct.unpack_from("<H", image, nt + 6)[0]):
+                at = table + index * 40
+                virtual, size, raw = struct.unpack_from("<III", image, at + 12)
+                if virtual <= rva and rva + region["size"] <= virtual + size:
+                    data = image[raw + rva - virtual:raw + rva - virtual + region["size"]]
+                    found = hashlib.sha256(data).hexdigest() == region["sha256"]
+                    break
+            assert found, region["va"]
+        proof_inputs.update((args.sample.resolve(), args.shotgun_proof.resolve()))
+        for name, expected in proof["archives"].items():
+            path = ROOT / proof["archiveRoot"] / name
+            assert sha(path) == expected
+            proof_inputs.add(path)
+        original = dict(sampleSha256=sha(args.sample), proofSha256=sha(args.shotgun_proof),
+                        regions=len(proof["regions"]))
     config = json.loads((ROOT / ".tools/clang-toolchain.json").read_text(encoding="utf-8-sig"))
     compiler = Path(config["root"]) / "bin/clang-cl.exe"
     linker = compiler.with_name("lld-link.exe")
@@ -48,6 +81,21 @@ def main():
                 [str(linker), "/nologo", "/machine:X86", "/subsystem:console", "/incremental:no",
                  "/OPT:REF", "/OPT:ICF", "/out:" + str(out / "muzzle-flash.exe"),
                  str(out / "muzzle_flash.obj"), str(out / "main.obj")]]
+    dependencies = {ROOT / p for p in INPUTS} | proof_inputs | {args.environment.resolve()}
+    dependency_commands = []
+    for index, source in enumerate(ROOT / p for p in INPUTS if p.endswith(".cpp")):
+        dep = out / f"{index}.d"
+        command = [str(compiler), *(flag for flag in flags if flag != "/c"), *["/imsvc" + str(p) for p in includes],
+                   "/clang:-M", "/clang:-MF", "/clang:" + str(dep), str(source)]
+        dependency_commands.append(command)
+        result = subprocess.run(command, cwd=out, env=environment, capture_output=True, text=True, timeout=60)
+        (out / f"{index}-headers.log").write_text(result.stdout + result.stderr, "utf-8")
+        result.check_returncode()
+        make = dep.read_text().replace(chr(92) + chr(10), " ")
+        dependencies.update(Path(p.replace(chr(92) + " ", " ")).resolve()
+                            for p in re.findall(r"(?:\\ |[^\s])+", make.split(":", 1)[1]))
+    dependencies_before = {str(p): sha(p) for p in sorted(dependencies)}
+    compiler_before, linker_before = sha(compiler), sha(linker)
     logs = []
     for argv in commands:
         result = subprocess.run(argv, cwd=ROOT, env=environment, capture_output=True, text=True)
@@ -77,14 +125,23 @@ def main():
     subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-muzzle-flash/oracle.py"),
                     "--sample", str(args.sample.resolve()), "--runner", str(out / "muzzle-flash.exe"),
                     "--weapon", "G43", "--output", str(out / "g43-differential.json")], check=True)
+    if args.shotgun_proof:
+        subprocess.run([sys.executable, "-I", str(ROOT / "tests/cryoffear-muzzle-flash/oracle.py"),
+                        "--sample", str(args.sample.resolve()), "--runner", str(out / "muzzle-flash.exe"),
+                        "--weapon", "Shotgun", "--output", str(out / "shotgun-differential.json")], check=True)
     data = (out / "muzzle-flash.exe").read_bytes()
     pe = struct.unpack_from("<I", data, 0x3C)[0]
     assert struct.unpack_from("<H", data, pe + 4)[0] == 0x14C
     after = {p: sha(ROOT / p) for p in INPUTS}
     assert before == after
+    dependencies_after = {str(p): sha(p) for p in sorted(dependencies)}
+    assert dependencies_before == dependencies_after
+    assert sha(compiler) == compiler_before and sha(linker) == linker_before
     sdk_files = {str(p.relative_to(ROOT)): sha(p) for p in sdk.rglob("*") if p.is_file() and
                  p.name in ("metahook.h", "cl_entity.h", "r_efx.h", "studio_event.h", "event_api.h", "APIProxy.h", "event_args.h", "ref_params.h", "com_model.h", "triangleapi.h")}
-    receipt = dict(revision=revision, sourcesBefore=before, sourcesAfter=after, sdkInputs=sdk_files,
+    receipt = dict(success=True, revision=revision, sourcesBefore=before, sourcesAfter=after, sdkInputs=sdk_files,
+                   dependencyCommands=dependency_commands, dependenciesBefore=dependencies_before,
+                   dependenciesAfter=dependencies_after, originalShotgun=original,
                    compilerVersion=config["version"].splitlines()[0], compilerSha256=sha(compiler),
                    linkerSha256=sha(linker), flags=flags, architecture="PE32 x86", executableSha256=sha(out / "muzzle-flash.exe"),
                    sourceSnapshots=False, gameplay=False, performance=False)

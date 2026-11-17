@@ -77,6 +77,7 @@ private:
     friend class MP5Muzzle;
     friend class M16Muzzle;
     friend class G43Muzzle;
+    friend class ShotgunMuzzle;
     MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize,
         const char* secondFlashModel = nullptr) const noexcept;
     MuzzleResult WorldWithSize(const std::array<float,3>&, float scale, float baseSize,
@@ -139,6 +140,18 @@ public:
     MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept
     {return base_.World(attachment,scale);}
+private:
+    P345Muzzle base_;
+};
+// Original4 uses local flash1/base6; exact cooperative shotgun P retains the
+// default world flash1/base3 and does not execute the type3 shell tail.
+class ShotgunMuzzle
+{
+public:
+    explicit ShotgunMuzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
+    MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept
+    { return base_.World(attachment, scale); }
 private:
     P345Muzzle base_;
 };

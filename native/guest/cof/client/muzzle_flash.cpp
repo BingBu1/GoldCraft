@@ -111,6 +111,8 @@ MuzzleResult M16Muzzle::World(const std::array<float,3>& attachment,float scale)
 {return base_.WorldWithSize(attachment,scale,3.0F,true,"models/flash2.mdl");}
 MuzzleResult G43Muzzle::Local(const cl_entity_s& view,unsigned attachment,float scale,float cheapSmoke) const noexcept
 {return base_.LocalWithSize(view,attachment,scale,cheapSmoke,6.0F,"models/flash2.mdl");}
+MuzzleResult ShotgunMuzzle::Local(const cl_entity_s& view,unsigned attachment,float scale,float cheapSmoke) const noexcept
+{return base_.LocalWithSize(view,attachment,scale,cheapSmoke,6.0F);}
 MuzzleResult RevolverMuzzle::Local(const cl_entity_s& view,unsigned attachment,
     float scale,float cheapSmoke) const noexcept
 {return base_.LocalWithSize(view,attachment,scale,cheapSmoke,6.0F);}
