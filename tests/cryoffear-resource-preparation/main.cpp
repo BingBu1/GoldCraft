@@ -110,7 +110,7 @@ void Inputs(const std::filesystem::path& original, const std::filesystem::path& 
     for (const auto& p : events) fixture.files.emplace(p.host, Read(original / p.original));
     fixture.files.emplace(inventory.host, Read(original / inventory.original));
     fixture.files.emplace(particle.host, Read(original / particle.original));
-    fixture.files.emplace(texture.host, Read(clipTexture));
+    if (texture.host) fixture.files.emplace(texture.host, Read(clipTexture));
 }
 std::uint32_t Word(const std::vector<byte>& bytes, std::size_t at)
 {
@@ -138,7 +138,7 @@ bool Unchanged(const Resources& a, const Resources& b)
 
 int main(int argc, char** argv)
 {
-    if (argc != 4 && argc != 5 && argc != 6 && argc != 7 && argc != 8) return 2;
+    if (argc < 4 || argc > 9) return 2;
     g_engfuncs.pfnGetFileSize = FileSize;
     g_engfuncs.pfnLoadFileForMe = Load; g_engfuncs.pfnFreeFile = Free;
     g_engfuncs.pfnPrecacheModel = Model; g_engfuncs.pfnPrecacheSound = Sound;
@@ -166,17 +166,23 @@ int main(int argc, char** argv)
         if (!result) { std::printf("status%d path%s\n", int(result.status), result.path ? result.path : ""); return; }
         const int steps = fixture.steps;
         const auto calls = fixture.calls;
-        Check(fixture.loads == 3 && fixture.frees == 3, "three cold reads, all released");
+        const int coldReads = texturePath.host ? 3 : 2;
+        Check(fixture.loads == coldReads && fixture.frees == coldReads, "all required cold reads released");
         constexpr auto decalCount = std::is_same_v<Resources, GlockResources> ? ShotDecals.size() : 0;
         constexpr auto clientModelCount = std::is_same_v<Resources, MP5Resources> ? MP5ClientModels.size() :
             std::is_same_v<Resources, M16Resources> ? M16ClientModels.size() :
             std::is_same_v<Resources, G43Resources> ? G43ClientModels.size() : 0;
-        Check(fixture.models.size() == 10 + clientModelCount && fixture.generics.size() == waves.size() + 2 + decalCount &&
-            !fixture.generics.contains(texturePath.host), "engine retains sole automatic companion registration");
-        Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
-            std::string_view(models[9].original) == "sprites/gunsmoke.spr" &&
-            prepared.models[8] > 0 && prepared.models[9] > 0,
-            "real muzzle model and cheap smoke sprite admitted before input");
+        Check(fixture.models.size() == models.size() + clientModelCount && fixture.generics.size() == waves.size() + 2 + decalCount &&
+            (!texturePath.host || !fixture.generics.contains(texturePath.host)), "engine retains sole automatic companion registration");
+        if constexpr (!std::is_same_v<Resources, ShotgunCoreResources>)
+            Check(std::string_view(models[8].original) == "models/flash1.mdl" &&
+                std::string_view(models[9].original) == "sprites/gunsmoke.spr" &&
+                prepared.models[8] > 0 && prepared.models[9] > 0,
+                "real muzzle model and cheap smoke sprite admitted before input");
+        else
+            Check(models.size() == 5 && sounds.size() == 6 && waves.empty() && events.empty() &&
+                !fixture.files.contains("models/guest/cof/common/w_9mmclip.mdl"),
+                "shotgun core has its exact server resources and no invented pistol clip");
         Check(prepared.generation == 17, "generation retained");
         Check(std::bit_cast<std::uint32_t>(prepared.aimOffset.x) == forwardBits &&
             prepared.aimOffset.y == expectedRight && prepared.aimOffset.z == expectedUp && prepared.aimZoom == 50,
@@ -199,7 +205,10 @@ int main(int argc, char** argv)
             Check(fixture.sounds.at(sounds[i].host) == prepared.sounds[i], "actual sound ID preserved");
         for (std::size_t i = 0; i < waves.size(); ++i)
             Check(fixture.generics.at(waves[i].host) == prepared.localWaveDownloads[i], "actual generic ID preserved");
-        Check(prepared.localWaveDownloads[0] == 0, "zero based generic index accepted");
+        if constexpr (std::tuple_size_v<decltype(prepared.localWaveDownloads)> != 0)
+            Check(prepared.localWaveDownloads[0] == 0, "zero based generic index accepted");
+        else
+            Check(prepared.inventoryDownload == 0, "zero based inventory index accepted without local waves");
         if constexpr (requires { prepared.decalDownloads; })
             for (std::size_t i = 0; i < ShotDecals.size(); ++i)
                 Check(prepared.decalDownloads[i] == fixture.generics.at(ShotDecals[i].host),
@@ -418,6 +427,8 @@ int main(int argc, char** argv)
         Check(prepare(authority, output).status == ResourceStatus::InvalidModel &&
             Unchanged(output, sentinel) && !fixture.precaches, "required complete sequence prefix rejected");
         fixture.files[models[0].host] = model;
+        if (texturePath.host)
+        {
         const auto texture = fixture.files.at(texturePath.host);
         const auto textureTable = Word(texture, 184);
         const auto rejectTexture = [&](std::vector<byte> bytes) {
@@ -458,6 +469,7 @@ int main(int argc, char** argv)
         std::memcpy(fixture.files[texturePath.host].data() + 72, &updatedLength, sizeof(updatedLength));
         Check(bool(prepare(authority, output)), "structurally valid changed payload and complete size admitted");
         fixture.files[texturePath.host] = texture;
+        }
         fixture.Reset(); Resources second{};
         Check(bool(prepare(authority, second)), "repeat cold preparation");
         Check(second.models == prepared.models && second.sounds == prepared.sounds &&
@@ -522,7 +534,7 @@ int main(int argc, char** argv)
                 M16Inventory, M16Particle, M16ClipTexture, PrepareM16Resources, 38, -4.25F, 2.F,
                 "weapon_m16", "\"2.000000\"", "M16", "\"0.000000\"", 0);
         }
-        if(argc==8)
+        if(argc>=8 && *argv[7])
         {
             fixture = Fixture{};
             Inputs(argv[1], argv[2], argv[3], G43Models, G43Sounds, G43LocalWaves, G43Events,
@@ -532,6 +544,17 @@ int main(int argc, char** argv)
             exercise.template operator()<G43Resources>(G43Models, G43Sounds, G43LocalWaves, G43Events,
                 G43Inventory, G43Particle, G43ClipTexture, PrepareG43Resources, 38, -4.25F, 2.F,
                 "weapon_g43", "\"2.00\"", "G43", "\"0.00\"", 0);
+        }
+        if(argc==9 && *argv[8])
+        {
+            using namespace guest::cof::resources;
+            fixture = Fixture{};
+            constexpr std::array<ResourcePath, 0> empty{};
+            Inputs(argv[1], argv[2], argv[3], ShotgunCoreModels, ShotgunCoreSounds, empty, empty,
+                ShotgunCoreInventory, ShotgunCoreParticle, {});
+            exercise.template operator()<ShotgunCoreResources>(ShotgunCoreModels, ShotgunCoreSounds, empty, empty,
+                ShotgunCoreInventory, ShotgunCoreParticle, {}, PrepareShotgunCoreResources, 20, -3.5F, 2.75F,
+                "weapon_shotgun", "\"2.75\"", "870Core");
         }
         if(argc>=5 && *argv[4])for(const auto& definition:guest::cof::Firearms)
         {

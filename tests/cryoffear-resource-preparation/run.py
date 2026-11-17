@@ -60,6 +60,7 @@ def main():
     parser.add_argument("--mp5-player",type=Path,help="Explicit authored MP5 P candidate; never a copied W or TMP P")
     parser.add_argument("--include-m16",action="store_true",help="Exercise original M16 cold closure; does not admit the gun")
     parser.add_argument("--include-g43",action="store_true",help="Exercise original G43 closure without production admission")
+    parser.add_argument("--include-shotgun-core",action="store_true",help="Exercise only the original 870 server core closure")
     args = parser.parse_args()
     output = args.output.absolute()
     for part in (output, *output.parents):
@@ -166,6 +167,23 @@ def main():
             source=args.original/record['original'];g43_input_paths.add(source)
             if source.stat().st_size!=record['bytes'] or sha(source)!=record['sha256']:
                 raise ValueError('G43 original resource changed')
+    shotgun_paths = set()
+    shotgun_rows = []
+    if args.include_shotgun_core:
+        shotgun_proof = ROOT/'analysis/cof-weapons-20261111/shotgun-20261116/cold-20261117/PREEDIT-core.json'
+        shotgun = json.loads(shotgun_proof.read_text('utf-8'))
+        if not shotgun['beforeImplementation']: raise ValueError('Missing original shotgun pre-edit proof')
+        shotgun_rows = verify_original(args.sample, shotgun_proof)
+        shotgun_paths.add(shotgun_proof)
+        for name, digest in shotgun['archives'].items():
+            path = shotgun_proof.parent/name
+            if sha(path) != digest: raise ValueError('Changed original shotgun IDA archive')
+            shotgun_paths.add(path)
+        for record in shotgun['assets']:
+            path = args.original/record['path']
+            if path.stat().st_size != record['bytes'] or sha(path) != record['sha256']:
+                raise ValueError('Changed original shotgun resource: '+record['path'])
+            shotgun_paths.add(path)
     glock_proof = ROOT/'analysis/cof-weapons-20261111/model-evidence/cold-resources-before-gate.json'
     glock_raw = ROOT/'analysis/cof-weapons-20261111/server-evidence/glock-byte-raw.json'
     glock_rows = verify_original(args.sample, glock_proof)
@@ -223,6 +241,7 @@ def main():
     inputs.update(Path(r['path']) for r in resources)
     inputs.update(m16_input_paths)
     inputs.update(g43_input_paths)
+    inputs.update(shotgun_paths)
     if args.mp5_player:
         inputs.update((mp5_proof, args.mp5_player.resolve()))
         inputs.update(mp5_client_inputs)
@@ -279,6 +298,9 @@ def main():
         if args.include_g43:
             while len(extra)<3:extra.append('')
             extra.append('g43')
+        if args.include_shotgun_core:
+            while len(extra)<4:extra.append('')
+            extra.append('shotgun-core')
         test = subprocess.run([str(exe), str(args.original.resolve()), str(args.clip.resolve()),
                                str(args.clip_texture.resolve()), *extra],
                               cwd=output, capture_output=True, text=True, timeout=30)
@@ -287,7 +309,7 @@ def main():
     success = not compile_run.returncode and test is not None and not test.returncode and before == after and compiler_before == sha(compiler)
     receipt = dict(success=success, revision=revision, command=command, dependencyCommands=commands,
         compilerSha256=compiler_before, before=before, after=after, unchanged=before == after,
-        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, m16Regions=m16_rows, m16ClientRegions=m16_client_rows, g43Regions=g43_rows, g43ClientRegions=g43_client_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
+        original=dict(sha256=SAMPLE_SHA, regions=rows, revolverRegions=revolver_rows, vp70Regions=vp70_rows, tmpRegions=tmp_rows, mp5Regions=mp5_rows, mp5ClientRegions=mp5_client_rows, m16Regions=m16_rows, m16ClientRegions=m16_client_rows, g43Regions=g43_rows, g43ClientRegions=g43_client_rows, shotgunCoreRegions=shotgun_rows, glockRegions=glock_rows, glockEmptyRegions=empty_rows, resourceInputs=resources),
         compiled=compile_run.returncode, tested=test.returncode if test is not None else None,
         sourceCopies=0, boundary='Actual SDK helper and complete real resource bytes with controlled VFS/precache callbacks. No actual engine process, weapon registry, client voice/particle/backend admission, P grip, deployment, gameplay or performance acceptance.',
         sharedClip='Explicit existing workspace valve model for the named host common dependency; not proof of original CoF VFS inheritance.')

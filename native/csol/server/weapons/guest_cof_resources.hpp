@@ -195,6 +195,21 @@ struct M16Resources
     int inventoryItemString{}, particleScriptString{};
     int inventoryDownload{}, particleDownload{};
 };
+// The original server closure and its cold inventory/model inputs. Client
+// effects, HUD and purchase preparation remain separate requirements.
+struct ShotgunCoreResources
+{
+    std::uint64_t generation{};
+    guest::cof::MagazineSequenceTimes sequences{};
+    Vector aimOffset{};
+    int aimZoom{};
+    std::array<int, guest::cof::resources::ShotgunCoreModels.size()> models{};
+    std::array<int, guest::cof::resources::ShotgunCoreSounds.size()> sounds{};
+    std::array<int, 0> localWaveDownloads{}, clientModels{};
+    std::array<unsigned short, 0> events{};
+    int viewModelString{}, playerModelString{}, worldModelString{};
+    int inventoryItemString{}, particleScriptString{}, inventoryDownload{}, particleDownload{};
+};
 struct G43Resources
 {
     std::uint64_t generation{};
@@ -235,6 +250,7 @@ ResourceResult PrepareTMPResources(const ResourceAuthority&, TMPResources&) noex
 ResourceResult PrepareMP5Resources(const ResourceAuthority&, MP5Resources&) noexcept;
 ResourceResult PrepareM16Resources(const ResourceAuthority&, M16Resources&) noexcept;
 ResourceResult PrepareG43Resources(const ResourceAuthority&, G43Resources&) noexcept;
+ResourceResult PrepareShotgunCoreResources(const ResourceAuthority&, ShotgunCoreResources&) noexcept;
 // Same map-only contract, with the actual Glock resources and all43 timings.
 ResourceResult PrepareGlockResources(const ResourceAuthority&, GlockResources&) noexcept;
 }

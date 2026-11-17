@@ -10,6 +10,28 @@
 namespace guest::cof::resources
 {
 struct ResourcePath { const char* original; const char* host; };
+// Original1006DE40 server precache only. Client sounds, effects and HUD form a
+// separate closure; these core resources never grant firearm admission.
+enum class ShotgunCoreModel : unsigned { View, World, Player, Null, Shell, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(ShotgunCoreModel::Count)> ShotgunCoreModels{{
+    {"models/weapons/shotgun/v_shotgun.mdl", "models/guest/cof/shotgun/v_shotgun.mdl"},
+    {"models/weapons/shotgun/w_shotgun.mdl", "models/guest/cof/shotgun/w_shotgun.mdl"},
+    {"police/models/weapons/shotgun/p_shotgun.mdl", "models/guest/cof/shotgun/p_shotgun.mdl"},
+    {"models/null.mdl", "models/guest/cof/common/null.mdl"},
+    {"models/shotgunshell.mdl", "models/guest/cof/common/shotgunshell.mdl"}
+}};
+enum class ShotgunCoreSound : unsigned { ItemGet, Fire, Insert, PumpForward, PumpBack, PumpSequence, Count };
+inline constexpr std::array<ResourcePath, static_cast<unsigned>(ShotgunCoreSound::Count)> ShotgunCoreSounds{{
+    {"weapons/item_get.wav", "guest/cof/weapons/item_get.wav"},
+    {"weapons/shotgun/shoot.wav", "guest/cof/weapons/shotgun/shoot.wav"},
+    {"weapons/shotgun/insert.wav", "guest/cof/weapons/shotgun/insert.wav"},
+    {"weapons/shotgun/pump_forward.wav", "guest/cof/weapons/shotgun/pump_forward.wav"},
+    {"weapons/shotgun/pump_back.wav", "guest/cof/weapons/shotgun/pump_back.wav"},
+    {"weapons/shotgun/pump_seq.wav", "guest/cof/weapons/shotgun/pump_seq.wav"}
+}};
+inline constexpr ResourcePath ShotgunCoreInventory{
+    "inventoryitems/weapons/weapon_shotgun.txt", "inventoryitems/guest/cof/weapons/weapon_shotgun.txt"};
+inline constexpr ResourcePath ShotgunCoreParticle{"aurora/gunsmoke.aur", "aurora/guest/cof/gunsmoke.aur"};
 inline constexpr char CustomDecalMessage[] = "CoFDecal";
 // Original10059110 shot resource group; width/height6 and overlap.5 are
 // consumed as half-extents3 and overlap1 by10057DA0. Host namespace only.

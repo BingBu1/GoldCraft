@@ -203,7 +203,7 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
         if (!exists(p.host)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p.host};
     for (const auto* p : {inventory.host, particle.host})
         if (!exists(p)) return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, p};
-    if (!exists(clipTexture.host))
+    if (clipTexture.host && !exists(clipTexture.host))
         return {current() ? ResourceStatus::MissingFile : ResourceStatus::Cancelled, clipTexture.host};
     if constexpr (requires { output.decalDownloads; })
         for (const auto& p : ShotDecals)
@@ -232,6 +232,7 @@ ResourceResult PrepareResources(const ResourceAuthority& authority, Resources& o
     }
     if (!current()) return {ResourceStatus::Cancelled};
 
+    if (clipTexture.host)
     {
         File file{nullptr, 0, g_engfuncs.pfnFreeFile};
         file.bytes = g_engfuncs.pfnLoadFileForMe(clipTexture.host, &file.size);
@@ -379,6 +380,15 @@ ResourceResult PrepareG43Resources(const ResourceAuthority& authority, G43Resour
     return PrepareResources(authority, output, G43Models, G43Sounds, G43LocalWaves, G43Events,
         G43Inventory, G43Particle, G43ClipTexture, 38, "weapon_g43", G43ClientModels);
 }
+ResourceResult PrepareShotgunCoreResources(const ResourceAuthority& authority, ShotgunCoreResources& output) noexcept
+{
+    using namespace guest::cof::resources;
+    constexpr std::array<ResourcePath, 0> noClientResources{};
+    return PrepareResources(authority, output, ShotgunCoreModels, ShotgunCoreSounds,
+        noClientResources, noClientResources, ShotgunCoreInventory, ShotgunCoreParticle,
+        {}, 20, "weapon_shotgun");
+}
+
 ResourceResult PrepareGlockResources(const ResourceAuthority& authority, GlockResources& output) noexcept
 {
     return PrepareResources(authority, output, GlockModels, GlockSounds, GlockLocalWaves, GlockEvents,
