@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('compiler', 'environment', 'output'):
         parser.add_argument('--' + name, type=Path, required=True)
+    parser.add_argument('--shotgun-proof',type=Path)
     parser.add_argument('--g43-proof',type=Path)
     parser.add_argument('--g43-aurora-proof',type=Path)
     parser.add_argument('--sample',type=Path)
@@ -63,6 +64,8 @@ def main():
         ROOT / 'native/guest/cof/server/m16_weapon.cpp',
         ROOT / 'native/guest/cof/m16_control.cpp',
         ROOT / 'native/guest/cof/m16_shot.cpp',
+        ROOT / 'native/guest/cof/server/shotgun_weapon.cpp',
+        *[ROOT/('native/guest/cof/'+name+'.cpp') for name in ('shotgun_control','shotgun_aim','shotgun_frame','shotgun_shot')],
         ROOT / 'native/guest/cof/server/g43_weapon.cpp',
         ROOT / 'native/guest/cof/g43_control.cpp',ROOT / 'native/guest/cof/g43_aim.cpp',
         ROOT / 'native/guest/cof/g43_frame.cpp',ROOT / 'native/guest/cof/g43_shot.cpp',
@@ -105,6 +108,21 @@ def main():
                 if region_sha(image,row)!=row['sha256']:raise ValueError('Original G43 region mismatch')
         original=dict(sampleSha256=sha(args.sample),clientSha256=sha(args.client_sample),g43ProofSha256=sha(args.g43_proof),
             auroraProofSha256=sha(args.g43_aurora_proof),mpRegions=len(proof['mpRegions']),clientRegions=len(proof['clientRegions'])+1)
+    if args.shotgun_proof is not None:
+        if args.g43_proof is None:
+            parser.error('870 runs with the existing G43 evidence and both matched samples')
+        proof=json.loads(args.shotgun_proof.read_text('utf-8-sig'))
+        if not proof['beforeImplementation'] or sha(args.sample)!=proof['sampleSha256'] or sha(args.client_sample)!=proof['clientSha256']:
+            raise ValueError('870 original identity/pre-edit proof mismatch')
+        inputs.add(args.shotgun_proof.resolve())
+        for row in proof['proofs']:
+            path=ROOT/row['path'];inputs.add(path)
+            if sha(path)!=row['sha256']:raise ValueError('Original 870 archive changed')
+        for sample,regions in ((args.sample,proof['mpRegions']),(args.client_sample,proof['clientRegions'])):
+            image=sample.read_bytes()
+            for row in regions:
+                if region_sha(image,row)!=row['sha256']:raise ValueError('Original 870 region mismatch')
+        original.update(shotgunProofSha256=sha(args.shotgun_proof),shotgunMpRegions=len(proof['mpRegions']),shotgunClientRegions=len(proof['clientRegions']))
     for name, path, sig, only in (
         ('sdk-sequence-info.inc', SDK / 'dlls/animation.cpp', 'void GetSequenceInfo(', False),
         ('sdk-sequence-flags.inc', SDK / 'dlls/animation.cpp', 'int GetSequenceFlags(', False),
@@ -187,7 +205,7 @@ def main():
     (output / 'compile.log').write_text(compiled.stdout + compiled.stderr, 'utf-8')
     tested = None
     if not compiled.returncode:
-        tested = subprocess.run([str(executable), str(models[0]), *(["g43"] if args.g43_proof is not None else [])], cwd=output,
+        tested = subprocess.run([str(executable), str(models[0]), *(["g43"] if args.g43_proof is not None else []), *(["shotgun"] if args.shotgun_proof is not None else [])], cwd=output,
                                 capture_output=True, text=True, timeout=30)
         (output / 'test.log').write_text(tested.stdout + tested.stderr, 'utf-8')
     after = {str(p): sha(p) for p in sorted(inputs)}

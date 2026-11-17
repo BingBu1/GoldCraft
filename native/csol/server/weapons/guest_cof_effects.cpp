@@ -39,6 +39,7 @@ unsigned OriginalWeapon(const CBasePlayerWeapon& item) noexcept
     if(item.m_iId==MP5HostId&&dynamic_cast<const MP5Weapon*>(&item))return 27;
     if(item.m_iId==M16HostId&&dynamic_cast<const M16Weapon*>(&item))return 9;
     if(item.m_iId==G43HostId&&dynamic_cast<const G43Weapon*>(&item))return 26;
+    if(item.m_iId==ShotgunHostId&&dynamic_cast<const ShotgunWeapon*>(&item))return 4;
     return 0;
 }
 float Spread(const CBasePlayerWeapon& item) noexcept
@@ -247,6 +248,25 @@ std::uint32_t GlockEffects::G43Capabilities() const noexcept
     return Current()?result:0;
 }
 bool GlockEffects::FillPrepared(const G43Resources& resources,G43Prepared& prepared) noexcept
+{
+    if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
+    prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
+    return Current();
+}
+std::uint32_t GlockEffects::ShotgunCapabilities() const noexcept
+{
+    if(!Current())return 0;
+    const auto common=P345Capabilities();
+    auto result=common&((1u<<unsigned(ShotgunEffect::PickupSound))-1u)&~Bit(GlockEffect::FireSound);
+    // 870 has no ShotLatch: its remaining common effect indices shift by one.
+    result|=(common&(Bit(GlockEffect::PickupSound)|Bit(GlockEffect::DeployReset)|
+        Bit(GlockEffect::Sleeve)|Bit(GlockEffect::AmmoPickupSound)))>>1u;
+    if(MessageId(presentation_))result|=1u<<unsigned(ShotgunEffect::CameraZoom);
+    return Current()?result:0;
+}
+bool GlockEffects::FillPrepared(const ShotgunResources& resources,ShotgunPrepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
     prepared.ballistics.customDecalMessage=decal_;
@@ -490,6 +510,41 @@ bool GlockEffects::Dispatch(const G43Resources& resources,const OwnerBinding& bi
     return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,
         resources.models[unsigned(G43Model::Shell)]},binding,player,weapon,translated,26,nullptr,G43Capabilities());
 }
+bool GlockEffects::Dispatch(const ShotgunResources& resources,const OwnerBinding& binding,
+    CBasePlayer& player,CBasePlayerWeapon& weapon,const ShotgunEvent& event) noexcept
+{
+    if(event.kind==ShotgunEffect::Aim||event.kind==ShotgunEffect::CameraZoom)
+    {
+        if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events||
+            !player.pev||!weapon.pev||OriginalWeapon(weapon)!=4)return false;
+        const auto slot=Slot(player);auto* owner=player.edict();auto* item=weapon.edict();
+        if(!slot||!owner||!item)return false;
+        Lease lease{*this,binding,player,weapon,owner,item,owner->serialnumber,item->serialnumber};
+        if(!Active(&lease))return false;
+        auto& client=clients_[slot];
+        if(event.kind==ShotgunEffect::Aim)
+            return Presentation(lease,event.enabled,event.value,client.zoomSpeedEighths*.125F);
+        // Original 870 sends CameraZoom350 after its independent IronSights
+        // message. Ordinary Holster retains ADS; host selection releases it.
+        if(event.a!=350||event.value||event.enabled||!client.active||client.weapon.Get<CBasePlayerWeapon>()!=&weapon||
+            client.key.sessionEpoch!=binding.map||client.key.lifeEpoch!=binding.life||client.model!=binding.model)
+            return false;
+        return Presentation(lease,client.aimEnabled,client.fovMode,event.a);
+    }
+    constexpr std::array mapping{GlockEffect::DeployPrelude,GlockEffect::ReserveHud,GlockEffect::InventoryChanged,
+        GlockEffect::ViewAnimation,GlockEffect::EmptyClick,GlockEffect::Shell,GlockEffect::Gunsmoke,
+        GlockEffect::FireEvent,GlockEffect::Recoil,GlockEffect::Shake,GlockEffect::Aim,GlockEffect::FireSound,
+        GlockEffect::ShotState,GlockEffect::PickupSound,GlockEffect::DeployReset,GlockEffect::Sleeve,
+        GlockEffect::AmmoPickupSound};
+    static_assert(mapping.size()==unsigned(ShotgunEffect::CameraZoom));
+    const auto index=unsigned(event.kind);if(index>=mapping.size()||OriginalWeapon(weapon)!=4)return false;
+    const GlockEvent translated{mapping[index],event.first,event.second,event.a,event.b,event.c,
+        event.value,event.other,event.enabled,event.modelString};
+    // DispatchWeapon checks the common indices after this explicit translation.
+    const auto common=P345Capabilities()&~Bit(GlockEffect::FireSound);
+    return DispatchWeapon({resources.generation,resources.viewModelString,resources.events,
+        resources.models[unsigned(ShotgunModel::Shell)]},binding,player,weapon,translated,4,nullptr,common);
+}
 bool GlockEffects::Dispatch(const VP70Resources& resources,const OwnerBinding& binding,
     CBasePlayer& player,CBasePlayerWeapon& weapon,const VP70Event& event,bool firstDrawn) noexcept
 {
@@ -661,7 +716,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         CSOL_UpdateWeaponInventory(&player);
         return Active(&lease);
     case GlockEffect::ViewAnimation:
-        if (event.value < 0 || event.value > ((originalWeapon==9||originalWeapon==26)?37:originalWeapon==14?15:(originalWeapon==21||originalWeapon==27)?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
+        if (event.value < 0 || event.value > (originalWeapon==4?19:(originalWeapon==9||originalWeapon==26)?37:originalWeapon==14?15:(originalWeapon==21||originalWeapon==27)?20:originalWeapon==19?22:originalWeapon==7?33:42)) return false;
         weapon.SendWeaponAnim(event.value, 0);
         return Active(&lease);
     case GlockEffect::DeployReset:
@@ -672,10 +727,10 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
     case GlockEffect::Aim:
         return Presentation(lease, event.enabled, event.value, event.a);
     case GlockEffect::Shell:
-        return (originalWeapon==9||originalWeapon==26||originalWeapon==7||originalWeapon==19||originalWeapon==14||originalWeapon==27)&&event.value==resources.shellModel&&event.other==1&&
+        return (originalWeapon==4||originalWeapon==9||originalWeapon==26||originalWeapon==7||originalWeapon==19||originalWeapon==14||originalWeapon==27)&&event.value==resources.shellModel&&event.other==(originalWeapon==4?2:1)&&
             Sent(EjectWeaponShell({event.first,event.second,event.a,event.value,event.other},call));
     case GlockEffect::Gunsmoke:
-        if (!event.enabled || event.other != (originalWeapon==26?1:0) || event.modelString != resources.viewModelString ||
+        if (!event.enabled || event.other != ((originalWeapon==4||originalWeapon==26)?1:0) || event.modelString != resources.viewModelString ||
             event.value <= 0 || event.value > INT16_MAX || event.value != ENTINDEX(item) || !Active(&lease)) return false;
         return Sent(SendLocalGunsmoke(player, static_cast<std::uint8_t>(originalWeapon), static_cast<std::int16_t>(event.value), particle_, call,static_cast<std::int16_t>(event.other)));
     case GlockEffect::FireEvent:
@@ -695,7 +750,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
     case GlockEffect::Shake:
         return Sent(ShakePlayers({player.pev->origin, event.a, event.b, event.c, float(event.value)}, shake_, call).status);
     case GlockEffect::ShotState:
-        return event.a == (originalWeapon==26?6.F:(originalWeapon==14||originalWeapon==27)?1.0F:originalWeapon==21?4.0F:3.0F) &&
+        return event.a == (originalWeapon==4?5.F:originalWeapon==26?6.F:(originalWeapon==14||originalWeapon==27)?1.0F:originalWeapon==21?4.0F:3.0F) &&
             SendShotState(player,static_cast<std::uint8_t>(event.a),control_,control)==ControlStatus::Sent;
     case GlockEffect::FireSound:
     {

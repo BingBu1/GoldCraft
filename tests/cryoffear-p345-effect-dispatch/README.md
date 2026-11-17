@@ -18,3 +18,22 @@ finishes the packet from its snapshot and reports cancellation. Canonical owner
 state and actual player models are real SDK composition; native animation and
 inventory notification callbacks remain explicit controlled edges. Captured
 packets do not prove network delivery, client rendering or gameplay.
+
+870 uses the same actual dispatcher runner with the matched original MP/client
+samples and pre-edit evidence:
+
+```bash
+python -B tests/cryoffear-p345-effect-dispatch/run.py \
+  --compiler "$COF_COMPILER" \
+  --environment build/csol-season2-trace-20261109/compiler-env.json \
+  --sample analysis/cof-weapons-20261111/g43-20261116/reopened/cof-g43-mp.dll \
+  --client-sample analysis/cof-weapons-20261111/samples/client.dll \
+  --g43-proof analysis/cof-weapons-20261111/g43-20261116/reopened/PREEDIT-effects.json \
+  --g43-aurora-proof analysis/cof-weapons-20261111/g43-20261116/reopened/PREEDIT-effects-aurora.json \
+  --shotgun-proof analysis/cof-weapons-20261111/shotgun-20261116/integration-20261117/PREEDIT-effects.json \
+  --output build/cof-shotgun-effect-dispatch-validation
+```
+
+870 scenarios exercise the actual gun, two aim messages, type2 shell packet,
+attachment1 smoke, ShotState5 and lifecycle/endpoint recovery. Native audio,
+reload owner and target damage are controlled boundaries, not gameplay evidence.

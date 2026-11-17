@@ -8,13 +8,17 @@ namespace guest::cof
 {
 namespace
 {
+constexpr bool AttachmentOne(unsigned weapon) noexcept
+{
+    return weapon == unsigned(OriginalWeaponId::G43) || weapon == unsigned(OriginalWeaponId::Shotgun);
+}
 bool Valid(const ParticleMessageData& value) noexcept
 {
     switch (value.operation)
     {
     case ParticleOperation::Add:
         return KnownOriginalWeaponId(value.originalWeapon) && !value.immediate &&
-            value.attachment == (value.originalWeapon == unsigned(OriginalWeaponId::G43) ? 1 : 0);
+            value.attachment == (AttachmentOne(value.originalWeapon) ? 1 : 0);
     case ParticleOperation::DeleteOwner:
         return !value.originalWeapon && !value.immediate && !value.attachment;
     case ParticleOperation::KillLocal:
@@ -29,7 +33,7 @@ bool EncodeParticle(const ParticleMessageData& value, ParticlePacket& output) no
     if (!Valid(value)) return false;
     const auto owner = std::bit_cast<std::uint16_t>(value.owner);
     const auto attachment=std::bit_cast<std::uint16_t>(value.attachment);
-    const auto protocol=value.originalWeapon == unsigned(OriginalWeaponId::G43) ? G43ParticleProtocol : ParticleProtocol;
+    const auto protocol=AttachmentOne(value.originalWeapon) ? AttachmentParticleProtocol : ParticleProtocol;
     output = {std::byte{protocol}, std::byte(value.operation),
         std::byte(value.originalWeapon), std::byte(value.immediate),
         std::byte(owner & 255U), std::byte(owner >> 8U), std::byte(attachment & 255U), std::byte(attachment >> 8U)};
@@ -39,7 +43,7 @@ bool EncodeParticle(const ParticleMessageData& value, ParticlePacket& output) no
 bool DecodeParticle(std::span<const std::byte> bytes, ParticleMessageData& output) noexcept
 {
     if (bytes.size() != ParticleBytes ||
-        bytes[0] != std::byte{bytes[2] == std::byte{26} ? G43ParticleProtocol : ParticleProtocol} ||
+        bytes[0] != std::byte{AttachmentOne(std::to_integer<unsigned>(bytes[2])) ? AttachmentParticleProtocol : ParticleProtocol} ||
         std::to_integer<unsigned>(bytes[3]) > 1)
         return false;
     const auto owner = std::uint16_t(std::to_integer<unsigned>(bytes[4]) |

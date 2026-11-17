@@ -34,6 +34,7 @@ public:
     std::uint32_t MP5Capabilities() const noexcept;
     std::uint32_t M16Capabilities() const noexcept;
     std::uint32_t G43Capabilities() const noexcept;
+    std::uint32_t ShotgunCapabilities() const noexcept;
     std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
@@ -42,6 +43,7 @@ public:
     bool FillPrepared(const MP5Resources&, guest::cof::server::TMPPrepared&) noexcept;
     bool FillPrepared(const M16Resources&, guest::cof::server::M16Prepared&) noexcept;
     bool FillPrepared(const G43Resources&, guest::cof::server::G43Prepared&) noexcept;
+    bool FillPrepared(const ShotgunResources&, guest::cof::server::ShotgunPrepared&) noexcept;
     bool FillPrepared(const RevolverResources&,guest::cof::server::RevolverPrepared&) noexcept;
     bool Dispatch(const GlockResources&, const OwnerBinding&, CBasePlayer&,
         CBasePlayerWeapon&, const guest::cof::server::GlockEvent&) noexcept;
@@ -57,6 +59,8 @@ public:
         CBasePlayerWeapon&,const guest::cof::server::M16Event&) noexcept;
     bool Dispatch(const G43Resources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::G43Event&) noexcept;
+    bool Dispatch(const ShotgunResources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::ShotgunEvent&) noexcept;
     bool Dispatch(const RevolverResources&,const OwnerBinding&,CBasePlayer&,
         CBasePlayerWeapon&,const guest::cof::server::RevolverEvent&,RevolverOwnerState) noexcept;
     // Call after real native item processing, and on life/ownership retirement.

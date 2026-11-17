@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_接入-870实际效果与附件消息-report.md",
+    "tests/cryoffear-shotgun-effects/README.md",
     "docs/2026-11-17_接入-870地图运行时与共享玩家任务-report.md",
     "tests/cryoffear-shotgun-runtime/README.md",
     "docs/2026-11-17_优化-服务端模型加载单事务校验-report.md",

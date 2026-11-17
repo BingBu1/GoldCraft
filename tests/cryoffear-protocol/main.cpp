@@ -98,6 +98,13 @@ void TmpTransport()
         "G43 transport reaches actual original FOV consumer");
     Check(presentation.UpdateClientData({90,14,350,3,1.2f,1},fov)&&fov.wholeFov==50,
         "G43 aim drives the common original interpolation");
+    auto shotgun=value;shotgun.originalWeapon=4;
+    Check(EncodeState(shotgun,packet)&&DecodeState(packet,output)&&output==shotgun&&packet[0]==std::byte{1},
+        "870 keeps original4 and the ordinary authenticated presentation wire");
+    Check(presentation.Receive({value.key,client::Weapon::Shotgun,true,50,350})==client::Result::Applied,
+        "870 reaches the actual shared FOV service");
+    Check(presentation.UpdateClientData({90,14.5f,350,3,1.2f,1},fov)&&fov.wholeFov==50,
+        "870 uses the original common aim interpolation");
     auto m16=value;m16.originalWeapon=9;m16.m16Burst=true;
     Check(EncodeState(m16,packet)&&DecodeState(packet,output)&&output==m16,
         "M16 preserves signed transport and distinct original identity");
@@ -295,6 +302,20 @@ void Particles()
     Check(!std::memcmp(packet.data(),g43Wire.data(),packet.size())&&DecodeParticle(packet,decoded)&&decoded==g43,
         "G43 uses exact eight-byte v2 owner and attachment wire");
     const auto correct=packet;const auto prior=decoded;
+    const ParticleMessageData shotgun{ParticleOperation::Add,4,false,-123,1};
+    Check(EncodeParticle(shotgun,packet),"870 attachment1 encodes explicitly");
+    constexpr std::array<unsigned char,ParticleBytes> shotgunWire{2,1,4,0,133,255,1,0};
+    Check(!std::memcmp(packet.data(),shotgunWire.data(),packet.size())&&DecodeParticle(packet,decoded)&&decoded==shotgun,
+        "870 retains the proven signed owner and attachment1 v2 wire");
+    const auto shotgunCorrect=packet;const auto shotgunDecoded=decoded;
+    for(int attachment:{-32768,-1,0,2,32767})
+    {
+        auto bad=shotgun;bad.attachment=std::int16_t(attachment);
+        Check(!EncodeParticle(bad,packet)&&packet==shotgunCorrect,"870 rejects unsupported attachments transactionally");
+    }
+    auto shotgunOld=packet;shotgunOld[0]=std::byte{1};
+    Check(!DecodeParticle(shotgunOld,decoded)&&decoded==shotgunDecoded,"870 does not reinterpret the old attachment0 packet");
+    packet=correct;decoded=g43;
     for(auto bad: {ParticleMessageData{ParticleOperation::Add,26,false,1,0},
                   ParticleMessageData{ParticleOperation::Add,26,false,1,2},
                   ParticleMessageData{ParticleOperation::Add,7,false,1,1}})
