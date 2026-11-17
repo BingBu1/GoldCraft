@@ -1,6 +1,10 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_优化-模型加载纹理调试标签-report.md",
+    "tests/renderer-texture-labels/main.cpp",
+    "tests/renderer-texture-labels/run.py",
+    "tests/renderer-texture-labels/README.md",
     "tests/cryoffear-shotgun-frame/README.md",
     "docs/2026-11-17_实现-870机瞄待机与完整派生帧-report.md",
     "tests/cryoffear-shotgun-shot/README.md",
