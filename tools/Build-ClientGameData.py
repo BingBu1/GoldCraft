@@ -60,6 +60,14 @@ def main():
         raise ValueError(f"RVA {rva:#x} not in a file-backed section")
 
     records = []
+    # Matched native CHudSniperScope::Draw. CSOL's scope has one owner;
+    # suppress this host-only FOV<45 layer when an extended module draws it.
+    if (raw(0x64F90,6)!=bytes.fromhex("55 8b ec 83 ec 5c") or
+            raw(0x64FB5,9)!=bytes.fromhex("83 3d a0 7b 11 10 2d 0f 8d") or
+            raw(0x65401,3)!=bytes.fromhex("c2 04 00")):
+        raise ValueError("Native sniper scope draw ABI changed")
+    records.append({"platform":"windows","module":"client","symbolName":"GoldCraftSniperScope_Draw",
+                    "kind":"function","payload":{"func_rva":"0x64F90","func_size":"0x474"}})
     # Particle camera host mapping. Original CSOL camera selection is separate
     # from its ordinary-pool time cache. These globals are the matched native
     # client's actual observer and two independently updated view-angle vectors.

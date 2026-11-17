@@ -578,6 +578,17 @@ void WeaponVideoInit()
     wideAmmo={};wideAmmoWeapon=wideAmmoIconWidth=0;
 }
 int WeaponFieldOfView() { return fieldOfView; }
+bool ShouldHideWeaponViewmodel(const cl_entity_t* entity)
+{
+    const auto* module=FindWeaponModule(active);
+    return module && module->hideViewmodelWhenZoomed && fieldOfView<90 &&
+        FindWeaponDefinition(active) && entity && engine.GetViewModel && entity==engine.GetViewModel();
+}
+bool OwnsNativeSniperScope()
+{
+    const auto* module=FindWeaponModule(active);
+    return module && module->ownsSniperScope && fieldOfView<90 && FindWeaponDefinition(active);
+}
 int WeaponRedraw(float time,int intermission)
 {
     // Observers are already hidden by stock iuser1 checks; only the dead

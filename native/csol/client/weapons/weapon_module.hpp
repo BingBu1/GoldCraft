@@ -30,6 +30,8 @@ struct WeaponModule
     wrect_t ammoRect{};
     std::array<int,3> ammoColor{255,255,255};
     bool dynamicCrosshair{true};
+    bool hideViewmodelWhenZoomed{};
+    bool ownsSniperScope{};
     crosshair::Parameters crosshair{};
     bool (*crosshairShot)(){};
     int (*predictedClip)(){};

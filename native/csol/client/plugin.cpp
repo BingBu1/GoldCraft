@@ -17,6 +17,7 @@
 #include "command_chain.hpp"
 #include "hd_spray.hpp"
 #include "weapons/weapons.hpp"
+#include "weapons/sniper_scope_host.hpp"
 #include "weapons/melee.hpp"
 #include "shared_random.hpp"
 #include "scenario/monsters/monster_impact.hpp"
@@ -289,6 +290,9 @@ static int StudioDrawModel(int flags)
     try{InstallSequenceStudioGuards();}
     catch(const std::exception& e){api->SysError("CSOLSupport: studio guards: %s",e.what());std::abort();}
     auto* entity=studio.GetCurrentEntity();
+    // CSOL StudioDrawModel 02ACA9BD: scoped viewmodels with weapon flag 0x80
+    // skip both render/events before any temporary hand or material changes.
+    if(ShouldHideWeaponViewmodel(entity))return 0;
     GuestCofViewmodelScope guestHand(entity,flags);
     GuestCofPrepareStudioModel(entity,ActiveWeaponHudId());
     PrepareMeleeEffectDraw(entity);
@@ -360,6 +364,7 @@ static void Init()
     engine.pfnAddCommand("csol_scenario_hud_info",ScenarioHudInfo);
     InitializeScene();
     InitializeWeapons();
+    InstallSniperScopeHostGuard();
     InitializeGuestCof();
     InitializeGuestCofAudio();
     InitializeGuestCofParticles();

@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-17_修复-SKULL5开镜枪身遮挡-report.md",
     "docs/2026-11-17_接入-870冷资源与原版声音-report.md",
     "tests/cryoffear-shotgun-native-effects/README.md",
     "docs/2026-11-17_修复-Renderer建图强制加载延迟人物-report.md",

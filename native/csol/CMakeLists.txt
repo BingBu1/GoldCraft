@@ -12,7 +12,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/characters.cpp client/stock_hands.cpp character_catalog.cpp character_menu.cpp client/buy_menu.cpp buy_menu.cpp
     client/weapons/projectiles.cpp client/weapons/cannon.cpp client/emotion_voice.cpp client/weapons/k3.cpp client/shared_random.cpp client/scenario/monsters/monster_impact.cpp client/weapons/gun_smoke.cpp client/scenario/core/scenario_music.cpp client/scenario/core/scenario_music_program.cpp scenario/core/scenario_music.cpp
     client/weapons/melee.cpp weapons/melee_attacks.cpp
-    client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull3.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp client/weapons/balrog11_flame.cpp client/weapons/sniper_scope.cpp
+    client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull3.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp client/weapons/balrog11_flame.cpp client/weapons/sniper_scope.cpp client/weapons/sniper_scope_host.cpp
     client/scenario/core/death_notices.cpp client/scenario/core/scenario_kill.cpp scenario/core/scenario_kill.cpp client/scenario/core/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario/core/scenario_smoke.cpp scenario/core/scenario_smoke.cpp
     client/scenario/monsters/elite_visuals.cpp client/cso_tent.cpp client/render_settings.cpp client/scenario/core/wall_upgrade_hint.cpp client/scenario/core/wall_upgrade_hud.cpp

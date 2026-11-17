@@ -422,6 +422,8 @@ constinit const WeaponModule Module{
     // Original record flags 0x18097: client 02A226D6 suppresses the
     // ordinary dynamic crosshair when bit 4 is set, including unzoomed.
     .dynamicCrosshair=false,
+    .hideViewmodelWhenZoomed=true,
+    .ownsSniperScope=true,
     .crosshair={6,4,0,3},.crosshairShot=Skull5CrosshairShot,
     .predictedClip=Skull5PredictedAmmo,
     .predictedReserve=Skull5PredictedReserve,.drawHud=DrawScope};

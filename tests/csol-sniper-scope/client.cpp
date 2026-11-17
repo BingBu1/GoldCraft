@@ -33,13 +33,20 @@ void ScopeTests(){using namespace scopefixture;
  downstream.HUD_Redraw=[](float,int){drawStage=1;return 37;};
  Send(WeaponDefinitionMessage,EncodeWeaponDefinition({112,0,1,24,-1,240,-1,24,0,skull5::Classname}));
  Select(112,24,240);SetFovMessage(90);Draw();Check(scopeDraws==0&&sprite==0,"unzoomed has no scope");Check(crosshairRects==0,"actual shared consumer suppresses SKULL5 dynamic crosshair");
+ Check(!ShouldHideWeaponViewmodel(&model),"unzoomed SKULL5 remains visible");
+ Check(!OwnsNativeSniperScope(),"unzoomed has no extended scope owner");
  Select(m249ex::Id,120,240);Draw();Check(crosshairRects>0,"ordinary dynamic crosshair policy of other gun remains active");Select(112,24,240);
  for(int fov:{80,35})for(int scale:{0,10,15,22,30}){
   SetFovMessage(fov);metric=scale;const int before=scopeDraws;Draw();
+  Check(ShouldHideWeaponViewmodel(&model),"both SKULL5 zoom levels suppress the viewmodel");
+  Check(OwnsNativeSniperScope(),"both scoped FOVs have exactly one extended scope owner");
+  Check(!ShouldHideWeaponViewmodel(&local)&&!ShouldHideWeaponViewmodel(nullptr),"scope cannot hide a player/world model or null entity");
   Check(scopeDraws==before+1&&width==1280&&height==720&&gap==scale,"both FOVs use actual scheme metric");
   Check(sprite==42&&rect.left==0&&rect.top==0&&rect.right==256&&rect.bottom==256&&color[0]==255&&color[1]==255&&color[2]==255,"native center sprite exact original rect and white");
  }
  SetFovMessage(90);Draw();Check(sprite==0,"unzoom clears owned sprite");
+ Check(!ShouldHideWeaponViewmodel(&model),"unzoom restores model without a saved pointer or cvar");
+ Check(!OwnsNativeSniperScope(),"unzoom releases native scope replacement");
  SetFovMessage(35);Draw();int before=scopeDraws;view.health=0;Draw();Check(scopeDraws==before&&sprite==0,"death hides scope");view.health=100;Draw();Check(sprite==42,"alive scope resumes");
  view.spectator=1;Draw();Check(sprite==0,"spectator hides scope");view.spectator=0;Draw();
  Send("HideWeapon",{std::byte{64}});Draw();Check(sprite==0,"hide crosshair flag clears scope");Send("HideWeapon",{std::byte{0}});Draw();
@@ -52,10 +59,16 @@ void ScopeTests(){using namespace scopefixture;
  Select(112,24,240);SetFovMessage(35);Draw();Send("CurWeapon",{std::byte{0},std::byte{3},std::byte{10}});Check(sprite==42,"inactive stock update cannot clear current scope");
  Select(29,-1,0);engine.pfnSetCrosshair(77,{0,16,0,16},255,255,255);Send("CurWeapon",{std::byte{1},std::byte{29},std::byte{255}});Draw();Check(sprite==77,"extended message before stock message preserves new center");
  Select(29,-1,0);Draw();Select(112,24,240);SetFovMessage(35);Draw();
+ Select(m249ex::Id,120,240);Check(!ShouldHideWeaponViewmodel(&model),"switch from scoped SKULL5 preserves another gun");
+ Check(!OwnsNativeSniperScope(),"switch preserves native scope drawing for another weapon");
+ Select(112,24,240);Check(ShouldHideWeaponViewmodel(&model),"switch back uses current scoped identity");
  ResetWeapons(false);Check(sprite==0,"round reset clears owned center");
+ Check(!ShouldHideWeaponViewmodel(&model),"round reset cannot retain scope visibility ownership");
+ Check(!OwnsNativeSniperScope(),"round reset releases native scope replacement");
  Select(112,24,240);SetFovMessage(35);Draw();WeaponVideoInit();Check(sprite==0&&resets>0,"video reset clears sprite and GL owner");
  Select(112,24,240);SetFovMessage(35);Draw();const auto cleanup=resets;ShutdownWeapons();Check(sprite==0&&resets==cleanup+1,"shutdown releases both center and graphics");ShutdownWeapons();Check(sprite==0,"repeat shutdown remains harmless");
  Check(!FindWeaponModule(112)->dynamicCrosshair,"SKULL5 no ordinary dynamic crosshair by original flags");
+ Check(FindWeaponModule(112)->hideViewmodelWhenZoomed,"SKULL5 original metadata has hide flag 0x80");
 }
 }
 int main(){ScopeTests();std::cout<<"scope actual client "<<checks<<" checks "<<failures<<" failures\n";return failures?1:0;}
