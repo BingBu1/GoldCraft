@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tests/cryoffear-shotgun-frame/README.md",
+    "docs/2026-11-17_实现-870机瞄待机与完整派生帧-report.md",
     "tests/cryoffear-shotgun-shot/README.md",
     "tests/cryoffear-shotgun-control/README.md",
     "docs/2026-11-16_实现-870装填开火与八霰弹组件-report.md",

@@ -34,7 +34,8 @@ struct ShotgunControlHost
 };
 enum class ShotgunControlResult : unsigned char
 {
-    Applied, Deferred, Ineligible, MissingHost, ConsumerRejected, Cancelled, InvalidInput
+    Applied, Deferred, Ineligible, MissingHost, ConsumerRejected, Cancelled, InvalidInput,
+    MissingSequence, UnsupportedState
 };
 
 // Matched MP1006E3E0 and1006E6F0. The insert callback belongs to the weapon;
