@@ -10,6 +10,7 @@
 #include "guest_cof_mp5_owner.hpp"
 #include "guest_cof_m16_owner.hpp"
 #include "guest_cof_g43_owner.hpp"
+#include "guest_cof_shotgun_owner.hpp"
 #include "native/guest/cof/server/sound_dispatch.hpp"
 #include <memory>
 #include <optional>
@@ -81,6 +82,17 @@ struct G43RuntimeHost
     guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
 };
 
+struct ShotgunRuntimeHost
+{
+    bool (*prepare)(void*, const ShotgunResources&, guest::cof::server::ShotgunPrepared&) noexcept {};
+    bool (*effect)(void*, const ShotgunResources&, const OwnerBinding&,
+        CBasePlayer&, CBasePlayerWeapon&, const guest::cof::server::ShotgunEvent&) noexcept {};
+    bool (*actions)(void*, CBasePlayer&, std::uint64_t map, std::uint64_t life,
+        guest::cof::server::PlayerActionBinding&) noexcept {};
+    std::uint32_t effects{};
+    guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
+};
+
 // Only the genuinely external consumers remain here. The runtime itself owns
 // native sounds, resources, factory, player generations and owner frame stages.
 // Storage and callbacks must survive EngineEntitiesReleased for their map.
@@ -106,6 +118,7 @@ struct GlockRuntimeHost
     MP5RuntimeHost mp5{};
     M16RuntimeHost m16{};
     G43RuntimeHost g43{};
+    ShotgunRuntimeHost shotgun{};
 };
 
 struct GlockPlayerPreparation
@@ -127,6 +140,8 @@ struct GlockPlayerPreparation
     std::optional<NativeOwnerRules> mp5Rules;
     std::optional<NativeOwnerRules> m16Rules;
     std::optional<NativeOwnerRules> g43Rules;
+    struct ShotgunPreparation { NativeOwnerRules rules; ShotgunOwnerState state; };
+    std::optional<ShotgunPreparation> shotgun;
 };
 
 class GlockRuntime final
@@ -160,6 +175,7 @@ public:
     const MP5Resources* PreparedMP5Resources() const noexcept;
     const M16Resources* PreparedM16Resources() const noexcept;
     const G43Resources* PreparedG43Resources() const noexcept;
+    const ShotgunResources* PreparedShotgunResources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -176,13 +192,16 @@ public:
     bool MP5Backend(CBasePlayer&, guest::cof::server::TMPBackends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::M16Backends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::G43Backends&) noexcept;
+    bool Backend(CBasePlayer&, guest::cof::server::ShotgunBackends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;
     bool PersistentState(CBasePlayer&, RevolverOwnerState&) noexcept;
+    bool PersistentState(CBasePlayer&, ShotgunOwnerState&) noexcept;
     bool PersistentVP70FirstDraw(CBasePlayer&, bool&) noexcept;
     bool PersistentTMPFirstDraw(CBasePlayer&, bool&) noexcept;
     bool PreserveRevolverReload(CBasePlayer&,int playerAnimation,int& desiredSequence) noexcept;
+    bool PreserveShotgunReload(CBasePlayer&,int playerAnimation,int& desiredSequence) noexcept;
     bool BeginPreThink(CBasePlayer&) noexcept;
     bool BeginInput(CBasePlayer&) noexcept;
     bool AcceptedJump(CBasePlayer&) noexcept;

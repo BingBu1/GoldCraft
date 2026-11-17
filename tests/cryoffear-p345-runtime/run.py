@@ -28,8 +28,11 @@ def main():
     p.add_argument('--g43-resources',type=Path)
     p.add_argument('--g43-sample',type=Path)
     p.add_argument('--g43-proof',type=Path)
+    p.add_argument('--shotgun-resources',type=Path)
+    p.add_argument('--shotgun-proof',type=Path)
     p.add_argument('--deployed-root',type=Path,required=True)
     p.add_argument('--compile-host',action='store_true',help='Also compile the real production host without fixture definitions')
+    p.add_argument('--reuse',type=Path,help='Reuse exact compiler objects from a previous fixture receipt')
     a=p.parse_args();output=a.output.absolute()
     for path in (output,*output.parents):
         if path.is_symlink() or os.path.isjunction(path):raise ValueError('Linked output path')
@@ -56,6 +59,10 @@ def main():
         ROOT/'native/csol/server/weapons/guest_cof_g43_owner.cpp',ROOT/'native/csol/server/weapons/guest_cof_g43_native_effects.cpp',
         ROOT/'native/guest/cof/server/g43_weapon.cpp',ROOT/'native/guest/cof/g43_control.cpp',
         ROOT/'native/guest/cof/g43_aim.cpp',ROOT/'native/guest/cof/g43_frame.cpp',ROOT/'native/guest/cof/g43_shot.cpp'))
+    sources.extend(ROOT/('native/csol/server/weapons/'+name+'.cpp') for name in
+        ('guest_cof_shotgun_factory','guest_cof_shotgun_owner','guest_cof_shotgun_native_effects'))
+    sources.extend(ROOT/('native/guest/cof/'+name+'.cpp') for name in
+        ('server/shotgun_weapon','shotgun_control','shotgun_aim','shotgun_frame','shotgun_shot'))
     factory_fixture=ROOT/'tests/cryoffear-glock-factory/main.cpp'
     prefix=factory_fixture.read_text('utf-8-sig').split('int main(int argc,char** argv)',1)[0]
     prefix=prefix.replace('../cryoffear-glock-weapon/main.cpp','tests/cryoffear-glock-weapon/main.cpp')
@@ -69,6 +76,7 @@ def main():
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),host_source}
     inputs.add(ROOT/'tests/cryoffear-m16-runtime/scenarios.hpp')
     inputs.add(ROOT/'tests/cryoffear-g43-runtime/scenarios.hpp')
+    inputs.add(ROOT/'tests/cryoffear-shotgun-runtime/scenarios.hpp')
     if host:inputs.add(host)
     for root in (a.resources.resolve(),a.mp5_resources.resolve(),a.deployed_root.resolve()):
         if not root.is_relative_to(ROOT/'build') and not root.is_relative_to(ROOT/'sandbox'):raise ValueError('Runtime fixture assets must be in isolated workspace roots')
@@ -133,6 +141,30 @@ def main():
                 if va<=rva and rva+region['size']<=va+size:raw=int.from_bytes(pe[at+20:at+24],'little')+rva-va;break
             if raw is None or hashlib.sha256(pe[raw:raw+region['size']]).hexdigest()!=region['sha256']:raise ValueError('G43 original region mismatch')
         original.update(g43SampleSha256=sha(a.g43_sample),g43Regions=len(regions),g43ProofSha256=sha(a.g43_proof))
+    if a.shotgun_resources is not None:
+        if a.shotgun_proof is None:p.error('870 resources require pre-edit proof')
+        if not a.shotgun_resources.resolve().is_relative_to(ROOT/'build'):raise ValueError('Use isolated 870 candidate resources')
+        for row in resource_module.SHOTGUN_PINS:
+            name=('sound/' if row.get('group','').endswith('Sounds') else '')+row['host']
+            path=a.shotgun_resources/name
+            if not path.is_file():raise ValueError('Actual 870 resource missing: '+name)
+            inputs.add(path.resolve())
+        proof=json.loads(a.shotgun_proof.read_text('utf-8-sig'));sample=Path(proof['sample'])
+        if not proof['beforeImplementation'] or sha(sample)!=proof['sampleSha256']:raise ValueError('870 original identity mismatch')
+        inputs.update((sample.resolve(),a.shotgun_proof.resolve()))
+        pe=sample.read_bytes();nt=int.from_bytes(pe[60:64],'little');opt=nt+24;base=int.from_bytes(pe[opt+28:opt+32],'little')
+        section=opt+int.from_bytes(pe[nt+20:nt+22],'little');regions=[]
+        for record in proof['proofs']:
+            path=ROOT/record['path'];inputs.add(path)
+            if sha(path)!=record['sha256']:raise ValueError('870 pre-edit evidence changed')
+            regions.extend(json.loads(path.read_text('utf-8-sig'))['regions'])
+        for region in regions:
+            rva=int(region['va'],16)-base;raw=None
+            for i in range(int.from_bytes(pe[nt+6:nt+8],'little')):
+                at=section+i*40;va=int.from_bytes(pe[at+12:at+16],'little');size=int.from_bytes(pe[at+16:at+20],'little')
+                if va<=rva and rva+region['size']<=va+size:raw=int.from_bytes(pe[at+20:at+24],'little')+rva-va;break
+            if raw is None or hashlib.sha256(pe[raw:raw+region['size']]).hexdigest()!=region['sha256']:raise ValueError('870 original region mismatch')
+        original.update(shotgunSampleSha256=sha(sample),shotgunRegions=len(regions),shotgunProofSha256=sha(a.shotgun_proof))
     for name,path,sig,only in (
         ('sdk-sequence-info.inc',SDK/'dlls/animation.cpp','void GetSequenceInfo(',False),
         ('sdk-sequence-flags.inc',SDK/'dlls/animation.cpp','int GetSequenceFlags(',False),
@@ -178,13 +210,24 @@ def main():
     includes=re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>',project.read_text('utf-8-sig'))[1].split(';')
     includes=[(project.parent/v[len('$(ProjectDir)'):].replace('\\','/').lstrip('/')).resolve() for v in includes if v.startswith('$(ProjectDir)')]
     defs='COF_RUNTIME_P345_FIXTURE=1 REGAMEDLL_ADD REGAMEDLL_API REGAMEDLL_FIXES REGAMEDLL_SSE REGAMEDLL_SELF REGAMEDLL_CHECKS UNICODE_FIXES BUILD_LATEST BUILD_LATEST_FIXES CLIENT_WEAPONS USE_QSTRING _CRT_SECURE_NO_WARNINGS NDEBUG'.split()
+    adapter=output
+    reused={}
+    if a.reuse:
+        previous=a.reuse.resolve()
+        if not previous.is_relative_to(ROOT/'build'):raise ValueError('Reuse must stay in workspace build')
+        old=json.loads((previous/'receipt.json').read_text('utf8'))
+        adapter=Path(old['adapterRoot'])
+        if not adapter.is_relative_to(ROOT/'build'):raise ValueError('Adapter reuse outside workspace build')
+        for generated in output.glob('*.inc'):
+            if sha(generated)!=sha(adapter/generated.name):raise ValueError('SDK adapter changed; use a fresh object build')
+        reused={row['source']:row for row in old['objects']}
     flags=['/nologo','--target=i686-pc-windows-msvc','/std:c++20','/EHsc','/MT','/utf-8','/O2','/clang:-O3',
            '/clang:-flto=thin','/clang:-fuse-ld=lld','/arch:AVX2','/fp:precise','/clang:-ffp-contract=off','/Gy','/Gw',
-           *('/D'+d for d in defs),*('/I'+str(v) for v in includes),'/I'+str(ROOT),'/I'+str(output),
+           *('/D'+d for d in defs),*('/I'+str(v) for v in includes),'/I'+str(ROOT),'/I'+str(adapter),
            '/I'+str(ROOT/'native/include'),
            '/I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/rapidjson/include')]
     env=os.environ|json.loads(a.environment.read_text('utf-8-sig'));temp=output/'temp';temp.mkdir();env.update(TEMP=str(temp),TMP=str(temp))
-    deps=set(inputs);commands=[]
+    deps=set(inputs);commands=[];source_dependencies={}
     host_flags=[flag for flag in flags if flag!='/DCOF_RUNTIME_P345_FIXTURE=1']
     for i,source in enumerate(sources+([host] if host else [])):
         compile_flags=host_flags if source==host else flags
@@ -193,16 +236,40 @@ def main():
         (output/f'{i}-headers.log').write_text(run.stdout+run.stderr,'utf-8')
         if run.returncode:raise RuntimeError('SDK dependency discovery failed')
         make=dep.read_text().replace(chr(92)+chr(10),' ')
-        deps.update(Path(v.replace(chr(92)+' ',' ')).resolve() for v in re.findall(r'(?:\\ |[^\s])+',make.split(':',1)[1]))
+        unit={Path(v.replace(chr(92)+' ',' ')).resolve() for v in re.findall(r'(?:\\ |[^\s])+',make.split(':',1)[1])}
+        deps.update(unit);source_dependencies[str(source)]={str(path):sha(path) for path in sorted(unit)}
     deps.update(output.glob('*.inc'))
     before={str(v):sha(v) for v in sorted(deps)};compilerBefore=sha(a.compiler)
-    exe=output/'factory.exe';command=[str(a.compiler),*flags,*map(str,sources),'/Fe:'+str(exe),'/link','/machine:x86','/threads:1','/opt:ref']
-    compiled=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=600)
-    (output/'compile.log').write_text(compiled.stdout+compiled.stderr,'utf-8');tested=None
+    exe=output/'factory.exe';objects=[];object_inputs=[];compile_commands=[];compile_output=[];compile_code=0
+    environment_identity={key:env.get(key,'') for key in ('INCLUDE','LIB','LIBPATH','PATH')}
+    for i,source in enumerate(sources):
+        recipe=dict(source=str(source),compiler=compilerBefore,flags=flags,
+                    environment=environment_identity,dependencies=source_dependencies[str(source)])
+        key=hashlib.sha256(json.dumps(recipe,sort_keys=True).encode()).hexdigest()
+        cached=reused.get(str(source));reused_object=False
+        if cached and cached['key']==key and Path(cached['path']).is_file() and sha(Path(cached['path']))==cached['sha256']:
+            obj=Path(cached['path']);reused_object=True
+        else:
+            obj=output/f'{i:03d}-{source.stem}.obj';argv=[str(a.compiler),*flags,'/c',str(source),'/Fo:'+str(obj)]
+            result=subprocess.run(argv,cwd=output,env=env,capture_output=True,text=True,timeout=180)
+            compile_commands.append(argv);compile_output.append(result.stdout+result.stderr)
+            (output/f'{i:03d}-compile.log').write_text(compile_output[-1],'utf8')
+            if result.returncode:compile_code=result.returncode;break
+        objects.append(obj);object_inputs.append(dict(source=str(source),path=str(obj),key=key,
+            sha256=sha(obj),reused=reused_object,recipe=recipe))
+    command=[str(a.compiler),*flags,*map(str,objects),'/Fe:'+str(exe),'/link','/machine:x86','/threads:1','/opt:ref']
+    if not compile_code:
+        linked=subprocess.run(command,cwd=output,env=env,capture_output=True,text=True,timeout=180)
+        compile_output.append(linked.stdout+linked.stderr);compile_code=linked.returncode
+    compiled=subprocess.CompletedProcess(command,compile_code,''.join(compile_output),'')
+    (output/'compile.log').write_text(compiled.stdout,'utf-8');tested=None
     if not compiled.returncode:
         test_args=[str(exe),str(model),str(a.resources.resolve()),str(a.deployed_root.resolve()),str(a.mp5_resources.resolve())]
-        if a.m16_resources is not None or a.g43_resources is not None:test_args.append(str(a.m16_resources.resolve()) if a.m16_resources is not None else '')
-        if a.g43_resources is not None:test_args.append(str(a.g43_resources.resolve()))
+        if a.m16_resources is not None or a.g43_resources is not None or a.shotgun_resources is not None:
+            test_args.append(str(a.m16_resources.resolve()) if a.m16_resources is not None else '')
+        if a.g43_resources is not None or a.shotgun_resources is not None:
+            test_args.append(str(a.g43_resources.resolve()) if a.g43_resources is not None else '')
+        if a.shotgun_resources is not None:test_args.append(str(a.shotgun_resources.resolve()))
         tested=subprocess.run(test_args,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     host_compile=None;host_command=None
@@ -212,8 +279,10 @@ def main():
         (output/'actual-host.log').write_text(host_compile.stdout+host_compile.stderr,'utf-8')
     negative=[]
     after={str(v):sha(v) for v in sorted(deps)}
-    success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative) and (host_compile is None or host_compile.returncode==0)
+    objects_stable=all(Path(row['path']).is_file() and sha(Path(row['path']))==row['sha256'] for row in object_inputs)
+    success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and objects_stable and all(v['passed'] for v in negative) and (host_compile is None or host_compile.returncode==0)
     receipt=dict(success=success,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
+                 compileCommands=compile_commands,objects=object_inputs,objectsStable=objects_stable,adapterRoot=str(adapter),
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
                  negative=negative,sourceCopies=0,pistol='p345',hostCommand=host_command,
                  hostCompile=None if host_compile is None else host_compile.returncode,

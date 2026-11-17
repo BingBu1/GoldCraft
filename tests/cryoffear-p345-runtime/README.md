@@ -29,3 +29,14 @@ VP70 is an explicit map opt-in. Its actual18-round entity,54-round cooperative o
 MP5 is another explicit opt-in with separate resources, factory and owner. Its map test uses the actual30-round class and default300, independent ammo slot, original27 event identity, fire/stop/tail order,1000-round reserve reload, model renewal with absolute reload/melee deadlines, inventory snapshot and death cleanup. Missing callbacks, resources or required effects, and the inapplicable TMP first-draw effect reject preparation. This does not select MP5 in the production Host or admit it to purchasing.
 
 M16 is an explicit seventh opt-in with its actual native class and a matching independently prepared player-action life. See [M16 integration](../cryoffear-m16-runtime/README.md) for the extra resource/proof arguments and exact validation boundary. The production Host must still supply real action-stage, sound, target and client consumers before purchase admission.
+
+G43 and 870 use the same independently owned action service; see the
+[G43](../cryoffear-g43-runtime/README.md) and
+[870](../cryoffear-shotgun-runtime/README.md) resource/proof arguments.
+
+The runner retains compiler objects. `--reuse <previous-output>` reads a prior
+receipt and reuses an object only when the compiler, flags, environment, actual
+source/header hashes, generated SDK adapters and object SHA all match. Changed
+units are recompiled; each run still links and executes the complete fixture.
+Outputs require a fresh directory. Earlier receipts and objects remain intact;
+reuse does not turn a failed gameplay assertion into a passing result.
