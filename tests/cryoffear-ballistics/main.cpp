@@ -219,6 +219,27 @@ void NativePenetrationChecks()
             Check(FireCSRifleBallistics(targets[1],shot,fx,call,count,CSRifleMaterial::Rifle556).status==
                 BallisticsStatus::InvalidInput&&nativeShot.calls==before);
         }
+        for(const BallisticsEffects absent: {BallisticsEffects{0,0},BallisticsEffects{77,0},
+                BallisticsEffects{0,13},BallisticsEffects{256,40000}})
+        {
+            Check(CheckPistolBallistics(shot,absent,call)==BallisticsStatus::MissingEffects);
+            const auto before=nativeShot.calls;
+            Check(CheckCSRifleBallistics(shot,call,3,CSRifleMaterial::Rifle556)==BallisticsStatus::Ready);
+            const auto rifle=FireCSRifleBallistics(targets[1],shot,absent,call,3,CSRifleMaterial::Rifle556);
+            Check(rifle.status==BallisticsStatus::Fired&&nativeShot.calls==before+1&&
+                nativeShot.damage==100&&nativeShot.penetration==3);
+            for(int i=0;i<3;++i)Check(Bits(nativeShot.source[i]+nativeShot.direction[i]*8192)==endpoint[i]);
+            Check(gMultiDamage.amount==123&&gMultiDamage.type==456);
+        }
+        {
+            auto invalid=shot;invalid.damage=-1;
+            Check(CheckCSRifleBallistics(invalid,call,3,CSRifleMaterial::Rifle556)==BallisticsStatus::InvalidInput);
+            invalid=shot;invalid.direction.x=NAN;
+            Check(CheckCSRifleBallistics(invalid,call,3,CSRifleMaterial::Rifle556)==BallisticsStatus::InvalidInput);
+            invalid=shot;invalid.sourceMode=PistolSource::UnsupportedOriginalOverride;
+            Check(CheckCSRifleBallistics(invalid,call,3,CSRifleMaterial::Rifle556)==BallisticsStatus::UnsupportedSource);
+            Check(CheckCSRifleBallistics(shot,{nullptr,nullptr},3,CSRifleMaterial::Rifle556)==BallisticsStatus::InvalidInput);
+        }
         Check(FireCSRifleBallistics(targets[1],shot,fx,call,3,static_cast<CSRifleMaterial>(255)).status==
             BallisticsStatus::InvalidInput);
         for(int count:{-1,0,33})

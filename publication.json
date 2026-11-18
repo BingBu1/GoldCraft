@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_实现-FAMAS原生类与可用性恢复-report.md",
+    "tests/cryoffear-famas-weapon/README.md",
     "docs/2026-11-18_实现-FAMAS派生帧与装填完成-report.md",
     "tests/cryoffear-famas-frame/README.md",
     "tests/cryoffear-famas-reload/README.md",

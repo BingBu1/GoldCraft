@@ -30,3 +30,10 @@ unchanged original seeded/aimed ray, zero additional spread, native caller and
 damage, cancellation/recycling and nested multi-damage restoration. The native
 FireBullets3 call is a controlled boundary in this suite; these checks do not
 claim an actual wall or multiplayer hit was observed.
+
+The native material path has its own preflight: it does not consume CoF's
+custom-decal message or bubble model IDs. Missing/invalid IDs therefore remain
+an original-renderer readiness error and do not veto native material shots.
+Additional cases verify unchanged seeded endpoints, damage and multi-damage
+state with these optional resources absent, while source, finite vectors,
+damage, penetration/material and owner cancellation checks remain required.

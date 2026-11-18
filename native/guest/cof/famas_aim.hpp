@@ -33,7 +33,7 @@ struct FamasAimHost
 // Original enter1003B130/exit1003AE60: fixed sequences15/18, including empty clip.
 FamasControlResult ApplyFamasAim(MagazineActionState&, bool enabled,
     const FamasAimMetadata&, const FamasAimHost&) noexcept;
-// Original1003C880. Hold release is handled by the full derived frame.
+// Original1003C880. The separate hold-release producer is not inferred here.
 FamasControlResult ToggleFamasAim(MagazineActionState&, bool pressed, bool toggleMode,
     const FamasAimMetadata&, const FamasAimHost&) noexcept;
 }

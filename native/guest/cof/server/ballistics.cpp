@@ -258,11 +258,23 @@ BallisticsResult FireShotgunBallistics(CBaseEntity& shooter, const PistolBallist
 
 namespace
 {
+BallisticsStatus CheckMaterialShot(const PistolBallistics& shot,
+    const BallisticsCall& call, int penetration) noexcept
+{
+    if (penetration<=0 || penetration>32) return BallisticsStatus::InvalidInput;
+    if (shot.sourceMode!=PistolSource::NormalMuzzle) return BallisticsStatus::UnsupportedSource;
+    if (!call.current || !Finite(shot.source) || !Finite(shot.direction) ||
+        !Finite(shot.spread) || !Finite(shot.right) || !Finite(shot.up) || shot.damage<0 ||
+        shot.playerHits!=PistolPlayerHits::OriginalCooperativeSkipPlayers)
+        return BallisticsStatus::InvalidInput;
+    return call.current(call.context)?BallisticsStatus::Ready:BallisticsStatus::Cancelled;
+}
+
 BallisticsResult FireCSMaterialBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
     const BallisticsEffects& effects, const BallisticsCall& call, int penetration, int bulletType) noexcept
 {
-    if (penetration <= 0 || penetration > 32) return {BallisticsStatus::InvalidInput, {0,0,0}};
-    const auto ready = CheckPistolBallistics(shot, effects, call);
+    static_cast<void>(effects); // Retained API; this native path does not emit CoF FX packets.
+    const auto ready = CheckMaterialShot(shot, call, penetration);
     if (ready != BallisticsStatus::Ready) return {ready, {0,0,0}};
     const Owner owner{EntityHandle<CBaseEntity>(&shooter), &shooter};
     if (!Current(call, owner)) return {BallisticsStatus::Cancelled, {0,0,0}};
@@ -289,6 +301,14 @@ BallisticsResult FireCSMaterialBallistics(CBaseEntity& shooter, const PistolBall
         bulletType, shot.damage, 1.0f, shooter.pev, true, static_cast<int>(shot.seed));
     return {Current(call, owner) ? BallisticsStatus::Fired : BallisticsStatus::Cancelled, result};
 }
+}
+
+BallisticsStatus CheckCSRifleBallistics(const PistolBallistics& shot,
+    const BallisticsCall& call, int penetration, CSRifleMaterial material) noexcept
+{
+    if (penetration<3 || (material!=CSRifleMaterial::Rifle556 && material!=CSRifleMaterial::Rifle762))
+        return BallisticsStatus::InvalidInput;
+    return CheckMaterialShot(shot,call,penetration);
 }
 
 BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallistics& shot,

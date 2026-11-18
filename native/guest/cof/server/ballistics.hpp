@@ -70,6 +70,10 @@ BallisticsResult FireCSPistolBallistics(CBaseEntity& shooter, const PistolBallis
     const BallisticsEffects& effects, const BallisticsCall& call, int penetration) noexcept;
 
 enum class CSRifleMaterial : unsigned char { Rifle556, Rifle762 };
+// Native CS material shots do not consume the original custom-decal or bubble
+// resource IDs. Keep source/ray/damage/ownership checks independent of those FX.
+BallisticsStatus CheckCSRifleBallistics(const PistolBallistics& shot,
+    const BallisticsCall& call, int penetration, CSRifleMaterial material) noexcept;
 // Human-authored rifle rule, retaining the original CoF ray and the actual
 // CS material/shield/damage consumers. No additional spread or range falloff.
 BallisticsResult FireCSRifleBallistics(CBaseEntity& shooter, const PistolBallistics& shot,
