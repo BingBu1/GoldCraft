@@ -174,6 +174,7 @@ void Flashlight()
 {
     Settings(true); Case c(FlashlightResources);
     NativeActor(c); Restart(c);
+    CVAR_REGISTER(&flashlight);
     CVAR_SET_FLOAT("mp_flashlight", 0);
     auto& player = c.player;
     player.m_iJoiningState = JOINED;
@@ -227,28 +228,54 @@ void Flashlight()
     player.m_iFlashBattery = 1;
     key();
     Expect(lit(), "F works after the native battery has charge");
+    const auto lampPackets = [&] {
+        return std::count_if(c.packets.begin(), c.packets.end(),
+            [](const auto& packet) { return packet.id == gmsgFlashlight; });
+    };
+    const auto beforeSwitch = lampPackets();
     player.SelectItem("weapon_ak47");
     Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after selecting the rifle");
-    Expect(!lit() && !held() && player.m_pActiveItem == active && c.weapon->m_iClip == clip &&
-        std::string_view(STRING(player.pev->viewmodel)) == "models/v_ak47.mdl",
-        "choosing slot 1 redeploys the same rifle instance and retires the light");
-    const auto lampPacket = std::find_if(c.packets.rbegin(), c.packets.rend(),
-        [&](const auto& packet) { return packet.id == gmsgFlashlight; });
-    Expect(lampPacket != c.packets.rend() && lampPacket->bytes.size() == 2 && lampPacket->bytes[0] == std::byte{0},
-        "holstering updates the native client's flashlight indicator");
-    select(); player.SelectLastItem();
-    Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after lastinv");
-    Expect(!lit() && !held() && player.m_pActiveItem == active,
-        "lastinv also redeploys the original inventory item");
+    Expect(lit() && !held() && player.m_pActiveItem == active && c.weapon->m_iClip == clip &&
+        std::string_view(STRING(player.pev->viewmodel)) == "models/v_ak47.mdl" &&
+        std::string_view(STRING(player.pev->weaponmodel)) == "models/p_ak47.mdl",
+        "choosing slot 1 redeploys the same rifle and keeps the flashlight beam");
+    Expect(lampPackets() == beforeSwitch, "changing weapons sends no native light toggle");
+
+    // Advance past weapon deploy without running an unrelated stage or injury.
+    player.m_flNextAttack = c.weapon->m_flNextPrimaryAttack = 0.0f;
+    player.m_bCanShoot = true;
+    g_pGameRules->m_bFreezePeriod = FALSE;
+    g_engfuncs.pfnPointContents = [](const float*) { return CONTENTS_EMPTY; };
+    player.pev->button = IN_ATTACK;
+    player.ItemPostFrame();
+    player.pev->button = 0;
+    Expect(lit() && c.weapon->m_iClip == clip - 1, "the re-equipped rifle fires with the light on");
 
     select();
+    Expect(held() && lit() && !player.m_pActiveItem && lampPackets() == beforeSwitch,
+        "5 can take out the flashlight again while its beam is active");
+    key();
+    player.SelectLastItem();
+    Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after lastinv");
+    Expect(!lit() && !held() && player.m_pActiveItem == active,
+        "lastinv leaves the light off after toggling it off while held");
+    select(); player.SelectLastItem();
+    Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after lastinv with light on");
+    Expect(lit() && !held() && player.m_pActiveItem == active,
+        "lastinv also preserves the active beam while restoring the rifle");
+
     CVAR_SET_FLOAT("csol_custom_time_cycle", 0);
     Tick(c, 126);
     Expect(!lit() && !held() && player.m_pActiveItem == active,
-        "disabling the clock holsters the equipment and restores the rifle in the same map");
+        "disabling the clock clears the beam while keeping the equipped rifle");
+    const auto lampPacket = std::find_if(c.packets.rbegin(), c.packets.rend(),
+        [&](const auto& packet) { return packet.id == gmsgFlashlight; });
+    Expect(lampPacket != c.packets.rend() && lampPacket->bytes.size() == 2 && lampPacket->bytes[0] == std::byte{0},
+        "leaving the phase updates the native client's flashlight indicator");
     key(); select();
     Expect(!lit() && player.m_pActiveItem == active, "the night entitlement ends with its phase");
     CVAR_SET_FLOAT("mp_flashlight", 1);
+    Require(g_pGameRules->FAllowFlashlight(), "the test engine updated the registered native cvar");
     key();
     Expect(lit() && !held(), "the original flashlight cvar still permits stock lighting");
 }

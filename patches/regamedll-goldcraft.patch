@@ -2112,7 +2112,7 @@ index 3ccefc4..6c4a8b8 100644
  			MESSAGE_END();
  		}
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..6604594 100644
+index 8a219ea..a8e7db3 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,27 @@
@@ -2978,7 +2978,7 @@ index 8a219ea..6604594 100644
  
 -	if (g_pGameRules && g_pGameRules->FAllowFlashlight())
 +	if (g_pGameRules && (g_pGameRules->FAllowFlashlight() ||
-+		(scenarioScope.Scenario() && CSOL_ScenarioHoldsNightFlashlight(*this))))
++		(scenarioScope.Scenario() && (FlashlightIsOn() || CSOL_ScenarioHoldsNightFlashlight(*this)))))
  		m_iHideHUD &= ~HIDEHUD_FLASHLIGHT;
  	else
  		m_iHideHUD |= HIDEHUD_FLASHLIGHT;

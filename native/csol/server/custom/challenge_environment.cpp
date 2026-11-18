@@ -18,6 +18,11 @@ bool Current(const Runtime& runtime, std::uint64_t generation)
     const auto& access = runtime->session->Map().EntityAccess();
     return access && access->Allowed();
 }
+void ClearFlashlightModels(CBasePlayer& player, string_t view, string_t held)
+{
+    if (player.pev->viewmodel == view) player.pev->viewmodel = 0;
+    if (player.pev->weaponmodel == held) player.pev->weaponmodel = 0;
+}
 struct Busy
 {
     bool& flag;
@@ -187,7 +192,7 @@ void CCSOLChallengeEnvironment::SelectNightFlashlight(CBasePlayer& player)
     const int slot = player.entindex() - 1;
     if (slot < 0 || slot >= int(nightFlashlights_.size())) return;
     auto& owner = nightFlashlights_[slot];
-    if (owner.Get<CBasePlayer>() == &player) return;
+    if (HoldsNightFlashlight(player)) return;
 
     const auto runtime = runtime_.lock();
     const EHANDLE handle(&player);
@@ -231,7 +236,9 @@ void CCSOLChallengeEnvironment::CheckNightFlashlight(CBasePlayer& player)
 {
     if (!NightFlashlightsAvailable() || (!player.m_pActiveItem && player.pev->viewmodel == flashlightView_))
         return;
-    ReleaseNightFlashlight(player, true);
+    // The active weapon replaces the hand models. The light remains on the player
+    // until it is switched off, the battery runs out, or the night ends.
+    ClearFlashlightModels(player, flashlightView_, flashlightPlayer_);
 }
 
 void CCSOLChallengeEnvironment::ReleaseNightFlashlight(CBasePlayer& player, bool holster)
@@ -244,8 +251,7 @@ void CCSOLChallengeEnvironment::ReleaseNightFlashlight(CBasePlayer& player, bool
     owner = EHANDLE{};
     const bool liveHolster = holster && !revoked_ && !player.has_disconnected && player.IsAlive();
     const int life = player.m_iNumSpawns;
-    if (player.pev->weaponmodel == flashlightPlayer_) player.pev->weaponmodel = 0;
-    if (player.pev->viewmodel == flashlightView_) player.pev->viewmodel = 0;
+    ClearFlashlightModels(player, flashlightView_, flashlightPlayer_);
     if (player.FlashlightIsOn())
     {
         if (liveHolster) player.FlashlightTurnOff();
