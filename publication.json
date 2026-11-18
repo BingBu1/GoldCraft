@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_实现-FAMAS派生帧与装填完成-report.md",
+    "tests/cryoffear-famas-frame/README.md",
+    "tests/cryoffear-famas-reload/README.md",
     "docs/2026-11-18_排查-突然掉线与未响应现场-report.md",
     "native/csol/client/menu_panel.hpp",
     "docs/2026-11-17_修复-环境清理重复读取退休Studio表-report.md",
