@@ -17,7 +17,7 @@ def body(path,signature,only=False):
     while depth:depth+=(text[end]=='{')-(text[end]=='}');end+=1
     return text[at+1:end-1] if only else text[start:end]
 
-def main():
+def main(factory=False):
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('sample','proof','camera-proof','client-sample','view-model','compiler','environment','output'):p.add_argument('--'+name,type=Path,required=True)
     a=p.parse_args();output=a.output.absolute()
@@ -31,6 +31,9 @@ def main():
         ROOT/'native/guest/cof/famas_aim.cpp',ROOT/'native/guest/cof/famas_frame.cpp',ROOT/'native/guest/cof/famas_reload.cpp',
         ROOT/'native/guest/cof/m16_control.cpp',ROOT/'native/guest/cof/magazine_reload.cpp',
         ROOT/'native/guest/cof/spread.cpp',ROOT/'native/guest/cof/server/player_animation.cpp',ROOT/'native/guest/cof/player_actions.cpp']
+    if factory:
+        sources[0]=ROOT/'tests/cryoffear-famas-factory/main.cpp'
+        sources.append(ROOT/'native/csol/server/weapons/guest_cof_famas_factory.cpp')
     project=SDK/'msvc/ReGameDLL.vcxproj'
     model=ROOT/'sandbox/cs-server/Half-Life/cstrike/models/player/urban/urban.mdl'
     inputs=set(sources)|{project,model,a.environment.resolve(),Path(__file__).resolve(),a.proof.resolve(),a.sample.resolve()}
@@ -50,6 +53,24 @@ def main():
             if virtual<=rva and rva+region['size']<=virtual+size:
                 start=raw+rva-virtual;got=hashlib.sha256(pe[start:start+region['size']]).hexdigest();found=True;break
         if not found or got!=region['sha256']:raise ValueError('Original region mismatch: '+region['va'])
+    if factory:
+        inputs.add(ROOT/'tests/cryoffear-famas-factory/run.py')
+        factory_proof=ROOT/'analysis/cof-weapons-20261111/famas-20261118/PREEDIT-cold-factory.json'
+        record=json.loads(factory_proof.read_text('utf-8'))
+        if not record['beforeImplementation'] or record['sampleSha256']!=sha(a.sample):raise ValueError('Factory pre-edit identity mismatch')
+        for region in record['regions']:
+            rva=int(region['va'],16)-base;found=False
+            for i in range(count):
+                at=opt+optional+i*40;virtual=int.from_bytes(pe[at+12:at+16],'little');size=int.from_bytes(pe[at+16:at+20],'little');raw=int.from_bytes(pe[at+20:at+24],'little')
+                if virtual<=rva and rva+region['size']<=virtual+size:
+                    start=raw+rva-virtual;found=hashlib.sha256(pe[start:start+region['size']]).hexdigest()==region['sha256'];break
+            if not found:raise ValueError('Factory original bytes differ')
+        inputs.add(factory_proof)
+        for name,digest in record['archives'].items():
+            path=factory_proof.parent/name;inputs.add(path)
+            if sha(path)!=digest:raise ValueError('Factory IDA archive differs')
+        path=SDK/'dlls/cbase.cpp';inputs.add(path)
+        (output/'sdk-on-create.inc').write_text(body(path,'void CBaseEntity::OnCreate()'),'utf-8')
     shared=ROOT/proof['sharedProof'];inputs.add(shared)
     if sha(shared)!=proof['sharedProofSha256']:raise ValueError('Shared inventory proof mismatch')
     camera=json.loads(a.camera_proof.read_text('utf-8-sig'))
@@ -124,7 +145,7 @@ def main():
     replaced=('void CBasePlayerWeapon::Spawn(','void CBasePlayerItem::AttachToPlayer(',
               'int CBasePlayerWeapon::AddToPlayer(','int CBasePlayerItem::AddToPlayer(',
               'int CBasePlayerWeapon::AddDuplicate(')
-    aborts=[v for v in aborts if not v.startswith(replaced)]
+    aborts=[v for v in aborts if not v.startswith(replaced) and not (factory and v.startswith('void CBaseEntity::OnCreate('))]
     (output/'sdk-abort-virtuals.inc').write_text('\n'.join(aborts),'utf-8')
     includes=re.search(r'<AdditionalIncludeDirectories>(.*?)</AdditionalIncludeDirectories>',project.read_text('utf-8-sig'))[1].split(';')
     includes=[(project.parent/v[len('$(ProjectDir)'):].replace('\\','/').lstrip('/')).resolve() for v in includes if v.startswith('$(ProjectDir)')]

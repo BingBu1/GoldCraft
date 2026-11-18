@@ -64,4 +64,35 @@ MagazineModelResult PrepareMagazineSequenceTimes(std::span<const std::byte> mode
     output = prepared;
     return MagazineModelResult::Prepared;
 }
+
+MagazineModelResult PrepareAvailableMagazineSequenceTimes(std::span<const std::byte> model,
+    unsigned requestedCount, MagazineSequenceTimes& output) noexcept
+{
+    if (!requestedCount || requestedCount>output.duration.size()) return MagazineModelResult::InvalidInput;
+    if (model.size()<HeaderBytes || model.size()>std::size_t(std::numeric_limits<std::int32_t>::max()) ||
+        Word(model,0)!=0x54534449 || Integer(model,4)!=10 ||
+        Integer(model,72)!=static_cast<std::int32_t>(model.size()))
+        return MagazineModelResult::InvalidModel;
+    const auto count=Integer(model,164),start=Integer(model,168);
+    if (count<=0 || count>MaximumSequences || start<std::int32_t(HeaderBytes) ||
+        std::size_t(start)>model.size() || std::size_t(count)>(model.size()-std::size_t(start))/DescriptorBytes)
+        return MagazineModelResult::InvalidModel;
+    const unsigned available=static_cast<unsigned>(count)<requestedCount?static_cast<unsigned>(count):requestedCount;
+    auto status=available<requestedCount?MagazineModelResult::MissingSequence:MagazineModelResult::Prepared;
+    MagazineSequenceTimes value{};
+    for (unsigned i=0;i<available;++i)
+    {
+        const auto at=std::size_t(start)+i*DescriptorBytes;
+        const auto frames=Integer(model,at+56);
+        const float fps=std::bit_cast<float>(Word(model,at+32));
+        if (frames<=0 || (frames>1 && (!std::isfinite(fps) || fps<=0)))
+        {if (status==MagazineModelResult::Prepared) status=MagazineModelResult::InvalidTiming;continue;}
+        const float duration=frames==1?0.F:static_cast<float>(frames-1)/fps;
+        if (!std::isfinite(duration))
+        {if (status==MagazineModelResult::Prepared) status=MagazineModelResult::InvalidTiming;continue;}
+        value.duration[i]=duration;value.present|=std::uint64_t{1}<<i;
+    }
+    output=value;
+    return status;
+}
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "guest_cof_resources.hpp"
+#include "guest_cof_famas_resources.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -102,6 +103,26 @@ bool Metadata(std::string_view text, std::string_view classname, Resources& valu
         }
     }
     return tokens.End() && found == 31;
+}
+
+bool InventoryClassname(std::string_view text, std::string_view expected) noexcept
+{
+    if (text.empty() || text.size()>16384 || text.find('\0')!=text.npos) return false;
+    Tokens tokens(text);
+    std::string_view key,token,data;
+    bool found{};
+    while (tokens.Next(key))
+    {
+        if (key.empty() || key=="{" || key=="}" || !tokens.Next(token) || token!="{" ||
+            !tokens.Next(token) || token!="data" || !tokens.Next(data) ||
+            !tokens.Next(token) || token!="}") return false;
+        if (key=="classname")
+        {
+            if (found || data!=expected) return false;
+            found=true;
+        }
+    }
+    return tokens.End() && found;
 }
 
 struct File
@@ -380,6 +401,145 @@ ResourceResult PrepareG43Resources(const ResourceAuthority& authority, G43Resour
     return PrepareResources(authority, output, G43Models, G43Sounds, G43LocalWaves, G43Events,
         G43Inventory, G43Particle, G43ClipTexture, 38, "weapon_g43", G43ClientModels);
 }
+ResourceResult PrepareFamasResources(const ResourceAuthority& authority, FamasResources& output) noexcept
+{
+    using namespace guest::cof::resources;
+    const auto lease=authority;
+    if (!lease.current || !lease.generation) return {ResourceStatus::InvalidAuthority};
+    const auto current=[&] {return lease.current(lease.context);};
+    if (!current()) return {ResourceStatus::Cancelled};
+    if (!g_engfuncs.pfnGetFileSize || !g_engfuncs.pfnLoadFileForMe || !g_engfuncs.pfnFreeFile ||
+        !g_engfuncs.pfnPrecacheModel || !g_engfuncs.pfnAllocString || !g_engfuncs.pfnPrecacheGeneric)
+        return {ResourceStatus::MissingEngine};
+
+    FamasResources value{};
+    value.generation=lease.generation;
+    const auto note=[&](FamasResourcePart part,ResourceResult result) noexcept {
+        const auto i=static_cast<unsigned>(part);
+        value.parts[i]=result;
+        if (result) value.preparedParts|=1u<<i;
+    };
+    const auto size=[&](const char* path) noexcept {
+        if (!current()) return 0;
+        const int bytes=g_engfuncs.pfnGetFileSize(path);
+        return current()?bytes:0;
+    };
+    const auto header=[](const File& file) noexcept {
+        if (!file.bytes || file.size<int(sizeof(studiohdr_t))) return false;
+        studiohdr_t h;
+        std::memcpy(static_cast<void*>(&h),file.bytes,sizeof(h));
+        return !std::memcmp(file.bytes,"IDST",4) && h.version==10 && h.length==file.size;
+    };
+    // Preflight the complete mechanical closure before engine registration.
+    for (unsigned i=0;i<2;++i)
+    {
+        const char* path=FamasModels[i].host;
+        if (size(path)<=0) return {current()?ResourceStatus::MissingFile:ResourceStatus::Cancelled,path};
+        File file{nullptr,0,g_engfuncs.pfnFreeFile};
+        file.bytes=g_engfuncs.pfnLoadFileForMe(path,&file.size);
+        if (!current()) return {ResourceStatus::Cancelled,path};
+        if (!header(file)) return {ResourceStatus::InvalidModel,path};
+        if (!i)
+        {
+            const auto times=guest::cof::PrepareAvailableMagazineSequenceTimes(
+                {reinterpret_cast<const std::byte*>(file.bytes),static_cast<std::size_t>(file.size)},
+                24,value.sequences);
+            if (times==guest::cof::MagazineModelResult::InvalidModel)
+                return {ResourceStatus::InvalidModel,path};
+            note(FamasResourcePart::SequenceTimes,
+                {times==guest::cof::MagazineModelResult::Prepared?ResourceStatus::Prepared:ResourceStatus::InvalidModel,path});
+        }
+    }
+    if (size(FamasInventory.host)<=0)
+        return {current()?ResourceStatus::MissingFile:ResourceStatus::Cancelled,FamasInventory.host};
+    {
+        File file{nullptr,0,g_engfuncs.pfnFreeFile};
+        file.bytes=g_engfuncs.pfnLoadFileForMe(FamasInventory.host,&file.size);
+        if (!current()) return {ResourceStatus::Cancelled,FamasInventory.host};
+        if (!file.bytes || file.size<=0) return {ResourceStatus::InvalidMetadata,FamasInventory.host};
+        const std::string_view text{reinterpret_cast<const char*>(file.bytes),static_cast<std::size_t>(file.size)};
+        if (!InventoryClassname(text,"weapon_famas"))
+            return {ResourceStatus::InvalidMetadata,FamasInventory.host};
+        struct Aim {Vector aimOffset{};int aimZoom{};} aim;
+        const bool known=Metadata(text,"weapon_famas",aim);
+        if (known) {value.aimOffset=aim.aimOffset;value.aimZoom=aim.aimZoom;}
+        note(FamasResourcePart::Aim,
+            {known?ResourceStatus::Prepared:ResourceStatus::InvalidMetadata,FamasInventory.host});
+    }
+    if (!current()) return {ResourceStatus::Cancelled};
+    for (unsigned i=0;i<2;++i)
+    {
+        value.models[i]=g_engfuncs.pfnPrecacheModel(FamasModels[i].host);
+        if (!current()) return {ResourceStatus::Cancelled,FamasModels[i].host};
+        if (value.models[i]<=0) return {ResourceStatus::EngineRejected,FamasModels[i].host};
+    }
+    for (const auto [path,destination]:{
+        std::pair{FamasModels[0].host,&value.viewModelString},
+        std::pair{FamasModels[1].host,&value.worldModelString},
+        std::pair{FamasInventory.host,&value.inventoryItemString}})
+    {
+        *destination=g_engfuncs.pfnAllocString(path);
+        if (!current()) return {ResourceStatus::Cancelled,path};
+        if (*destination<=0) return {ResourceStatus::EngineRejected,path};
+    }
+    value.inventoryDownload=g_engfuncs.pfnPrecacheGeneric(FamasInventory.host);
+    if (!current()) return {ResourceStatus::Cancelled,FamasInventory.host};
+    if (value.inventoryDownload<0) return {ResourceStatus::EngineRejected,FamasInventory.host};
+
+    constexpr std::array modelParts{FamasResourcePart::PlayerModel,FamasResourcePart::NullModel,
+        FamasResourcePart::ShellModel,FamasResourcePart::ClipModel};
+    for (unsigned i=2;i<FamasModels.size();++i)
+    {
+        const char* path=FamasModels[i].host;
+        const auto part=modelParts[i-2];
+        if (size(path)<=0)
+        {
+            if (!current()) return {ResourceStatus::Cancelled,path};
+            note(part,{ResourceStatus::MissingFile,path});continue;
+        }
+        {
+            File file{nullptr,0,g_engfuncs.pfnFreeFile};
+            file.bytes=g_engfuncs.pfnLoadFileForMe(path,&file.size);
+            if (!current()) return {ResourceStatus::Cancelled,path};
+            if (!header(file)) {note(part,{ResourceStatus::InvalidModel,path});continue;}
+        }
+        if (!current()) return {ResourceStatus::Cancelled,path};
+        value.models[i]=g_engfuncs.pfnPrecacheModel(path);
+        if (!current()) return {ResourceStatus::Cancelled,path};
+        if (value.models[i]<=0) {note(part,{ResourceStatus::EngineRejected,path});continue;}
+        if (i==static_cast<unsigned>(FamasModel::Player))
+        {
+            value.playerModelString=g_engfuncs.pfnAllocString(path);
+            if (!current()) return {ResourceStatus::Cancelled,path};
+            if (value.playerModelString<=0) {note(part,{ResourceStatus::EngineRejected,path});continue;}
+        }
+        note(part,{ResourceStatus::Prepared,path});
+    }
+    constexpr std::array soundParts{FamasResourcePart::LegacyFire,FamasResourcePart::FirstDraw,
+        FamasResourcePart::ItemGet,FamasResourcePart::Fire};
+    for (unsigned i=0;i<FamasSounds.size();++i)
+    {
+        const char* path=FamasSounds[i].host;
+        std::array<char,128> full{};
+        const auto length=std::strlen(path);
+        if (length>=full.size()-6) return {ResourceStatus::InvalidMetadata,path};
+        std::memcpy(full.data(),"sound/",6);std::memcpy(full.data()+6,path,length+1);
+        if (!g_engfuncs.pfnPrecacheSound)
+        {note(soundParts[i],{ResourceStatus::MissingEngine,path});continue;}
+        if (size(full.data())<=0)
+        {
+            if (!current()) return {ResourceStatus::Cancelled,path};
+            note(soundParts[i],{ResourceStatus::MissingFile,path});continue;
+        }
+        value.sounds[i]=g_engfuncs.pfnPrecacheSound(path);
+        if (!current()) return {ResourceStatus::Cancelled,path};
+        note(soundParts[i],{value.sounds[i]>0?ResourceStatus::Prepared:ResourceStatus::EngineRejected,path});
+    }
+    if (!current()) return {ResourceStatus::Cancelled};
+    output=value;
+    return {ResourceStatus::Prepared};
+}
+
 ResourceResult PrepareShotgunCoreResources(const ResourceAuthority& authority, ShotgunCoreResources& output) noexcept
 {
     using namespace guest::cof::resources;

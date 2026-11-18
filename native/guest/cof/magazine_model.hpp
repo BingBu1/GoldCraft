@@ -19,4 +19,11 @@ enum class MagazineModelResult : unsigned char
 // Keeps the previous output on failure; never retains pointers into the model.
 MagazineModelResult PrepareMagazineSequenceTimes(std::span<const std::byte> model,
     unsigned requiredCount, MagazineSequenceTimes& output) noexcept;
+
+// Host recovery: retain every independently valid track and mark unavailable
+// tracks absent. InvalidInput/InvalidModel leave output unchanged; otherwise
+// the partial output is committed even when MissingSequence/InvalidTiming is
+// returned. No substitute duration is supplied. The strict API above is kept.
+MagazineModelResult PrepareAvailableMagazineSequenceTimes(std::span<const std::byte> model,
+    unsigned requestedCount, MagazineSequenceTimes& output) noexcept;
 }

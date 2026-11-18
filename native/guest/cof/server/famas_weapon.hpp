@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "weapons.h"
+#include "external/ReGameDLL_CS/regamedll/dlls/weapons.h"
 #include "../famas_control.hpp"
 #include "../famas_aim.hpp"
 #include "../famas_frame.hpp"

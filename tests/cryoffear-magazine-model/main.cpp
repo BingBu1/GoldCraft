@@ -71,6 +71,17 @@ void Safety()
     reject(Model(-1), 1, MagazineModelResult::InvalidTiming);
     CHECK(PrepareMagazineSequenceTimes(Model(1), 1, times) == MagazineModelResult::Prepared);
     CHECK(times.present == 1 && std::bit_cast<std::uint32_t>(times.duration[0]) == 0);
+    CHECK(PrepareAvailableMagazineSequenceTimes(valid, 2, times) == MagazineModelResult::MissingSequence);
+    CHECK(times.present == 1 && times.duration[0] == 1 && times.duration[1] == 0);
+    const auto available = times;
+    CHECK(PrepareAvailableMagazineSequenceTimes({}, 2, times) == MagazineModelResult::InvalidModel);
+    CHECK(times.present == available.present && times.duration == available.duration);
+    CHECK(PrepareAvailableMagazineSequenceTimes(valid, 0, times) == MagazineModelResult::InvalidInput);
+    CHECK(times.present == available.present && times.duration == available.duration);
+    CHECK(PrepareAvailableMagazineSequenceTimes(Model(31, 0), 1, times) == MagazineModelResult::InvalidTiming);
+    CHECK(times.present == 0);
+    CHECK(PrepareAvailableMagazineSequenceTimes(Model(1, std::numeric_limits<float>::quiet_NaN()), 1, times) ==
+        MagazineModelResult::Prepared && times.present == 1 && times.duration[0] == 0);
     std::printf("checks=%u\n", checks);
 }
 }
@@ -90,19 +101,24 @@ int main(int argc, char** argv)
             CHECK(header.numseq > 0 && header.numseq <= int(times.duration.size()));
             const auto data = std::as_bytes(std::span(bytes));
             CHECK(PrepareMagazineSequenceTimes(data, header.numseq, times) == MagazineModelResult::Prepared);
+            MagazineSequenceTimes available;
+            CHECK(PrepareAvailableMagazineSequenceTimes(data, header.numseq, available) == MagazineModelResult::Prepared);
+            CHECK(available.present == times.present && available.duration == times.duration);
             CHECK(times.present == (std::uint64_t{1} << header.numseq) - 1);
             for (int i = 0; i < header.numseq; ++i)
                 std::printf("%d %d %08x\n", m - 2, i, std::bit_cast<unsigned>(times.duration[i]));
         }
         return 0;
     }
-    if (argc != 2 || std::strcmp(argv[1], "--oracle") != 0) return 3;
+    const bool available = argc == 2 && std::strcmp(argv[1], "--available-oracle") == 0;
+    if (argc != 2 || (!available && std::strcmp(argv[1], "--oracle") != 0)) return 3;
     int frames; unsigned fps;
     while (std::scanf("%d %x", &frames, &fps) == 2)
     {
         const auto data = Model(frames, std::bit_cast<float>(fps));
         MagazineSequenceTimes times;
-        const auto result = PrepareMagazineSequenceTimes(data, 1, times);
+        const auto result = available ? PrepareAvailableMagazineSequenceTimes(data, 1, times) :
+            PrepareMagazineSequenceTimes(data, 1, times);
         std::printf("%u %08x\n", unsigned(result), std::bit_cast<unsigned>(times.duration[0]));
     }
 }

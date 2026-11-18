@@ -456,4 +456,5 @@ int main(int argc,char** argv)
     }
     if(!scenes||std::getline(golden,goldenLine))return 2;
     std::cout<<"FAMAS SDK "<<checks<<" checks; original Fidget "<<scenes<<" scenes passed\n";
+    return 0;
 }

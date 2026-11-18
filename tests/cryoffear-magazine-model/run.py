@@ -121,6 +121,15 @@ def main():
     rows = [tuple(int(x, 16) for x in line.split()) for line in run.stdout.splitlines()]
     if run.returncode or len(rows) != len(cases) or any(status != 0 or value != wanted for (status, value), wanted in zip(rows, expected)):
         raise ValueError('Original duration comparison failed')
+    available_cases=cases+[(1, value) for value in (0,0xbf800000,0x7f800000,0x7fc00000)]
+    available_expected=[original.duration(*case) for case in available_cases]
+    available_run=subprocess.run([str(exe),'--available-oracle'],cwd=output,capture_output=True,text=True,
+        input=''.join(f'{frames} {fps:08x}\n' for frames,fps in available_cases),timeout=30)
+    (output/'available-oracle.log').write_text(available_run.stdout+available_run.stderr,'utf-8')
+    available_rows=[tuple(int(x,16) for x in line.split()) for line in available_run.stdout.splitlines()]
+    if available_run.returncode or len(available_rows)!=len(available_cases) or any(
+            status!=0 or value!=wanted for (status,value),wanted in zip(available_rows,available_expected)):
+        raise ValueError('Partial-preparation original duration comparison failed')
     wanted = []
     for m, model in enumerate(models):
         data = model.read_bytes()
@@ -139,7 +148,7 @@ def main():
         raise ValueError('Inputs changed during validation')
     receipt = dict(success=True, revision=revision, command=command, sampleSha256=SHA,
                    regionSha256=original.region, before=before, after=after, unchanged=True,
-                   compilerSha256=sha(compiler), originalCases=len(cases), actualModelSequences=len(wanted),
+                   compilerSha256=sha(compiler), originalCases=len(cases), availableOriginalCases=len(available_cases), actualModelSequences=len(wanted),
                    safety=safety.stdout.strip(), sourceCopies=0, gameplay=False, performance=False)
     (output/'receipt.json').write_text(json.dumps(receipt, indent=2), 'utf-8')
     print(json.dumps({k: receipt[k] for k in ('success', 'originalCases', 'actualModelSequences', 'safety')}))
