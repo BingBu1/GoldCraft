@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_排查-突然掉线与未响应现场-report.md",
     "native/csol/client/menu_panel.hpp",
     "docs/2026-11-17_修复-环境清理重复读取退休Studio表-report.md",
     "docs/2026-11-18_修复-菜单面板所有权与退出清理-report.md",
