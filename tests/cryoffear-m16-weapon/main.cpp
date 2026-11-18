@@ -106,7 +106,7 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
-        Check(amount>=0&&!std::strcmp(name,"cof_m16")&&(maximum==60||maximum==200));
+        Check(amount>=0&&!std::strcmp(name,"556Nato")&&(maximum==60||maximum==200));
         const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
         m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
     }
@@ -150,7 +150,7 @@ void Initialize()
     weapon.pev=&weaponEdict.v;weaponEdict.v.pContainingEntity=&weaponEdict;weaponEdict.pvPrivateData=&weapon;
     weapon.ConfigureColdHost({});
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
-    CBasePlayerItem::m_AmmoInfoArray[1].pszName="cof_m16";
+    CBasePlayerItem::m_AmmoInfoArray[1].pszName="556Nato";
     player.has_disconnected=false;player.m_iNumSpawns=0;
     player.pev->health=100;player.pev->modelindex=1;player.m_Activity=ACT_WALK;player.m_IdealActivity=ACT_WALK;
     player.m_fSequenceFinished=true;player.m_flFlinchTime=0;
@@ -290,7 +290,7 @@ int main(int argc,char** argv)
         M16Weapon fresh;ItemInfo info{};
         Check(fresh.GetItemInfo(&info)&&info.iId==902&&info.iMaxClip==20&&info.iMaxAmmo1==200&&
             info.iSlot==0&&info.iPosition==2&&!std::strcmp(info.pszName,"weapon_cof_m16")&&
-            !std::strcmp(info.pszAmmo1,"cof_m16")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT&&!fresh.IsPistol());
+            !std::strcmp(info.pszAmmo1,"556Nato")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT&&!fresh.IsPistol());
         Check(!fresh.ResourcesReady()&&!fresh.GetItemInfo(nullptr));
     }
     // Actual SDK callback changes clock, sprint flag and current sequence.

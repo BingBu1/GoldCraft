@@ -109,7 +109,7 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
-        Check(amount>=0&&!std::strcmp(name,"cof_g43")&&(maximum==30||maximum==40));
+        Check(amount>=0&&!std::strcmp(name,"762Nato")&&(maximum==30||maximum==40));
         const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
         m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
     }
@@ -153,7 +153,7 @@ void Initialize()
     weapon.pev=&weaponEdict.v;weaponEdict.v.pContainingEntity=&weaponEdict;weaponEdict.pvPrivateData=&weapon;
     weapon.ConfigureColdHost({});
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
-    CBasePlayerItem::m_AmmoInfoArray[1].pszName="cof_g43";
+    CBasePlayerItem::m_AmmoInfoArray[1].pszName="762Nato";
     player.has_disconnected=false;player.m_iNumSpawns=0;
     player.pev->health=100;player.pev->modelindex=1;player.m_Activity=ACT_WALK;player.m_IdealActivity=ACT_WALK;
     player.m_fSequenceFinished=true;player.m_flFlinchTime=0;
@@ -286,7 +286,7 @@ int main(int argc,char** argv)
         G43Weapon fresh;ItemInfo info{};
         Check(fresh.GetItemInfo(&info)&&info.iId==903&&info.iMaxClip==10&&info.iMaxAmmo1==40&&
             info.iSlot==0&&info.iPosition==3&&!std::strcmp(info.pszName,"weapon_cof_g43")&&
-            !std::strcmp(info.pszAmmo1,"cof_g43")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT&&!fresh.IsPistol());
+            !std::strcmp(info.pszAmmo1,"762Nato")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT&&!fresh.IsPistol());
         Check(!fresh.ResourcesReady()&&!fresh.GetItemInfo(nullptr)&&!fresh.UseDecrement());
     }
     // G43 has an empty fidget. Its ordinary common frame never calls Idle.

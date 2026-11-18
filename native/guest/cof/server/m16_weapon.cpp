@@ -25,6 +25,8 @@ goldcraft::scenario::GuestProfile M16Weapon::ScenarioGuestProfile() const noexce
 
 namespace
 {
+constexpr const char* Ammunition = FindFirearm(Firearm::M16)->ammunition.data();
+
 bool Finite(const Vector& v) noexcept
 {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
@@ -322,7 +324,7 @@ int M16Weapon::GetItemInfo(ItemInfo* info)
     if (!info) return 0;
     *info = {};
     info->pszName = "weapon_cof_m16";
-    info->pszAmmo1 = "cof_m16";
+    info->pszAmmo1 = Ammunition;
     info->iMaxAmmo1 = 200;
     info->iMaxAmmo2 = -1;
     info->iMaxClip = 20;
@@ -463,7 +465,7 @@ int M16Weapon::ExtractAmmo(CBasePlayerWeapon* weapon)
         target->m_iClip = ready;
         amount -= ready;
     }
-    const int ammo = owner.player->GiveAmmo(amount, "cof_m16", frame.reserveLimit);
+    const int ammo = owner.player->GiveAmmo(amount, Ammunition, frame.reserveLimit);
     if (!current()) return FALSE;
     m_iDefaultAmmo = 0;
     if (ammo <= 0) return FALSE;
@@ -483,7 +485,7 @@ int M16Weapon::ExtractClipAmmo(CBasePlayerWeapon* weapon)
     M16OwnerFrame frame{};
     if (!target->Check(frame, false) || (m_iClip < 0 && m_iClip != -1)) return FALSE;
     Lease owner = target->lease_;
-    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, "cof_m16", frame.reserveLimit);
+    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, Ammunition, frame.reserveLimit);
     return WorldCurrent(source) && Current(&owner) ? result : FALSE;
 }
 void M16Weapon::AttachToPlayer(CBasePlayer* player)

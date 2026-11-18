@@ -369,9 +369,9 @@ void Engine()
     CBasePlayerItem::m_AmmoInfoArray[4].pszName="cof_vp70";
     CBasePlayerItem::m_AmmoInfoArray[5].pszName="cof_tmp";
     CBasePlayerItem::m_AmmoInfoArray[6].pszName="cof_mp5";
-    CBasePlayerItem::m_AmmoInfoArray[7].pszName="cof_m16";
-    CBasePlayerItem::m_AmmoInfoArray[8].pszName="cof_g43";
-    CBasePlayerItem::m_AmmoInfoArray[9].pszName="cof_shotgun";
+    CBasePlayerItem::m_AmmoInfoArray[7].pszName="556Nato";
+    CBasePlayerItem::m_AmmoInfoArray[8].pszName="762Nato";
+    CBasePlayerItem::m_AmmoInfoArray[9].pszName="buckshot";
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
 }
 void DestroyP345()

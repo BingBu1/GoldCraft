@@ -79,13 +79,13 @@ inline constexpr std::array<FirearmDefinition,FirearmKeys.size()> Firearms=[] {
         "weapon_cof_mp5","cof_mp5","客串武器·MP5A3",
         "models/guest/cof/mp5/v_mp5.mdl","models/guest/cof/mp5/p_mp5.mdl","models/guest/cof/mp5/w_mp5.mdl"};
     result[static_cast<unsigned>(Firearm::M16)]={Firearm::M16,902,9,20,200,3100,40,20,
-        "weapon_cof_m16","cof_m16","客串武器·M16",
+        "weapon_cof_m16","556Nato","客串武器·M16",
         "models/guest/cof/m16/v_m16.mdl","models/guest/cof/m16/p_m16.mdl","models/guest/cof/m16/w_m16.mdl"};
     result[static_cast<unsigned>(Firearm::G43)]={Firearm::G43,903,26,10,100,3500,50,10,
-        "weapon_cof_g43","cof_g43","客串武器·G43",
+        "weapon_cof_g43","762Nato","客串武器·G43",
         "models/guest/cof/g43/v_g43.mdl","models/guest/cof/g43/p_g43.mdl","models/guest/cof/g43/w_g43.mdl"};
     result[static_cast<unsigned>(Firearm::Shotgun)]={Firearm::Shotgun,904,4,5,50,3000,65,5,
-        "weapon_cof_shotgun","cof_shotgun","客串武器·Remington 870",
+        "weapon_cof_shotgun","buckshot","客串武器·Remington 870",
         "models/guest/cof/shotgun/v_shotgun.mdl","models/guest/cof/shotgun/p_shotgun.mdl",
         "models/guest/cof/shotgun/w_shotgun.mdl"};
     return result;

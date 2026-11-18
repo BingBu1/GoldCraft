@@ -95,19 +95,19 @@ struct Player final:CBasePlayer
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
 #if defined(COF_RUNTIME_P345_FIXTURE)
-        if(!std::strcmp(name,"cof_shotgun"))
+        if(!std::strcmp(name,"buckshot"))
         {
             Check(amount>=0&&(maximum==15||maximum==50));
             const int add=std::min(amount,maximum-m_rgAmmo[9]);if(add<0)return -1;
             m_rgAmmo[9]+=add;Event(104,amount,maximum);return 9;
         }
-        if(!std::strcmp(name,"cof_g43"))
+        if(!std::strcmp(name,"762Nato"))
         {
             Check(amount>=0&&(maximum==30||maximum==40));
             const int add=std::min(amount,maximum-m_rgAmmo[8]);if(add<0)return -1;
             m_rgAmmo[8]+=add;Event(104,amount,maximum);return 8;
         }
-        if(!std::strcmp(name,"cof_m16"))
+        if(!std::strcmp(name,"556Nato"))
         {
             Check(amount>=0&&(maximum==60||maximum==200));
             const int add=std::min(amount,maximum-m_rgAmmo[7]);if(add<0)return -1;

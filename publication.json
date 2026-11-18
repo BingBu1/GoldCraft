@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_修复-CoF九枪弹药槽与870购买-report.md",
     "docs/2026-11-18_实现-FAMAS冷资源与实体工厂-report.md",
     "native/guest/cof/famas_resources.hpp",
     "native/csol/server/weapons/guest_cof_famas_factory.cpp",

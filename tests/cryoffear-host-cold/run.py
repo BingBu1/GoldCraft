@@ -342,6 +342,25 @@ def main():
                 result['checks']['optional' + label + 'Absent'] = (
                     struct.unpack_from('<i', raw, layout['members']['iId'])[0] == 0 and
                     struct.unpack_from('<I', raw, layout['members']['pszName'])[0] == 0)
+            ammo_layout = symbols.layout('AmmoInfo')
+            ammo_table = loaded['base'] + symbols.global_rva('CBasePlayerItem::m_AmmoInfoArray')
+            cursor_address = loaded['base'] + symbols.global_rva('giAmmoIndex')
+            ammo_cursor = struct.unpack('<i', process.read(cursor_address, 4))[0]
+            names = {}
+            for slot in range(1, 32):
+                raw = process.read(ammo_table + slot * ammo_layout['size'], ammo_layout['size'])
+                pointer = struct.unpack_from('<I', raw, ammo_layout['members']['pszName'])[0]
+                if pointer:
+                    names[slot] = process.read(pointer, 64).split(b'\x00', 1)[0].decode('ascii')
+            result['ammoRegistry'] = dict(cursor=ammo_cursor, names=names)
+            # Stock weapons register these slots before any guest can consume one.
+            expected_stock = {1: '338Magnum', 2: '762Nato', 3: '556NatoBox',
+                              4: '556Nato', 5: 'buckshot'}
+            if any(names.get(slot) != name for slot, name in expected_stock.items()):
+                raise RuntimeError('Guest precache overwrote a stock ammunition slot')
+            if ammo_cursor != len(names):
+                raise RuntimeError('Native ammunition registry cursor wrapped')
+            result['checks']['nativeAmmoRegistryIntact'] = True
         finally:
             process.close()
 

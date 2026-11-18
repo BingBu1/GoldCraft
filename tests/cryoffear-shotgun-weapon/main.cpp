@@ -108,7 +108,7 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
-        Check(amount>=0&&!std::strcmp(name,"cof_shotgun")&&(maximum==15||maximum==50));
+        Check(amount>=0&&!std::strcmp(name,"buckshot")&&(maximum==15||maximum==50));
         const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
         m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
     }
@@ -152,7 +152,7 @@ void Initialize()
     weapon.pev=&weaponEdict.v;weaponEdict.v.pContainingEntity=&weaponEdict;weaponEdict.pvPrivateData=&weapon;
     weapon.ConfigureColdHost({});
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
-    CBasePlayerItem::m_AmmoInfoArray[1].pszName="cof_shotgun";
+    CBasePlayerItem::m_AmmoInfoArray[1].pszName="buckshot";
     player.has_disconnected=false;player.m_iNumSpawns=0;
     player.pev->health=100;player.pev->modelindex=1;player.m_Activity=ACT_WALK;player.m_IdealActivity=ACT_WALK;
     player.m_fSequenceFinished=true;player.m_flFlinchTime=0;
@@ -283,7 +283,7 @@ int main(int argc, char** argv)
         ShotgunWeapon fresh; ItemInfo info{};
         Check(fresh.GetItemInfo(&info) && info.iId == ShotgunHostId && info.iMaxClip == 5 && info.iMaxAmmo1 == 50 &&
             info.iWeight == 20 && info.iSlot == 0 && info.iPosition == 4 && !std::strcmp(info.pszName,"weapon_cof_shotgun") &&
-            !std::strcmp(info.pszAmmo1,"cof_shotgun") && fresh.iItemSlot() == PRIMARY_WEAPON_SLOT && !fresh.IsPistol());
+            !std::strcmp(info.pszAmmo1,"buckshot") && fresh.iItemSlot() == PRIMARY_WEAPON_SLOT && !fresh.IsPistol());
         Check(!fresh.ResourcesReady() && !fresh.GetItemInfo(nullptr) && !fresh.UseDecrement());
     }
     // Cold admission rejects missing effects and incomplete original sequence closure.

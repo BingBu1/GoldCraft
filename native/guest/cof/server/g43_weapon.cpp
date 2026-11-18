@@ -3,6 +3,7 @@
 #include "inventory_recovery.hpp"
 #include "g43_weapon.hpp"
 #include "player_think.hpp"
+#include "../catalog.hpp"
 #include "../magazine_reload.hpp"
 #include "../m16_control.hpp" // Shared original1011D560 input dispatcher only.
 #include <bit>
@@ -26,6 +27,8 @@ goldcraft::scenario::GuestProfile G43Weapon::ScenarioGuestProfile() const noexce
 
 namespace
 {
+constexpr const char* Ammunition = FindFirearm(Firearm::G43)->ammunition.data();
+
 bool Finite(const Vector& v) noexcept
 {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
@@ -312,7 +315,7 @@ int G43Weapon::GetItemInfo(ItemInfo* info)
     if (!info) return 0;
     *info = {};
     info->pszName = "weapon_cof_g43";
-    info->pszAmmo1 = "cof_g43";
+    info->pszAmmo1 = Ammunition;
     info->iMaxAmmo1 = 40;
     info->iMaxAmmo2 = -1;
     info->iMaxClip = 10;
@@ -453,7 +456,7 @@ int G43Weapon::ExtractAmmo(CBasePlayerWeapon* weapon)
         target->m_iClip = ready;
         amount -= ready;
     }
-    const int ammo = owner.player->GiveAmmo(amount, "cof_g43", frame.reserveLimit);
+    const int ammo = owner.player->GiveAmmo(amount, Ammunition, frame.reserveLimit);
     if (!current()) return FALSE;
     m_iDefaultAmmo = 0;
     if (ammo <= 0) return FALSE;
@@ -473,7 +476,7 @@ int G43Weapon::ExtractClipAmmo(CBasePlayerWeapon* weapon)
     G43OwnerFrame frame{};
     if (!target->Check(frame, false) || (m_iClip < 0 && m_iClip != -1)) return FALSE;
     Lease owner = target->lease_;
-    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, "cof_g43", frame.reserveLimit);
+    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, Ammunition, frame.reserveLimit);
     return WorldCurrent(source) && Current(&owner) ? result : FALSE;
 }
 void G43Weapon::AttachToPlayer(CBasePlayer* player)
