@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_实现-FAMAS原版换弹与推搡控制-report.md",
+    "docs/2026-11-18_验证-九枪冷服与手模资源预检-report.md",
+    "tests/cryoffear-famas-control/README.md",
     "tests/resource-open-metadata/run.py",
     "tests/resource-open-metadata/README.md",
     "docs/2026-11-17_优化-客户端打开文件元数据复用-report.md",

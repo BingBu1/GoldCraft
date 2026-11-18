@@ -52,6 +52,25 @@ def checked(path):
     return path
 
 
+def verify_hand_donors(resources):
+    """Require the explicit donors consumed by the real model dependency reader."""
+    destinations = {row['destination'] for row in resources}
+    for row in resources:
+        if not row['destination'].endswith('_hands.json'):
+            continue
+        raw = checked(row['source']).read_bytes()
+        if len(raw) > 65536:
+            raise ValueError('Hand profile exceeds size limit')
+        profile = json.loads(raw.decode('utf-8-sig'))
+        if not isinstance(profile, dict) or profile.get('version') != 1:
+            raise ValueError('Invalid hand profile version')
+        donor = profile.get('donor', 'models/csol/hands/v_hegrenade.mdl')
+        if not isinstance(donor, str) or not donor.startswith('models/csol/hands/') or not donor.endswith('.mdl'):
+            raise ValueError('Invalid hand donor path')
+        if donor not in destinations:
+            raise ValueError(f'Missing declared hand donor: {donor} required by {row["destination"]}')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('mp', 'pdb', 'client', 'engine', 'resources', 'output'):
@@ -118,6 +137,7 @@ def main():
     resources = json.loads(args.resources.read_text('utf8'))['files']
     if not resources or len(resources) > 1024:
         raise ValueError('Bounded explicit resource closure required')
+    verify_hand_donors(resources)
     damage = [row for row in resources if row['destination'] == 'configs/guest/cof/scenario_damage.json']
     if len(damage) != 1:
         raise ValueError('Expected one explicit damage profile in the cold resource set')

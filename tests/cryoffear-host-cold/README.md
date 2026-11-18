@@ -17,6 +17,10 @@ copying a `_hands.json` without its donor is an incomplete test deployment.
 The checker compares compiled client/server menu revisions, verifies the
 complete server HUD, reads actual registered IDs 896–899 and their clip
 capacities, and requires optional TMP ID 900 to remain absent by default.
+Before any runtime write, it also requires every `_hands.json` donor in the
+explicit resource manifest. This follows the real dependency reader, including
+its default donor. A missing donor fails immediately with its profile/path;
+the engine's later dependency and content checks still run unchanged.
 Use `--include-tmp` with an explicit complete v2 balance/resource closure to
 require the fifth definition with a 30-round clip instead. This expectation
 is selected independently of the supplied damage JSON so a configuration
