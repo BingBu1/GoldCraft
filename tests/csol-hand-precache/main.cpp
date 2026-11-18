@@ -24,6 +24,7 @@ unsigned checks{},opens{},closes{};
 std::map<std::string,Bytes> files;
 std::vector<std::string> generic,models;
 std::map<std::string,unsigned> reads;
+std::map<std::string,unsigned> existenceQueries;
 void Check(bool good,int line){++checks;if(!good)throw std::runtime_error("check "+std::to_string(line));}
 #define CHECK(x) fixture::Check(bool(x),__LINE__)
 void Put(Bytes& b,std::size_t at,int x){CHECK(at+4<=b.size());std::memcpy(b.data()+at,&x,4);}
@@ -39,10 +40,50 @@ Bytes Model(){
 void Precache(const char* name){
  auto b=files.at(name);GoldCraftPrecacheCsolResources(name,reinterpret_cast<studiohdr_t*>(b.data()));
 }
-void Reset(){resourceBatch.reset();dependencyCache=DependencyCache{};files.clear();generic.clear();models.clear();reads.clear();}
+void Reset(){resourceBatch.reset();dependencyCache=DependencyCache{};files.clear();generic.clear();models.clear();reads.clear();existenceQueries.clear();}
 void Setup(){
  Reset();files["models/custom/v_fixture.mdl"]=Model();files["models/csol/hands/declared.mdl"]=Model();
  files["models/custom/v_fixture_hands.json"]=Text(R"({"version":1,"donor":"models/csol/hands/declared.mdl"})");
+}
+unsigned metadataQueries{};
+bool failMetadata{};
+std::uint64_t metadataRevision{};
+int QueryMetadata(const void* owner,const char* name,goldcraft::filesystem::ResourceStamp* result,std::uint32_t size){
+ CHECK(owner==g_pFileSystem && name && result && size==sizeof(*result));++metadataQueries;
+ if(failMetadata || !files.contains(name))return 0;
+ *result={1,2,3,files.at(name).size(),11,22,metadataRevision,0,files.at(name).size(),0};return 1;
+}
+int OpenedMetadata(const void*,void*,goldcraft::filesystem::ResourceStamp*,std::uint32_t){return 0;}
+void MetadataProbeCases(){
+ Reset();metadataQueries=0;metadataRevision=1;failMetadata=false;files["present"]=Text("content");
+ const goldcraft::filesystem::ResourceStampAPI api{sizeof(api),QueryMetadata,OpenedMetadata};
+ ResourceBatch first;first.metadata=&api;
+ const auto original=first.Probe("present",true);
+ CHECK(original.exists && original.read && original.metadata && original.reusable);
+ CHECK(metadataQueries==1 && existenceQueries["present"]==0 && reads.empty());
+ CHECK(first.Probe("present",true)==original && first.Exists("present"));CHECK(metadataQueries==1);
+ CHECK(!first.Probe("absent",true).exists);CHECK(existenceQueries["absent"]==1 && metadataQueries==2);
+ CHECK(!first.Probe("absent",true).exists);CHECK(existenceQueries["absent"]==1 && metadataQueries==2);
+ // New transactions must discover newly created optional inputs and replacement identities.
+ files["absent"]=Text("now present");++metadataRevision;
+ ResourceBatch next;next.metadata=&api;
+ CHECK(next.Probe("absent",true).metadata);CHECK(metadataQueries==3 && existenceQueries["absent"]==1);
+ CHECK(next.Probe("present",true)!=original);CHECK(metadataQueries==4 && existenceQueries["present"]==0);
+ // A failed optional metadata provider still proves content by reading and hashing.
+ failMetadata=true;ResourceBatch fallback;fallback.metadata=&api;
+ const auto hashed=fallback.Probe("present",true);
+ CHECK(hashed.exists && hashed.read && hashed.reusable && !hashed.metadata);
+ CHECK(existenceQueries["present"]==1 && reads["present"]==1 && opens==closes);
+ failMetadata=false;ResourceBatch legacy;legacy.metadata=nullptr;
+ const auto withoutProvider=legacy.Probe("present",true);
+ CHECK(withoutProvider.exists && withoutProvider.read && withoutProvider.reusable && !withoutProvider.metadata);
+ CHECK(reads["present"]==2 && opens==closes);
+ ResourceBatch full;full.metadata=&api;
+ for(unsigned i=0;i<65536;++i)full.inputs.emplace("missing/"+std::to_string(i),ResourceBatch::Input{});
+ const auto capped=full.Probe("present",true);
+ CHECK(capped.exists && capped.read && !capped.reusable && full.inputs.size()==65536);
+ CHECK(reads["present"]==3 && opens==closes);
+ Reset();
 }
 void CofSoundCases(){
  using namespace guest::cof::resources;
@@ -267,7 +308,7 @@ void Cases(){
  CHECK(opens==closes);
 }
 }
-int FS_FileExists(const char* p){return fixture::files.contains(p);}
+int FS_FileExists(const char* p){++fixture::existenceQueries[p];return fixture::files.contains(p);}
 FileHandle_t FS_Open(const char* p,const char* mode){CHECK(std::string_view(mode)=="rb");auto it=fixture::files.find(p);if(it==fixture::files.end())return nullptr;++fixture::opens;return reinterpret_cast<FileHandle_t>(new std::pair<std::string,fixture::Bytes>(it->first,it->second));}
 void FS_Close(FileHandle_t p){++fixture::closes;delete reinterpret_cast<std::pair<std::string,fixture::Bytes>*>(p);}
 unsigned FS_Size(FileHandle_t p){return unsigned(reinterpret_cast<std::pair<std::string,fixture::Bytes>*>(p)->second.size());}
@@ -284,4 +325,4 @@ void GoldCraftLoadStudioOwned(model_t*,std::span<std::byte>){throw std::runtime_
 double Sys_FloatTime(){return 0;}
 char loadname[MAX_MODEL_NAME]{};
 char* va(char* format,...){static char text[1024];va_list args;va_start(args,format);vsnprintf(text,sizeof(text),format,args);va_end(args);return text;}
-int main(int argc,char** argv){try{CHECK(argc==1||argc==3);fixture::Cases();fixture::CofSoundCases();fixture::ShotgunSoundCases();if(argc==3){if(std::string_view(argv[1])=="--shotgun-root")fixture::RealShotgunSoundCases(argv[2]);else fixture::RealCofHandCases(argv[1],argv[2]);}std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}
+int main(int argc,char** argv){try{CHECK(argc==1||argc==3);fixture::MetadataProbeCases();fixture::Cases();fixture::CofSoundCases();fixture::ShotgunSoundCases();if(argc==3){if(std::string_view(argv[1])=="--shotgun-root")fixture::RealShotgunSoundCases(argv[2]);else fixture::RealCofHandCases(argv[1],argv[2]);}std::printf("hand-precache checks=%u; actual loader/collector/cache/native sounds; gameplay=no performance=no\n",fixture::checks);return 0;}catch(const std::exception& e){std::fprintf(stderr,"%s; checks=%u\n",e.what(),fixture::checks);return 1;}}

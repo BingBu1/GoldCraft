@@ -119,17 +119,26 @@ struct ResourceBatch
 
     Stamp Probe(const std::string& name,bool content)
     {
-        if(!Exists(name))return Stamp{false};
-        if(!content)return Stamp{true};
         auto found=inputs.find(name);
-        if(found==inputs.end() || !found->second.stamp.read)
+        // A successful query already resolved and opened the exact VFS winner.
+        // Do not precede it with a second path walk just to prove existence.
+        if(content && (found==inputs.end()?inputs.size()<65536:
+            found->second.stamp.exists && !found->second.stamp.read))
         {
             const auto stamp=Metadata(name);
-            if(stamp.metadata && (found!=inputs.end() || inputs.size()<65536))
+            if(stamp.metadata)
             {
                 inputs[name].stamp=stamp;
                 return stamp;
             }
+        }
+        // Provider failure is not evidence of absence. Preserve the ordinary
+        // existence/content fallback, including the transaction capacity cap.
+        if(!Exists(name))return Stamp{false};
+        if(!content)return Stamp{true};
+        found=inputs.find(name);
+        if(found==inputs.end() || !found->second.stamp.read)
+        {
             Read(name);found=inputs.find(name);
         }
         // Hitting a batch budget disables reuse; it never drops dependencies.

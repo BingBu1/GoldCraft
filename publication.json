@@ -1,6 +1,10 @@
 {
   "format": 1,
   "files": [
+    "tests/csol-hand-precache/main.cpp",
+    "tools/Profile-NativeClient.cpp",
+    "docs/2026-11-18_优化-依赖查询复用与换图核验-report.md",
+
     "tests/map-transition-observer/main.py",
     "tests/map-transition-observer/README.md",
     "docs/2026-11-18_排查-完整换图分段与真实调用栈-report.md",
