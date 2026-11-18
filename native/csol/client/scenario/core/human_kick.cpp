@@ -9,6 +9,7 @@
 #include "../../hud_style.hpp"
 #include "scenario_map_vote.hpp"
 #include "human_kick.hpp"
+#include "night_player_lights.hpp"
 #include "../../../scenario/core/scenario_upgrades.hpp"
 #include "../../../scenario/custom/action_hud_layout.hpp"
 #include <ostream>
@@ -43,7 +44,8 @@ void Impulse()
 {
     const int argc = engine.Cmd_Argc ? engine.Cmd_Argc() : 0;
     const char* argument = argc == 2 && engine.Cmd_Argv ? engine.Cmd_Argv(1) : nullptr;
-    if (Owner() && engine.pfnServerCmd && state.OwnImpulse(argc, argument, true) && Gameplay())
+    if (Owner() && engine.pfnServerCmd && state.OwnImpulse(argc, argument, true) && Gameplay() &&
+        !NightFlashlightHeld())
     {
         // User-selected F normally invokes impulse100. Keep every native bind;
         // this dedicated server command carries no client damage/target claims.
@@ -85,7 +87,7 @@ void Paint()
     if (!requested) return;
     requested = false;
     if (!surface || !font || !state.Ready() || !Gameplay() || (hidden & 4) ||
-        (hudDraw && hudDraw->value == 0)) return;
+        (hudDraw && hudDraw->value == 0) || NightFlashlightHeld()) return;
     int width{}, height{};
     surface->GetScreenSize(width, height);
     const auto root = surface->GetEmbeddedPanel();

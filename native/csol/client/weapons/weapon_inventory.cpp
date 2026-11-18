@@ -149,7 +149,11 @@ void Cycle(int slot,int direction,xcommand_t original)
         if(original)original();
         return;
     }
-    if((slot==4 || slot==5) && TryScenarioHealingSlot(slot+1))return;
+    if((slot==4 || slot==5) && TryScenarioHealingSlot(slot+1))
+    {
+        if(slot==4)selected=0;
+        return;
+    }
     if(slot==6 && TryActivateScenarioAbility())return;
     if(slot>=5 || !ManageSelection()){if(original)original();return;}
     // Original slot routing plays before resolving the slot. Wheel traversal

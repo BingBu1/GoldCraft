@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_实现-永夜第五栏手电筒-report.md",
+    "tools/Generate-NightFlashlight.py",
     "docs/2026-11-18_修复-CoF九枪弹药槽与870购买-report.md",
     "docs/2026-11-18_实现-FAMAS冷资源与实体工厂-report.md",
     "native/guest/cof/famas_resources.hpp",

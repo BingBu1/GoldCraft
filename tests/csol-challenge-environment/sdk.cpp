@@ -3,6 +3,7 @@
 #include "../csol-challenge-phase/sdk.cpp"
 #include "../../native/csol/server/custom/challenge_environment.h"
 #include "goldcraft/lightstyle_api.hpp"
+#include "../../native/csol/scenario/custom/night_flashlight.hpp"
 #include <cstdlib>
 #include <limits>
 
@@ -155,6 +156,122 @@ void Missing()
     Expect(!environment.Precache(*snapshot) && !c.f.engine.messages.contains(custom::EnvironmentMessage),
         "missing actual engine service does not fabricate successful environment capability");
 }
+void FlashlightResources(std::map<std::string,std::string>& files)
+{
+    MusicResources(files);
+    for (const auto* path : {custom::NightFlashlightView, custom::NightFlashlightPlayer})
+        files[path] = "controlled model availability";
+}
+void FlashlightMissing()
+{
+    Settings(true); Case c(MusicResources); Start(c);
+    CSOL_ScenarioSelectNightFlashlight(c.player);
+    Expect(LastNight(c).phase == custom::Phase::Night && !CSOL_RulesRejected() &&
+        c.player.m_pActiveItem == c.weapon && !CSOL_ScenarioHoldsNightFlashlight(c.player),
+        "a map with no optional equipment models remains playable at night");
+}
+void Flashlight()
+{
+    Settings(true); Case c(FlashlightResources);
+    NativeActor(c); Restart(c);
+    CVAR_SET_FLOAT("mp_flashlight", 0);
+    auto& player = c.player;
+    player.m_iJoiningState = JOINED;
+    player.pev->weapons |= (1 << WEAPON_SUIT);
+    player.m_iFlashBattery = 99;
+    player.m_iAccount = 1000;
+    g_engfuncs.pfnCmd_Argv = [](int index) -> const char* {
+        return index == 0 ? custom::NightFlashlightSelect : "";
+    };
+    g_engfuncs.pfnCmd_Argc = [] { return 1; };
+    const auto select = [&] { c.f.engine.api.pfnClientCommand(player.edict()); };
+    const auto key = [&] {
+        player.pev->impulse = 100;
+        player.ImpulseCommands();
+    };
+    const auto lit = [&] { return player.FlashlightIsOn() != FALSE; };
+    const auto held = [&] { return CSOL_ScenarioHoldsNightFlashlight(player); };
+    select(); key();
+    Expect(player.m_pActiveItem == c.weapon && !lit() && !held(),
+        "the real equipment command is ignored during noon");
+    Tick(c, 120); Tick(c, 122); Tick(c, 125);
+    Require(LastNight(c).phase == custom::Phase::Night, "the real clock reaches the night stage");
+    auto* const active = player.m_pActiveItem;
+    Require(active && active == c.weapon, "actual primary weapon is equipped before pressing 5");
+    const auto inventory = std::to_array(player.m_rgpPlayerItems);
+    const auto ammo = std::to_array(player.m_rgAmmo);
+    const auto weapons = player.pev->weapons;
+    const int clip = c.weapon->m_iClip;
+    const int entities = c.f.engine.nextEntity;
+    key();
+    Expect(!lit(), "native F follows mp_flashlight while holding the rifle");
+    select();
+    Expect(lit() && held() && !player.m_pActiveItem && player.m_pLastItem == active,
+        "5 holsters the rifle and automatically switches on the held flashlight");
+    Expect(std::string_view(STRING(player.pev->viewmodel)) == custom::NightFlashlightView &&
+        std::string_view(STRING(player.pev->weaponmodel)) == custom::NightFlashlightPlayer,
+        "server publishes both authored held model paths");
+    Expect(c.f.engine.nextEntity == entities && player.pev->weapons == weapons &&
+        std::to_array(player.m_rgpPlayerItems) == inventory && std::to_array(player.m_rgAmmo) == ammo &&
+        player.m_iAccount == 1000, "equipment preserves funds, edicts, real weapon slots and ammunition");
+    player.pev->button = IN_ATTACK | IN_RELOAD;
+    player.ItemPostFrame();
+    player.pev->button = 0;
+    Expect(held() && c.weapon->m_iClip == clip && !c.weapon->m_fInReload,
+        "attack and reload inputs cannot run weapon frames while holding equipment");
+    key(); select();
+    Expect(!lit() && held(), "F toggles the held flashlight and a repeated selection cannot toggle it back on");
+    player.m_iFlashBattery = 0;
+    key();
+    Expect(!lit() && held(), "an exhausted battery leaves the held viewmodel selected");
+    player.m_iFlashBattery = 1;
+    key();
+    Expect(lit(), "F works after the native battery has charge");
+    player.SelectItem("weapon_ak47");
+    Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after selecting the rifle");
+    Expect(!lit() && !held() && player.m_pActiveItem == active && c.weapon->m_iClip == clip &&
+        std::string_view(STRING(player.pev->viewmodel)) == "models/v_ak47.mdl",
+        "choosing slot 1 redeploys the same rifle instance and retires the light");
+    const auto lampPacket = std::find_if(c.packets.rbegin(), c.packets.rend(),
+        [&](const auto& packet) { return packet.id == gmsgFlashlight; });
+    Expect(lampPacket != c.packets.rend() && lampPacket->bytes.size() == 2 && lampPacket->bytes[0] == std::byte{0},
+        "holstering updates the native client's flashlight indicator");
+    select(); player.SelectLastItem();
+    Require(CSOL_ScenarioPlayerPostThink(player), "real scenario player frame after lastinv");
+    Expect(!lit() && !held() && player.m_pActiveItem == active,
+        "lastinv also redeploys the original inventory item");
+
+    select();
+    CVAR_SET_FLOAT("csol_custom_time_cycle", 0);
+    Tick(c, 126);
+    Expect(!lit() && !held() && player.m_pActiveItem == active,
+        "disabling the clock holsters the equipment and restores the rifle in the same map");
+    key(); select();
+    Expect(!lit() && player.m_pActiveItem == active, "the night entitlement ends with its phase");
+    CVAR_SET_FLOAT("mp_flashlight", 1);
+    key();
+    Expect(lit() && !held(), "the original flashlight cvar still permits stock lighting");
+}
+void FlashlightDeath()
+{
+    Settings(true); Case c(FlashlightResources); Start(c);
+    auto& player = c.player;
+    player.m_iJoiningState = JOINED;
+    player.pev->weapons |= (1 << WEAPON_SUIT);
+    player.m_iFlashBattery = 99;
+    CSOL_ScenarioSelectNightFlashlight(player);
+    Require(CSOL_ScenarioHoldsNightFlashlight(player) && player.FlashlightIsOn(),
+        "the player is holding the lit equipment before the death callback");
+    // The game owns the death state. The camera sink does not alter equipment.
+    g_engfuncs.pfnSetView = [](const edict_t*, const edict_t*) {};
+    player.pev->health = 0;
+    g_pGameRules->PlayerKilled(&player, player.pev, player.pev);
+    Expect(!player.pev->viewmodel && !player.pev->weaponmodel && !player.FlashlightIsOn() &&
+        !player.m_pActiveItem && c.weapon->m_pPlayer == &player,
+        "the actual death callback clears the handheld models and beam without redeploying a gun");
+    CSOL_ScenarioSelectNightFlashlight(player);
+    Expect(!player.pev->viewmodel && !player.FlashlightIsOn(), "dead players cannot retake the light");
+}
 void ConsoleControls()
 {
     Settings(true); Case c(MusicResources); Start(c); Dark(c);
@@ -274,6 +391,9 @@ int main(int argc, char** argv)
         else if (group == "environment-cancel" || group == "environment-map") environment_sdk::Cancel(group == "environment-map");
         else if (group == "environment-missing") environment_sdk::Missing();
         else if (group == "environment-console") environment_sdk::ConsoleControls();
+        else if (group == "night-flashlight") environment_sdk::Flashlight();
+        else if (group == "night-flashlight-missing") environment_sdk::FlashlightMissing();
+        else if (group == "night-flashlight-death") environment_sdk::FlashlightDeath();
         else phase_sdk::Run(group);
     }
     catch (const std::exception& error) { ++sdk_test::failures; std::cerr << "ERROR " << error.what() << '\n'; }

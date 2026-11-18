@@ -66,6 +66,10 @@ cl_enginefunc_t engine{};
 ref_params_t view{};
 bool BuyMenuVisible(){return fixture::buy;}
 bool CharacterMenuVisible(){return fixture::character;}
+bool ScenarioMapVoteVisible(){return false;}
+#ifndef CSOL_RESPAWN_ROUTE_TEST
+bool TrySelectNightFlashlight(){return false;}
+#endif
 bool ShowScenarioRoundHudText(unsigned channel, std::wstring_view text, const std::array<std::uint8_t,3>& color)
 {fixture::noticeChannel=channel;fixture::noticeText=text;fixture::noticeColor=color;++fixture::noticeCount;return true;}
 #ifndef CSOL_RESPAWN_ROUTE_TEST

@@ -3,6 +3,8 @@
 #include "../../scenario/custom/environment_config.hpp"
 #include "../../scenario/custom/environment_snapshot.hpp"
 #include "../../scenario/custom/night_lighting.hpp"
+#include "ehandle.h"
+#include <array>
 #include <memory>
 
 class CBasePlayer;
@@ -16,9 +18,15 @@ public:
     bool Update(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
         std::uint64_t challenge, csol::scenario::custom::Phase phase, float now);
     bool Replay(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer& player);
-    void Revoke() noexcept { revoked_ = true; }
+    bool NightFlashlightsAvailable() const noexcept;
+    bool HoldsNightFlashlight(CBasePlayer& player) const;
+    void SelectNightFlashlight(CBasePlayer& player);
+    void CheckNightFlashlight(CBasePlayer& player);
+    void ReleaseNightFlashlight(CBasePlayer& player, bool holster = false);
+    void Revoke() noexcept;
     void Restore();
 private:
+    void ClearNightFlashlights(bool holster);
     bool Publish(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer* player);
     bool PublishNight(const std::shared_ptr<CCSOLScenarioRuntime>& runtime, CBasePlayer* player);
     csol::scenario::custom::EnvironmentConfig config_;
@@ -27,6 +35,8 @@ private:
     csol::scenario::custom::NightLightingSnapshot night_;
     goldcraft::IMapLightStyleService* lights_{};
     std::weak_ptr<CCSOLScenarioRuntime> runtime_;
+    std::array<EHANDLE, 32> nightFlashlights_{};
+    string_t flashlightView_{}, flashlightPlayer_{};
     std::uint64_t challenge_{}, lightOwner_{};
     std::uint32_t revision_{};
     int message_{}, nightMessage_{};

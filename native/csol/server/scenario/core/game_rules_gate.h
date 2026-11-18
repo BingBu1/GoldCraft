@@ -98,6 +98,8 @@ bool CSOL_ScenarioTimeCycleReady();
 bool CSOL_ReadChallengePhase(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     csol::scenario::custom::ChallengePhaseView& output);
 bool CSOL_ScenarioCanBuy();
+bool CSOL_ScenarioHoldsNightFlashlight(CBasePlayer& player);
+void CSOL_ScenarioSelectNightFlashlight(CBasePlayer& player);
 bool CSOL_ScenarioSelecting();
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed);
 bool CSOL_InjectScenarioPlayerClips(playermove_s& movement);

@@ -17,6 +17,10 @@ std::array<cl_entity_t, 32> entities;
 std::array<MetaRendererMovingLight, 32> seen;
 unsigned count{};
 model_t model{};
+model_t heldModel{};
+cl_entity_t heldView{};
+bool handheldModels{};
+unsigned modelQueries{}, flashlightCommands{};
 void Check(bool value, const char* why)
 { ++checks; if (!value) { std::printf("FAIL %s\n", why); std::exit(1); } }
 class Scene final : public IMetaRendererScene
@@ -90,6 +94,20 @@ int main()
     engine.GetLocalPlayer = []() -> cl_entity_t* { return &test::entities[0]; };
     engine.GetEntityByIndex = [](int index) -> cl_entity_t*
     { ++test::queries; return index >= 1 && index <= 32 ? &test::entities[unsigned(index - 1)] : nullptr; };
+    event_api_t events{};
+    events.EV_FindModelIndex = [](const char* path) {
+        ++test::modelQueries;
+        if (!std::strcmp(path, custom::NightFlashlightView)) return 100;
+        Check(!std::strcmp(path, custom::NightFlashlightPlayer), "query only the authored equipment models");
+        return test::handheldModels ? 101 : 0;
+    };
+    engine.pEventAPI = &events;
+    engine.GetViewModel = [] { return &test::heldView; };
+    engine.pfnServerCmd = [](const char* command) {
+        Check(!std::strcmp(command, custom::NightFlashlightSelect), "send the night equipment command");
+        ++test::flashlightCommands;
+        return 1;
+    };
     InitializeNightPlayerLights(); InitializeNightPlayerLights();
     // Renderer lookup/allocation is a controlled boundary here. Its real
     // factory/pool/visibility/shadow dispatch are exercised by Renderer tests.
@@ -102,9 +120,12 @@ int main()
     custom::NightLightingSnapshot snapshot{*config, custom::Phase::Noon, 1, 1};
     test::Send(snapshot); NightPlayerLightsView(params);
     Check(!test::updates && !test::queries, "noon uses no light/entity work");
+    Check(!TrySelectNightFlashlight() && !test::modelQueries, "noon never looks up or selects the equipment");
     snapshot.phase = custom::Phase::Dusk; ++snapshot.revision; test::Send(snapshot); NightPlayerLightsView(params);
     Check(!test::updates, "dusk does not enable night light");
     snapshot.phase = custom::Phase::Night; ++snapshot.revision; test::Send(snapshot); NightPlayerLightsView(params);
+    Check(test::modelQueries == 2 && !TrySelectNightFlashlight(),
+        "the first-person model alone cannot expose slot 5");
     Check(test::count == 32 && nightActive == 32, "all 32 current alive players create client-managed lights");
     Check(test::seen[0].light.origin[0] == 400 && test::seen[0].light.origin[1] == 500 && test::seen[1].light.origin[0] == 10,
         "own light uses prediction, other lights use already-interpolated network origins");
@@ -151,9 +172,19 @@ int main()
     snapshot.phase = custom::Phase::Night; ++snapshot.revision; test::Send(snapshot); NightPlayerLightsView(params);
     Check(!test::count, "retired challenge cannot reactivate");
     snapshot.owner = 2; snapshot.phase = custom::Phase::Noon; ++snapshot.revision; test::Send(snapshot);
+    test::handheldModels = true;
     snapshot.phase = custom::Phase::Night; ++snapshot.revision; test::Send(snapshot); NightPlayerLightsView(params);
     Check(test::count == 32, "new challenge can start a new night");
+    Check(NightFlashlightSlotAvailable() && TrySelectNightFlashlight() && test::flashlightCommands == 1,
+        "both precached models allow slot 5 to send one command");
+    std::strcpy(test::heldModel.name, custom::NightFlashlightView);
+    test::heldView.model = &test::heldModel;
+    Check(NightFlashlightHeld(), "the actual held model owns the flashlight control");
+    Check(TrySelectNightFlashlight() && test::flashlightCommands == 1 && test::modelQueries == 4,
+        "an already-held flashlight consumes slot 5 without a new command or model lookup");
     ResetNightPlayerLights(); NightPlayerLightsView(params); Check(!test::count, "map/connection reset clears state");
+    Check(!NightFlashlightHeld(), "a lingering view model after a reset owns no input");
+    Check(!TrySelectNightFlashlight(), "map reset retires slot 5 before the next authoritative snapshot");
     snapshot.owner = 1; snapshot.revision = 1; test::Send(snapshot); NightPlayerLightsView(params);
     Check(test::count == 32, "fresh connection uses its own numbering");
     test::failUpdate = true; NightPlayerLightsView(params); Check(!test::count, "renderer rejection clears previous lamps");

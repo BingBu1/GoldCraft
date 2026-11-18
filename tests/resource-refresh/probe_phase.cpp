@@ -45,6 +45,8 @@ namespace csol::client
 bool BuyMenuVisible(){return test_phase::buy;}
 bool CharacterMenuVisible(){return test_phase::characters;}
 bool ScenarioMapVoteVisible(){return test_phase::vote;}
+bool NightFlashlightSlotAvailable() noexcept { return false; }
+bool NightFlashlightHeld() noexcept { return false; }
 std::vector<std::byte> ReadResource(const char* path)
 {
     ++test_phase::reads;

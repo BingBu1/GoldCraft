@@ -2,6 +2,8 @@
 #include "../../runtime.hpp"
 #include "../../overlay_layers.hpp"
 #include "scenario_respawn_ui.hpp"
+#include "night_player_lights.hpp"
+#include "scenario_map_vote.hpp"
 #include "scenario_retry_scoreboard.hpp"
 #include "scenario_round_hud_client.hpp"
 #include "../../user_message_chain.hpp"
@@ -519,10 +521,12 @@ bool TryScenarioHealingSlot(int oneBasedSlot)
 {
     SynchronizeSession();
     const auto* command = state.HealingCommand(oneBasedSlot);
-    if (!command) return false;
+    if (!command && oneBasedSlot != 5) return false;
     const bool gameplay = !gameUI && !console && !BuyMenuVisible() && !CharacterMenuVisible() &&
-        !WeaponTextMenuVisible() && !intermission && !(hidden & 4) && view.health > 0 &&
-        !view.spectator && (!surface || surface->HasFocus());
+        !WeaponTextMenuVisible() && !ScenarioMapVoteVisible() && !intermission && !(hidden & 4) &&
+        view.health > 0 && !view.spectator && (!surface || surface->HasFocus());
+    if (oneBasedSlot == 5 && gameplay && TrySelectNightFlashlight()) return true;
+    if (!command) return false;
     if (*command && gameplay && engine.pfnServerCmd) { engine.pfnServerCmd(command); ++commands; }
     return true;
 }

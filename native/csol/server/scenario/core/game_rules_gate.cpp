@@ -1245,6 +1245,7 @@ public:
     void PlayerKilled(CBasePlayer* victim, entvars_t* killer, entvars_t* inflictor) override
     {
         const auto runtime = m_runtime;
+        if (victim && runtime->environment) runtime->environment->ReleaseNightFlashlight(*victim);
         const auto players = runtime->players;
         const EHANDLE handle(victim);
         if (players && !players->ResetMonsterSkillState(handle)) return;
@@ -1642,6 +1643,19 @@ public:
         return count >= m_iSpawnPointCount_CT;
     }
     bool Selecting() const { return SelectionReady() && m_phase == Phase::Selecting; }
+    bool HoldsNightFlashlight(CBasePlayer& player) const
+    {
+        return m_timeControls.enabled && m_runtime->environment &&
+            m_runtime->environment->HoldsNightFlashlight(player);
+    }
+    void SelectNightFlashlight(CBasePlayer& player)
+    {
+        if (!m_timeControls.enabled || !Ready() || m_restarting || player.m_iTeam != CT ||
+            player.m_iJoiningState != JOINED || player.has_disconnected ||
+            (player.pev->flags & (FL_SPECTATOR | FL_FAKECLIENT | FL_DORMANT | FL_KILLME))) return;
+        const auto environment = m_runtime->environment;
+        if (environment) environment->SelectNightFlashlight(player);
+    }
     bool CanBuyThroughoutScenario() const
     {
         if (!Ready() || m_restarting || m_completing || m_applyingFinish) return false;
@@ -1681,6 +1695,7 @@ public:
             if (slot.player.Get<CBaseEntity>() == &player) slot = {};
         const auto runtime = m_runtime;
         const EHANDLE handle(&player);
+        if (runtime->environment) runtime->environment->ReleaseNightFlashlight(player);
         const auto damage = runtime->monsterDamageServices;
         // MP10824660 subtracts this occupant's Boss contribution before
         // player/statistics teardown; a reused client slot starts at zero.
@@ -2655,6 +2670,21 @@ bool CSOL_ScenarioCanBuy()
     return rules && rules->CanBuyThroughoutScenario();
 }
 
+bool CSOL_ScenarioHoldsNightFlashlight(CBasePlayer& player)
+{
+    if (player.m_pActiveItem || !player.pev->viewmodel) return false;
+    const auto* rules = dynamic_cast<CCSOLScenarioRules*>(g_pGameRules);
+    return rules && player.m_iTeam == CT && !player.has_disconnected && player.IsAlive() &&
+        rules->HoldsNightFlashlight(player);
+}
+
+void CSOL_ScenarioSelectNightFlashlight(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current()) return;
+    if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules())) rules->SelectNightFlashlight(player);
+}
+
 void CSOL_ApplyScenarioMovement(CBasePlayer& player, float weaponSpeed)
 {
     CSOLScenarioSdkScope sdkScope;
@@ -2767,6 +2797,8 @@ bool CSOL_ScenarioPlayerPostThink(CBasePlayer& player)
     if (!players || !players->Active()) return true;
     const EHANDLE handle(&player);
     if (!players->Find(handle)) return true; // No module before player preparation.
+    if (const auto environment = runtime->environment) environment->CheckNightFlashlight(player);
+    if (!scope.Current() || handle.Get<CBaseEntity>() != &player) return false;
     csol::scenario::ConfigError kickError;
     if (!CSOL_UpdateHumanKick(runtime, player, kickError) && !kickError.message.empty())
     {

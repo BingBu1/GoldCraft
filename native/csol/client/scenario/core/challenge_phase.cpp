@@ -8,6 +8,7 @@
 #include "../../characters.hpp"
 #include "scenario_map_vote.hpp"
 #include "challenge_phase.hpp"
+#include "night_player_lights.hpp"
 #include "../../../scenario/custom/phase_snapshot.hpp"
 #include "../../../scenario/custom/phase_art.hpp"
 #include "../../../image_codec.hpp"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <cwchar>
 #include <ostream>
+#include <string_view>
 
 namespace csol::client
 {
@@ -131,7 +133,13 @@ void Paint()
     const int textX=iconX+p.icon+p.padding/2;
     Text(Names[phase],2,textX,p.y+p.height/2-labelHeight[phase]);
     surface->DrawSetTextColor(169,188,207,255);
-    Text(timeText.data(),int(std::wcslen(timeText.data())),textX,p.y+p.height/2);
+    if (phase == unsigned(custom::Phase::Night) && NightFlashlightSlotAvailable() && view.health > 0 && !view.spectator)
+    {
+        const std::wstring_view hint = NightFlashlightHeld() ? L"[F] 开关" : L"[5] 手电筒";
+        Text(hint.data(), int(hint.size()), textX, p.y + p.height / 2);
+    }
+    else
+        Text(timeText.data(),int(std::wcslen(timeText.data())),textX,p.y+p.height/2);
     surface->DrawFlushText();surface->PopMakeCurrent(root);++draws;
 }
 class Overlay final:public IVGUI2Extension_BaseUICallbacks

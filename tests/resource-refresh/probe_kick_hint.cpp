@@ -9,6 +9,8 @@ namespace test_hint
 {
 std::vector<std::byte> fontBytes;
 unsigned reads{};
+bool flashlightHeld{};
+unsigned nativeImpulses{}, kickCommands{};
 struct Surface final:fixture::Surface
 {
     unsigned fills{},texts{};std::array<int,4> key{};
@@ -26,6 +28,7 @@ namespace csol::client
 bool BuyMenuVisible(){return false;}
 bool CharacterMenuVisible(){return false;}
 bool ScenarioMapVoteVisible(){return false;}
+bool NightFlashlightHeld() noexcept { return test_hint::flashlightHeld; }
 float HudStyleScale(){return 1;}
 void InitializeHumanKickAnimation(){}
 void ResetHumanKickAnimation(){}
@@ -42,6 +45,24 @@ int main(int argc,char** argv)
     namespace kick=csol::scenario::human_kick;
     const auto bytes=kick::Encode({1,kick::Enabled|kick::Ready,0});Check(state.Receive(*bytes),"actual availability received");
     HumanKickFrame();DrawHumanKick(0,0);Paint();Check(fake.fills==1&&fake.texts==2,"actual Paint renders F key and hint");
+    engine.Cmd_Argc = [] { return 2; };
+    engine.Cmd_Argv = [](int) -> char* { static char argument[] = "100"; return argument; };
+    engine.pfnServerCmd = [](const char* command) {
+        Check(std::string_view(command) == "csol_kick\n", "send the current server kick command");
+        ++test_hint::kickCommands;
+        return 1;
+    };
+    previousImpulse = [] { ++test_hint::nativeImpulses; };
+    Impulse();
+    test_hint::flashlightHeld = true;
+    Impulse();
+    DrawHumanKick(0, 0); Paint();
+    Check(test_hint::nativeImpulses == 1 && test_hint::kickCommands == 1 && fake.fills == 1,
+        "holding the light forwards impulse100 and hides the kick hint");
+    test_hint::flashlightHeld = false;
+    Impulse();
+    Check(test_hint::nativeImpulses == 1 && test_hint::kickCommands == 2,
+        "holstering restores the kick action");
     for(auto [w,h]:{std::pair{640,480},{800,600},{1280,720},{1920,1080},{1920,1200},{2560,1080},{3840,2160}})
     {
         fake.width=w;fake.height=h;DrawHumanKick(0,0);Paint();const auto layout=csol::scenario::custom::StaminaLayout(w,h);

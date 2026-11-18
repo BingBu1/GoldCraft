@@ -2,10 +2,13 @@
 #include "../../runtime.hpp"
 #include "../../user_message_chain.hpp"
 #include "night_player_lights.hpp"
+#include "../../../scenario/custom/night_flashlight.hpp"
 #include "../../../scenario/custom/night_lighting.hpp"
 #include <IMetaRendererMovingLights.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <event_api.h>
 #include <ostream>
 
 namespace csol::client
@@ -23,7 +26,7 @@ IMetaRendererScene* nightRenderer{};
 IMetaRendererMovingLights* nightLights{};
 DWORD nightThread{};
 pfnUserMsgHook nightPrevious{};
-bool nightEnabled{}, nightPrepared{};
+bool nightEnabled{}, nightPrepared{}, flashlightReady{};
 unsigned nightActive{};
 std::uint32_t nightColor{};
 std::uint64_t nightAccepted{}, nightRejected{}, nightUpdates{}, nightPlayers{};
@@ -41,9 +44,21 @@ int NightMessage(const char* name, int size, void* data)
         if (night::DecodeNightLighting(bytes))
         {
             SynchronizeSession();
+            const auto* previous = nightState.View();
+            const bool wasNight = previous && previous->phase == night::Phase::Night;
+            const auto previousOwner = previous ? previous->owner : 0;
             if (nightState.Receive(bytes))
             {
                 ++nightAccepted;
+                const auto* next = nightState.View();
+                if (next->phase != night::Phase::Night) flashlightReady = false;
+                else if (!wasNight || previousOwner != next->owner)
+                {
+                    auto* events = engine.pEventAPI;
+                    flashlightReady = events && events->EV_FindModelIndex &&
+                        events->EV_FindModelIndex(night::NightFlashlightView) > 0 &&
+                        events->EV_FindModelIndex(night::NightFlashlightPlayer) > 0;
+                }
                 const auto& config = nightState.View()->config;
                 nightColor = 0;
                 for (unsigned axis = 0; axis < 3; ++axis)
@@ -115,10 +130,30 @@ void NightPlayerLightsView(const ref_params_s& params)
     { nightActive = count; ++nightUpdates; nightPlayers += count; }
     else ClearNight();
 }
+bool NightFlashlightSlotAvailable() noexcept
+{
+    return NightOwner() && nightEnabled && flashlightReady;
+}
+
+bool NightFlashlightHeld() noexcept
+{
+    if (!NightFlashlightSlotAvailable()) return false;
+    const auto* model = engine.GetViewModel ? engine.GetViewModel() : nullptr;
+    return model && model->model && !std::strcmp(model->model->name, night::NightFlashlightView);
+}
+
+bool TrySelectNightFlashlight()
+{
+    if (!NightFlashlightSlotAvailable() || !engine.pfnServerCmd) return false;
+    if (!NightFlashlightHeld())
+        engine.pfnServerCmd(night::NightFlashlightSelect);
+    return true;
+}
+
 void ResetNightPlayerLights()
 {
     if (!NightOwner()) return;
-    ClearNight(); nightState.Reset(); nightColor = 0;
+    ClearNight(); nightState.Reset(); nightColor = 0; flashlightReady = false;
 }
 void ShutdownNightPlayerLights()
 {
