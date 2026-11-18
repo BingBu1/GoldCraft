@@ -169,3 +169,20 @@ DLL、配套文件、加载顺序、移除项和签名记录在同一事务内�
 
 例如0802→0803的ParallelDownload增量包只含1个201216字节DLL，复用19个旧核心；
 266项符号目录/shader全部在新签名清单中，玩家已有2026.11.08.2启动器无需更换EXE。
+
+## HTTP 入口迁移
+
+状态查询和签名更新共用内置 HTTP 入口；游戏服在线不代表旧入口仍然可用。
+管理员可通过私有 RCON 只读查询 `sv_downloadurl`、`mc_http_public_url` 核对当前入口，
+再分别验证 `launcher/v1/status.json` 和签名 `manifest.json`。RCON 密码不进入启动器。
+
+`retarget.py --previous <原assets目录> --output <新assets目录> --server-url <新入口> --version <显示版本>`
+可生成仅更换入口及显示版本的构建输入。它先核验完整嵌入资源，保留 bundleId、公钥、
+原安装记录及文件清单，并以硬链接复用不可变 ZIP。随后用现有项目构建新的单 EXE。
+入口不会显示在窗体或错误提示中。
+
+当旧入口彻底失效时，已有 EXE 无法从该入口取得迁移信息，需要分发一次新 EXE；
+这与普通 DLL／目录更新不同。后续 DLL 仍由同一个签名更新协议自动获取，无需重装组件。
+回归 `tests/client-launcher-retarget` 检查打包边界；受管测试的 `--live-endpoint` 模式
+从实际交付 EXE 读取资源，在隔离目录验证旧安装、正式 HTTP 下载、签名及游戏地址解析，
+不启动游戏、不修改正式服或原版安装。

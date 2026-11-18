@@ -5,6 +5,9 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 
+if(args.Length==5&&args[0]=="--live-endpoint"){
+    await LiveEndpoint.Run(args[1],args[2],args[3],args[4]);return;
+}
 if(args.Length==7&&args[0]=="--publication-upgrade"){
     await PublicationUpgrade.Run(args[1],args[2],args[3],args[4],args[5],int.Parse(args[6]));return;
 }

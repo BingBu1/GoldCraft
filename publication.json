@@ -1,6 +1,10 @@
 {
   "format": 1,
   "files": [
+    "tools/client-launcher/retarget.py",
+    "tests/client-launcher-retarget/test_retarget.py",
+    "tests/client-launcher-managed/LiveEndpoint.cs",
+    "docs/2026-11-18_修复-启动器HTTP入口迁移-report.md",
     "docs/2026-11-18_实现-永夜第五栏手电筒-report.md",
     "tools/Generate-NightFlashlight.py",
     "docs/2026-11-18_修复-CoF九枪弹药槽与870购买-report.md",
