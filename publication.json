@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_实现-FAMAS原版射击与可恢复表现-report.md",
+    "tests/cryoffear-famas-shot/README.md",
     "native/parallel_download/engine_10210.json",
     "tests/parallel-download/bridge.cpp",
     "tests/parallel-download/run.py",
