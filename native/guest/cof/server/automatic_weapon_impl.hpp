@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "automatic_weapon.hpp"
 #include "../mp5_primary.hpp"
 #include "../magazine_reload.hpp"
@@ -625,13 +626,17 @@ template<LongGun Weapon>
 BOOL AutomaticWeapon<Weapon>::CanDeploy()
 {
     TMPOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 template<LongGun Weapon>
 BOOL AutomaticWeapon<Weapon>::Deploy()
 {
     TMPOwnerFrame frame{};
-    if(!Check(frame,false)||m_pPlayer->pev->movetype==5)return FALSE;
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
+    if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     selected_=true;
     if(action_.clip==-666){action_.clip=0;WriteAmmo();}
     action_.action=0;

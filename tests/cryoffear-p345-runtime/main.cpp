@@ -428,7 +428,8 @@ int main(int argc,char** argv)
     Check(std::find(context.order.begin(),context.order.end(),P345Effect::FireEvent)!=context.order.end());
     const auto eventsBefore=context.p345Effects;
     Check(runtime.PlayerModelChanged(player,PlayerPreparation(true),error));
-    Check(!first.current(first.context)&&!pistol->CanDeploy()&&context.p345Effects==eventsBefore);
+    Check(!first.current(first.context)&&context.p345Effects==eventsBefore);
+    Check(pistol->CanDeploy());
     Check(pistol->RestoreInventoryBinding(player)&&pistol->CanDeploy()&&pistol->m_iClip==7);
     P345Backends second{};Check(runtime.Backend(player,second)&&second.context!=first.context);
 

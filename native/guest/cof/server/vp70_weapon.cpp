@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "vp70_weapon.hpp"
 #include "../magazine_reload.hpp"
 #include "../catalog.hpp"
@@ -586,11 +587,15 @@ void VP70Weapon::MirrorTimers(bool selected, bool ownerGate) noexcept
 BOOL VP70Weapon::CanDeploy()
 {
     VP70OwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 BOOL VP70Weapon::Deploy()
 {
     VP70OwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     selected_ = true;
     if (action_.clip == -666) { action_.clip = 0; WriteAmmo(); }

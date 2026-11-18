@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-18_修复-CoF库存恢复隔离与切枪重试-report.md",
     "tests/csol-hand-precache/main.cpp",
     "tools/Profile-NativeClient.cpp",
     "docs/2026-11-18_优化-依赖查询复用与换图核验-report.md",

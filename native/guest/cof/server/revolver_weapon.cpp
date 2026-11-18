@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "revolver_weapon.hpp"
 #include "../catalog.hpp"
 
@@ -605,11 +606,15 @@ void RevolverWeapon::MirrorTimers(bool selected) noexcept
 BOOL RevolverWeapon::CanDeploy()
 {
     RevolverOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 BOOL RevolverWeapon::Deploy()
 {
     RevolverOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     selected_ = true;
     action_.action = 0;

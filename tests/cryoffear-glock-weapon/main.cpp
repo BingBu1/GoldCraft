@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "native/guest/cof/server/glock_weapon.hpp"
 #include "native/guest/cof/catalog.hpp"
+#include "native/guest/cof/server/inventory_recovery.hpp"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -310,6 +311,65 @@ void InventoryRestoreCases()
     Check(weapon.pev->nextthink==pending&&weapon.m_pfnThink!=nullptr);
     const auto before=meleeCalls;globals.time=pending+.001F;weapon.Think();
     Check(meleeCalls==before+1&&weapon.m_pfnThink==nullptr);
+}
+
+void SelectionRecoveryCases()
+{
+    const auto owned=[] {
+        Initialize();globals.maxEntities=64;
+        weapon.ConfigureColdHost({nullptr,Current,ColdPrepare,ColdOwner,ColdInventory});
+        weapon.Precache();
+        Check(weapon.Bind(player,prepared,backends)==GlockStatus::Ready);
+        weapon.AttachToPlayer(&player);weapon.m_pNext=nullptr;
+        player.m_rgpPlayerItems[PISTOL_SLOT]=&weapon;
+    };
+    owned();weapon.m_iClip=12;
+    goldcraft::inventory::Snapshot snapshot;
+    Check(weapon.SaveInventorySnapshot(snapshot));
+    weapon.Invalidate();
+    // Explicit selection must reacquire the real inventory's current backend.
+    Check(weapon.CanDeploy());Check(weapon.m_iClip==12);
+    Check(weapon.Deploy());globals.time=5;frame.pressed=1;
+    weapon.PrimaryAttack();Check(weapon.m_iClip==11);
+
+    // Deploy is also used directly by native inventory restore, without a
+    // preceding CanDeploy call. It must recover through the same authority.
+    owned();weapon.Invalidate();Check(weapon.Deploy());
+    owned();weapon.Invalidate();player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;
+    Check(!weapon.CanDeploy()&&!weapon.Deploy());
+    owned();weapon.Invalidate();player.pev->deadflag=DEAD_DEAD;
+    Check(!weapon.CanDeploy()&&!weapon.Deploy());
+    owned();weapon.Invalidate();ownerEdict.free=TRUE;
+    Check(!weapon.CanDeploy()&&!weapon.Deploy());
+    owned();weapon.Invalidate();weapon.pev->owner=nullptr;
+    Check(!weapon.CanDeploy()&&!weapon.Deploy());
+    owned();weapon.Invalidate();current=false;
+    Check(!weapon.CanDeploy()&&!weapon.Deploy());
+
+    // Execute the actual host recovery helper with one unavailable item before
+    // a working real Glock. A per-item failure must not stop the traversal.
+    owned();
+    GlockWeapon unavailable;edict_t bad{};
+    bad.serialnumber=37;bad.v.pContainingEntity=&bad;bad.pvPrivateData=&unavailable;
+    unavailable.pev=&bad.v;unavailable.m_pPlayer=&player;unavailable.m_pNext=&weapon;
+    unavailable.m_iId=896;unavailable.pev->owner=player.edict();
+    player.m_rgpPlayerItems[PISTOL_SLOT]=&unavailable;
+    weapon.Invalidate();
+    const auto guest=[](const CBasePlayerWeapon& item) noexcept {return dynamic_cast<const GlockWeapon*>(&item)!=nullptr;};
+    auto recovered=RecoverRetainedGuestInventory(player,[]{return current;},guest);
+    Check(recovered.current&&recovered.complete&&recovered.restored==1&&recovered.deferred==1);
+    Check(weapon.CanDeploy()&&weapon.Deploy());
+    globals.time=5;frame.pressed=1;weapon.PrimaryAttack();Check(weapon.m_iClip==14);
+    unsigned calls{};
+    recovered=RecoverRetainedGuestInventory(player,[&]{return ++calls<2;},guest);
+    Check(!recovered.current&&!recovered.complete);
+    weapon.m_pNext=&unavailable;globals.maxEntities=2;
+    recovered=RecoverRetainedGuestInventory(player,[]{return current;},guest);
+    Check(recovered.current&&!recovered.complete&&recovered.restored==1&&recovered.deferred==1);
+    weapon.m_pNext=nullptr;player.m_rgpPlayerItems[PISTOL_SLOT]=&weapon;globals.maxEntities=1;
+    recovered=RecoverRetainedGuestInventory(player,[]{return current;},guest);
+    Check(recovered.current&&recovered.complete&&recovered.restored==1&&recovered.deferred==0);
+    weapon.m_pNext=nullptr;player.m_rgpPlayerItems[PISTOL_SLOT]=nullptr;
 }
 
 int main(int argc,char** argv)
@@ -752,5 +812,6 @@ int main(int argc,char** argv)
     Initialize();player.m_rgAmmo[1]=-1;Check(!weapon.CanDeploy()&&weapon.Status()==GlockStatus::InvalidInput);
     Initialize();ItemInfo info{};Check(weapon.GetItemInfo(&info)&&info.iId==896&&weapon.m_iId==896&&info.iMaxClip==15&&info.iMaxAmmo1==150&&info.iMaxAmmo2==-1&&weapon.m_iSecondaryAmmoType==-1&&weapon.iItemSlot()==PISTOL_SLOT);
     InventoryRestoreCases();
+    SelectionRecoveryCases();
     std::cout<<rows<<" original primary cases; "<<worldRows<<" original world cases; "<<transitionRows<<" original transition cases; "<<checks<<" actual SDK checks; 0 failures\n";
 }

@@ -12,6 +12,7 @@
 #include "guest_cof_shotgun_native_effects.hpp"
 #include "guest_cof_pushback.hpp"
 #include "native/guest/cof/first_draw_lifecycle.hpp"
+#include "native/guest/cof/server/inventory_recovery.hpp"
 #include "guest_cof_sound_field.hpp"
 #include "primary_purchase.h"
 #include "../characters.h"
@@ -670,73 +671,14 @@ void PreparePlayer(CBasePlayer& player, bool spawn) noexcept
         if(prepared)
         {
             row.shotgunCaptured=false;
-            int remaining=gpGlobals->maxEntities;
-            for(const int inventorySlot:{PISTOL_SLOT,PRIMARY_WEAPON_SLOT})
-            {
-            if(inventorySlot==PRIMARY_WEAPON_SLOT&&
-                !(row.weapons&(FirearmCapability(Firearm::TMP)|FirearmCapability(Firearm::MP5)|FirearmCapability(Firearm::M16)|FirearmCapability(Firearm::G43)|FirearmCapability(Firearm::Shotgun))))continue;
-            for(auto* item=player.m_rgpPlayerItems[inventorySlot];item&&remaining-->0;)
-            {
-                const EHANDLE next(item->m_pNext);
-                auto* glock=dynamic_cast<GlockWeapon*>(item);
-                if(glock&&glock->m_pPlayer==&player&&glock->m_iId==GlockId)
-                {
-                    const bool rebound=glock->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* p345=dynamic_cast<P345Weapon*>(item);p345&&p345->m_pPlayer==&player&&p345->m_iId==P345Id)
-                {
-                    const bool rebound=p345->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* vp70=dynamic_cast<VP70Weapon*>(item);vp70&&vp70->m_pPlayer==&player&&vp70->m_iId==VP70Id)
-                {
-                    const bool rebound=vp70->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* tmp=dynamic_cast<TMPWeapon*>(item);tmp&&tmp->m_pPlayer==&player&&tmp->m_iId==TMPId)
-                {
-                    const bool rebound=tmp->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* mp5=dynamic_cast<MP5Weapon*>(item);mp5&&mp5->m_pPlayer==&player&&mp5->m_iId==MP5HostId)
-                {
-                    const bool rebound=mp5->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* m16=dynamic_cast<M16Weapon*>(item);m16&&m16->m_pPlayer==&player&&m16->m_iId==M16HostId)
-                {
-                    const bool rebound=m16->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* g43=dynamic_cast<G43Weapon*>(item);g43&&g43->m_pPlayer==&player&&g43->m_iId==G43HostId)
-                {
-                    const bool rebound=g43->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* shotgun=dynamic_cast<ShotgunWeapon*>(item);shotgun&&shotgun->m_pPlayer==&player&&shotgun->m_iId==ShotgunHostId)
-                {
-                    const bool rebound=shotgun->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                else if(auto* revolver=dynamic_cast<RevolverWeapon*>(item);revolver&&revolver->m_pPlayer==&player&&revolver->m_iId==RevolverId)
-                {
-                    const bool rebound=revolver->RestoreInventoryBinding(player);
-                    if(!current())return;
-                    if(!rebound){row.prepared=false;return;}
-                }
-                item=next.Get<CBasePlayerItem>();
-            }
-            }
-            if(remaining<=0)row.prepared=false;
+            const auto recovery=RecoverRetainedGuestInventory(player,current,
+                [](const CBasePlayerWeapon& item) noexcept {return CSOL_IsGuestCof(item);});
+            if (!recovery.current) return;
+            if (recovery.deferred)
+                ALERT(at_warning,"[CoF] %u retained weapon bindings deferred; other guest weapons remain available\n",
+                    recovery.deferred);
+            if (!recovery.complete)
+                ALERT(at_warning,"[CoF] Retained inventory traversal exceeded the entity bound\n");
         }
         if (!prepared) ALERT(at_error, "[CoF] Glock owner preparation failed: %s\n", error.c_str());
     }

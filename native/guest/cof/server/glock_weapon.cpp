@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "glock_weapon.hpp"
 #include "../magazine_reload.hpp"
 #include "../catalog.hpp"
@@ -750,12 +751,16 @@ void GlockWeapon::MirrorTimers(bool selected) noexcept
 BOOL GlockWeapon::CanDeploy()
 {
     GlockOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 BOOL GlockWeapon::Deploy()
 {
     if (overlay_.token.generation) CancelWeaponAction(overlay_.token);
     GlockOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     std::uint32_t effects = Effects(GlockEffect::DeployPrelude, GlockEffect::DeployReset, GlockEffect::InventoryChanged);
     if (!frame.firstDrawn) effects |= EffectBit(GlockEffect::FirstDraw);

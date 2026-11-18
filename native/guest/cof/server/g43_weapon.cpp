@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "g43_weapon.hpp"
 #include "player_think.hpp"
 #include "../magazine_reload.hpp"
@@ -585,11 +586,15 @@ void G43Weapon::MirrorTimers(bool selected, bool ownerGate) noexcept
 BOOL G43Weapon::CanDeploy()
 {
     G43OwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 BOOL G43Weapon::Deploy()
 {
     G43OwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     selected_ = true;
     if (action_.clip == -666) { action_.clip = 0; WriteAmmo(); }

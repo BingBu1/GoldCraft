@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "inventory_recovery.hpp"
 #include "shotgun_weapon.hpp"
 #include "player_think.hpp"
 #include "../m16_control.hpp" // Shared original1011D560 input dispatcher only.
@@ -560,11 +561,15 @@ void ShotgunWeapon::MirrorTimers(bool selected, bool ownerGate) noexcept
 BOOL ShotgunWeapon::CanDeploy()
 {
     ShotgunOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     return Check(frame, false) && m_pPlayer->pev->movetype != 5;
 }
 BOOL ShotgunWeapon::Deploy()
 {
     ShotgunOwnerFrame frame{};
+    Lease binding=lease_;
+    if (!bound_ || !Current(&binding)) RecoverOwnedInventoryBinding(*this);
     if (!Check(frame, false) || m_pPlayer->pev->movetype == 5) return FALSE;
     selected_ = true;
     if (shot_.action.clip == -666) { shot_.action.clip = 0; WriteAmmo(); }
