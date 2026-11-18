@@ -85,14 +85,18 @@ def prepare(args):
         sources.append(dict(row, source=actual['source']))
         audit.append(actual)
     indexed = {row['path']: row for row in release['resources']}
-    for source in sorted(plain(args.gamedata).glob('*.json')):
-        name = 'cstrike/metahook/gamedata/goldcraft-precache/'+source.name
-        if name not in indexed:
-            raise ValueError('Unexpected new catalog path')
-        actual = identity(source)
-        indexed[name].update(bytes=actual['bytes'], sha256=actual['sha256'],
-                             gzip=base64.b64encode(gzip.compress(source.read_bytes(), mtime=0)).decode())
-        audit.append(actual)
+    catalogs = [('goldcraft-precache', plain(args.gamedata))]
+    if getattr(args, 'parallel_gamedata', None):
+        catalogs.append(('parallel-download', plain(args.parallel_gamedata)))
+    for prefix, directory in catalogs:
+        for source in sorted(directory.glob('*.json')):
+            name = 'cstrike/metahook/gamedata/'+prefix+'/'+source.name
+            if name not in indexed:
+                raise ValueError('Unexpected new catalog path')
+            actual = identity(source)
+            indexed[name].update(bytes=actual['bytes'], sha256=actual['sha256'],
+                                 gzip=base64.b64encode(gzip.compress(source.read_bytes(), mtime=0)).decode())
+            audit.append(actual)
     for row in release['resources']:
         data = gzip.decompress(base64.b64decode(row['gzip']))
         if len(data) != row['bytes'] or hashlib.sha256(data).hexdigest() != row['sha256']:
@@ -308,6 +312,7 @@ if __name__ == '__main__':
     p.add_argument('--sequence', type=int, default=SEQUENCE)
     p.add_argument('--version', default='2026.11.15 Nightfall Hotfix 1')
     p.add_argument('--server-dll', type=Path, help='Optional reviewed authoritative snapshot hotfix')
+    p.add_argument('--parallel-gamedata', type=Path, help='Matching exact-engine downloader catalogs')
     p = sub.add_parser('stage')
     for name in ('evidence', 'publication', 'output'):
         p.add_argument('--'+name, type=Path, required=True)

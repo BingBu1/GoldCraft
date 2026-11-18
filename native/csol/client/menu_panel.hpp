@@ -13,6 +13,8 @@ class MenuLayerPanel final : public vgui::EditablePanel {
 public:
     MenuLayerPanel(vgui::VPANEL parent,const char* name) : vgui::EditablePanel(nullptr,name)
     {
+        // C++ owns this root; native parents only detach it on retirement.
+        SetAutoDelete(false);
         SetParent(parent);
         SetPaintEnabled(false);
         SetPaintBackgroundEnabled(false);

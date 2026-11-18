@@ -1,6 +1,11 @@
 {
   "format": 1,
   "files": [
+    "native/csol/client/menu_panel.hpp",
+    "docs/2026-11-17_修复-环境清理重复读取退休Studio表-report.md",
+    "docs/2026-11-18_修复-菜单面板所有权与退出清理-report.md",
+    "docs/2026-11-18_交付-下载不断线增量包-report.md",
+
     "docs/2026-11-18_实现-FAMAS原版机瞄与输入切换-report.md",
     "tests/cryoffear-famas-aim/README.md",
     "docs/2026-11-18_实现-FAMAS原版射击与可恢复表现-report.md",

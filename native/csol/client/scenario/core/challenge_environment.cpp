@@ -19,6 +19,7 @@ custom::EnvironmentPresentation environment;
 custom::FogOwner fog;
 custom::FogPair output;
 bool outputParameters{}, outputDraw{}, viewKnown{}, applying{}, enabled{};
+bool liveBindings{};
 bool borrowingSky{};
 int waterlevel{};
 movevars_t* movement{};
@@ -148,6 +149,7 @@ void InitializeChallengeEnvironment()
 {
     if (ownerThread && !Owner()) return;
     ownerThread = GetCurrentThreadId();
+    liveBindings = true;
     enabled = true;
     InitializeNightPlayerLights();
     InstallChainedUserMessage(custom::EnvironmentMessage, Receive, previousMessage);
@@ -177,6 +179,7 @@ void InstallChallengeEnvironmentStudio(engine_studio_api_t* functions)
     if (!functions || !functions->StudioDynamicLight) return;
     if (ownerThread && !Owner()) return;
     if (!ownerThread) ownerThread = GetCurrentThreadId();
+    liveBindings = true;
     if (functions->StudioDynamicLight != StudioLight)
     { previousStudioLight = functions->StudioDynamicLight; functions->StudioDynamicLight = StudioLight; }
     studioTable = functions;
@@ -195,7 +198,8 @@ void ResetChallengeEnvironment()
 }
 void ShutdownChallengeEnvironment()
 {
-    if (!Owner()) return;
+    if (!Owner() || !liveBindings) return;
+    liveBindings = false;
     ShutdownNightPlayerLights();
     environment.Reset(); Apply();
     enabled = false;
@@ -210,6 +214,9 @@ void ShutdownChallengeEnvironment()
     ResetChallengeEnvironment();
     if (studioTable && studioTable->StudioDynamicLight == StudioLight)
         studioTable->StudioDynamicLight = previousStudioLight;
+    // HUD_Shutdown/ExitGame retire host tables before the later plugin Shutdown.
+    studioTable = nullptr;
+    skyFog = nullptr;
 }
 void ChallengeEnvironmentDiagnostics(std::ostream& out)
 {

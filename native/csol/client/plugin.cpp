@@ -450,6 +450,9 @@ static int VidInit()
 }
 static void HudShutdown()
 {
+    // Retire owned panels before downstream destroys native VGUI interfaces.
+    ShutdownBuyMenu();
+    ShutdownCharacters();
     ShutdownGuestCofAdmission();
     ShutdownGuestCofInput();ShutdownGuestCofViewmodel();
     ShutdownGuestCofMuzzle();

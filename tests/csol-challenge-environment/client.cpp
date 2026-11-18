@@ -178,5 +178,15 @@ int main()
     lighting.StudioDynamicLight(&entity, &light); test::lightCallback = nullptr;
     Check(vars.skycolor_r == 17 && vars.skycolor_g == 18 && vars.skycolor_b == 19, "map retirement during a callback never restores an old scene into the new scene");
     ShutdownChallengeEnvironment();
+    auto* retiredLighting = static_cast<engine_studio_api_t*>(VirtualAlloc(nullptr,
+        sizeof(engine_studio_api_t), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    Check(retiredLighting != nullptr, "actual shutdown fixture owns a releasable studio API page");
+    retiredLighting->StudioDynamicLight = test::NativeLight;
+    InitializeChallengeEnvironment(); InstallChallengeEnvironmentStudio(retiredLighting);
+    ShutdownChallengeEnvironment();
+    Check(retiredLighting->StudioDynamicLight == test::NativeLight, "first shutdown restores the live studio callback before table retirement");
+    Check(VirtualFree(retiredLighting, 0, MEM_RELEASE) != 0, "native downstream table can retire between ExitGame and plugin Shutdown");
+    ShutdownChallengeEnvironment();
+    Check(true, "second shutdown never reads the retired studio API table");
     std::printf("environment actual client: %u checks passed\n", test::checks);
 }
