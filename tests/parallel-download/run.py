@@ -32,13 +32,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with self.lock: Handler.active -= 1
 
 def main():
-    p = argparse.ArgumentParser(); p.add_argument('exe', type=Path); p.add_argument('output', type=Path); p.add_argument('--bridge',action='store_true'); p.add_argument('--recovery',action='store_true'); a = p.parse_args()
+    p = argparse.ArgumentParser(); p.add_argument('exe', type=Path); p.add_argument('output', type=Path); p.add_argument('--bridge',action='store_true'); p.add_argument('--recovery',action='store_true'); p.add_argument('--ui-reentry',action='store_true'); p.add_argument('--connected',action='store_true'); a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=True)
     server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     try:
         command = [str(a.exe.resolve()), f'http://127.0.0.1:{server.server_port}/', str(a.output/'temporary')]
         if a.recovery: command.append('recovery')
+        if a.ui_reentry: command.append('ui')
+        if a.connected: command.append('connected')
         result = subprocess.run(command, text=True, capture_output=True, timeout=30)
         receipt = dict(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr, peakRequests=Handler.peak, requests=Handler.attempts)
         (a.output/'transport.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')

@@ -30,12 +30,25 @@ void (__cdecl* primaryProgress)(const char*,int,float){};
 void (__cdecl* statusText)(const char*){};
 void (__cdecl* closeProgress)(){};
 void (__cdecl* command)(const char*){};
+void (__cdecl* disconnectOriginal)(){};
+int (__cdecl* precacheOriginal)(){};
+int (__cdecl* cancelOriginal)(){};
+void (__cdecl* requestBatch)(){};
+void (__cdecl* processFile)(int,const char*){};
+void (__cdecl* transmit)(void*,int,const void*){};
+int *clientState{}, *uploading{}, *demoPlayback{};
+void* netchan{};
 int (__thiscall* resetOriginal)(void*){};
 void* queueOriginal{};
 void* countOriginal{};
 void* tickOriginal{};
 unsigned completed{},failed{},settled{};
 std::uint64_t serial{};
+std::uint64_t batchRevision{};
+std::uint64_t continuationRevision{};
+std::vector<std::shared_ptr<Job>> nativeFinished;
+bool holdingConnection{};
+std::chrono::steady_clock::time_point nextKeepalive{};
 bool running{};
 IVGUI2Extension* extension{};
 vgui::ISurface* surface{};
@@ -61,10 +74,66 @@ template<class F> auto FS(F f){
     return f(interfaces->FileSystem);
 }
 void Reset(){
+    ++batchRevision;
+    continuationRevision=0;holdingConnection=false;nativeFinished.clear();
     if(pool)pool->Cancel();
     jobs.clear();names.clear();completed=failed=settled=0;running=false;
 }
 int __fastcall ResetHook(void* self,void*){Reset();return resetOriginal(self);}
+bool CurrentConnection(){
+    return clientState&&uploading&&demoPlayback&&*clientState==4&&!*uploading&&!*demoPlayback;
+}
+void __cdecl DownloadDisconnect(){
+    // Only the verified CL_RequestMissingResources call is redirected. An
+    // explicit user disconnect still executes its complete native lifecycle.
+    if(!jobs.empty()&&CurrentConnection()){
+        holdingConnection=true;nextKeepalive={};
+        engine.Con_Printf("ParallelDownload: retaining connection during HTTP downloads\n");
+    }else disconnectOriginal();
+}
+int __cdecl CancelDownload(){
+    const bool retained=holdingConnection&&CurrentConnection();
+    const auto revision=batchRevision+1; // Native Cancel calls the manager Reset once.
+    const int result=cancelOriginal();
+    if(retained&&revision==batchRevision&&CurrentConnection())disconnectOriginal();
+    return result;
+}
+int __cdecl Precache(){return holdingConnection?0:precacheOriginal();}
+void __cdecl ContinueDownload(){
+    const auto revision=continuationRevision;
+    continuationRevision=0;
+    if(!revision||revision!=batchRevision||!holdingConnection)return;
+    if(!CurrentConnection()){Reset();return;}
+    // Engine loaders can Host_Error/longjmp. Enter them from the command loop,
+    // with no automatic C++ owner across a native callback. Reset can retire
+    // the static jobs; the argument remains in independent static storage.
+    static std::array<char,4096> name;
+    while(!nativeFinished.empty()){
+        const bool published=nativeFinished.back()->success&&nativeFinished.back()->temporary.empty();
+        if(published)std::memcpy(name.data(),nativeFinished.back()->name.c_str(),nativeFinished.back()->name.size()+1);
+        nativeFinished.pop_back();
+        if(published)processFile(1,name.data());
+        if(batchRevision!=revision)return;
+        if(!CurrentConnection()){Reset();return;}
+    }
+    // ProcessFile clears RES_WASMISSING and moves successes to on-hand. The
+    // original batch then handles remaining UDP files and native registration.
+    // Its manager reset releases our precache gate before native loading.
+    engine.Con_Printf("ParallelDownload: HTTP complete; continuing on the same connection\n");
+    requestBatch();
+}
+void Finish(){
+    if(holdingConnection){
+        auto finished=std::move(jobs);
+        Reset();
+        nativeFinished=std::move(finished);holdingConnection=true;
+        continuationRevision=batchRevision;
+        command("gc_download_continue\n");
+    }else{
+        Reset();const auto closedRevision=batchRevision;closeProgress();
+        if(batchRevision==closedRevision)command("retry\n");
+    }
+}
 int __cdecl Queue(const char* value){
     try{
         if(!value||!std::strcmp(serverName,"local"))return 0;
@@ -80,6 +149,7 @@ int __cdecl Queue(const char* value){
         // Native paths are plain relative names. Escape spaces before HTTP.
         for(char c:name){if(c==' ')job->url+="%20";else job->url+=c;}
         jobs.push_back(std::move(job));
+        ++batchRevision;
         return 0;
     }catch(const std::exception& e){engine.Con_Printf("ParallelDownload: cannot queue: %s\n",e.what());return 0;}
 }
@@ -99,6 +169,17 @@ bool Prepare(Job& job){
 }
 void TickImpl(){
     if(jobs.empty())return;
+    if(holdingConnection&&!CurrentConnection()){Reset();return;}
+    const auto revision=batchRevision;
+    if(holdingConnection){
+        const auto now=std::chrono::steady_clock::now();
+        if(now>=nextKeepalive){
+            nextKeepalive=now+std::chrono::seconds(1);
+            transmit(netchan,0,nullptr);
+            if(batchRevision!=revision)return;
+            if(!CurrentConnection()){Reset();return;}
+        }
+    }
     if(!running){
         if(!pool)pool=std::make_unique<Pool>();
         running=true;
@@ -118,9 +199,9 @@ void TickImpl(){
         else ++outstanding;
     }
     unsigned newCompleted=0,newFailed=0;
-    const Job* shown=nullptr;
+    std::shared_ptr<Job> shown;
     for(auto& j:jobs){
-        if(!j->done.load(std::memory_order_acquire)){if(!shown&&j->active)shown=j.get();continue;}
+        if(!j->done.load(std::memory_order_acquire)){if(!shown&&j->active)shown=j;continue;}
         if(j->success&&!j->temporary.empty()){
             // No replace: downloads must never overwrite a user file that
             // appeared during this batch. Atomic rename hides partial bytes.
@@ -137,20 +218,27 @@ void TickImpl(){
     }
     settled=completed+failed;
     if(shown)statusText(shown->name.c_str());
+    if(batchRevision!=revision)return;
     const auto bytes=shown?shown->received.load():0;
     const auto length=shown?shown->length.load():0;
     progress(length?std::min(1.0f,float(bytes)/float(length)):float(settled)/float(jobs.size()));
-    // Native ContinueProgressBar may pump the loading UI. Do not access a
-    // batch after that call; a cancel can retire it during UI dispatch.
+    // Native progress dispatch may cancel, replace or recursively finish this
+    // batch. Only its still-current owner can close the UI or enqueue retry.
+    if(batchRevision!=revision)return;
     if(settled==jobs.size()){
         for(const auto& j:jobs)if(!j->success)engine.Con_Printf("ParallelDownload: %s HTTP=%u error=%u attempts=%u; native fallback\n",j->name.c_str(),j->status,j->error,j->attempts);
-        Reset();closeProgress();command("retry\n");
+        Finish();
     }else{
         primaryProgress("Http",int(settled),0.0f);
     }
 }
 void __cdecl Tick(){
-    try{TickImpl();}catch(const std::exception& e){engine.Con_Printf("ParallelDownload: %s; native fallback\n",e.what());Reset();closeProgress();command("retry\n");}
+    const auto revision=batchRevision;
+    try{TickImpl();}catch(const std::exception& e){
+        if(batchRevision!=revision)return;
+        engine.Con_Printf("ParallelDownload: %s; native fallback\n",e.what());
+        Finish();
+    }
 }
 vgui::VPANEL FindLoading(vgui::VPANEL root,unsigned depth=0){
     if(!root||depth>8||!panel->IsVisible(root))return 0;
@@ -235,6 +323,17 @@ void Install(){
     statusText=reinterpret_cast<decltype(statusText)>(Resolve("ParallelDownload_Text"));
     closeProgress=reinterpret_cast<decltype(closeProgress)>(Resolve("ParallelDownload_Close"));
     command=reinterpret_cast<decltype(command)>(Resolve("ParallelDownload_Command"));
+    auto disconnectCall=Resolve("ParallelDownload_DisconnectCall");
+    auto precache=Resolve("ParallelDownload_Precache");
+    auto cancel=Resolve("ParallelDownload_Cancel");
+    requestBatch=reinterpret_cast<decltype(requestBatch)>(Resolve("ParallelDownload_RequestBatch"));
+    processFile=reinterpret_cast<decltype(processFile)>(Resolve("ParallelDownload_ProcessFile"));
+    transmit=reinterpret_cast<decltype(transmit)>(Resolve("ParallelDownload_Transmit"));
+    clientState=static_cast<int*>(Resolve("ParallelDownload_ClientState",MH_GAMESYMBOL_KIND_GLOBAL));
+    uploading=static_cast<int*>(Resolve("ParallelDownload_Uploading",MH_GAMESYMBOL_KIND_GLOBAL));
+    demoPlayback=static_cast<int*>(Resolve("ParallelDownload_DemoPlayback",MH_GAMESYMBOL_KIND_GLOBAL));
+    netchan=Resolve("ParallelDownload_Netchan",MH_GAMESYMBOL_KIND_GLOBAL);
+    if(!api->InlinePatchRedirectBranch||!engine.pfnAddCommand)throw std::runtime_error("download continuation API unavailable");
     const auto module=GetModuleHandleA("VGUI2Extension.dll");
     auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface")):nullptr;
     extension=factory?static_cast<IVGUI2Extension*>(factory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
@@ -244,6 +343,12 @@ void Install(){
     hook(count,reinterpret_cast<void*>(Count),&countOriginal);
     hook(reset,reinterpret_cast<void*>(ResetHook),reinterpret_cast<void**>(&resetOriginal));
     hook(tick,reinterpret_cast<void*>(Tick),&tickOriginal);
+    hook(precache,reinterpret_cast<void*>(Precache),reinterpret_cast<void**>(&precacheOriginal));
+    hook(cancel,reinterpret_cast<void*>(CancelDownload),reinterpret_cast<void**>(&cancelOriginal));
+    auto* disconnectHook=api->InlinePatchRedirectBranch(disconnectCall,reinterpret_cast<void*>(DownloadDisconnect),reinterpret_cast<void**>(&disconnectOriginal));
+    if(!disconnectHook)throw std::runtime_error("download disconnect call hook failed");
+    hooks.push_back(disconnectHook);
+    engine.pfnAddCommand(const_cast<char*>("gc_download_continue"),ContinueDownload);
     extension->RegisterBaseUICallbacks(&ui);
     engine.Con_Printf("ParallelDownload: verified HL10210 hooks installed\n");
 }

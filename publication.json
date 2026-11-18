@@ -1,6 +1,13 @@
 {
   "format": 1,
   "files": [
+    "native/parallel_download/engine_10210.json",
+    "tests/parallel-download/bridge.cpp",
+    "tests/parallel-download/run.py",
+    "tests/parallel-download/README.md",
+    "docs/2026-11-18_实现-HTTP下载期间保持原连接-report.md",
+    "docs/2026-11-18_修复-下载队列取消后旧回调误重连-report.md",
+
     "docs/2026-11-18_实现-FAMAS原版换弹与推搡控制-report.md",
     "docs/2026-11-18_验证-九枪冷服与手模资源预检-report.md",
     "tests/cryoffear-famas-control/README.md",
