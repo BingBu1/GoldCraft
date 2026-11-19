@@ -58,6 +58,7 @@ bool base_transaction{};
 bool verified_download{};
 bool abort_pending{}, abort_queued{};
 bool loading_dispatch{};
+client_precache::ManifestProgress displayed_manifest;
 std::uint64_t abort_epoch{}, abort_initial{};
 resource_update::Phase loading_phase{resource_update::Phase::idle};
 unsigned loading_total{}, loading_completed{};
@@ -245,6 +246,7 @@ void Cancel() {
     // query native arrays, or call GL here; the abandoned callback may be live.
     verified_download = false;
     loading_dispatch = false;
+    displayed_manifest = {};
     abort_pending = abort_queued = false;
     if (stage != Stage::idle) {
         cancelled = true;
@@ -346,6 +348,37 @@ bool CurrentAdmission() {
     return !cancelled && observed.valid && observed.clear_epoch == epoch &&
         observed.initial_vidinit == initial && *client_state == 3 && !*uploading;
 }
+void UpdateManifestLoadingProgress() {
+    if (*client_state != 3 || *uploading || native_reset || hud.pending()) return;
+    const auto progress = client_precache::manifest_progress();
+    if (!progress.connection) return;
+    const bool new_connection = progress.connection != displayed_manifest.connection;
+    if (!new_connection && progress.received == displayed_manifest.received) return;
+    const auto now = std::chrono::steady_clock::now();
+    if (!new_connection && now < next_loading_update) return;
+    const auto still_receiving = [&] {
+        return stage == Stage::idle && !cancelled && *client_state == 3 && !*uploading &&
+            client_precache::manifest_progress().connection == progress.connection;
+    };
+    // Update the existing dialog only from the client frame, after parsing.
+    // Each GameUI callback can retire or replace the connection.
+    if (new_connection) {
+        loading_dispatch = true;
+        loading_start("GoldCraftResources", int(progress.total));
+        loading_dispatch = false;
+        if (!still_receiving()) return;
+        loading_dispatch = true;
+        loading_text("#GameUI_ParseServerInfo");
+        loading_dispatch = false;
+        if (!still_receiving()) return;
+    }
+    loading_dispatch = true;
+    loading_advance("GoldCraftResources", int(progress.received), 0.f);
+    loading_dispatch = false;
+    if (!still_receiving()) return;
+    displayed_manifest = progress;
+    next_loading_update = now + std::chrono::milliseconds(33);
+}
 bool UpdateLoadingProgress() {
     // Use the verified GameUI slots directly: the engine wrappers also run
     // SCR_UpdateScreen. Normal frames paint this state without extra renders.
@@ -439,6 +472,8 @@ void Pump() {
         if (retry_after_reset) {
             retry_after_reset = false;
             engine->pfnClientCmd(const_cast<char*>("retry\n"));
+        } else {
+            UpdateManifestLoadingProgress();
         }
         return;
     }

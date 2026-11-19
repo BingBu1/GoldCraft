@@ -12,6 +12,11 @@ namespace goldcraft::client_precache {
 std::uint64_t connection_generation() noexcept;
 // Final plugin teardown only; cached API pointers subsequently return zero.
 void invalidate_connection_observer() noexcept;
+struct ManifestProgress {
+    std::uint64_t connection{};
+    unsigned received{}, total{};
+};
+ManifestProgress manifest_progress() noexcept;
 struct ResourceSyncCallbacks {
     bool (*available)(){};
     // Returns null on success. The receiver copies values before returning;

@@ -582,6 +582,106 @@ void native_download_gate_tests() {
     std::cout << "native download gate: " << checks << " checks, 0 failures\n";
 }
 
+void manifest_ack_tests() {
+    static int state, uploading, demo, local_server, sends, prediction_checks, received, last_ack;
+    int channel{};
+    std::array<byte, 5> post{};
+    const DWORD redirect = DWORD(send_after_packets) - DWORD(post.data()) - 5;
+    post[0] = 0xe8;
+    std::memcpy(post.data() + 1, &redirect, sizeof(redirect));
+    manifest_network = {
+        [](void*, int, byte*) { ++sends; last_ack = received; },
+        [] { ++prediction_checks; },
+        &channel, post.data(), &state, &uploading, &demo, &local_server
+    };
+    connection_hooks_ready = true;
+    connection_owner_thread = GetCurrentThreadId();
+    clear_client_original = [] { return 0; };
+    disconnect_original = [] {};
+    unsigned checks{};
+    const auto check = [&](bool result) {
+        ++checks;
+        assert(result);
+    };
+    const auto begin = [&] {
+        reset_client();
+        receiving = true;
+        manifest_version = goldcraft::resource_sync::manifest_version;
+        state = 3;
+        uploading = demo = local_server = sends = prediction_checks = received = last_ack = 0;
+    };
+    const auto send = [&] { send_before_packets(&channel, 0, nullptr); };
+
+    begin();
+    send();
+    check(sends == 0);
+    ++received;
+    send_after_packets();
+    check(sends == 1 && last_ack == 1 && prediction_checks == 1 && manifest_ack_sends == 1);
+    send_after_packets();
+    check(sends == 1 && prediction_checks == 2);
+
+    begin();
+    send();
+    ++received;
+    receiving = false;
+    send_after_packets();
+    check(sends == 1 && last_ack == 1 && manifest_ack_sends == 1);
+
+    begin();
+    send();
+    clear_client();
+    state = 3;
+    send_after_packets();
+    check(sends == 0 && prediction_checks == 1);
+    begin();
+    send();
+    disconnect();
+    state = 3;
+    send_after_packets();
+    check(sends == 0 && prediction_checks == 1);
+    begin();
+    send();
+    state = 5;
+    send_after_packets();
+    check(sends == 0 && prediction_checks == 1);
+
+    begin();
+    send(); // The previous outer frame unwound before the after-read call.
+    send();
+    send_after_packets();
+    check(sends == 1 && prediction_checks == 1);
+
+    for (const auto blocked : {&uploading, &demo, &local_server}) {
+        begin();
+        *blocked = 1;
+        send();
+        ++received;
+        send_after_packets();
+        check(sends == 1 && last_ack == 0 && prediction_checks == 1 && manifest_ack_sends == 0);
+    }
+    for (const auto version : {0u, unsigned(goldcraft::precache::version)}) {
+        begin();
+        manifest_version = version;
+        send();
+        ++received;
+        send_after_packets();
+        check(sends == 1 && last_ack == 0 && prediction_checks == 1 && manifest_ack_sends == 0);
+    }
+    begin();
+    send_before_packets(nullptr, 0, nullptr); // Different native channel.
+    send_before_packets(&channel, 1, post.data());
+    send_after_packets();
+    check(sends == 2 && manifest_ack_sends == 0);
+    begin();
+    post[0] = 0x90; // Missing post-read branch must not suppress a send.
+    send();
+    check(sends == 1 && !pending_manifest_send);
+    reset_client();
+    manifest_network = {};
+    std::cout << "resource manifest send order: " << checks << " checks, 0 failures\n";
+}
+
 int main(int argc, char** argv) {
     metahook_api_t fake_api{};
     fake_api.WriteDWORD = [](void* address, DWORD value) { std::memcpy(address, &value, 4); };
@@ -691,5 +791,6 @@ int main(int argc, char** argv) {
     native_download_gate_tests();
     lazy_precache_tests();
     std::cout << "lazy precache: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
+    manifest_ack_tests();
     return sentinel_failures ? 1 : 0;
 }

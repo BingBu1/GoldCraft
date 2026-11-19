@@ -126,6 +126,99 @@
         "func_rva": "0x1a3a40",
         "func_size": "0x63"
       }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestTransmit",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1dcc00",
+        "func_size": "0x215"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestCheckPrediction",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1ac270",
+        "func_size": "0x18"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestReadPackets",
+      "kind": "function",
+      "payload": {
+        "func_rva": "0x1a4d50",
+        "func_size": "0x3b0"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestNetchan",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x1408de8",
+        "gv_va": "0x11408de8",
+        "gv_sig": "68 ?? ?? ?? ??",
+        "gv_sig_va": "0x101a3a88",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x1",
+        "gv_inst_length": "0x5"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestDemo",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0x140e9f0",
+        "gv_va": "0x1140e9f0",
+        "gv_sig": "83 3D ?? ?? ?? ?? 00",
+        "gv_sig_va": "0x101a3a77",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0x7"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestLocalServer",
+      "kind": "global",
+      "payload": {
+        "gv_rva": "0xfd1000",
+        "gv_va": "0x10fd1000",
+        "gv_sig": "83 3D ?? ?? ?? ?? 00",
+        "gv_sig_va": "0x101d467c",
+        "gv_inst_offset": "0x0",
+        "gv_inst_disp": "0x2",
+        "gv_inst_length": "0x7"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestState3Send",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1a3a8d"
+      }
+    },
+    {
+      "platform": "windows",
+      "module": "engine",
+      "symbolName": "GoldCraft_ManifestAfterRead",
+      "kind": "patch",
+      "payload": {
+        "patch_rva": "0x1d46d7"
+      }
     }
   ],
   "verification": [
@@ -152,6 +245,18 @@
     {
       "rva": "0x1b81b0",
       "bytes": "55 8b ec 81 ec 14 01 00 00 a1 34 47 32 10 33 c5 89 45 fc 8b 45 0c 8b 4d 08 a3 30 bf 24 11 8d 85 f0 fe ff ff 50 8d 85 ec fe ff ff c7 85 f0 fe ff ff 00 00 00 00 50 8d 85 f4 fe ff ff c7 85 ec fe ff ff 03 00 00 00 50 89 8d f4 fe ff ff ff 15 e4 ba 31 10 8b 85 f0 fe ff ff 83 c4 0c 85 c0 74 06 c7 00 00 00 00 00 57 68 28 64 30 10 ff b5 f4 fe ff ff e8 e9 fd 00 00 8b f8 83 c4 08 85 ff 0f 84 2b 01 00 00 56 57 e8 25 01 01 00 8b f0 8d 85 f8 fe ff ff 68 04 01 00 00 50 ff b5 f4 fe ff ff e8 ac f6 ff ff 83 c4 10 85 c0 75 10 ff b5 f4 fe ff ff 68 d8 9e 2b 10 e9 e5 00 00 00 8b 85 ec fe ff ff c6 85 18 ff ff ff 00 83 f8 01 75 15 8d 85 f8 fe ff ff 50 8d 46 01 50 e8 23 00 08 00 83 c4 08 eb 6f 83 f8 02 75 0b 8d 46 01 50 e8 f0 03 08 00 eb 5c 85 c0 75 0b 8d 46 01 50 e8 21 06 08 00 eb 4d 83 f8 03 75 1b 8d 85 f8 fe ff ff 50 8d 46 01 50 ff 35 30 bf 24 11 e8 94 fa 07 00 83 c4 0c eb 30 83 f8 04 75 1a 8d 46 01 3b 05 28 bf 24 11 7e 08 50 e8 a9 03 08 00 eb 15 a1 2c bf 24 11 eb 11 83 f8 05 75 43 8d 46 01 50 e8 f2 20 02 00 83 c4 04 85 c0 74 40 57 6a 01 56 50 c6 04 06 00 e8 dd fd 00 00 57 e8 77 f8 00 00 8b 85 f0 fe ff ff 83 c4 14 85 c0 74 38 89 30 5e 5f 8b 4d fc 33 cd e8 d3 33 0f 00 8b e5 5d c3 68 fc 9e 2b 10 e8 de 78 06 00 83 c4 04 ff b5 f4 fe ff ff 68 18 9f 2b 10 e8 cb 78 06 00 57 e8 35 f8 00 00 83 c4 0c 5e 8b 4d fc 33 cd 5f e8 9d 33 0f 00 8b e5 5d c3"
+    },
+    {
+      "rva": "0x1a3a40",
+      "bytes": "55 8b ec 81 ec 70 08 00 00 a1 34 47 32 10 33 c5 89 45 fc a1 e0 8d 40 11 85 c0 0f 84 56 09 00 00 83 f8 01 0f 84 4d 09 00 00 83 f8 02 0f 84 44 09 00 00 83 f8 03 75 2c 83 3d f0 e9 40 11 00 0f 85 32 09 00 00 6a 00 6a 00 68 e8 8d 40 11 e8 6e 91 03 00 83 c4 0c 8b 4d fc 33 cd e8 68 7c 10 00 8b e5 5d c3"
+    },
+    {
+      "rva": "0x1d467c",
+      "bytes": "83 3d 00 10 fd 10 00 74 05 e8 b6 f3 fc ff e8 91 b7 04 00 dd 1d f0 94 4b 10 e8 c6 5f 03 00 e8 81 b7 04 00 dd 1d f8 94 4b 10 e8 46 2c 03 00 83 3d 00 10 fd 10 00 75 05 e8 88 f3 fc ff f2 0f 10 05 a8 9e 24 11 83 ec 08 f2 0f 11 04 24 e8 13 27 fc ff e8 6e 87 fd ff e8 79 06 fd ff e8 94 7b fd ff f2 0f 10 05 a8 9e 24"
+    },
+    {
+      "rva": "0x1ac270",
+      "bytes": "55 8b ec 83 ec 14 a1 34 47 32 10 33 c5 89 45 fc a1 20 8e 40 11 3b 05 84"
     }
   ]
 }

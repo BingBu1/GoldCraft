@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 extern cl_enginefunc_t gEngfuncs;
@@ -53,6 +54,8 @@ DWORD connection_owner_thread = 0;
 // Close the new token too while an original cleanup can reenter before clearing
 // its old tables. A non-returning original leaves this query unavailable.
 bool sound_query_retiring = false;
+std::uint64_t pending_manifest_send{};
+unsigned manifest_ack_sends{};
 unsigned model_scan_deferred = 0, model_scan_brushes = 0, model_scan_native = 0;
 bool precache_ready_hook_installed = false;
 GoldCraftPrecacheReadyCallback precache_ready_callback = nullptr;
@@ -65,6 +68,7 @@ void notify_precache_retired(std::uint64_t generation) noexcept;
 void retire_connection() noexcept {
     const auto retired_generation = connection_generation_value;
     sound_query_retiring = true;
+    pending_manifest_send = 0;
     precache_ready_delivered = 0;
     if (connection_generation_value)
         connection_generation_value = connection_generation_value == std::numeric_limits<std::uint64_t>::max() ?
@@ -328,6 +332,81 @@ void prepare_patch(void* address, const void* replacement, unsigned size) {
     const auto* after = static_cast<const byte*>(replacement);
     connection_patches.push_back({address, {before, before + size}, {after, after + size}});
     if (extended) api->WriteMemory(address, connection_patches.back().replacement.data(), size);
+}
+
+struct ManifestNetwork {
+    void (__cdecl* transmit)(void*, int, byte*){};
+    void (__cdecl* check_prediction)(){};
+    void* channel{};
+    const byte* after_read{};
+    const int *state{}, *uploading{}, *demo{}, *local_server{};
+
+    bool loading() const noexcept {
+        return connection_hooks_ready && !sound_query_retiring && connection_generation_value &&
+            *state == 3 && !*uploading && !*demo && !*local_server;
+    }
+} manifest_network;
+
+void __cdecl send_after_packets() {
+    if (GetCurrentThreadId() == connection_owner_thread) {
+        const auto pending = std::exchange(pending_manifest_send, 0);
+        // The last chunk can complete in this frame. Connection retirement
+        // and transitions out of signon invalidate the pending send.
+        if (pending && pending == connection_generation_value && manifest_network.loading()) {
+            ++manifest_ack_sends;
+            manifest_network.transmit(manifest_network.channel, 0, nullptr);
+        }
+    }
+    manifest_network.check_prediction();
+}
+
+bool is_call_to(const byte* site, const void* target) {
+    std::uint32_t displacement{};
+    std::memcpy(&displacement, site + 1, sizeof(displacement));
+    return *site == 0xe8 && DWORD(site) + 5 + displacement == DWORD(target);
+}
+
+void __cdecl send_before_packets(void* channel, int length, byte* data) {
+    // Move one existing state-3 send past CL_ReadPackets while receiving v4.
+    if (GetCurrentThreadId() == connection_owner_thread) {
+        pending_manifest_send = 0;
+        if (receiving && manifest_version == resource_sync::manifest_version &&
+            channel == manifest_network.channel && !length && !data && manifest_network.loading() &&
+            is_call_to(manifest_network.after_read, reinterpret_cast<void*>(send_after_packets))) {
+            pending_manifest_send = connection_generation_value;
+            return;
+        }
+    }
+    manifest_network.transmit(channel, length, data);
+}
+
+void prepare_manifest_network() {
+    ManifestNetwork bindings;
+    byte *send{}, *post{}, *read{};
+    try {
+        function(bindings.transmit, "ManifestTransmit");
+        function(bindings.check_prediction, "ManifestCheckPrediction");
+        function(read, "ManifestReadPackets");
+        global(bindings.channel, "ManifestNetchan");
+        global(bindings.state, "client_state");
+        global(bindings.uploading, "client_uploading");
+        global(bindings.demo, "ManifestDemo");
+        global(bindings.local_server, "ManifestLocalServer");
+        send = static_cast<byte*>(resolve("ManifestState3Send", MH_GAMESYMBOL_KIND_PATCH));
+        post = static_cast<byte*>(resolve("ManifestAfterRead", MH_GAMESYMBOL_KIND_PATCH));
+    } catch (const std::runtime_error&) {
+        // Older catalogs still carry the original transport.
+        return;
+    }
+    if (!is_call_to(send, reinterpret_cast<void*>(bindings.transmit)) ||
+        !is_call_to(post - 5, read) ||
+        !is_call_to(post, reinterpret_cast<void*>(bindings.check_prediction))) return;
+    const DWORD after = DWORD(send_after_packets) - DWORD(post) - 5;
+    const DWORD before = DWORD(send_before_packets) - DWORD(send) - 5;
+    prepare_patch(post + 1, &after, sizeof(after));
+    prepare_patch(send + 1, &before, sizeof(before));
+    bindings.after_read = post;
+    manifest_network = bindings;
 }
 
 void update_tables() {
@@ -762,6 +841,7 @@ void reset_client(bool retire = true) {
     native_download_message.clear();
     if (sync_callbacks.cancel) sync_callbacks.cancel();
     sync_resources.clear(); manifest_generation = 0; manifest_version = 0; sync_waiting = false;
+    manifest_ack_sends = 0;
     sync_verified = false; deferred_models = 0;
     model_scan_deferred = model_scan_brushes = model_scan_native = 0;
     if (reset_observer) reset_observer();
@@ -950,12 +1030,12 @@ void __cdecl parse_resources() {
     if (*bad_read) malformed("truncated resource manifest");
     if (manifest_next != total) return;
     receiving = false; ++manifests;
-    loading_text("#GameUI_VerifyingResources");
     if (version == resource_sync::manifest_version) {
         sync_waiting = true;
         if (const auto* error = sync_callbacks.begin(manifest_generation, sync_resources)) malformed(error);
         return;
     }
+    loading_text("#GameUI_VerifyingResources");
     start_download("Verifying and downloading resources...\n", 0);
 }
 
@@ -980,6 +1060,12 @@ void set_reset_observer(void (*callback)()) { reset_observer = callback; }
 std::uint64_t connection_generation() noexcept {
     return connection_hooks_ready && connection_owner_thread == GetCurrentThreadId() ?
         connection_generation_value : 0;
+}
+ManifestProgress manifest_progress() noexcept {
+    if (!receiving || sound_query_retiring || manifest_version != resource_sync::manifest_version ||
+        !manifest_next || manifest_next >= manifest_total) return {};
+    const auto connection = connection_generation();
+    return connection ? ManifestProgress{connection, manifest_next, manifest_total} : ManifestProgress{};
 }
 void invalidate_connection_observer() noexcept {
     connection_hooks_ready = false;
@@ -1073,6 +1159,7 @@ bool install(metahook_api_t* value) {
         static_parser_slot = resolve("static_parser_slot", MH_GAMESYMBOL_KIND_PATCH);
         if (*static_cast<void**>(static_parser_slot) != resolve("CL_ParseStatic", MH_GAMESYMBOL_KIND_FUNCTION))
             throw std::runtime_error("changed static entity parser");
+        prepare_manifest_network();
         std::memcpy(models.data(), old_models, model_slots() * sizeof(model_t*));
         std::memcpy(sounds.data(), old_sounds, sounds.size() * sizeof(Sound*));
     } catch (const std::exception& error) {
@@ -1253,6 +1340,8 @@ void write_status(std::ostream& out) {
         << ",\"error\":" << std::quoted(install_failure) << ",\"extended\":" << extended
         << ",\"storage\":" << std::quoted(extended ? "goldcraft" : "native")
         << ",\"shadowIndex\":" << shadow_index << ",\"shadowName\":" << std::quoted(shadow ? shadow->name : "")
+        << ",\"manifestAckAvailable\":" << (manifest_network.transmit != nullptr)
+        << ",\"manifestAckSends\":" << manifest_ack_sends
         << ",\"receiving\":" << receiving << ",\"resources\":" << (extended ? resources.size() : manifest_total)
         << ",\"total\":" << manifest_total << ",\"models\":" << model_capacity() << ",\"sounds\":" << (extended ? sounds.size() : 512)
         << ",\"cachedModels\":" << (enabled ? model_count() : 0)

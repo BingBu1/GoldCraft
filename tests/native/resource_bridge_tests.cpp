@@ -24,6 +24,7 @@ bool dual_dialog{};
 std::vector<float> file_fractions;
 std::string file_label;
 resource_update::DownloadProgress download;
+client_precache::ManifestProgress manifest;
 std::string scenario;
 resource_lifecycle::Observation observation{7,9,10,1,resource_lifecycle::Completion::returned,true};
 resource_update::Status status;
@@ -52,7 +53,7 @@ void ProgressEvent(const char* operation, bool native) {
     const std::string action = std::string(native ? "native-" : "") + operation;
     Call(action.c_str());
     if (progress_action == action + "-cancel") {
-        progress_action.clear(); resource_bridge::Cancel();
+        progress_action.clear(); manifest = {}; resource_bridge::Cancel();
     } else if (progress_action == "progress-stale" || progress_action == action + "-stale") {
         progress_action.clear(); ++observation.clear_epoch;
     } else if ((progress_action == "progress-reentrant" || progress_action == action + "-reentrant") && !progress_reentered) {
@@ -136,6 +137,7 @@ std::unique_ptr<Reader> OpenReader(const char*){return fixture::sprite_readable?
 }
 namespace goldcraft::client_precache {
 bool waiting{};
+ManifestProgress manifest_progress() noexcept { return fixture::manifest; }
 void set_resource_sync(ResourceSyncCallbacks){}
 void refresh_resource_capability(){}
 void set_native_download_gate(bool(*)()){}
@@ -205,6 +207,37 @@ int main(int argc,char** argv){
             Expect(Has("base-owner"),"base owner reset missing");Expect(fixture::overlay.paths.empty(),"ordinary server inherited overlay");
             Expect(Has("resume-native")==(name=="base"),"wrong ordinary download resume");
             if(name=="disconnect-base"){Expect(paused(),"old disconnected HUD exposed");Expect(NativeInitialize(nullptr,natural)==1,"natural base recovery failed");Expect(!paused(),"natural base recovery stayed paused");}
+        }
+    }else if(name.starts_with("manifest-progress")){
+        fixture::manifest = {1, 128, 512};
+        if (name.ends_with("-start-cancel")) fixture::progress_action = "progress-start-cancel";
+        if (name.ends_with("-text-cancel")) fixture::progress_action = "progress-text-cancel";
+        Frame(0);
+        Expect(fixture::progress_starts == 1 && fixture::progress_steps == 512,
+            "partial manifest did not initialize the native progress range");
+        Expect(!Has("before") && !Has("pump"), "partial manifest started resource verification");
+        if (name.ends_with("-cancel")) {
+            Expect(!Has("progress-advance") && !displayed_manifest.connection,
+                "cancelled manifest advanced native progress");
+        } else {
+            Expect(fixture::progress_point == 128 && fixture::progress_label == "#GameUI_ParseServerInfo",
+                "native dialog did not show the committed manifest ordinal");
+            fixture::manifest.received = 256;
+            next_loading_update = std::chrono::steady_clock::time_point::max();
+            Frame(0);
+            Expect(fixture::progress_point == 128, "manifest progress exceeded update rate");
+            next_loading_update = {};
+            Frame(0);
+            Expect(fixture::progress_point == 256 && fixture::progress_starts == 1,
+                "additional chunks did not advance the existing native dialog");
+            Frame(0);
+            Expect(std::count(fixture::calls.begin(), fixture::calls.end(), "progress-advance") == 2,
+                "unchanged manifest progress dispatched a redundant callback");
+            fixture::manifest = {};
+            Expect(Begin(1, request) == nullptr, "completed manifest could not begin verification");
+            Frame(0);
+            Expect(fixture::progress_steps == 1 && fixture::progress_label == "#GameUI_VerifyingResources" && Has("pump"),
+                "completed manifest did not hand off to native verification progress");
         }
     }else if(name.starts_with("download-ui")){
         const std::vector<resource_update::Resource> files{{"sound/first.wav",{}},{"models/second.mdl",{}}};
