@@ -16,16 +16,90 @@ public plugin_init()
     register_srvcmd("cof_live_burn_state", "BurnState");
     register_srvcmd("cof_live_join", "Join");
     register_srvcmd("cof_live_burn_wave", "BurnWave");
+    register_srvcmd("cof_live_burn_teammate", "BurnTeammate");
+    RegisterHookChain(RG_CBasePlayer_Spawn, "TeammateSpawned", true);
 }
 
-// Isolated zs_deadend fixture. All four entities already came from normal play.
-// The level's own BSP separates the second target from the original thrown flare.
-new burnFlare, burnSerial, burnTargets[3], burnTargetSerial[3], burnHits[3];
+// The flare and monsters come from normal play. The map BSP blocks target 1.
+// Credit mode adds two exposed targets that die on different damage pulses.
+new const Float:burnCenters[][3] = {
+    {-2000.0, 1248.0, 36.0}, {-2000.0, 1368.0, 36.0}, {-1860.0, 1288.0, 36.0},
+    {-2040.0, 1256.0, 36.0}, {-1960.0, 1256.0, 36.0}
+};
+new const Float:burnHealth[] = {1000.0, 1000.0, 1000.0, 5.0, 65.0};
+new burnFlare, burnSerial, burnCount, burnTargets[sizeof burnCenters], burnTargetSerial[sizeof burnCenters];
+new burnHits[sizeof burnCenters], bool:burnDead[sizeof burnCenters];
 new HamHook:burnHook;
 new const Float:burnOrigin[3] = {-2000.0, 1288.0, 0.03125};
-new const Float:burnCenters[3][3] = {
-    {-2000.0, 1248.0, 36.0}, {-2000.0, 1368.0, 36.0}, {-1860.0, 1288.0, 36.0}
-};
+new teammate, teammateUserid, teammateSerial;
+const TeammateMoveTask = 31871;
+
+bool:OwnsTeammate(id)
+{
+    return id > 0 && id == teammate && is_user_connected(id) && teammateUserid > 0 &&
+        get_user_userid(id) == teammateUserid && pev_valid(id) && pev_serial(id) == teammateSerial;
+}
+
+public client_disconnected(id)
+{
+    if (id != teammate) return;
+    remove_task(TeammateMoveTask);
+    teammate = teammateUserid = teammateSerial = 0;
+}
+
+public plugin_end()
+{
+    if (OwnsTeammate(teammate))
+        rh_drop_client(teammate, "CoF flare fixture finished");
+}
+
+public TeammateSpawned(id)
+{
+    if (OwnsTeammate(id) && pev_valid(id) == 2 && IsReapiHookOriginalWasCalled(RG_CBasePlayer_Spawn))
+    {
+        set_entvar(id, var_flags, get_entvar(id, var_flags) | FL_FAKECLIENT | FL_CLIENT);
+        if (get_member(id, m_iTeam) == TEAM_CT && is_user_alive(id))
+            set_entvar(id, var_takedamage, DAMAGE_NO);
+    }
+    return HC_CONTINUE;
+}
+
+public MoveTeammate()
+{
+    if (!OwnsTeammate(teammate) || pev_valid(teammate) != 2 || !is_user_bot(teammate)) return;
+    new Float:angles[3];
+    get_entvar(teammate, var_v_angle, angles);
+    engfunc(EngFunc_RunPlayerMove, teammate, angles, 0.0, 0.0, 0.0, 0, 0, 100);
+}
+
+public BurnTeammate()
+{
+    new map[32], host[64], ip[32];
+    get_mapname(map, charsmax(map));
+    get_cvar_string("hostname", host, charsmax(host));
+    get_cvar_string("ip", ip, charsmax(ip));
+    if (read_argc() != 1 || !equal(map, "zs_deadend") || get_cvar_num("csol_game_mode") != 2 ||
+        !equal(ip, "127.0.0.1") || !equal(host, "GoldCraft isolated CoF cold") || teammate)
+        return PLUGIN_HANDLED;
+    new id = engfunc(EngFunc_CreateFakeClient, "CoF_Flare_Teammate");
+    if (id < 1 || id > MaxClients || !is_user_connected(id) || !is_user_bot(id)) return PLUGIN_HANDLED;
+    if (pev_valid(id) == 2) engfunc(EngFunc_FreeEntPrivateData, id);
+    teammate = id;
+    teammateUserid = get_user_userid(id);
+    teammateSerial = pev_serial(id);
+    set_pev(id, pev_flags, pev(id, pev_flags) | FL_FAKECLIENT | FL_CLIENT);
+    dllfunc(DLLFunc_ClientPutInServer, id);
+    if (!OwnsTeammate(id) || pev_valid(id) != 2) return PLUGIN_HANDLED;
+    set_entvar(id, var_flags, get_entvar(id, var_flags) | FL_FAKECLIENT | FL_CLIENT);
+    set_member(id, m_iMenu, Menu_ChooseTeam);
+    set_member(id, m_iJoiningState, PICKINGTEAM);
+    engclient_cmd(id, "jointeam", "2");
+    if (!OwnsTeammate(id) || get_member(id, m_iTeam) != TEAM_CT ||
+        get_member(id, m_iMenu) != Menu_ChooseAppearance) return PLUGIN_HANDLED;
+    engclient_cmd(id, "joinclass", "1");
+    if (OwnsTeammate(id)) set_task(0.1, "MoveTeammate", TeammateMoveTask, _, _, "b");
+    return PLUGIN_HANDLED;
+}
 public BurnSetup()
 {
     new slot[12], user[12], address[32], map[32];
@@ -35,33 +109,43 @@ public BurnSetup()
         return PLUGIN_HANDLED;
     get_user_ip(id,address,charsmax(address),1); get_mapname(map,charsmax(map));
     if (!equal(address,"127.0.0.1") || !equal(map,"zs_deadend")) return PLUGIN_HANDLED;
-    new entity, flare, candidates[3], count;
+    new required = 3;
+    if (read_argc() == 4)
+    {
+        new mode[12];
+        read_argv(3,mode,charsmax(mode));
+        if (!equal(mode,"credit") || !OwnsTeammate(teammate) || !is_user_alive(teammate) ||
+            get_member(teammate,m_iTeam)!=TEAM_CT) return PLUGIN_HANDLED;
+        required = sizeof burnCenters;
+    }
+    else if (read_argc() != 3) return PLUGIN_HANDLED;
+    new entity, flare, candidates[sizeof burnCenters], count;
     while ((entity=rg_find_ent_by_class(entity,"weapon_cof_flare"))>0)
         if (get_entvar(entity,var_body)==1 && get_entvar(entity,var_solid)==SOLID_TRIGGER &&
             (get_entvar(entity,var_flags)&FL_ONGROUND) && is_nullent(get_entvar(entity,var_owner)))
             flare=entity;
     entity=0;
-    while (count<sizeof candidates && (entity=rg_find_ent_by_class(entity,"monster_entity"))>0)
+    while (count<required && (entity=rg_find_ent_by_class(entity,"monster_entity"))>0)
         if (get_entvar(entity,var_deadflag)==DEAD_NO && Float:get_entvar(entity,var_health)>0.0 &&
             Float:get_entvar(entity,var_takedamage)!=DAMAGE_NO && !(get_entvar(entity,var_effects)&EF_NODRAW))
             candidates[count++]=entity;
     server_print("[cof-burn] setup flare=%d candidates=%d",flare,count);
-    if (!flare || count!=sizeof candidates) return PLUGIN_HANDLED;
+    if (!flare || count!=required) return PLUGIN_HANDLED;
     engfunc(EngFunc_SetOrigin,flare,burnOrigin);
-    burnFlare=flare; burnSerial=pev_serial(flare);
-    for (new i=0;i<sizeof candidates;i++)
+    burnFlare=flare; burnSerial=pev_serial(flare); burnCount=count;
+    for (new i=0;i<burnCount;i++)
     {
         entity=candidates[i];
         new Float:mins[3], Float:maxs[3], Float:point[3];
         get_entvar(entity,var_mins,mins); get_entvar(entity,var_maxs,maxs);
         for (new axis=0;axis<3;axis++)
             point[axis]=burnCenters[i][axis]-(mins[axis]+maxs[axis])*0.5;
-        // Hold the real targets still and leave enough health to observe natural expiry.
+        // Pin each center for repeatable distance and wall tests.
         set_entvar(entity,var_nextthink,0.0); set_entvar(entity,var_movetype,MOVETYPE_NONE);
         set_entvar(entity,var_velocity,Float:{0.0,0.0,0.0});
-        set_entvar(entity,var_health,1000.0); set_entvar(entity,var_armorvalue,50.0);
+        set_entvar(entity,var_health,burnHealth[i]); set_entvar(entity,var_armorvalue,50.0);
         engfunc(EngFunc_SetOrigin,entity,point);
-        burnTargets[i]=entity; burnTargetSerial[i]=pev_serial(entity); burnHits[i]=0;
+        burnTargets[i]=entity; burnTargetSerial[i]=pev_serial(entity); burnHits[i]=0; burnDead[i]=false;
     }
     if (!burnHook) burnHook=RegisterHamFromEntity(Ham_TakeDamage,candidates[0],"BurnHit",1);
     return BurnState();
@@ -69,12 +153,14 @@ public BurnSetup()
 public BurnHit(entity,inflictor,attacker,Float:amount,bits)
 {
     if (inflictor!=burnFlare || !pev_valid(inflictor) || pev_serial(inflictor)!=burnSerial) return HAM_IGNORED;
-    for (new i=0;i<sizeof burnTargets;i++)
-        if (entity==burnTargets[i] && pev_serial(entity)==burnTargetSerial[i])
+    for (new i=0;i<burnCount;i++)
+        if (!burnDead[i] && entity==burnTargets[i] && pev_serial(entity)==burnTargetSerial[i])
         {
             ++burnHits[i];
-            server_print("[cof-burn] hit t=%.3f target=%d index=%d source=%d actor=%d amount=%.1f bits=%d hp=%.1f",
-                get_gametime(),i,entity,inflictor,attacker,amount,bits,Float:get_entvar(entity,var_health));
+            new dead=get_entvar(entity,var_deadflag);
+            burnDead[i] = dead==DEAD_DEAD;
+            server_print("[cof-burn] hit t=%.3f target=%d index=%d source=%d actor=%d amount=%.1f bits=%d hp=%.1f deadflag=%d",
+                get_gametime(),i,entity,inflictor,attacker,amount,bits,Float:get_entvar(entity,var_health),dead);
         }
     return HAM_IGNORED;
 }
@@ -90,9 +176,14 @@ public BurnState()
     start[2]+=1.0;
     server_print("[cof-burn] t=%.3f flare=%d body=%d next=%.3f",get_gametime(),burnFlare,
         get_entvar(burnFlare,var_body),Float:get_entvar(burnFlare,var_nextthink));
-    for (new i=0;i<sizeof burnTargets;i++)
+    for (new i=0;i<burnCount;i++)
     {
         new entity=burnTargets[i];
+        if (burnDead[i])
+        {
+            server_print("[cof-burn] target=%d index=%d died=1 hits=%d",i,entity,burnHits[i]);
+            continue;
+        }
         if (!pev_valid(entity) || pev_serial(entity)!=burnTargetSerial[i]) continue;
         new Float:lo[3], Float:hi[3], Float:center[3], Float:fraction;
         get_entvar(entity,var_absmin,lo); get_entvar(entity,var_absmax,hi);
@@ -146,9 +237,9 @@ public BurnWave()
 }
 Inspect(id)
 {
-    server_print("[CoF live] player=%d userid=%d alive=%d health=%.1f money=%d team=%d",
+    server_print("[CoF live] player=%d userid=%d alive=%d health=%.1f money=%d team=%d frags=%d",
         id, get_user_userid(id), is_user_alive(id), Float:get_entvar(id,var_health),
-        get_member(id,m_iAccount), get_member(id,m_iTeam));
+        get_member(id,m_iAccount), get_member(id,m_iTeam), get_user_frags(id));
     new active=get_member(id,m_pActiveItem);
     for(new slot;slot<6;slot++)
     {
@@ -173,6 +264,10 @@ public Status()
         get_member_game(m_bFreezePeriod), get_member_game(m_bRoundTerminating));
     for(new id=1;id<=MaxClients;id++)
         if(is_user_connected(id)&&!is_user_bot(id)&&!is_user_hltv(id))Inspect(id);
+    if (OwnsTeammate(teammate) && pev_valid(teammate)==2)
+        server_print("[cof-burn] teammate=%d userid=%d serial=%d bot=%d alive=%d team=%d frags=%d",
+            teammate,teammateUserid,teammateSerial,is_user_bot(teammate),is_user_alive(teammate),
+            get_member(teammate,m_iTeam),get_user_frags(teammate));
     return PLUGIN_HANDLED;
 }
 
