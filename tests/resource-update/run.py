@@ -139,6 +139,14 @@ def main():
                     (out / 'cases' / case / 'http-started').write_text('started', 'ascii')
                     stop.wait(2)
                     self.wfile.write(content[131072:])
+                elif case == 'steady-slow':
+                    chunk = 16 * 1024
+                    for offset in range(0, 128 * 1024, chunk):
+                        if offset and stop.wait(.85):
+                            return
+                        self.wfile.write(content[offset:offset + chunk])
+                        self.wfile.flush()
+                    self.wfile.write(content[128 * 1024:])
                 else: self.wfile.write(content)
                 self.wfile.flush()
             except (OSError, ConnectionError): pass
@@ -155,6 +163,7 @@ def main():
              ('reuse', 'reuse', 'models/update.mdl', 1), ('same-generation', 'same-generation', 'models/update.mdl', 2),
              ('old-hardlink', 'old-hardlink', 'models/update.mdl', 1), ('cache-hardlink', 'cache-hardlink', 'models/update.mdl', 0),
              ('bad-sha', 'bad-sha', 'models/update.mdl', 3), ('cancel', 'cancel', 'models/update.mdl', 2),
+             ('steady-slow', 'update', 'models/update.mdl', 1),
              ('invalid', 'invalid', 'models/update.mdl', 0), ('final-change', 'final-change', 'models/update.mdl', 1),
              ('corrupt-cache', 'update', 'models/update.mdl', 1),
              ('long-name', 'update', 'models/' + 'a' * 52 + '.mdl', 1),

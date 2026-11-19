@@ -32,11 +32,16 @@ asio::awaitable<Result> Body(transport::Session& session, transport::Request& re
     if (!Resize(job, job.expected.size)) co_return Result{ERROR_NOT_ENOUGH_MEMORY};
     std::size_t offset = 0;
     while (offset < job.bytes.size()) {
-        const auto read = co_await request.Read(job.bytes.data() + offset,
-            DWORD(std::min<std::size_t>(128 * 1024, job.bytes.size() - offset)),
-            asio::redirect_error(asio::use_awaitable, ioError));
+        // Wait for incoming data before choosing the read size. A large ReadData
+        // can remain pending past the timeout while a slow peer is still sending.
+        const auto available = co_await request.Available(asio::redirect_error(asio::use_awaitable, ioError));
         if (ioError) co_return HttpError(DWORD(ioError.value()));
-        if (!read || read > job.bytes.size() - offset)
+        if (!available) co_return Result{ERROR_HANDLE_EOF, "Resource response was truncated"};
+        const auto bytes = DWORD(std::min<std::size_t>({128 * 1024, available, job.bytes.size() - offset}));
+        const auto read = co_await request.Read(job.bytes.data() + offset,
+            bytes, asio::redirect_error(asio::use_awaitable, ioError));
+        if (ioError) co_return HttpError(DWORD(ioError.value()));
+        if (!read || read > bytes)
             co_return Result{ERROR_HANDLE_EOF, "Resource response was truncated"};
         offset += read; job.transferred.store(std::uint32_t(offset), std::memory_order_relaxed);
     }

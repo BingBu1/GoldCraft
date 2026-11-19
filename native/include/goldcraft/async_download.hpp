@@ -173,6 +173,9 @@ public:
     template<class Token> auto Receive(Token&& token) {
         return Operation(WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, nullptr, 0, std::forward<Token>(token));
     }
+    template<class Token> auto Available(Token&& token) {
+        return Operation(WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE, nullptr, 0, std::forward<Token>(token));
+    }
     template<class Token> auto Read(void* buffer, DWORD bytes, Token&& token) {
         return Operation(WINHTTP_CALLBACK_STATUS_READ_COMPLETE, buffer, bytes, std::forward<Token>(token));
     }
@@ -265,6 +268,10 @@ private:
                 completion = std::move(self.pending);
             } else if (status == self.expected) {
                 error = self.abortReason;
+                if (status == WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE && !error) {
+                    if (data && length == sizeof(DWORD)) length = *static_cast<const DWORD*>(data);
+                    else error = ERROR_INVALID_DATA;
+                }
                 completion = std::move(self.pending);
             } else return;
             self.operationDeadline = Clock::time_point::max();
@@ -292,6 +299,8 @@ private:
                         WINHTTP_NO_REQUEST_DATA, 0, 0, reinterpret_cast<DWORD_PTR>(this));
                 else if (event == WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE)
                     started = WinHttpReceiveResponse(value, nullptr);
+                else if (event == WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE)
+                    started = WinHttpQueryDataAvailable(value, nullptr);
                 else started = WinHttpReadData(value, buffer, bytes, nullptr);
                 if (started || GetLastError() == ERROR_IO_PENDING) return;
                 error = GetLastError();
