@@ -61,6 +61,7 @@ void Run(std::string_view group)
     rules->m_bFreezePeriod = FALSE;
     const float weapon = c.player.m_pActiveItem->GetMaxSpeed();
     Require(std::isfinite(weapon) && weapon > 0, "real current weapon has native movement speed");
+    SetNight(c);
     Admit(c, 100);
     Require(Frame(c, 100), "real movement frame prepares walk and current-life input");
     const auto grant = Grant(c);
@@ -69,7 +70,7 @@ void Run(std::string_view group)
     Command(c, "sprintON", life);
     SnapshotAndClamp(c, weapon * .5f); // A queued request alone does not run a new frame.
     Require(Frame(c, 100.02f), "accepted current-life sprint reaches the next real frame");
-    SnapshotAndClamp(c, weapon);
+    SnapshotAndClamp(c, 300);
     if (group == "crouch")
     {
         c.player.pev->flags |= FL_DUCKING;
@@ -86,7 +87,7 @@ void Run(std::string_view group)
         c.player.pev->flags &= ~FL_FROZEN;
         rules->m_bFreezePeriod = FALSE;
         Require(Frame(c, 100.03f), "thaw preserves the current run owner");
-        SnapshotAndClamp(c, weapon);
+        SnapshotAndClamp(c, 300);
     }
     else if (group == "engine-limit")
     {
@@ -100,7 +101,7 @@ void Run(std::string_view group)
         c.player.pev->origin.x += 80;
         Require(Frame(c, 100.03f), "real frame charges accepted horizontal run displacement");
         Expect(Amount(c) == 92, "frame owns the original0.1 per-unit debit");
-        SnapshotAndClamp(c, weapon);
+        SnapshotAndClamp(c, 300);
         Command(c, "sprintOFF", life);
         Require(Frame(c, 100.04f), "release is consumed by the next actual frame");
         SnapshotAndClamp(c, weapon * .5f);

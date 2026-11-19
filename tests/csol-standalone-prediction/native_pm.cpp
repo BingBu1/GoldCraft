@@ -106,6 +106,7 @@ void Run(std::string_view group)
     auto* rules = static_cast<CHalfLifeMultiplay*>(g_pGameRules);
     rules->m_bFreezePeriod = FALSE;
     const float weaponSpeed = c.player.m_pActiveItem->GetMaxSpeed();
+    SetNight(c);
     Admit(c, 100); Require(Frame(c, 100), "actual current-life movement owner is ready");
     const auto life = std::to_string(Grant(c).life);
     if (group != "walk") Command(c, "sprintON", life);
@@ -148,7 +149,7 @@ void Run(std::string_view group)
         clientdata_t snapshot{};
         c.f.engine.api.pfnUpdateClientData(c.player.edict(), 0, &snapshot);
         const float expected = rules->m_bFreezePeriod ? 1.f :
-            weaponSpeed * (group == "walk" ? .5f : group == "crouch" ? .8f : 1.f);
+            group == "walk" ? weaponSpeed * .5f : group == "crouch" ? weaponSpeed * .8f : 300.f;
         Expect(snapshot.maxspeed == expected, "actual native snapshot carries one authoritative speed transform");
         const bool jumpDenied = CSOL_ActionStaminaJumpBlocked(c.player);
         const bool departure = client->onground != -1 && !(client->oldbuttons & IN_JUMP) && !jumpDenied;

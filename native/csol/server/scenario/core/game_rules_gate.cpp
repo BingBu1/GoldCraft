@@ -638,19 +638,15 @@ public:
         CheckWinConditions();
         if (!Ready()) return;
         if (!UpdateCustomTime()) return;
-        // Original mode+70 (1080E080 ->10858EC0) updates player movement
-        // before the gameplay manager. Capability stays closed until input
-        // and actual movement prediction are validated; scenario AI is kept.
-        if (CSOL_CustomFeatureEnabled(csol::scenario::custom::Feature::CofSprint))
+        // The movement owner captures its policy during the map's resource
+        // preparation. It advances before the scenario gameplay manager.
+        csol::scenario::ConfigError movementError;
+        const bool movementUpdated = CSOL_TickStandaloneMovementFrame(m_runtime, movementError);
+        if (!Ready()) return;
+        if (!movementUpdated)
         {
-            csol::scenario::ConfigError error;
-            const bool updated = CSOL_TickStandaloneMovementFrame(m_runtime, error);
-            if (!Ready()) return;
-            if (!updated)
-            {
-                CSOL_RejectGameRules(error.message.empty() ? "Standalone movement frame lost its current owner." : error.message.c_str());
-                return;
-            }
+            CSOL_RejectGameRules(movementError.message.empty() ? "Standalone movement frame lost its current owner." : movementError.message.c_str());
+            return;
         }
         // MP runs the manager (including a due end-round drain batch) before
         // testing final-result and ordinary restart deadlines. Do not discard

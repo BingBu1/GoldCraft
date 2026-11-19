@@ -38,10 +38,14 @@ void Speed(IReGameHook_CBasePlayer_ResetMaxSpeed* chain, CBasePlayer* player)
     if (callback) callback();
     chain->callNext(player);
 }
-void Settings(bool enabled = true)
+void Settings(bool enabled = true, bool timeCycle = false)
 {
+    if (timeCycle) environment_test::LoadProvider();
     custom::Draft draft; custom::Error error; custom::SnapshotPtr snapshot;
-    Require(draft.Set(custom::Feature::CofSprint, enabled, error) && draft.Finish(snapshot, error),
+    Require(draft.Set(custom::Feature::CofSprint, enabled, error) &&
+        draft.Set(custom::Feature::TimeCycle, timeCycle, error) &&
+        draft.Set(custom::Setting::MiddaySeconds, 2, error) &&
+        draft.Set(custom::Setting::DuskSeconds, 3, error) && draft.Finish(snapshot, error),
         "typed StandAlone policy accepts omitted native defaults and distance units");
     const auto path = std::filesystem::current_path() / "cstrike/addons/goldcraft/config/gameplay.json";
     Require(!std::filesystem::exists(path), "fresh standalone SDK configuration");
@@ -62,10 +66,11 @@ custom::StandaloneInputGrant Grant(Case& c)
     for (auto packet = c.packets.rbegin(); packet != c.packets.rend(); ++packet)
         if (packet->id == found->second)
         {
-            const auto value = custom::DecodeStandaloneInput(packet->bytes);
-            Require(value && packet->destination == MSG_ONE && packet->receiver == c.player.entindex(),
-                "actual owner grant is a valid per-recipient message");
-            return *value;
+            Require(packet->destination == MSG_ONE && packet->receiver == c.player.entindex(),
+                "actual input packet belongs to the current player");
+            if (const auto value = custom::DecodeStandaloneInput(packet->bytes)) return *value;
+            Require(bool(custom::DecodeStandaloneInputProbe(packet->bytes)),
+                "only a valid readiness probe can follow an input grant or revocation");
         }
     throw std::runtime_error("Actual owner emitted no input grant");
 }
@@ -98,9 +103,15 @@ void Admit(Case& c, float now)
     const auto challenge = Probe(c);
     ReadyCommand(c, std::to_string(challenge.life), std::to_string(challenge.revision));
 }
+void SetNight(Case& c)
+{
+    Require(CSOL_SetChallengeStaminaPhase(c.f.runtime, custom::Phase::Night, true),
+        "direct movement fixture starts with an authoritative unlocked phase");
+}
 void Run(std::string_view group)
 {
-    Settings(group != "disabled"); Case c(MusicResources);
+    Settings(group != "disabled", group == "rules-frame");
+    Case c(MusicResources);
     c.player.m_iJoiningState = JOINED;
     c.player.m_bJustConnected = false;
     static_cast<CHalfLifeMultiplay*>(g_pGameRules)->m_bFreezePeriod = FALSE;
@@ -111,20 +122,17 @@ void Run(std::string_view group)
         ~Cleanup()
         { speedCallback = {}; g_ReGameHookchains.m_CBasePlayer_ResetMaxSpeed.unregisterHook(Speed); }
     } cleanup;
-    if (group == "disabled" || group == "capability-closed")
+    if (group == "disabled")
     {
         const auto id = c.f.engine.messages.at(custom::StandaloneInputMessage);
         const auto grants = [&]
         { return std::count_if(c.packets.begin(), c.packets.end(), [&](const auto& packet) { return packet.id == id; }); };
         const auto before = grants();
-        if (group == "disabled") Require(Frame(c, 100), "disabled configuration does not prepare movement owner");
-        else
-        {
-            Expect(!CSOL_CustomFeatureEnabled(custom::Feature::CofSprint), "incomplete full sprint capability remains closed");
-            NativeActor(c); Restart(c); Tick(c, 120);
-        }
+        Require(Frame(c, 100), "disabled configuration does not prepare movement owner");
+        c.f.engine.Set("csol_custom_cof_sprint", "1");
+        NativeActor(c); Restart(c); Tick(c, 120);
         Expect(grants() == before && !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
-            "actual disabled/unsupported rules cannot grant or alter ordinary movement");
+            "a CVAR change after map preparation cannot enable sprint on the current map");
         Command(c, "sprintON", "1");
         Expect(grants() == before && !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250),
             "manual native command cannot manufacture a granted movement life");
@@ -132,6 +140,99 @@ void Run(std::string_view group)
             "unprobed acknowledgement cannot manufacture disabled or unsupported movement");
         return;
     }
+    if (group == "rules-frame")
+    {
+        Expect(CSOL_CustomFeatureEnabled(custom::Feature::CofSprint),
+            "persistent sprint configuration initializes the production CVAR");
+        NativeActor(c);
+        Restart(c);
+        c.player.m_fGameHUDInitialized = TRUE;
+        CSOL_RetireActionStamina(c.player);
+        c.f.players->PlayerSpawnStarted(EHANDLE(&c.player));
+        ++c.player.m_iNumSpawns;
+        Require(CSOL_TickActionStamina(c.f.runtime, c.player, 120.011f, c.error, true),
+            "new life can publish its HUD in a client command ahead of the first world frame");
+        Tick(c, 120);
+        c.player.ResetMaxSpeed();
+        const float normalSpeed = c.player.pev->maxspeed;
+        Require(normalSpeed > 0 && normalSpeed != 300, "native scenario movement has a distinct baseline");
+        const auto probe = Probe(c);
+        Require(CSOL_TickActionStamina(c.f.runtime, c.player, 120.021f, c.error),
+            "client post-think can run ahead of the next world frame while awaiting readiness");
+        ReadyCommand(c, std::to_string(probe.life), std::to_string(probe.revision));
+        c.f.engine.Set("csol_custom_cof_sprint", "0");
+        const int id = c.f.engine.messages.at(custom::StandaloneInputMessage);
+        const auto inputPackets = [&]
+        {
+            return std::count_if(c.packets.begin(), c.packets.end(),
+                [id](const auto& packet) { return packet.id == id; });
+        };
+        const auto noonPackets = inputPackets();
+        Tick(c, 120.01f);
+        const auto life = std::to_string(probe.life);
+        Command(c, "sprintON", life);
+        Tick(c, 121);
+        Expect(Read(c).time.phase == custom::Phase::Noon &&
+            CSOL_ActionStaminaView(c.f.runtime, c.player)->infinite && inputPackets() == noonPackets &&
+            !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) && c.player.pev->maxspeed == normalSpeed,
+            "noon keeps native movement and unlimited stamina even after a sprint command and client acknowledgement");
+
+        Tick(c, 122);
+        const auto granted = Grant(c);
+        Expect(Read(c).time.phase == custom::Phase::Dusk && granted.enabled && granted.life == probe.life &&
+            c.player.pev->maxspeed == c.weapon->GetMaxSpeed() * .5f &&
+            CSOL_ActionStaminaView(c.f.runtime, c.player)->maximum == 150,
+            "dusk opens the existing movement policy with enhanced finite stamina and a fresh request");
+        Command(c, "sprintON", life);
+        Tick(c, 122.02f);
+        Expect(c.player.pev->maxspeed == 300, "dusk sprint uses the fixed standing speed");
+        const auto duskPackets = inputPackets();
+        Tick(c, 125);
+        Expect(Read(c).time.phase == custom::Phase::Night && c.player.pev->maxspeed == 300 &&
+            CSOL_ActionStaminaView(c.f.runtime, c.player)->maximum == 100 && inputPackets() == duskPackets,
+            "eternal night keeps the live sprint and token without publishing another input packet");
+
+        c.f.engine.Set("csol_custom_time_cycle", "0");
+        Tick(c, 125);
+        const auto revoked = Grant(c);
+        const auto nextProbe = Probe(c);
+        Expect(!revoked.enabled && revoked.life == probe.life && revoked.revision > granted.revision &&
+            nextProbe.life > revoked.life && c.player.pev->maxspeed == normalSpeed &&
+            !CSOL_ActionStaminaView(c.f.runtime, c.player)->sprinting,
+            "disabling time clears sprint and restores native speed even at the last frame timestamp");
+        ReadyCommand(c, std::to_string(nextProbe.life), std::to_string(nextProbe.revision));
+        Command(c, "sprintON", life);
+        c.f.engine.Set("csol_custom_time_cycle", "1");
+        Tick(c, 127);
+        Expect(Read(c).time.phase == custom::Phase::Noon && c.player.pev->maxspeed == normalSpeed &&
+            CSOL_ActionStaminaView(c.f.runtime, c.player)->infinite && !Grant(c).enabled,
+            "re-enabling the clock begins a new noon with the sprint still locked");
+        Tick(c, 129);
+        const auto nextGrant = Grant(c);
+        Expect(nextGrant.enabled && nextGrant.life == nextProbe.life && nextGrant.life > revoked.life &&
+            c.player.pev->maxspeed == c.weapon->GetMaxSpeed() * .5f,
+            "the next dusk grants a new token without inheriting a sprint request");
+        Command(c, "sprintON", life);
+        Tick(c, 129.01f);
+        Expect(c.player.pev->maxspeed == c.weapon->GetMaxSpeed() * .5f,
+            "queued sprint from the previous period cannot activate the new one");
+        Command(c, "sprintON", std::to_string(nextGrant.life));
+        Tick(c, 129.02f);
+        Expect(c.player.pev->maxspeed == 300, "the new token enables a fresh sprint");
+
+        auto* replay = static_cast<csol::IScenarioReplayService*>(
+            CreateInterface(csol::ScenarioReplayServiceVersion, nullptr));
+        const auto challenge = Read(c).challenge;
+        Require(replay && replay->RequestReplay(98), "real same-map replay accepts current map");
+        c.player.m_iMenu = Menu_ChooseAppearance;
+        Tick(c, 130);
+        Expect(Read(c).challenge > challenge && Read(c).time.phase == custom::Phase::Noon &&
+            !CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) &&
+            !CSOL_ActionStaminaRunCommand(c.f.runtime, c.player, true, std::to_string(nextGrant.life)),
+            "same-map replay resets to noon and cannot inherit the previous sprint token");
+        return;
+    }
+    SetNight(c);
     if (group == "hud-order")
     {
         c.player.m_fGameHUDInitialized = FALSE;
@@ -276,8 +377,8 @@ void Run(std::string_view group)
         Expect(speedCalls == calls && Amount(c) == 100,
             "original command edge changes request only, without resetting speed or debiting");
         Require(Frame(c, 100.03f), "next real frame applies valid native run request");
-        Expect(CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 250 && c.player.pev->maxspeed == weaponSpeed,
-            "native ResetMaxSpeed consumes the current weapon-derived run state");
+        Expect(CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 300 && c.player.pev->maxspeed == 300,
+            "native ResetMaxSpeed applies the fixed standing sprint speed");
         Command(c, "sprintOFF", life);
         Require(Frame(c, 100.04f), "next real frame applies native release request");
         Expect(CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 125 && c.player.pev->maxspeed == weaponSpeed * .5f,
@@ -291,13 +392,16 @@ void Run(std::string_view group)
         "malformed and stale input cannot change actual run request");
     Require(CSOL_ActionStaminaRunCommand(c.f.runtime, c.player, true, life), "current grant accepts run request");
     Require(Frame(c, 100.01f), "first running frame captures original displacement origin");
-    Expect(Amount(c) == 100 && CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 250,
+    Expect(Amount(c) == 100 && CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250) == 300,
         "request edge starts native run without charging the prior position");
     if (group == "speed-layers")
     {
         const auto weaponSpeed = c.weapon->GetMaxSpeed();
         c.player.ResetMaxSpeed();
-        Expect(c.player.pev->maxspeed == weaponSpeed, "native ResetMaxSpeed actually reaches the prepared running owner");
+        Expect(c.player.pev->maxspeed == 300 &&
+            CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 210) == 300 &&
+            CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 400) == 300,
+            "standing sprint reaches 300 with weapon speeds on either side of 300");
         auto* rules = static_cast<CHalfLifeMultiplay*>(g_pGameRules);
         rules->m_bFreezePeriod = TRUE; c.player.ResetMaxSpeed();
         Expect(c.player.pev->maxspeed == 1, "native freeze retains priority over running");
@@ -342,8 +446,8 @@ void Run(std::string_view group)
     const float expected = group == "crouch" || group == "release" ? 100 : group == "depleted" ? 0 : 90;
     Expect(Amount(c) == expected, "actual frame uses original horizontal-distance cost once");
     const auto speed = CSOL_ActionStaminaRunSpeed(c.f.runtime, c.player, 250);
-    Expect(speed == (group == "crouch" ? 200 : group == "release" || group == "depleted" ? 125 : 250),
-        "current owner exposes original weapon-derived run, walk and crouch speed");
+    Expect(speed == (group == "crouch" ? 200 : group == "release" || group == "depleted" ? 125 : 300),
+        "current owner applies fixed sprint speed and weapon-derived walk and crouch speeds");
     if (group == "postthink")
     {
         const auto packets = c.packets.size(); const auto calls = speedCalls;

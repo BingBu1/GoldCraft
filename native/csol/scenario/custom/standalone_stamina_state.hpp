@@ -32,14 +32,15 @@ inline bool Valid(const StandaloneStaminaConfig& config) noexcept
 class StandaloneStaminaState final
 {
 public:
-    bool Begin(LifeKey key, Phase phase, float now, StandaloneStaminaConfig config = {}) noexcept
+    bool Begin(LifeKey key, Phase phase, std::optional<float> clock, StandaloneStaminaConfig config = {}) noexcept
     {
+        const float now = clock.value_or(0.0f);
         if (!key.Valid() || !Playing(phase) || !std::isfinite(now) || !Valid(config) ||
             (key_.Valid() && key.round == key_.round && key.life <= key_.life) ||
             (retired_.Valid() && key.round == retired_.round && key.life <= retired_.life)) return false;
         const float deadline = now + config.recovery.delay;
         if (!std::isfinite(deadline)) return false;
-        key_ = key; config_ = config; phase_ = phase; now_ = now; command_ = 0;
+        key_ = key; config_ = config; phase_ = phase; now_ = clock; command_ = 0;
         recovery_ = {}; recovery_.amount = recovery_.observed = Capacity();
         recovery_.wait = config.recovery.delay; recovery_.deadline = deadline; recovery_.started = now;
         run_ = {};
@@ -89,6 +90,7 @@ public:
         run_.requested = requested;
         return true;
     }
+    void ClearRun() noexcept { run_ = {}; }
     std::optional<float> RunDisplacement(LifeKey key, const std::array<float, 3>& origin, bool ducking) noexcept
     {
         if (!Current(key)) return {};
@@ -107,14 +109,20 @@ public:
     bool Running(LifeKey key) const noexcept { return Current(key) && run_.running; }
     std::optional<StaminaView> Step(LifeKey key, std::uint64_t command, float now, float frameTime) noexcept
     {
-        if (!Current(key) || !command || command <= command_ || !std::isfinite(now) || now < now_ ||
+        if (!Current(key) || !command || command <= command_ || !std::isfinite(now) || (now_ && now < *now_) ||
             !std::isfinite(frameTime) || frameTime < 0) return {};
-        if (stepped_ && now == now_ && recovery_.amount == recovery_.observed)
+        if (stepped_ && now == *now_ && recovery_.amount == recovery_.observed)
         {
             command_ = command; recoveryVoice_ = false;
             return View(key);
         }
-        auto next = recovery_;
+        auto before = recovery_;
+        if (!now_)
+        {
+            before.started = now;
+            before.deadline = now + config_.recovery.delay;
+        }
+        auto next = before;
         auto profile = config_.recovery;
         profile.maximum = Capacity(); profile.lowThreshold = std::min(profile.lowThreshold, profile.maximum);
         const float multiplier = phase_ == Phase::Dusk ? config_.duskRecovery : 1;
@@ -124,7 +132,7 @@ public:
         if (phase_ == Phase::Noon)
         {
             // Infinite is an authoritative product phase, not a refill.
-            next = recovery_; next.lowSound = false;
+            next = before; next.lowSound = false;
         }
         else if (config_.recoveryPerSecond && now > next.deadline)
         {
@@ -164,7 +172,7 @@ private:
     StandaloneRecoveryState recovery_;
     StandaloneRunState run_;
     Phase phase_{Phase::Night};
-    float now_{};
+    std::optional<float> now_;
     std::uint64_t command_{};
     bool depleted_{}, recoveryVoice_{}, stepped_{};
 };

@@ -78,7 +78,7 @@
         },
         "cof_sprint": {
             "enabled": false,
-            "comment": "CoF体力跑；原消耗恢复及动作消费者先取证，正午无限不能用NaN表示。",
+            "comment": "下次载入地图启用体力。正午为灾变原有移速，黄昏和永夜解锁疾跑，站姿疾跑地速为300。",
             "values": {
                 "sprint_maximum": {
                     "value": null,
@@ -86,19 +86,19 @@
                 },
                 "sprint_drain_per_second": {
                     "value": null,
-                    "comment": "每秒跑动体力消耗，必须显式填写。"
+                    "comment": "已停用的旧CoF每秒消耗；启用绝命档案前须置null，不能换算成位移单位。"
                 },
                 "sprint_recovery_per_second": {
                     "value": null,
-                    "comment": "每秒体力恢复，必须显式填写。"
+                    "comment": "可选自定义每秒恢复；null使用原版延迟3秒和加速恢复。"
                 },
                 "sprint_speed": {
                     "value": null,
-                    "comment": "跑动基础速度，仍须宿主碰撞和移动权威验证。"
+                    "comment": "已停用的旧固定跑速；启用前须置null，站姿疾跑地速为300。"
                 },
                 "walk_speed": {
                     "value": null,
-                    "comment": "普通行走基础速度，不覆盖其他功能拥有的速度限制。"
+                    "comment": "已停用的旧固定走速；启用前须置null，原版按武器速度乘0.5。"
                 },
                 "jump_cost": {
                     "value": null,
@@ -115,6 +115,10 @@
                 "dusk_recovery_multiplier": {
                     "value": 1.25,
                     "comment": "黄昏体力恢复倍率。GoldCraft自定义默认，非CSOL原值。"
+                },
+                "sprint_cost_per_unit": {
+                    "value": 0.1,
+                    "comment": "绝命档案按水平实际位移扣费，每GoldSrc单位体力；默认原版0.1，非每秒。"
                 }
             }
         },

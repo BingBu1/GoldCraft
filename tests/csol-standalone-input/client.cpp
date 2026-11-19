@@ -230,5 +230,28 @@ int main()
     InitializeStandaloneMovementInput();
     Check(!initialized && !commandsReady, "missing native hook API leaves input uninitialized");
     meta.HookCmd = hookCommand;
+    const auto phaseHeads = CaptureChainedCommandHeads();
+    input_test::down.function = input_test::StockDown;
+    input_test::up.function = input_test::StockUp;
+    RefreshChainedCommandHeads(phaseHeads); InitializeStandaloneMovementInput();
+    const auto noonDown = input_test::downCalls, noonUp = input_test::upCalls;
+    const auto beforeDusk = input_test::queues;
+    input_test::down.function();
+    input_test::Activate(1);
+    input_test::up.function();
+    Check(input_test::downCalls == noonDown + 1 && input_test::upCalls == noonUp + 1 &&
+        input_test::queues == beforeDusk, "a shift press begun in noon releases the original walk binding after dusk arrives");
+    input_test::down.function();
+    Check(sprint.State() == 1 && input_test::queues == beforeDusk + 1,
+        "the next shift press activates sprint");
+    input_test::Send({1, 3, false});
+    input_test::Probe({2, 1});
+    input_test::up.function();
+    Check(sprint.State() == 0 && input_test::upCalls == noonUp + 2 && input_test::queues == beforeDusk + 1,
+        "revoking while held clears sprint and restores native key release");
+    input_test::Send({2, 2, true}); input_test::down.function();
+    Check(!std::strcmp(input_test::lastCommand.data(), "sprintON 2\n"),
+        "a later dusk activates sprint under a newly acknowledged token");
+    ShutdownStandaloneMovementInput();
     std::printf("CSOL StandAlone actual input adapter: %u checks passed\n", input_test::checks);
 }
