@@ -33,7 +33,8 @@ struct Hit
     std::shared_ptr<CCSOLScenarioSession> session;
     std::shared_ptr<CCSOLScenarioPlayerRuntime> players;
     std::shared_ptr<const CSOLScenarioEntityAccess> access;
-    EHANDLE victim, actor;
+    EHANDLE victim, inflictor, actor;
+    const entvars_t* inflictorVars{};
     const entvars_t* actorVars{};
     CCSOLScenarioMonster* identity{};
     const CCSOLMonsterBehavior* behavior{};
@@ -43,11 +44,12 @@ struct Hit
     const void* ownerContext{};
     bool entered{}, consumed{}, healthCommitted{}, finished{}, killed{};
 
-    Hit(CCSOLScenarioMonster& target, CBasePlayer& player,
+    Hit(CCSOLScenarioMonster& target, CBaseEntity& source, CBasePlayer* player,
         const std::shared_ptr<CCSOLScenarioRuntime>& owner,
         CSOLMonsterActionKind kind, bool (*valid)(const void*), const void* context)
         : runtime(owner), session(owner->session), players(owner->players),
-          access(session->Map().EntityAccess()), victim(&target), actor(&player), actorVars(player.pev), identity(&target), behavior(target.Behavior()),
+          access(session->Map().EntityAccess()), victim(&target), inflictor(&source), actor(player),
+          inflictorVars(source.pev), actorVars(player ? player->pev : nullptr), identity(&target), behavior(target.Behavior()),
           lease(session->Monsters().Lease(target)), ownerCurrent(valid), ownerContext(context)
     {
         credit.kind = kind;
@@ -55,7 +57,7 @@ struct Hit
         credit.session = session;
         credit.players = players;
         credit.access = access;
-        credit.actorState = players->Find(actor);
+        if (player) credit.actorState = players->Find(actor);
         credit.runtimeGeneration = owner->Generation();
         credit.roundGeneration = session->Map().RoundGeneration();
         if (credit.actorState)
@@ -84,7 +86,8 @@ struct Hit
     {
         const auto& hit = *static_cast<const Hit*>(pointer);
         return hit.Current() && (hit.healthCommitted ||
-            (hit.OwnerCurrent() && CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())));
+            (hit.OwnerCurrent() && (!hit.actorVars ||
+                CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>()))));
     }
 };
 }
@@ -97,7 +100,7 @@ CSOLMonsterActionDamageEntry::CSOLMonsterActionDamageEntry(CCSOLScenarioMonster&
     // Raw identities only: this must precede the first engine lookup. Even a
     // nested hit with identical attacker/victim cannot steal this entry.
     if (!hit || hit->entered || hit->identity != &target ||
-        inflictor != hit->actorVars || attacker != hit->actorVars) return;
+        inflictor != hit->inflictorVars || attacker != hit->actorVars) return;
     hit->entered = true;
     enteredHit = hit;
 }
@@ -107,7 +110,8 @@ CSOLMonsterActionDamageEntry::~CSOLMonsterActionDamageEntry()
 bool CSOL_MonsterActionCreditCurrent(const CSOLMonsterActionCredit& credit, const CBasePlayer* actor)
 {
     if (credit.kind != CSOLMonsterActionKind::HumanKick &&
-        credit.kind != CSOLMonsterActionKind::GuestCofPushback) return false;
+        credit.kind != CSOLMonsterActionKind::GuestCofPushback &&
+        credit.kind != CSOLMonsterActionKind::GuestCofFlare) return false;
     const auto runtime = credit.runtime.lock();
     if (!runtime || runtime->Closing() || runtime->Generation() != credit.runtimeGeneration ||
         !runtime->session || !runtime->players || !runtime->players->Active()) return false;
@@ -131,8 +135,8 @@ bool CSOL_CaptureMonsterActionDamage(CSOLMonsterDamageCall& call)
     if (!hit || hit->consumed || call.Spawn().Current() != hit->identity ||
         call.AttackerHandle().Get() != hit->actor.Get() ||
         call.AttackerHandle().GetSerialNumber() != hit->actor.GetSerialNumber() ||
-        call.InflictorHandle().Get() != hit->actor.Get() ||
-        call.InflictorHandle().GetSerialNumber() != hit->actor.GetSerialNumber()) return false;
+        call.InflictorHandle().Get() != hit->inflictor.Get() ||
+        call.InflictorHandle().GetSerialNumber() != hit->inflictor.GetSerialNumber()) return false;
     hit->consumed = true;
     call.m_action = hit->credit;
     call.m_actionCurrent = &Hit::DamageCurrent;
@@ -190,7 +194,7 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     const float until = gpGlobals->time + 1.0f;
     if (!std::isfinite(length) || !std::isfinite(speed) || !Finite(impulse) || !std::isfinite(until))
     { error.message = "human kick impulse is not finite"; return Result::Failed; }
-    Hit hit(target, actor, runtime, CSOLMonsterActionKind::HumanKick, ownerCurrent, ownerContext);
+    Hit hit(target, actor, &actor, runtime, CSOLMonsterActionKind::HumanKick, ownerCurrent, ownerContext);
     if (!hit.OwnerCurrent() || !hit.Current() || !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
     // Actual entity/behavior/armor/death hooks execute, retaining actor credit.
     target.TakeDamage(actor.pev, actor.pev, baseDamage, DMG_CLUB);
@@ -230,7 +234,7 @@ CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMo
         target.pev->takedamage == DAMAGE_NO || (target.pev->flags & FL_KILLME) ||
         (target.pev->effects & EF_NODRAW) || actor.pev->deadflag != DEAD_NO ||
         actor.has_disconnected || (actor.pev->flags & (FL_KILLME | FL_DORMANT))) return Result::Ignored;
-    Hit hit(target, actor, runtime, CSOLMonsterActionKind::GuestCofPushback, ownerCurrent, ownerContext);
+    Hit hit(target, actor, &actor, runtime, CSOLMonsterActionKind::GuestCofPushback, ownerCurrent, ownerContext);
     if (!hit.OwnerCurrent() || !hit.Current() ||
         !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
     // Original0x05001000 is not a native CS damage mask (it includes CS explosion).
@@ -239,4 +243,13 @@ CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMo
     if (!hit.OwnerCurrent() || !hit.Current() ||
         !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
     return hit.finished ? Result::Applied : Result::Ignored;
+}
+
+void CSOL_GuestCofFlareMonsterDamage(CCSOLScenarioMonster& target, CBaseEntity& flare,
+    CBasePlayer* thrower, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    bool (*ownerCurrent)(const void*), const void* ownerContext)
+{
+    Hit hit(target, flare, thrower, runtime, CSOLMonsterActionKind::GuestCofFlare, ownerCurrent, ownerContext);
+    if (Hit::DamageCurrent(&hit))
+        target.TakeDamage(flare.pev, thrower ? thrower->pev : nullptr, 5.0f, DMG_BURN);
 }

@@ -525,7 +525,7 @@ bool TryScenarioHealingSlot(int oneBasedSlot)
     const bool gameplay = !gameUI && !console && !BuyMenuVisible() && !CharacterMenuVisible() &&
         !WeaponTextMenuVisible() && !ScenarioMapVoteVisible() && !intermission && !(hidden & 4) &&
         view.health > 0 && !view.spectator && (!surface || surface->HasFocus());
-    if (oneBasedSlot == 5 && gameplay && TrySelectNightFlashlight()) return true;
+    if (oneBasedSlot == 5 && gameplay && (TrySelectOwnedLantern() || TrySelectNightFlashlight())) return true;
     if (!command) return false;
     if (*command && gameplay && engine.pfnServerCmd) { engine.pfnServerCmd(command); ++commands; }
     return true;

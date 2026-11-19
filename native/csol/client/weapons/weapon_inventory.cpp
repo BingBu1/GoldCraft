@@ -3,6 +3,7 @@
 #include "../../weapons/skull3.hpp"
 #include "../runtime.hpp"
 #include "weapon_inventory.hpp"
+#include "../../../guest/cof/light_equipment.hpp"
 #include "../command_chain.hpp"
 #include "../user_message_chain.hpp"
 #include "../pickup_history.hpp"
@@ -420,6 +421,17 @@ void WeaponSelectionDiagnostics(std::ostream& out)
         out<<"{\"id\":"<<id<<",\"defined\":"<<bool(definitions[id].id)<<",\"slot\":"<<definitions[id].slot<<'}';
     }
     out<<"],\"guardUntil\":"<<guardUntil<<",\"guardDraws\":"<<guardDraws<<'}';
+}
+bool OwnsLantern()
+{
+    constexpr int id=guest::cof::light::Lantern.id;
+    return available && inventory.Owned()[id] && definitions[id].id;
+}
+bool TrySelectOwnedLantern()
+{
+    if(!OwnsLantern() || !engine.pfnServerCmd)return false;
+    Select(guest::cof::light::Lantern.id);
+    return true;
 }
 const WeaponDefinition* FindWeaponDefinition(int id){return ValidWeaponId(id)&&definitions[id].id?&definitions[id]:nullptr;}
 const WeaponDefinition* FindWeaponTitleDefinition(int id)

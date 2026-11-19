@@ -5,6 +5,7 @@
 #include <memory>
 
 class CBasePlayer;
+class CBaseEntity;
 class Vector;
 class CCSOLScenarioRuntime;
 class CCSOLScenarioSession;
@@ -18,7 +19,7 @@ struct entvars_s;
 
 // Independent player actions, separate from CSO's unchanged 32-byte context
 // and from the held weapon. CoF damage adaptation does not add kick motion.
-enum class CSOLMonsterActionKind : std::uint8_t { None, HumanKick, GuestCofPushback };
+enum class CSOLMonsterActionKind : std::uint8_t { None, HumanKick, GuestCofPushback, GuestCofFlare };
 struct CSOLMonsterActionCredit
 {
     CSOLMonsterActionKind kind{CSOLMonsterActionKind::None};
@@ -50,6 +51,11 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
 CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, csol::scenario::ConfigError& error,
+    bool (*ownerCurrent)(const void*), const void* ownerContext);
+
+// A thrown flare keeps burning if its thrower's player/life registration expires.
+void CSOL_GuestCofFlareMonsterDamage(CCSOLScenarioMonster& target, CBaseEntity& flare,
+    CBasePlayer* thrower, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     bool (*ownerCurrent)(const void*), const void* ownerContext);
 
 // Internal typed-action consumers; ordinary weapon hits retain their old path.

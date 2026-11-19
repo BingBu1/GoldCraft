@@ -6,12 +6,15 @@
 #include "guest_cof_effects.hpp"
 #include "guest_cof_muzzle.hpp"
 #include "../../../guest/cof/client/point_light_render.hpp"
+#include "../../../include/goldcraft/opaque_surface_mesh.hpp"
 #include <IMetaRendererOpaqueScene.h>
 #include <cmath>
 #include <limits>
 namespace csol::client {
 namespace {
 IMetaRendererOpaqueScene* opaque{};
+IMetaRendererOpaqueMesh* opaqueMesh{};
+bool waitingForMesh{};
 model_s* preparedWorld{};
 std::uint64_t preparedGeneration{};
 std::uint64_t preparedEffectResources{};
@@ -41,7 +44,7 @@ cvar_t* Setting(const char* name,const char* value,int flags) {
     auto* existing=engine.pfnGetCvarPointer(name);
     return existing?existing:engine.pfnRegisterVariable(name,value,flags);
 }
-bool PreparePoints(model_s& model,bool hl25) {
+bool PreparePoints(model_s& model,bool hl25,const IMetaRendererOpaqueMesh* mesh) {
     if(!GuestCofEffectsReady() || model.numsurfaces<=0)return false;
     if(!gamma) {
         gamma=Setting("cof_gl_gamma","1",FCVAR_ARCHIVE);
@@ -59,7 +62,7 @@ bool PreparePoints(model_s& model,bool hl25) {
     if(double(brightness->value)>.3)engine.Cvar_SetValue(brightness->name,.3F);
     pointGamma={gamma->value<0?1.0F:gamma->value,brightness->value,contrast->value};
     if(!pointRenderer)pointRenderer=std::make_unique<PointLightRenderer>();
-    if(!pointRenderer->PrepareMap(model,hl25,std::size_t(model.numsurfaces)*2) || !pointRenderer->InitializeGL())return false;
+    if(!pointRenderer->PrepareMap(model,hl25,std::size_t(model.numsurfaces)*2,mesh) || !pointRenderer->InitializeGL())return false;
     pointThread=GetCurrentThreadId();pointContext=wglGetCurrentContext();return true;
 }
 // Compatibility consumers operate on the exact resolved-world camera. They do
@@ -86,23 +89,32 @@ void GuestCofSceneFrame() noexcept {
         auto module=api->GetPluginModuleHandleByBaseFileName("Renderer");
         if(!module)module=api->GetPluginModuleHandleByBaseFileName("Renderer_AVX2");
         auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(HMODULE(module),"CreateInterface")):nullptr;
-        if(factory)opaque=static_cast<IMetaRendererOpaqueScene*>(factory(METARENDERER_OPAQUE_SCENE_INTERFACE_VERSION,nullptr));
+        if(factory) {
+            opaque=static_cast<IMetaRendererOpaqueScene*>(factory(METARENDERER_OPAQUE_SCENE_INTERFACE_VERSION,nullptr));
+            opaqueMesh=static_cast<IMetaRendererOpaqueMesh*>(factory(MetaRendererOpaqueMeshVersion,nullptr));
+        }
     }
     const auto state=GuestCofDecalsState();
-    if(!state.resourcesPrepared){preparedWorld=nullptr;if(pointPrepared)ClearPoints();return;}
+    if(!state.resourcesPrepared){preparedWorld=nullptr;waitingForMesh=false;if(pointPrepared)ClearPoints();return;}
     MetaRendererOpaqueWorld world{};world.struct_size=sizeof(world);
     if(!opaque || !opaque->QueryWorld(world) || !world.world)return;
     const auto effects=GuestCofEffectsResourceSerial();
-    if(preparedWorld==world.world && preparedGeneration==state.generation &&
-       preparedEffectResources==effects && preparedHl25==(world.hl25!=0))return;
-    // One attempt for each admitted world/resource generation. A failed map is
-    // observable through GuestCofDecalsState, never retried in the draw path.
-    preparedWorld=world.world;preparedGeneration=state.generation;preparedHl25=world.hl25!=0;
-    preparedEffectResources=effects;
-    PrepareGuestCofDecalMap(*world.world,preparedHl25);
-    ClearPoints();
+    const auto* mesh=state.coreProfile?opaqueMesh:nullptr;
+    const bool newMap=preparedWorld!=world.world || preparedGeneration!=state.generation ||
+        preparedEffectResources!=effects || preparedHl25!=(world.hl25!=0);
+    if(newMap) {
+        ClearPoints();
+        preparedWorld=world.world;preparedGeneration=state.generation;preparedHl25=world.hl25!=0;
+        preparedEffectResources=effects;
+        PrepareGuestCofDecalMap(*world.world,preparedHl25);
+    } else if(!waitingForMesh)return;
+    // The host can publish its map before uploading its opaque buffers. Its
+    // zero-range query checks readiness without allocating or walking faces.
+    OpaqueSurfaceBuffers buffers{};
+    waitingForMesh=mesh && !mesh->Query(world.world,buffers,nullptr,0);
+    if(waitingForMesh)return;
     try {
-        pointPrepared=PreparePoints(*world.world,preparedHl25)&&opaque->SetBrushSnapshotCapture(true);
+        pointPrepared=PreparePoints(*world.world,preparedHl25,mesh)&&opaque->SetBrushSnapshotCapture(true);
         if(pointPrepared)PrepareGuestCofMuzzle();
     }
     catch(...) {ClearPoints();}
@@ -150,7 +162,8 @@ void DrawGuestCofOpaqueScene() noexcept {
     }
 }
 void ClearGuestCofScene() noexcept {
-    ClearPoints();ClearGuestCofDecalMap();preparedWorld=nullptr;preparedGeneration=preparedEffectResources=0;preparedHl25=false;opaque=nullptr;
+    ClearPoints();ClearGuestCofDecalMap();preparedWorld=nullptr;preparedGeneration=preparedEffectResources=0;preparedHl25=false;
+    waitingForMesh=false;opaqueMesh=nullptr;opaque=nullptr;
 }
 bool GuestCofPointLightsReady() noexcept {
     if(!pointPrepared||!pointSceneValidated)return false;

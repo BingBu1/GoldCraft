@@ -8,6 +8,7 @@
 #include "weapons/beamgun.hpp"
 #include "weapons/cannon.hpp"
 #include "weapons/guest_cof_effects.hpp"
+#include "weapons/guest_cof_light_equipment.hpp"
 #include "weapons/guest_cof_muzzle.hpp"
 #include "weapons/guest_cof_admission.hpp"
 #include "weapons/guest_cof_scene.hpp"
@@ -869,6 +870,7 @@ void StudioEvent(const mstudioevent_t* event,const cl_entity_t* entity)
     if(event && entity && entity->model && SkipStudioSound(
         {entity->model->name,strnlen(entity->model->name,sizeof(entity->model->name))},event->event,
         {event->options,strnlen(event->options,sizeof(event->options))}))return;
+    if(CofLightEquipmentEvent(event,entity))return;
     if(GuestCofMuzzleStudioEvent(event,entity))return;
     if(GuestCofStudioEvent(event,entity))return;
     if(CannonStudioEvent(event,entity))return;
@@ -961,6 +963,7 @@ void InitializeScene()
 }
 void ClearScene()
 {
+    ResetCofLightEquipment();
     InvalidateGuestCofAdmission();
     ClearGuestCofScene();
     studioEventGuard.Clear();

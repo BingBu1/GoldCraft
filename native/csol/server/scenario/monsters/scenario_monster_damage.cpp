@@ -436,6 +436,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     CSOLMonsterDamageCall call(spawn, source, actor, input, bits, context, m_valid, ownerValid, ownerContext);
     CSOL_CaptureMonsterActionDamage(call);
     const bool independentAction = call.Action() != CSOLMonsterActionKind::None;
+    const bool flareBurn = call.Action() == CSOLMonsterActionKind::GuestCofFlare;
     // Providers may report an error before a later callback cancels the hit.
     // Keep it local until the still-current stage commits its failure, so an
     // abandoned hit cannot permanently stop this monster's Think chain.
@@ -463,7 +464,7 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     {
         const bool suppressed = services->DamageSuppressed();
         if (!current() || suppressed) return FALSE;
-        if (call.Player())
+        if (call.Player() && !flareBurn)
         {
             const auto upgrades = players->Upgrades(actor);
             const auto samePlayer = [&]()
@@ -557,13 +558,23 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
                 "monster pre-armor damage is invalid")) return FALSE;
         monster = current();
         csol::scenario::MonsterArmorDamage armor;
-        if (!csol::scenario::ResolveMonsterArmorDamage(call.damage, monster->pev->armorvalue, flags, armor))
-            return fail("ordinary armor damage is invalid");
-        monster->pev->armorvalue = armor.remainingArmor;
-        call.damage = armor.healthDamage; // Verified v15C preserves this value.
+        if (flareBurn)
+        {
+            // A vulnerable target loses a fixed amount of health. Its own immunity
+            // may still reject the pulse in ResolvePreArmorDamage or its behavior.
+            if (call.damage > 0) call.damage = call.OriginalDamage();
+            else call.damage = 0;
+        }
+        else
+        {
+            if (!csol::scenario::ResolveMonsterArmorDamage(call.damage, monster->pev->armorvalue, flags, armor))
+                return fail("ordinary armor damage is invalid");
+            monster->pev->armorvalue = armor.remainingArmor;
+            call.damage = armor.healthDamage;
+        }
         if (call.damage == 0.0f)
         { CSOL_FinishMonsterActionDamage(call, false); return TRUE; }
-        if (monster->HostState().damageScaleCount > 0)
+        if (!flareBurn && monster->HostState().damageScaleCount > 0)
             call.damage *= monster->HostState().damageScale;
         if (!step(true, "ordinary timed damage multiplier failed")) return FALSE;
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "character_menu.hpp"
+#include "../guest/cof/light_equipment.hpp"
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -11,6 +12,8 @@ inline constexpr std::size_t MessageBytes=16;
 // GoldSrc retains downloads by path. Change this resource revision when the
 // generated layout or required catalogue images change; the JSON schema is separate.
 inline constexpr char PresentationResource[]="models/csol/buymenu_v16.json";
+inline constexpr char EquipmentPresentationResource[]="models/csol/buymenu_v17.json";
+inline constexpr std::uint16_t EquipmentPresentationRevision=17;
 enum class Kind:std::uint8_t {Capability,Begin,Item,End,Result};
 enum class Result:std::uint8_t {Available,Unavailable,Insufficient,Success,Failed};
 struct Packet {Kind kind{};std::uint16_t request{},id{};std::int32_t price{},balance{};Result result{};std::uint8_t team{};};
@@ -23,7 +26,8 @@ struct Item {
 };
 // Purchase IDs share a namespace with extended weapons. A high weapon ID is
 // not an equipment-array index (the two CSOL knife bridges use 1022/1023).
-constexpr bool IsEquipment(int id) { return id >= 1001 && id <= 1005; }
+constexpr bool IsStockEquipment(int id) { return id >= 1001 && id <= 1005; }
+constexpr bool IsEquipment(int id) { return IsStockEquipment(id) || guest::cof::light::Find(id); }
 constexpr bool IsAmmunition(int id) { return id == 2001 || id == 2002; }
 constexpr bool IsWeapon(const Item& item) { return !IsEquipment(item.id) && !IsAmmunition(item.id); }
 constexpr int RebuySlot(const Item& item)
@@ -75,6 +79,11 @@ struct Presentation {
     std::array<MenuTexture,9> frame;
     std::array<std::array<MenuTexture,3>,3> buttons;
     std::array<std::array<MenuTexture,3>,6> tabs;
+    // Version 4 (current x64 client): ThreePicsButton btn_glow rebuy with the
+    // #Cstrike_BuyMenuRebuy label, and an explicit TER/CT tab-group switch.
+    std::string rebuyLabel;
+    std::array<std::array<MenuTexture,3>,3> rebuyButtons;
+    bool teamTabs{true};
     std::array<MenuTexture,3> close;
     MenuColors colors;
     std::unordered_map<int,MenuTexture> images;

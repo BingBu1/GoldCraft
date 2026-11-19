@@ -188,9 +188,14 @@ bool CCSOLScenarioDeathServices::PlayerKilledMonster(CSOLMonsterDeathCall& call,
             }
         }
         auto record = base;
-        record.kind = call.Action() == CSOLMonsterActionKind::GuestCofPushback ?
-            CSOLScenarioDeathRecord::Kind::GuestCofPushbackKill : independentAction ?
-            CSOLScenarioDeathRecord::Kind::HumanKickKill : CSOLScenarioDeathRecord::Kind::Kill;
+        using Kind = CSOLScenarioDeathRecord::Kind;
+        switch (call.Action())
+        {
+        case CSOLMonsterActionKind::None: record.kind = Kind::Kill; break;
+        case CSOLMonsterActionKind::HumanKick: record.kind = Kind::HumanKickKill; break;
+        case CSOLMonsterActionKind::GuestCofPushback: record.kind = Kind::GuestCofPushbackKill; break;
+        case CSOLMonsterActionKind::GuestCofFlare: record.kind = Kind::GuestCofFlareKill; break;
+        }
         record.flags = flags;
         if (!independentAction)
         {
@@ -355,6 +360,8 @@ std::string ShutdownSnapshot(const CCSOLScenarioRuntime& runtime)
             out << ",\"action\":\"human_kick\",\"flags\":" << value.flags;
         else if (value.kind == CSOLScenarioDeathRecord::Kind::GuestCofPushbackKill)
             out << ",\"action\":\"guest_cof_pushback\",\"flags\":" << value.flags;
+        else if (value.kind == CSOLScenarioDeathRecord::Kind::GuestCofFlareKill)
+            out << ",\"action\":\"guest_cof_flare\",\"flags\":" << value.flags;
         else out << ",\"source\":" << value.source << ",\"item\":" << value.item
             << ",\"flags\":" << value.flags << ",\"wire_item\":" << value.wireItem;
         out << ",\"attacker_team\":" << value.attackerTeam << ",\"monster_team\":" << value.monsterTeam

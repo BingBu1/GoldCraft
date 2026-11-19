@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "point_light_render.hpp"
 #include "core_gl.hpp"
+#include "../../../include/goldcraft/opaque_surface_mesh.hpp"
 #include <metahook.h>
 #include <com_model.h>
 #include <GL/gl.h>
@@ -228,6 +229,10 @@ struct PointLightRenderer::Impl
     std::vector<DrawSurface> draws;std::size_t drawCount{};
     HGLRC context{};DWORD thread{};GLFunctions gl{};std::array<GLuint,5> textures{};GLint units{},alphaBits{};bool nv{},ready{};
     core_gl::Api coreApi{};bool core{};GLuint program{},vao{},vbo{};
+    OpaqueSurfaceBuffers hostBuffers{};
+    bool HasGeometry() const noexcept { return hostBuffers.vertex || !vertices.empty(); }
+    bool BindCoreGeometry() noexcept;
+    void DrawCoreSurface(const Surface& surface) const noexcept;
     GLint worldUniform{},projectionUniform{},modelUniform{},basisUniform{},planeUniform{},colorUniform{},passUniform{};
     bool InitializeCore() noexcept;
     void CoreBatch(const PointLight&,const PointLightFrame&,const std::array<float,16>&,bool) noexcept;
@@ -311,47 +316,90 @@ struct PointLightRenderer::Impl
 };
 PointLightRenderer::PointLightRenderer():impl_(std::make_unique<Impl>()){}
 PointLightRenderer::~PointLightRenderer(){ReleaseGL();}
-bool PointLightRenderer::PrepareMap(model_s& model,bool hl25,std::size_t maximumSurfaceDraws)
+bool PointLightRenderer::PrepareMap(model_s& model,bool hl25,std::size_t maximumSurfaceDraws,
+                                    const IMetaRendererOpaqueMesh* mesh)
 {
     static_assert(sizeof(msurface_t)==92&&sizeof(msurface_hl25_t)==108);
     static_assert(offsetof(model_t,numsurfaces)==176&&offsetof(model_t,surfaces)==180);
     if(model.type!=mod_brush||model.numsurfaces<0||!model.surfaces||!maximumSurfaceDraws)return false;
     auto& r=*impl_;r.world=&model;r.stride=hl25?sizeof(msurface_hl25_t):sizeof(msurface_t);
-    r.surfaces.clear();r.vertices.clear();r.surfaces.resize(std::size_t(model.numsurfaces));
-    std::size_t total=0;
-    for(std::size_t i=0;i<r.surfaces.size();++i){const auto* s=r.SurfaceAt(i);if(!(s->flags&0x14)&&s->polys&&s->polys->numverts>0)total+=std::size_t(s->polys->numverts);}
-    if(total>std::size_t(std::numeric_limits<int>::max())){ClearMap();return false;}
-    r.vertices.reserve(total);r.draws.resize(maximumSurfaceDraws);
+    r.surfaces.clear();r.vertices.clear();r.hostBuffers={};r.surfaces.resize(std::size_t(model.numsurfaces));
+    std::vector<OpaqueSurfaceRange> ranges;
+    if(mesh) {
+        ranges.resize(r.surfaces.size());
+        if(!mesh->Query(&model,r.hostBuffers,ranges.data(),static_cast<std::uint32_t>(ranges.size())) ||
+           !r.hostBuffers.vertex || !r.hostBuffers.index || !r.hostBuffers.indexCount ||
+           r.hostBuffers.indexCount>std::numeric_limits<std::ptrdiff_t>::max()/sizeof(std::uint32_t)) {
+            ClearMap();return false;
+        }
+    } else {
+        std::size_t total=0;
+        for(std::size_t i=0;i<r.surfaces.size();++i){const auto* s=r.SurfaceAt(i);if(!(s->flags&0x14)&&s->polys&&s->polys->numverts>0)total+=std::size_t(s->polys->numverts);}
+        if(total>std::size_t(std::numeric_limits<int>::max())){ClearMap();return false;}
+        r.vertices.reserve(total);
+    }
+    r.draws.resize(maximumSurfaceDraws);
     for(std::size_t i=0;i<r.surfaces.size();++i) {
         auto& dst=r.surfaces[i];const auto* s=dst.host=r.SurfaceAt(i);
         if((s->flags&0x14)||!s->polys||s->polys->numverts<=0)continue;
         if(!s->plane||!s->texinfo){ClearMap();return false;}
-        dst.basis.first=int(r.vertices.size());dst.count=s->polys->numverts;
+        if(mesh) {
+            const auto range=ranges[i];
+            if(range.first>r.hostBuffers.indexCount || range.count>r.hostBuffers.indexCount-range.first ||
+               range.count%3){ClearMap();return false;}
+            dst.basis.first=int(range.first);dst.count=int(range.count);
+        } else {
+            dst.basis.first=int(r.vertices.size());dst.count=s->polys->numverts;
+            for(int j=0;j<dst.count;++j){std::array<float,7> v;std::memcpy(v.data(),s->polys->verts[j],sizeof(v));r.vertices.push_back(v);}
+        }
         for(unsigned c=0;c<3;++c){dst.basis.normal[c]=(s->flags&2)?Neg(s->plane->normal[c]):s->plane->normal[c];dst.basis.tangent[c]=s->texinfo->vecs[0][c];dst.basis.bitangent[c]=s->texinfo->vecs[1][c];}
         dst.basis.tangent=Unit(dst.basis.tangent);dst.basis.bitangent=Unit(dst.basis.bitangent);
         // Original private material sentinel. No interpretation of other texture
         // fields or alias layout is attempted for ordinary engine textures.
         const auto* texture=s->texinfo->texture;
         if(texture&&texture->anim_min==-666&&texture->anim_next)std::memcpy(&dst.normal,reinterpret_cast<const char*>(texture->anim_next)+16,sizeof(dst.normal));
-        for(int j=0;j<dst.count;++j){std::array<float,7> v;std::memcpy(v.data(),s->polys->verts[j],sizeof(v));r.vertices.push_back(v);}
     }
     if(r.core&&r.Owner()){
-        GLint previous{};glGetIntegerv(ArrayBinding,&previous);r.coreApi.bindBuffer(ArrayBuffer,r.vbo);
-        r.coreApi.bufferData(ArrayBuffer,std::ptrdiff_t(r.vertices.size()*sizeof(r.vertices[0])),r.vertices.data(),core_gl::StaticDraw);
-        r.coreApi.bindBuffer(ArrayBuffer,GLuint(previous));
+        GLint array{},buffer{};glGetIntegerv(VertexArrayBinding,&array);glGetIntegerv(ArrayBinding,&buffer);
+        const bool valid=r.BindCoreGeometry();
+        r.coreApi.bindArray(GLuint(array));r.coreApi.bindBuffer(ArrayBuffer,GLuint(buffer));
+        if(!valid){ClearMap();return false;}
     }
     return true;
 }
-void PointLightRenderer::ClearMap() noexcept {auto& r=*impl_;r.world=nullptr;r.surfaces.clear();r.vertices.clear();r.drawCount=0;}
+void PointLightRenderer::ClearMap() noexcept {auto& r=*impl_;r.world=nullptr;r.surfaces.clear();r.vertices.clear();r.hostBuffers={};r.drawCount=0;}
+bool PointLightRenderer::Impl::BindCoreGeometry() noexcept
+{
+    constexpr GLenum elementArrayBuffer=0x8893;
+    coreApi.bindArray(vao);
+    coreApi.bindBuffer(elementArrayBuffer,hostBuffers.index);
+    if(hostBuffers.vertex)coreApi.bindBuffer(ArrayBuffer,hostBuffers.vertex);
+    else {
+        if(!vbo)coreApi.genBuffers(1,&vbo);
+        if(!vbo)return false;
+        coreApi.bindBuffer(ArrayBuffer,vbo);
+        coreApi.bufferData(ArrayBuffer,std::ptrdiff_t(vertices.size()*sizeof(vertices[0])),vertices.data(),core_gl::StaticDraw);
+    }
+    coreApi.enableAttribute(0);coreApi.attribute(0,3,GL_FLOAT,GL_FALSE,28,nullptr);
+    coreApi.enableAttribute(1);coreApi.attribute(1,2,GL_FLOAT,GL_FALSE,28,reinterpret_cast<void*>(12));
+    return true;
+}
+void PointLightRenderer::Impl::DrawCoreSurface(const Surface& surface) const noexcept
+{
+    if(hostBuffers.index) {
+        const auto offset=std::uintptr_t(surface.basis.first)*sizeof(std::uint32_t);
+        glDrawElements(GL_TRIANGLES,surface.count,GL_UNSIGNED_INT,reinterpret_cast<const void*>(offset));
+    } else glDrawArrays(GL_TRIANGLE_FAN,surface.basis.first,surface.count);
+}
 bool PointLightRenderer::Impl::InitializeCore() noexcept
 {
-    if(!coreApi.Initialize()||vertices.empty())return false;
+    if(!coreApi.Initialize()||!HasGeometry())return false;
     const auto image3D=core_gl::Proc<decltype(gl.image3D)>("glTexImage3D");if(!image3D)return false;
     constexpr auto vertex=R"(#version 330 core
 layout(location=0) in vec3 position;layout(location=1) in vec2 texcoord;
 uniform mat4 world;uniform mat4 projection;uniform mat4 model;uniform mat4 basis;uniform vec4 planes[3];
 out vec2 uv;out vec3 direction;out vec3 attenuation;
-void main(){vec4 p=vec4(position,1.0);uv=texcoord;direction=(basis*p).xyz;attenuation=vec3(dot(planes[0],p),dot(planes[1],p),dot(planes[2],p));gl_Position=projection*(world*(model*p));}
+void main(){vec4 p=vec4(position,1.0);uv=texcoord;direction=(basis*p).xyz;attenuation=vec3(dot(planes[0],p),dot(planes[1],p),dot(planes[2],p));vec4 worldpos=model*p;gl_Position=projection*world*worldpos;}
 )";
     constexpr auto fragment=R"(#version 330 core
 uniform samplerCube directions;uniform sampler2D normals;uniform sampler3D volume;
@@ -367,11 +415,9 @@ void main(){
     core_gl::State guard(coreApi);program=coreApi.Program(vertex,fragment);if(!program)return false;
     worldUniform=coreApi.uniform(program,"world");projectionUniform=coreApi.uniform(program,"projection");modelUniform=coreApi.uniform(program,"model");basisUniform=coreApi.uniform(program,"basis");planeUniform=coreApi.uniform(program,"planes");colorUniform=coreApi.uniform(program,"lightColor");passUniform=coreApi.uniform(program,"pass");
     coreApi.use(program);for(const auto& binding:std::array<std::pair<const char*,int>,5>{{{"directions",0},{"normals",1},{"volume",2},{"axis",3},{"plane",1}}})coreApi.integer(coreApi.uniform(program,binding.first),binding.second);
-    coreApi.genArrays(1,&vao);coreApi.genBuffers(1,&vbo);glGenTextures(GLsizei(textures.size()),textures.data());
+    coreApi.genArrays(1,&vao);glGenTextures(GLsizei(textures.size()),textures.data());
     const auto cleanup=[&]{if(vbo)coreApi.deleteBuffers(1,&vbo);if(vao)coreApi.deleteArrays(1,&vao);coreApi.deleteProgram(program);glDeleteTextures(GLsizei(textures.size()),textures.data());program=vao=vbo=0;textures={};};
-    if(!vao||!vbo||std::ranges::any_of(textures,[](GLuint id){return !id;})){cleanup();return false;}
-    coreApi.bindArray(vao);coreApi.bindBuffer(core_gl::ArrayBuffer,vbo);coreApi.bufferData(core_gl::ArrayBuffer,std::ptrdiff_t(vertices.size()*sizeof(vertices[0])),vertices.data(),core_gl::StaticDraw);
-    coreApi.enableAttribute(0);coreApi.attribute(0,3,GL_FLOAT,GL_FALSE,28,nullptr);coreApi.enableAttribute(1);coreApi.attribute(1,2,GL_FLOAT,GL_FALSE,28,reinterpret_cast<void*>(12));
+    if(!vao||std::ranges::any_of(textures,[](GLuint id){return !id;})||!BindCoreGeometry()){cleanup();return false;}
     std::array<std::uint8_t,128> a1;BuildPointLightAttenuation1D(a1);glBindTexture(GL_TEXTURE_1D,textures[0]);glTexImage1D(GL_TEXTURE_1D,0,0x8229,128,0,0x1903,GL_UNSIGNED_BYTE,a1.data());Parameters(GL_TEXTURE_1D,GL_NEAREST);
     std::array<std::uint8_t,128*128> a2;BuildPointLightAttenuation2D(a2);glBindTexture(GL_TEXTURE_2D,textures[1]);glTexImage2D(GL_TEXTURE_2D,0,0x8229,128,128,0,0x1903,GL_UNSIGNED_BYTE,a2.data());Parameters(GL_TEXTURE_2D,GL_NEAREST);
     std::array<std::uint8_t,32*32*32*3> a3;BuildPointLightAttenuation3D(a3);glBindTexture(Texture3D,textures[2]);image3D(Texture3D,0,0x8051,32,32,32,0,GL_RGB,GL_UNSIGNED_BYTE,a3.data());Parameters(Texture3D,GL_LINEAR,true);
@@ -392,12 +438,12 @@ void PointLightRenderer::Impl::CoreBatch(const PointLight& light,const PointLigh
     coreApi.active(Texture0);glBindTexture(Cube,textures[4]);coreApi.active(Texture0+2);glBindTexture(Texture3D,textures[2]);
     coreApi.integer(passUniform,fallback?1:0);glEnable(GL_BLEND);glDepthMask(GL_FALSE);
     if(fallback){glBlendFunc(GL_ONE,GL_ZERO);glColorMask(0,0,0,1);}else glBlendFunc(GL_ONE,GL_ONE);
-    for(std::size_t i=0;i<drawCount;++i){const auto& s=surfaces[draws[i].index];coreApi.active(Texture0+1);glBindTexture(GL_TEXTURE_2D,s.normal?s.normal:textures[3]);const auto basis=PointLightMatrix(s.basis,light.origin);coreApi.matrix(basisUniform,1,GL_FALSE,basis.data());glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+    for(std::size_t i=0;i<drawCount;++i){const auto& s=surfaces[draws[i].index];coreApi.active(Texture0+1);glBindTexture(GL_TEXTURE_2D,s.normal?s.normal:textures[3]);const auto basis=PointLightMatrix(s.basis,light.origin);coreApi.matrix(basisUniform,1,GL_FALSE,basis.data());DrawCoreSurface(s);}
     if(!fallback)return;
     coreApi.integer(passUniform,2);coreApi.active(Texture0+3);glBindTexture(GL_TEXTURE_1D,textures[0]);coreApi.active(Texture0+1);glBindTexture(GL_TEXTURE_2D,textures[1]);glBlendFunc(GL_ZERO,GL_ONE_MINUS_SRC_ALPHA);
-    for(std::size_t i=drawCount;i>0;--i){const auto& s=surfaces[draws[i-1].index];glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+    for(std::size_t i=drawCount;i>0;--i)DrawCoreSurface(surfaces[draws[i-1].index]);
     coreApi.integer(passUniform,3);glBlendFunc(GL_DST_ALPHA,GL_ONE);glColorMask(1,1,1,0);
-    for(std::size_t i=drawCount;i>0;--i){const auto& s=surfaces[draws[i-1].index];glDrawArrays(GL_TRIANGLE_FAN,s.basis.first,s.count);}
+    for(std::size_t i=drawCount;i>0;--i)DrawCoreSurface(surfaces[draws[i-1].index]);
 }
 PointLightDrawResult PointLightRenderer::Impl::DrawCore(const PointLightFrame& frame,const PointLightState& state) noexcept
 {
@@ -448,7 +494,7 @@ bool PointLightRenderer::InitializeGL() noexcept
 }
 bool PointLightRenderer::ReleaseGL() noexcept {auto& r=*impl_;if(!r.ready)return true;if(!r.Owner())return false;glDeleteTextures(GLsizei(r.textures.size()),r.textures.data());if(r.core){r.coreApi.deleteBuffers(1,&r.vbo);r.coreApi.deleteArrays(1,&r.vao);r.coreApi.deleteProgram(r.program);}AbandonGL();return true;}
 void PointLightRenderer::AbandonGL() noexcept {auto& r=*impl_;r.textures={};r.context=nullptr;r.thread=0;r.ready=false;r.program=r.vao=r.vbo=0;r.core=false;}
-bool PointLightRenderer::Ready(const PointLightFrame& f) const noexcept {const auto& r=*impl_;return r.Owner()&&r.world&&!r.vertices.empty()&&r.Scene(f)&&r.Brushes(f)&&r.FixedArrays()&&(!r.core||f.authenticatedMatrices)&&((f.forceTwoPass==0.0F&&r.textures[2])||r.alphaBits>0);}
+bool PointLightRenderer::Ready(const PointLightFrame& f) const noexcept {const auto& r=*impl_;return r.Owner()&&r.world&&r.HasGeometry()&&r.Scene(f)&&r.Brushes(f)&&r.FixedArrays()&&(!r.core||f.authenticatedMatrices)&&((f.forceTwoPass==0.0F&&r.textures[2])||r.alphaBits>0);}
 void PointLightRenderer::Impl::Finish(const PointLight& light,bool fallback,const Vec& color,bool disableNv) noexcept
 {
     gl.active(Texture0);glDisable(Cube);glMatrixMode(GL_TEXTURE);glLoadIdentity();glMatrixMode(GL_MODELVIEW);
@@ -488,7 +534,7 @@ void PointLightRenderer::Impl::Finish(const PointLight& light,bool fallback,cons
 PointLightDrawResult PointLightRenderer::Draw(const PointLightFrame& frame,const PointLightState& state) noexcept
 {
     auto& r=*impl_;
-    if(!r.Owner()||!r.world||r.vertices.empty())return PointLightDrawResult::MissingResources;
+    if(!r.Owner()||!r.world||!r.HasGeometry())return PointLightDrawResult::MissingResources;
     if(!r.Scene(frame)||!r.FixedArrays())return PointLightDrawResult::UnsupportedScene;
     if(!r.Brushes(frame))return PointLightDrawResult::UnsupportedBrushLifecycle;
     if(r.core)return r.DrawCore(frame,state);

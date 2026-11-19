@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "buy_menu.h"
+#include "custom/damage_refund_account.h"
 #include "scenario/core/game_rules_gate.h"
+#include "weapons/guest_cof_light_equipment.hpp"
 #include "weapons/weapon_service.h"
 #include "weapons/weapon_slots.h"
 #include "weapons/weapons.h"
@@ -10,6 +12,7 @@
 #include "../weapons/melee_identity.hpp"
 #include "../weapons/skull3.hpp"
 #include "../buy_menu.hpp"
+#include <algorithm>
 #include <array>
 #include <limits>
 
@@ -19,6 +22,7 @@ void EXT_FUNC InternalCommand(edict_t*,const char*,const char*);
 
 namespace {
 using namespace csol::buy;
+namespace custom = csol::scenario::custom;
 struct Client {
     int userid{};
     EHANDLE player;
@@ -36,7 +40,7 @@ std::uint64_t clientGeneration{};
 int message{};
 int hintMessage{};
 bool sendingHint{};
-bool ready{};
+bool ready{},equipmentCatalog{};
 std::vector<std::string> resources;
 void Send(const Packet& p, CBasePlayer* player=nullptr)
 {
@@ -59,6 +63,7 @@ int Price(CBasePlayer* player,const Item& item)
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
+    if(guest::cof::light::Find(item.id))return equipmentCatalog && CSOL_CanReceiveLightEquipment(*player,item.id);
     if(!IsWeapon(item))return true;
     if(item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
     auto* info=GetWeaponInfo(item.id);
@@ -137,7 +142,7 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
     // delivery counterpart can replace them, so restore the original common
     // purchase gate here, before availability, balance and any debit/grant.
     // MP1140D916..1140D959 returns failure; knife selection has its own tail.
-    if(CSOL_ExtendedWeapon(item.id)&&!csol::melee::IsWeapon(item.id)&&OwnsGun(player,item.id)){
+    if(IsWeapon(item)&&CSOL_ExtendedWeapon(item.id)&&!csol::melee::IsWeapon(item.id)&&OwnsGun(player,item.id)){
         if(g_bClientPrintEnable)ClientPrint(player.pev,HUD_PRINTCENTER,"#Cstrike_Already_Own_Weapon");
         return Result::Failed;
     }
@@ -175,7 +180,24 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
             if(!bought||!gained)break;
             first=false;
         }
-    }else if(IsEquipment(item.id)){
+    }else if(guest::cof::light::Find(item.id)){
+        const int before=player.m_iAccount;
+        custom::RefundAwardScope purchase(nullptr,{},nullptr,nullptr,nullptr);
+        player.AddAccount(-price,RT_PLAYER_BOUGHT_SOMETHING,true);
+        if(!current())return Result::Unavailable;
+        const int debit=before-player.m_iAccount;
+        if(debit==price && Eligible(&player) && current() && player.CanPlayerBuy(false) && current() && Available(&player,item) && current())
+            success=CSOL_GiveLightEquipment(player,item.id);
+        if(!current())return Result::Unavailable;
+        if(!success && debit>0){
+#ifdef REGAMEDLL_API
+            custom::RefundAccountScope account(&player);
+            player.AddAccount_OrigFunc(debit,RT_NONE,false);
+#else
+            player.AddAccount(debit,RT_NONE,false);
+#endif
+        }
+    }else if(IsStockEquipment(item.id)){
         const int before=player.m_iAccount;
         constexpr int slots[]{MENU_SLOT_ITEM_VEST,MENU_SLOT_ITEM_VESTHELM,MENU_SLOT_ITEM_HEGREN,MENU_SLOT_ITEM_FLASHGREN,MENU_SLOT_ITEM_SMOKEGREN};
         BuyItem(&player,slots[item.id-1001]);
@@ -258,7 +280,7 @@ void Replay(CBasePlayer& player,Client& state,const Current& current)
     CSOL_ScenarioRefreshMeleePaint(player,state.selectedKnife);
 }
 }
-void CSOL_ResetBuyMenu(){++epoch;ready=false;hintMessage=0;clients={};resources.clear();}
+void CSOL_ResetBuyMenu(){++epoch;ready=false;equipmentCatalog=false;hintMessage=0;clients={};resources.clear();}
 bool CSOL_BuildRebuyStruct(CBasePlayer* player)
 {
     CSOLScenarioSdkScope scope;
@@ -325,11 +347,28 @@ bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId)
 bool CSOL_PrecacheBuyMenu()
 {
     CSOL_ResetBuyMenu();if(!CSOL_UsesScenarioRules())return false;
-    int length{};auto* file=LOAD_FILE_FOR_ME(csol::buy::PresentationResource,&length);
-    if(!file)return false;
-    try{resources=csol::buy::Resources(csol::buy::ParsePresentation({reinterpret_cast<const char*>(file),std::size_t(length)}));}
-    catch(const std::exception& e){FREE_FILE(file);ALERT(at_error,"CSOL buy menu: %s\n",e.what());return false;}
-    FREE_FILE(file);
+    const auto loadMenu=[](const char* path,bool withEquipment){
+        int length{};
+        auto* file=LOAD_FILE_FOR_ME(path,&length);
+        if(!file)return false;
+        try{
+            const auto menu=ParsePresentation({reinterpret_cast<const char*>(file),std::size_t(length)});
+            if(withEquipment){
+                for(const auto& item:{guest::cof::light::Lantern,guest::cof::light::Flare})
+                    if(!menu.images.contains(item.id)||!menu.weaponInfo.items.contains(item.id))
+                        throw std::runtime_error("missing light equipment card");
+            }
+            const auto files=Resources(menu);
+            resources.insert(resources.end(),files.begin(),files.end());
+            if(withEquipment)resources.emplace_back(path);
+        }catch(const std::exception& e){FREE_FILE(file);ALERT(at_error,"CSOL buy menu %s: %s\n",path,e.what());return false;}
+        FREE_FILE(file);return true;
+    };
+    if(!loadMenu(PresentationResource,false))return false;
+    equipmentCatalog=g_engfuncs.pfnGetFileSize && GET_FILE_SIZE(EquipmentPresentationResource)>0;
+    if(equipmentCatalog && !loadMenu(EquipmentPresentationResource,true))return false;
+    std::sort(resources.begin(),resources.end());
+    resources.erase(std::unique(resources.begin(),resources.end()),resources.end());
     for(const auto& path:resources)
         if(!g_engfuncs.pfnGetFileSize || GET_FILE_SIZE(path.c_str())<=0)
         {ALERT(at_error,"CSOL buy resource missing: %s\n",path.c_str());return false;}
@@ -337,7 +376,7 @@ bool CSOL_PrecacheBuyMenu()
     if(!message)message=REG_USER_MSG(csol::buy::Message,static_cast<int>(csol::buy::MessageBytes));
     hintMessage=REG_USER_MSG("ZBSVer2",-1);
     ready=message>=64&&message<=255&&hintMessage>=64&&hintMessage<=255;
-    if(ready)Send({Kind::Capability});return ready;
+    if(ready)Send({Kind::Capability,0,std::uint16_t(equipmentCatalog?EquipmentPresentationRevision:0)});return ready;
 }
 bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
 {
@@ -378,6 +417,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
         player->m_iMenu=Menu_OFF;
         Send({Kind::Begin,request,0,0,player->m_iAccount,Result::Available,2},player);
         for(const auto& item:Catalog()){
+            if(!equipmentCatalog && guest::cof::light::Find(item.id))continue;
             if(!current())return true;
             const bool available=Available(player,item);if(!current())return true;
             Send({Kind::Item,request,item.id,Price(player,item),player->m_iAccount,available?Result::Available:Result::Unavailable,2},player);

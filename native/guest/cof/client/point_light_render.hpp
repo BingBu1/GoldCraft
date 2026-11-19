@@ -7,6 +7,7 @@
 #include <span>
 struct model_s;
 struct cl_entity_s;
+class IMetaRendererOpaqueMesh;
 namespace guest::cof::client
 {
 // These are original gamma cvars cached by 1005A110, not host display gamma.
@@ -78,7 +79,8 @@ public:
     ~PointLightRenderer();
     PointLightRenderer(const PointLightRenderer&) = delete;
     PointLightRenderer& operator=(const PointLightRenderer&) = delete;
-    bool PrepareMap(model_s&, bool hl25, std::size_t maximumSurfaceDraws);
+    bool PrepareMap(model_s&, bool hl25, std::size_t maximumSurfaceDraws,
+                    const IMetaRendererOpaqueMesh* mesh = nullptr);
     void ClearMap() noexcept;
     bool InitializeGL() noexcept;
     // Must run before destroying the owning GL context. Wrong-thread/context

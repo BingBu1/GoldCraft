@@ -85,6 +85,8 @@ def main():
                         help='Require all eight firearms, including G43 with the shared player-task service')
     parser.add_argument('--include-shotgun', action='store_true',
                         help='Require all nine firearms, including the 870 and its shared player-task service')
+    parser.add_argument('--light-equipment', action='store_true',
+                        help='Check the lantern and flare together with all nine existing firearms')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
     parser.add_argument('--debugger-extra', type=Path,
                         help='Optional bounded workspace CDB commands; attach after cold preparation')
@@ -94,6 +96,10 @@ def main():
                         help='Optional compiled goldcraft_jump_snapshot_probe.amxx for the isolated server only')
     parser.add_argument('--hold-for-client', action='store_true',
                         help='Keep the owned server for at most 15 minutes, until output/stop is created')
+    parser.add_argument('--startup-timeout', type=int, default=45, choices=range(10, 181), metavar='SECONDS',
+                        help='Bound cold startup while other workspace builds are running (10–180 seconds)')
+    parser.add_argument('--cof-live-probe', type=Path,
+                        help='Optional compiled CoF inventory probe for the isolated real-client test')
     parser.add_argument('--cs-port', type=int, default=0,
                         help='Explicit localhost UDP port; zero selects a free port')
     args = parser.parse_args()
@@ -101,6 +107,8 @@ def main():
         parser.error('--cs-port must be between 0 and 65535')
     if args.hold_for_client and args.jump_probe:
         parser.error('--hold-for-client does not create the fake jump-probe actor')
+    if args.cof_live_probe and not args.hold_for_client:
+        parser.error('--cof-live-probe requires --hold-for-client')
     if args.debugger_extra and (not args.debugger or not args.jump_probe):
         parser.error('--debugger-extra requires --debugger and --jump-probe')
     if args.include_mp5 and not args.include_tmp:
@@ -111,6 +119,8 @@ def main():
         parser.error('--include-g43 requires --include-m16 for the eight-firearm profile')
     if args.include_shotgun and not args.include_g43:
         parser.error('--include-shotgun requires --include-g43 for the nine-firearm profile')
+    if args.light_equipment and not args.include_shotgun:
+        parser.error('The combined equipment regression requires the nine-firearm profile')
     out = checked(args.output)
     if out.exists() or not out.is_relative_to(ROOT / 'build'):
         raise ValueError('Use a fresh build receipt directory')
@@ -134,6 +144,11 @@ def main():
         if args.jump_probe.name != 'goldcraft_jump_snapshot_probe.amxx':
             raise ValueError('Use the bounded native jump snapshot diagnostic')
         inputs[str(args.jump_probe)] = sha(args.jump_probe)
+    if args.cof_live_probe:
+        checked(args.cof_live_probe).resolve(strict=True)
+        if args.cof_live_probe.name != 'cof_live.amxx':
+            raise ValueError('Use the local CoF inventory diagnostic')
+        inputs[str(args.cof_live_probe)] = sha(args.cof_live_probe)
     resources = json.loads(args.resources.read_text('utf8'))['files']
     if not resources or len(resources) > 1024:
         raise ValueError('Bounded explicit resource closure required')
@@ -214,17 +229,16 @@ def main():
         replace(game / 'swds.dll', args.engine)
         replace(config, out / 'gameplay.json')
         replace(cstrike / 'server.cfg', out / 'server.cfg')
-        if args.jump_probe:
+        probe = args.jump_probe or args.cof_live_probe
+        if probe:
             plugins = cstrike / 'addons/amxmodx/configs/plugins.ini'
             text = plugins.read_text('utf-8-sig')
-            (out / 'plugins.ini').write_text(text + '\ngoldcraft_jump_snapshot_probe.amxx\n', 'utf8')
+            (out / 'plugins.ini').write_text(text + f'\n{probe.name}\n', 'utf8')
             replace(plugins, out / 'plugins.ini')
-            replace(cstrike / 'addons/amxmodx/plugins/goldcraft_jump_snapshot_probe.amxx', args.jump_probe)
+            replace(cstrike / 'addons/amxmodx/plugins' / probe.name, probe)
         result['hud'] = csol_hud_resources.verify(cstrike)
         assert result['hud']['success']
-        menu = pair.compiled_menu(args.client)
-        paths = pair.menu_resources(menu, (cstrike / menu).read_bytes())
-        result['menu'] = pair.verify_pair(args.mp, args.client, {name: cstrike / name for name in paths})
+        result['menu'] = pair.verify_pair(args.mp, args.client, pair.installed_resources(args.client, cstrike))
         if console.exists():
             os.replace(console, parked)
             moved = True
@@ -255,7 +269,7 @@ def main():
         child = subprocess.Popen(command, cwd=game, env=env,
             startupinfo=startup, creationflags=subprocess.CREATE_NEW_CONSOLE)
         result['pid'] = child.pid
-        deadline = time.monotonic() + 45
+        deadline = time.monotonic() + args.startup_timeout
         while time.monotonic() < deadline:
             if child.poll() is not None:
                 result['exitCode'] = child.returncode
@@ -316,6 +330,10 @@ def main():
                 expected.append((903, 'g43', 10))
             if args.include_shotgun:
                 expected.append((904, 'shotgun', 5))
+            if args.light_equipment:
+                if result['menu']['menu'] != pair.EQUIPMENT_MENU:
+                    raise ValueError('The equipment regression requires the active equipment catalogue')
+                expected.extend(((976, 'lantern', -1), (977, 'flare', 5)))
             for ident, name, clip in expected:
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])
                 get = lambda field: struct.unpack_from('<i', raw, layout['members'][field])[0]
@@ -331,6 +349,8 @@ def main():
                         break
                     actual.extend(value)
                 assert (get('iId'), get('iMaxClip'), actual.decode('ascii')) == (ident, clip, 'weapon_cof_' + name)
+                if args.light_equipment and ident in (976, 977):
+                    assert get('iSlot') == (4 if ident == 976 else 3)
                 result['registration'].append(dict(id=ident, name=actual.decode('ascii'), clip=clip))
             result['checks']['actualItemDefinitions'] = len(result['registration']) == len(expected)
             for ident, enabled, label in ((900, args.include_tmp, 'TMP'), (901, args.include_mp5, 'MP5'),
@@ -461,6 +481,7 @@ def main():
             (out / 'ready.json').write_text(json.dumps(dict(pid=targets[0]['pid'], csPort=cs_port,
                 httpPort=http_port, game=str(game), hud=result['hud'], menu=result['menu']['menu'],
                 mpSha256=sha(args.mp), clientSha256=sha(args.client),
+                registered=result['registration'], guestHttpFiles=len(result['http']),
                 expiresAfterSeconds=900, stopFile=str(out / 'stop'))), 'utf8')
             print('Isolated server ready for the authorized single-client test', flush=True)
             deadline = time.monotonic() + 900

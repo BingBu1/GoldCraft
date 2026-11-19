@@ -1671,22 +1671,23 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..c71c22f 100644
+index d59b139..ffd18a2 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
-@@ -1,5 +1,11 @@
+@@ -1,5 +1,12 @@
  #include "gl_local.h"
 +#include "draw_parameter_dispatch.h"
  #include "gl_common.h"
 +#include "gl_external_scene.h"
 +#include "post_scene.h"
 +#include <IMetaRendererOpaqueScene.h>
++#include <goldcraft/opaque_surface_mesh.hpp>
 +#include "gl_shadow_cull.h"
 +#include "gl_scene_static_shadows.h"
  #include "pm_defs.h"
  #include "CounterStrike.h"
  #include <event_api.h>
-@@ -16,6 +22,17 @@
+@@ -16,6 +23,17 @@
  #include "LambdaThreadedTask.h"
  
  private_funcs_t gPrivateFuncs = {0};
@@ -1704,7 +1705,7 @@ index d59b139..c71c22f 100644
  
  refdef_t           r_refdef          = {0};
  ref_params_t       r_params          = {0};
-@@ -361,6 +378,7 @@ cvar_t* gl_envmapsize     = nullptr;
+@@ -361,6 +379,7 @@ cvar_t* gl_envmapsize     = nullptr;
  cvar_t* gl_wireframe      = nullptr;
  cvar_t* gl_ansio          = nullptr;
  cvar_t* developer         = nullptr;
@@ -1712,7 +1713,7 @@ index d59b139..c71c22f 100644
  cvar_t* sv_cheats         = nullptr;
  
  cvar_t* v_texgamma   = nullptr;
-@@ -416,6 +434,7 @@ cvar_t* r_studio_unload = nullptr;
+@@ -416,6 +435,7 @@ cvar_t* r_studio_unload = nullptr;
  cvar_t* r_studio_parallel_load = nullptr;
  
  cvar_t* r_wsurf_parallax_scale = nullptr;
@@ -1720,7 +1721,7 @@ index d59b139..c71c22f 100644
  
  cvar_t* r_wsurf_sky_fog = nullptr;
  
-@@ -479,7 +498,7 @@ bool R_IsRenderingManipulatedLightmap()
+@@ -479,7 +499,7 @@ bool R_IsRenderingManipulatedLightmap()
  
  bool R_IsRenderingGammaBlending()
  {
@@ -1729,7 +1730,7 @@ index d59b139..c71c22f 100644
  }
  
  /*
-@@ -786,10 +805,14 @@ bool AllowCheats()
+@@ -786,10 +806,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
  {
@@ -1745,7 +1746,7 @@ index d59b139..c71c22f 100644
  }
  
  /*
-@@ -835,7 +858,7 @@ void R_RotateForTransform(const float* in_origin, const float* in_angles, float
+@@ -835,7 +859,7 @@ void R_RotateForTransform(const float* in_origin, const float* in_angles, float
  	output: GoldSrc's CPU-based calculation (col-major matrix)
  */
  
@@ -1754,7 +1755,7 @@ index d59b139..c71c22f 100644
  {
      int    i;
      vec3_t angles;
-@@ -889,7 +912,32 @@ void R_RotateForEntity(cl_entity_t* e, float out[4][4])
+@@ -889,7 +913,32 @@ void R_RotateForEntity(cl_entity_t* e, float out[4][4])
  
      memcpy(out, r_identity_matrix, sizeof(r_identity_matrix));
      Matrix4x4_CreateFromEntity(out, angles, modelpos, 1);
@@ -1788,7 +1789,7 @@ index d59b139..c71c22f 100644
  
  float GlowBlend(cl_entity_t* entity)
  {
-@@ -1739,6 +1787,7 @@ void triapi_End()
+@@ -1739,6 +1788,7 @@ void triapi_End()
  
      triapi_program_t prog{};
      R_UseTriAPIProgram(ProgramState, &prog);
@@ -1796,7 +1797,7 @@ index d59b139..c71c22f 100644
  
      if (gTriAPICommand.GLPrimitiveCode == GL_LINES)
      {
-@@ -2400,6 +2449,7 @@ void R_DrawCurrentEntity(bool bTransparent)
+@@ -2400,6 +2450,7 @@ void R_DrawCurrentEntity(bool bTransparent)
          }
          case mod_studio:
          {
@@ -1804,7 +1805,7 @@ index d59b139..c71c22f 100644
              R_DrawStudioEntity(bTransparent);
              break;
          }
-@@ -2948,6 +2998,7 @@ void R_RenderViewStart()
+@@ -2948,6 +2999,7 @@ void R_RenderViewStart()
              R_AddVisibleDynamicLight(dynamicLight);
          }
      }
@@ -1812,7 +1813,7 @@ index d59b139..c71c22f 100644
  }
  
  /*
-@@ -2960,6 +3011,7 @@ void R_RenderFrameStart()
+@@ -2960,6 +3012,7 @@ void R_RenderFrameStart()
      ++(*r_framecount);
  
      R_BeginRingBufferFrame();
@@ -1820,7 +1821,7 @@ index d59b139..c71c22f 100644
  
      g_PostProcessGlowStencilEntities.clear();
      g_PostProcessGlowEnableDepthTestStencilEntities.clear();
-@@ -3011,6 +3063,8 @@ void R_RenderEndFrame()
+@@ -3011,6 +3064,8 @@ void R_RenderEndFrame()
          cb->OnRenderEndFrame();
      }
  
@@ -1829,7 +1830,7 @@ index d59b139..c71c22f 100644
      R_EndRingBufferFrame();
  }
  
-@@ -3055,6 +3109,10 @@ void GL_Finish2D()
+@@ -3055,6 +3110,10 @@ void GL_Finish2D()
  
  void GL_BeginRendering(int* x, int* y, int* width, int* height)
  {
@@ -1840,7 +1841,7 @@ index d59b139..c71c22f 100644
      /*
  		if (gl_vsync.value != g_IsVSyncEnabled)
  		{
-@@ -3133,10 +3191,16 @@ void R_PreRenderView()
+@@ -3133,10 +3192,16 @@ void R_PreRenderView()
      }
  
      R_RenderViewStart();
@@ -1860,7 +1861,7 @@ index d59b139..c71c22f 100644
  
      //Restore states because it might be corrupted by R_RenderWaterPass.
      if (R_IsGammaBlendEnabled())
-@@ -3391,9 +3455,68 @@ void R_ClearPortalClipPlanes(void)
+@@ -3391,9 +3456,68 @@ void R_ClearPortalClipPlanes(void)
      }
  }
  
@@ -1929,7 +1930,7 @@ index d59b139..c71c22f 100644
      g_bIsRenderingView          = true;
  
      GL_BeginDebugGroup("R_RenderView");
-@@ -3434,14 +3557,25 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3434,14 +3558,25 @@ void R_RenderView_SvEngine(int viewIdx)
              R_PreDrawViewModel();
          }
  
@@ -1957,7 +1958,7 @@ index d59b139..c71c22f 100644
  
          //This will switch to final framebuffer (RGBA8)
          if (GL_GetCurrentSceneFBO() == &s_BackBufferFBO)
-@@ -3479,6 +3613,7 @@ void R_RenderView_SvEngine(int viewIdx)
+@@ -3479,6 +3614,7 @@ void R_RenderView_SvEngine(int viewIdx)
      GL_EndDebugGroup();
  
      g_bIsRenderingView = wasRenderingView;
@@ -1965,7 +1966,7 @@ index d59b139..c71c22f 100644
  }
  
  void R_RenderView(void)
-@@ -3506,7 +3641,10 @@ float GetYMouseAspectRatioAdjustment(void)
+@@ -3506,7 +3642,10 @@ float GetYMouseAspectRatioAdjustment(void)
  
  void GL_EndRendering(void)
  {
@@ -1977,7 +1978,7 @@ index d59b139..c71c22f 100644
  
      int srcWide = s_FinalBufferFBO.iWidth, srcTall = s_FinalBufferFBO.iHeight;
  
-@@ -3550,7 +3688,11 @@ void GL_EndRendering(void)
+@@ -3550,7 +3689,11 @@ void GL_EndRendering(void)
      glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
  
      //Let engine call VID_FlipScreen for us.
@@ -1990,7 +1991,7 @@ index d59b139..c71c22f 100644
  }
  
  #if 0
-@@ -3615,6 +3757,7 @@ void R_InitCvars(void)
+@@ -3615,6 +3758,7 @@ void R_InitCvars(void)
  
  
      developer = gEngfuncs.pfnGetCvarPointer("developer");
@@ -1998,7 +1999,7 @@ index d59b139..c71c22f 100644
  
      sv_cheats = gEngfuncs.pfnGetCvarPointer("sv_cheats");
  
-@@ -3734,6 +3877,7 @@ void R_InitCvars(void)
+@@ -3734,6 +3878,7 @@ void R_InitCvars(void)
      r_studio_parallel_load = gEngfuncs.pfnRegisterVariable("r_studio_parallel_load", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      r_wsurf_parallax_scale = gEngfuncs.pfnRegisterVariable("r_wsurf_parallax_scale", "-0.02", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
@@ -2006,7 +2007,7 @@ index d59b139..c71c22f 100644
      r_wsurf_sky_fog        = gEngfuncs.pfnRegisterVariable("r_wsurf_sky_fog", "0", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
  
      /*
-@@ -3764,9 +3908,11 @@ void R_InitCvars(void)
+@@ -3764,9 +3909,11 @@ void R_InitCvars(void)
  
  void R_Init(void)
  {
@@ -2018,7 +2019,7 @@ index d59b139..c71c22f 100644
  
      R_InitWater();
      R_InitStudio();
-@@ -3783,6 +3929,9 @@ void R_Init(void)
+@@ -3783,6 +3930,9 @@ void R_Init(void)
  
  void R_Shutdown(void)
  {
@@ -2028,7 +2029,7 @@ index d59b139..c71c22f 100644
      g_RenderCallbacks.clear();
  
      R_ShutdownWater();
-@@ -3832,6 +3981,7 @@ void R_ForceCVars(qboolean mp)
+@@ -3832,6 +3982,7 @@ void R_ForceCVars(qboolean mp)
  void R_NewMap(void)
  {
      memset(&r_params, 0, sizeof(r_params));
@@ -2036,7 +2037,7 @@ index d59b139..c71c22f 100644
  
      R_GenerateSceneUBO();
      R_FreeWorldResources();
-@@ -4367,6 +4517,8 @@ void R_SetupGL(void)
+@@ -4367,6 +4518,8 @@ void R_SetupGL(void)
          }
      }
  
@@ -2045,7 +2046,7 @@ index d59b139..c71c22f 100644
      glCullFace(GL_FRONT);
  
      if (!gl_cull->value)
-@@ -4650,7 +4802,10 @@ void ClientDLL_DrawNormalTriangles(void)
+@@ -4650,7 +4803,10 @@ void ClientDLL_DrawNormalTriangles(void)
      //Call ClientDLL_DrawNormalTriangles instead of HUD_DrawNormalTriangles
      if (r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES)
      {
@@ -2056,7 +2057,7 @@ index d59b139..c71c22f 100644
      }
  
      //Clear texture id cache since SC client dll bind texture id 0 but leave texture id cache non-zero
-@@ -4667,6 +4822,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4823,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -2067,7 +2068,7 @@ index d59b139..c71c22f 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4841,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4842,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -2083,7 +2084,7 @@ index d59b139..c71c22f 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4885,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4886,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -2101,7 +2102,7 @@ index d59b139..c71c22f 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4904,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4905,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -2109,7 +2110,7 @@ index d59b139..c71c22f 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4915,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4916,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -2117,7 +2118,7 @@ index d59b139..c71c22f 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,12 +4969,50 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,12 +4970,50 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -2168,7 +2169,7 @@ index d59b139..c71c22f 100644
  //const int skytexorder_svengine[6] = { 0, 1, 2, 3, 4, 5 };
  //const int skytexorder_goldsrc[6] = { 0, 2, 1, 3, 4, 5 };
  
-@@ -5400,23 +5609,14 @@ void R_Reload_f(void)
+@@ -5400,23 +5610,14 @@ void R_Reload_f(void)
          delete ent;
      }
  
@@ -2197,7 +2198,7 @@ index d59b139..c71c22f 100644
  
      gEngfuncs.Con_Printf("Map entities reloaded\n");
  }
-@@ -5464,6 +5664,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5665,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -2208,7 +2209,7 @@ index d59b139..c71c22f 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6805,182 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6806,214 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  
@@ -2287,6 +2288,38 @@ index d59b139..c71c22f 100644
 +    }
 +};
 +EXPOSE_SINGLE_INTERFACE(CMetaRendererSceneCulling, IMetaRendererSceneCulling, METARENDERER_SCENE_CULLING_INTERFACE_VERSION);
++
++class CMetaRendererOpaqueMesh final : public IMetaRendererOpaqueMesh
++{
++public:
++    bool Query(model_s* world, OpaqueSurfaceBuffers& buffers, OpaqueSurfaceRange* ranges,
++               std::uint32_t surfaceCount) const noexcept override
++    {
++        if (!world || !cl_worldmodel || *cl_worldmodel != world ||
++            opaqueOwnerThread != GetCurrentThreadId() || !opaqueOwnerContext ||
++            opaqueOwnerContext != wglGetCurrentContext() || world->numsurfaces <= 0)
++            return false;
++        const auto index = EngineGetModelIndex(world);
++        if (index < 0 || static_cast<size_t>(index) >= g_WorldSurfaceWorldModels.size())
++            return false;
++        const auto& model = g_WorldSurfaceWorldModels[index];
++        if (!model || model->m_model != world || !model->m_pOriginalMesh ||
++            model->m_pOriginalMesh != model->m_pSurfaceMesh || !model->hEBO ||
++            !model->hVBO[WSURF_VBO_VERTEX])
++            return false;
++        const auto& mesh = *model->m_pOriginalMesh;
++        if (mesh.indices.empty() || mesh.indices.size() > UINT32_MAX ||
++            mesh.faces.size() != static_cast<size_t>(world->numsurfaces) ||
++            surfaceCount != (ranges ? mesh.faces.size() : 0))
++            return false;
++        if (ranges)
++            for (size_t i = 0; i < mesh.faces.size(); ++i)
++                ranges[i] = {mesh.faces[i].forward.first, mesh.faces[i].forward.count};
++        buffers = {model->hVBO[WSURF_VBO_VERTEX], model->hEBO, static_cast<std::uint32_t>(mesh.indices.size())};
++        return true;
++    }
++};
++EXPOSE_SINGLE_INTERFACE(CMetaRendererOpaqueMesh, IMetaRendererOpaqueMesh, MetaRendererOpaqueMeshVersion);
 +
 +class CMetaRendererOpaqueScene : public IMetaRendererOpaqueScene
 +{

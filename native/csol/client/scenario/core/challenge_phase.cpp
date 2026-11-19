@@ -9,6 +9,7 @@
 #include "scenario_map_vote.hpp"
 #include "challenge_phase.hpp"
 #include "night_player_lights.hpp"
+#include "../../weapons/weapon_inventory.hpp"
 #include "../../../scenario/custom/phase_snapshot.hpp"
 #include "../../../scenario/custom/phase_art.hpp"
 #include "../../../image_codec.hpp"
@@ -133,9 +134,11 @@ void Paint()
     const int textX=iconX+p.icon+p.padding/2;
     Text(Names[phase],2,textX,p.y+p.height/2-labelHeight[phase]);
     surface->DrawSetTextColor(169,188,207,255);
-    if (phase == unsigned(custom::Phase::Night) && NightFlashlightSlotAvailable() && view.health > 0 && !view.spectator)
+    if (phase == unsigned(custom::Phase::Night) && view.health > 0 && !view.spectator &&
+        (OwnsLantern() || NightFlashlightSlotAvailable()))
     {
-        const std::wstring_view hint = NightFlashlightHeld() ? L"[F] 开关" : L"[5] 手电筒";
+        const std::wstring_view hint = OwnsLantern() ? L"[5] 提灯" :
+            NightFlashlightHeld() ? L"[F] 开关" : L"[5] 手电筒";
         Text(hint.data(), int(hint.size()), textX, p.y + p.height / 2);
     }
     else

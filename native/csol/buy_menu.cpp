@@ -40,6 +40,8 @@ constexpr Item items[]{
     {96,5,"m249ex","碎魂者SKULL-7","m249ex",9000},
     {144,8,"cannon","黑龙炮","cannon",4100},{725,8,"beamgun","赤血龙骧","beamgun",6100},
     {726,8,"beamgunle","御天绝影","beamgunle",6100},
+    {guest::cof::light::Lantern.id,8,"cof_lantern",guest::cof::light::Lantern.title,"cof_lantern",guest::cof::light::Lantern.price},
+    {guest::cof::light::Flare.id,8,"cof_flare",guest::cof::light::Flare.title,"cof_flare",guest::cof::light::Flare.price},
     {1001,8,"vest","防弹衣","kevlar",650},{1002,8,"vesthelm","防弹衣与头盔","assaultsuit",1000},
     {1003,8,"hegren","高爆手雷","hegrenade",300},{1004,8,"flash","闪光弹","flashbang",200},
     {1005,8,"sgren","烟雾弹","smokegrenade",300},

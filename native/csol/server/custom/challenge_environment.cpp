@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "challenge_environment.h"
+#include "../weapons/guest_cof_light_equipment.hpp"
+#include "../../../guest/cof/light_equipment.hpp"
 #include "../../scenario/custom/night_flashlight.hpp"
 #include "gameplay_settings.h"
 #include "../scenario/core/scenario_runtime.h"
@@ -189,6 +191,7 @@ void CCSOLChallengeEnvironment::SelectNightFlashlight(CBasePlayer& player)
     if (!NightFlashlightsAvailable() || busy_ || !player.IsAlive() || player.m_pTank ||
         player.m_bIsDefusing || !(player.pev->weapons & (1 << WEAPON_SUIT))) return;
 
+    if (CSOL_SelectOwnedLantern(player)) return;
     const int slot = player.entindex() - 1;
     if (slot < 0 || slot >= int(nightFlashlights_.size())) return;
     auto& owner = nightFlashlights_[slot];
@@ -234,7 +237,19 @@ void CCSOLChallengeEnvironment::SelectNightFlashlight(CBasePlayer& player)
 
 void CCSOLChallengeEnvironment::CheckNightFlashlight(CBasePlayer& player)
 {
-    if (!NightFlashlightsAvailable() || (!player.m_pActiveItem && player.pev->viewmodel == flashlightView_))
+    if (!NightFlashlightsAvailable()) return;
+    const int slot = player.entindex() - 1;
+    if (player.m_rgpPlayerItems[C4_SLOT] && slot >= 0 && slot < int(nightFlashlights_.size()) &&
+        nightFlashlights_[slot].Get<CBasePlayer>() == &player)
+    {
+        for (auto* item = player.m_rgpPlayerItems[C4_SLOT]; item; item = item->m_pNext)
+        {
+            if (item->m_iId != guest::cof::light::Lantern.id) continue;
+            ReleaseNightFlashlight(player, true);
+            return;
+        }
+    }
+    if (!player.m_pActiveItem && player.pev->viewmodel == flashlightView_)
         return;
     // The active weapon replaces the hand models. The light remains on the player
     // until it is switched off, the battery runs out, or the night ends.

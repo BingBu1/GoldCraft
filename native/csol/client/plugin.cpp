@@ -24,6 +24,7 @@
 #include "hud_style.hpp"
 #include "camera.hpp"
 #include "weapons/projectiles.hpp"
+#include "weapons/guest_cof_light_equipment.hpp"
 #include "scenario/core/death_notices.hpp"
 #include "weapons/weapon_inventory.hpp"
 #include "characters.hpp"
@@ -252,6 +253,7 @@ static void SetStudioHeader(void* header){currentStudioHeader=header;originalSet
 static void SetStudioModel(model_t* model){currentStudioModel=model;originalSetRenderModel(model);}
 static void StudioDrawPoints()
 {
+    CofLightEquipmentPose(studio.GetCurrentEntity(),currentStudioModel,currentStudioHeader);
     ObservePlayerPose();
     ObserveHeldPose();
     if(GuestCofMuzzleWorldPending())
@@ -489,6 +491,7 @@ static void HudShutdown()
 static void Frame(double time)
 {
     SynchronizeFrameSession();
+    PrepareCofLightEquipment();
     GuestCofAudioFrame();
     ScenarioEffectsFrame();
     ScenarioMusicFrame();
@@ -566,7 +569,14 @@ static void CalcRefdef(ref_params_t* params)
     CameraRefdef(params);
     ChallengeEnvironmentView(params->waterlevel, params->movevars);
     NightPlayerLightsView(*params);
+    CofLightEquipmentView(*params);
     view=*params;
+}
+static int AddEntity(int type,cl_entity_t* entity,const char* name)
+{
+    const int visible=ProjectileAddEntity(type,entity,name);
+    if(visible && entity)CofLightEquipmentEntity(*entity);
+    return visible;
 }
 static void Normal()
 {
@@ -630,7 +640,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_VidInit=VidInit;
     functions->HUD_Frame=Frame;
     functions->HUD_PlayerMove=PlayerMove;
-    functions->HUD_AddEntity=ProjectileAddEntity;
+    functions->HUD_AddEntity=AddEntity;
     functions->HUD_GetStudioModelInterface=GetStudioInterface;
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;

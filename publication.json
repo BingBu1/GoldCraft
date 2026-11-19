@@ -2853,7 +2853,16 @@
     "docs/2026-11-16_接入-G43原资源工厂与操作音效-report.md",
     "tests/cryoffear-g43-native-effects/README.md",
     "tests/cryoffear-g43-factory/README.md",
-    "docs/2026-11-16_部署-CoF八枪与步枪穿透-report.md"
+    "docs/2026-11-16_部署-CoF八枪与步枪穿透-report.md",
+    "amxx/tests/cof/cof_live.sma",
+    "docs/2026-11-19_实现-CoF照明弹火焰伤害-report.md",
+    "native/csol/client/weapons/guest_cof_light_equipment.cpp",
+    "native/csol/client/weapons/guest_cof_light_equipment.hpp",
+    "native/csol/server/weapons/guest_cof_light_equipment.cpp",
+    "native/csol/server/weapons/guest_cof_light_equipment.hpp",
+    "native/guest/cof/light_equipment.hpp",
+    "native/include/goldcraft/opaque_surface_mesh.hpp",
+    "tools/Prepare-CryOfFearLightEquipment.py"
   ],
   "trees": {
     "native": [
