@@ -286,7 +286,9 @@ if(GOLDCRAFT_BUILD_CLIENT)
             download-failure failure-cancel failure-reconnect
             progress-values progress-start-cancel progress-text-cancel progress-advance-cancel
             native-progress-start-cancel native-progress-text-cancel native-progress-advance-cancel
-            progress-stale progress-reentrant)
+            progress-stale progress-reentrant
+            download-ui download-ui-start-cancel download-ui-bar-cancel download-ui-file-cancel download-ui-close-cancel
+            download-ui-file-stale download-ui-file-reentrant download-ui-reconnect)
             add_test(NAME goldcraft_resource_bridge_${resource_case}
                 COMMAND goldcraft_resource_bridge_tests ${resource_case})
         endforeach()

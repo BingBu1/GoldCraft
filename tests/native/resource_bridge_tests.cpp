@@ -20,6 +20,10 @@ std::string progress_action;
 unsigned progress_starts{}, progress_steps{}, progress_point{};
 std::string progress_label;
 bool progress_reentered{};
+bool dual_dialog{};
+std::vector<float> file_fractions;
+std::string file_label;
+resource_update::DownloadProgress download;
 std::string scenario;
 resource_lifecycle::Observation observation{7,9,10,1,resource_lifecycle::Completion::returned,true};
 resource_update::Status status;
@@ -49,9 +53,9 @@ void ProgressEvent(const char* operation, bool native) {
     Call(action.c_str());
     if (progress_action == action + "-cancel") {
         progress_action.clear(); resource_bridge::Cancel();
-    } else if (progress_action == "progress-stale") {
+    } else if (progress_action == "progress-stale" || progress_action == action + "-stale") {
         progress_action.clear(); ++observation.clear_epoch;
-    } else if (progress_action == "progress-reentrant" && !progress_reentered) {
+    } else if ((progress_action == "progress-reentrant" || progress_action == action + "-reentrant") && !progress_reentered) {
         progress_reentered = true; resource_bridge::Frame(0);
     }
 }
@@ -68,6 +72,24 @@ void LoadingAdvance(const char* type, int point, float fraction) {
     progress_point = unsigned(point);
     Expect(point >= 0 && unsigned(point) <= progress_steps && fraction == 0.f, "progress exceeds actual range");
     ProgressEvent("progress-advance", std::strcmp(type, "ClientConnect") == 0);
+}
+void LoadingStop() {
+    Expect(dual_dialog, "closed the dialog without an active file bar");
+    dual_dialog = false;
+    file_label.clear();
+    ProgressEvent("download-close", false);
+}
+void LoadingFileProgress(float fraction) {
+    Expect((dual_dialog || fraction <= .99f) && fraction >= 0.f && fraction <= 1.f,
+        "file bar could not open at the supplied fraction");
+    dual_dialog = true;
+    file_fractions.push_back(fraction);
+    ProgressEvent("download-bar", false);
+}
+void LoadingFileText(const char* path) {
+    Expect(dual_dialog, "file label set before the dual layout was applied");
+    file_label = path;
+    ProgressEvent("download-file", false);
 }
 }
 
@@ -137,6 +159,7 @@ void Session::Pump(){fixture::Call("pump");if(fixture::fail_session){fixture::st
 bool Session::Reset(){fixture::Call("reset-session");if(fixture::fail_reset)return false;if(impl_->transaction){fixture::overlay=impl_->previous;impl_->transaction=false;}fixture::status={};return true;}
 bool Session::Commit(){fixture::Call("commit-session");impl_->transaction=false;return true;}
 const Status& Session::GetStatus()const{return fixture::status;}
+DownloadProgress Session::GetDownloadProgress()const noexcept{return fixture::download;}
 const std::vector<Resource>& Session::Resources()const{return fixture::resources;}
 const std::vector<std::string>& Session::Changed()const{return fixture::changed;}
 }
@@ -157,6 +180,7 @@ int main(int argc,char** argv){
     original_frame=fixture::OriginalFrame;host_error=fixture::HostError;
     send_connection=[](){fixture::Call("keepalive");};
     loading_start=fixture::LoadingStart;loading_text=fixture::LoadingText;loading_advance=fixture::LoadingAdvance;
+    loading_stop=fixture::LoadingStop;loading_file_progress=fixture::LoadingFileProgress;loading_file_text=fixture::LoadingFileText;
     thread=GetCurrentThreadId();installed=true;session=std::make_unique<resource_update::Session>("unused");
     const resource_lifecycle::Entry natural{20,2,fixture::observation,true,true};
     const std::vector<resource_update::Resource> request{{"models/csol/buymenu_v10.json",{}}};
@@ -181,6 +205,109 @@ int main(int argc,char** argv){
             Expect(Has("base-owner"),"base owner reset missing");Expect(fixture::overlay.paths.empty(),"ordinary server inherited overlay");
             Expect(Has("resume-native")==(name=="base"),"wrong ordinary download resume");
             if(name=="disconnect-base"){Expect(paused(),"old disconnected HUD exposed");Expect(NativeInitialize(nullptr,natural)==1,"natural base recovery failed");Expect(!paused(),"natural base recovery stayed paused");}
+        }
+    }else if(name.starts_with("download-ui")){
+        const std::vector<resource_update::Resource> files{{"sound/first.wav",{}},{"models/second.mdl",{}}};
+        Expect(Begin(1,files)==nullptr,"loading setup rejected");
+        Frame(0);
+        Expect(!fixture::dual_dialog && fixture::progress_label=="#GameUI_VerifyingResources",
+            "local VFS check displayed a download");
+        fixture::calls.clear();
+        fixture::status.queued=2;
+        fixture::download={0,200,200};
+        if(name=="download-ui-start-cancel")fixture::progress_action="progress-start-cancel";
+        if(name=="download-ui-bar-cancel")fixture::progress_action="download-bar-cancel";
+        if(name=="download-ui-file-cancel")fixture::progress_action="download-file-cancel";
+        if(name=="download-ui-file-stale")fixture::progress_action="download-file-stale";
+        if(name=="download-ui-file-reentrant")fixture::progress_action="download-file-reentrant";
+        Frame(0);
+        if(name=="download-ui-start-cancel"){
+            Expect(!fixture::dual_dialog && !Has("download-bar"),
+                "cancelled primary start opened a secondary layout");
+            fixture::download={};
+            ++fixture::observation.clear_epoch;
+            Frame(0);
+            Frame(0);
+            Expect(Begin(2,files)==nullptr,"replacement admission could not start");
+            Frame(0);
+            Expect(!Has("download-close"),"replacement admission closed a layout that never opened");
+        }else if(name=="download-ui-bar-cancel"||name=="download-ui-file-cancel"||name=="download-ui-file-stale"){
+            Expect(!Has("pump")&&!Has("resume-v4"),"obsolete download UI advanced its resource session");
+            Expect(fixture::file_fractions==std::vector{0.f},"obsolete download UI published later bytes");
+            if(name=="download-ui-bar-cancel")Expect(!Has("download-file"),"cancelled file bar sent file text");
+            Frame(0);
+            Frame(0);
+            Expect(Has("reset-session")&&Has("cancel-owner"),"obsolete download UI did not unwind");
+            AbortAdmission();
+            Expect(!Has("host-error")&&!Has("retry"),"obsolete download UI started an engine command");
+        }else{
+            Expect(fixture::status.phase==resource_update::Phase::checking && fixture::dual_dialog &&
+                fixture::progress_label=="#GameUI_VerifyingAndDownloading",
+                "HTTP during the first VFS check did not switch layouts");
+            Expect(fixture::file_label==files[0].name && fixture::file_fractions==std::vector{0.f,1.f},
+                "quick first transfer did not open the native file bar from zero");
+            resource_progress::Snapshot progress{};
+            Expect(ReadProgress(&progress) && progress.phase==resource_progress::Phase::downloading &&
+                progress.completed==0 && progress.total==2,"overlay counter did not follow early HTTP");
+            if(name=="download-ui-file-reentrant"){
+                Expect(fixture::progress_reentered,"file text did not exercise recursive rendering");
+                Expect(std::count(fixture::calls.begin(),fixture::calls.end(),"pump")==1,
+                    "file text recursively pumped the resource session");
+            }
+            fixture::status.downloaded=1;
+            fixture::download={1,50,200};
+            next_loading_update={};
+            Frame(0);
+            Expect(fixture::file_label==files[1].name && fixture::file_fractions==std::vector{0.f,1.f,0.f,.25f} &&
+                fixture::progress_point==1,"the next file did not start with fresh progress and ETA");
+            fixture::download.received=150;
+            next_loading_update=std::chrono::steady_clock::time_point::max();
+            Frame(0);
+            Expect(fixture::file_fractions.back()==.25f,"file bytes bypassed the UI rate limit");
+            fixture::calls.clear();
+            next_loading_update={};
+            Frame(0);
+            Expect(fixture::file_fractions.back()==.75f && !Has("download-file") && !Has("progress-advance"),
+                "changing file bytes did not update only the secondary bar");
+            const auto updates=fixture::file_fractions.size();
+            next_loading_update={};
+            Frame(0);
+            Expect(fixture::file_fractions.size()==updates,"unchanged file bytes sent a duplicate UI update");
+            if(name=="download-ui-reconnect"){
+                fixture::calls.clear();
+                Cancel(); ++fixture::observation.clear_epoch;
+                fixture::download={};
+                Frame(0);
+                Expect(!Has("download-close") && !Has("resume-v4"),"abandoned session touched the native dialog");
+                Expect(Begin(2,files)==nullptr,"replacement admission could not start");
+                Frame(0);
+                Expect(!fixture::dual_dialog && fixture::file_label.empty() &&
+                    Position("download-close")<Position("progress-start"),
+                    "replacement admission did not clear the old file layout");
+                std::cout << fixture::checks << " checks, " << fixture::failures << " failures\n";
+                return fixture::failures?1:0;
+            }
+            fixture::status.phase=resource_update::Phase::verifying;
+            fixture::status.checked=2;
+            fixture::download={};
+            fixture::calls.clear();
+            if(name=="download-ui-close-cancel")fixture::progress_action="download-close-cancel";
+            Frame(0);
+            Expect(!fixture::dual_dialog && fixture::file_label.empty() && Has("download-close"),
+                "completed HTTP left a stale secondary layout");
+            if(name=="download-ui-close-cancel"){
+                Expect(!Has("progress-start")&&!Has("pump"),"cancelled close opened a replacement dialog");
+                Frame(0);
+                Expect(Has("cancel-owner"),"cancelled close did not unwind admission");
+            }else{
+                Expect(Position("download-close")<Position("progress-start") &&
+                    fixture::progress_label=="#GameUI_VerifyingResources" && fixture::progress_point==2,
+                    "single-bar final VFS check did not follow HTTP");
+                fixture::ready=true;
+                Frame(0);
+                Expect(Has("resume-v4") && fixture::progress_point==6 && !Has("disconnect") && !Has("retry"),
+                    "native loading did not resume on the original connection");
+            }
         }
     }else if(name.starts_with("progress-")||name.starts_with("native-progress-")){
         Expect(Begin(1,request)==nullptr,"loading setup rejected");

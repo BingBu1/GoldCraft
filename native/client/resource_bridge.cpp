@@ -33,6 +33,9 @@ void (*host_error)(const char*, ...){};
 void (*loading_start)(const char*, int){};
 void (*loading_advance)(const char*, int, float){};
 void (*loading_text)(const char*){};
+void (*loading_stop)(){};
+void (*loading_file_progress)(float){};
+void (*loading_file_text)(const char*){};
 IGameUI** game_ui{};
 int *client_state{}, *uploading{};
 char* resource_url{};
@@ -58,6 +61,9 @@ bool loading_dispatch{};
 std::uint64_t abort_epoch{}, abort_initial{};
 resource_update::Phase loading_phase{resource_update::Phase::idle};
 unsigned loading_total{}, loading_completed{};
+// A native reconnect can reuse the same dialog after retiring the session.
+// Keep its last layout until the next owned progress update closes it.
+resource_update::DownloadProgress loading_file;
 std::chrono::steady_clock::time_point next_loading_update{};
 resource_overlay::Snapshot base_previous;
 DWORD thread{};
@@ -73,7 +79,8 @@ bool ReadProgress(resource_progress::Snapshot* output) {
         (stage != Stage::checking && stage != Stage::refreshing)) return false;
     const auto& value = session->GetStatus();
     using Phase = resource_progress::Phase;
-    const bool downloading = value.phase == resource_update::Phase::downloading;
+    const bool downloading = value.phase == resource_update::Phase::downloading ||
+        session->GetDownloadProgress().size != 0;
     output->phase = stage == Stage::refreshing ? Phase::refreshing :
         downloading ? Phase::downloading : value.phase == resource_update::Phase::verifying ?
         Phase::verifying : Phase::checking;
@@ -343,31 +350,55 @@ bool UpdateLoadingProgress() {
     // Use the verified GameUI slots directly: the engine wrappers also run
     // SCR_UpdateScreen. Normal frames paint this state without extra renders.
     // Plugin UI callbacks can still cancel; retain only scalar progress.
-    const auto phase = session->GetStatus().phase;
-    const auto owner = token;
-    if (phase == resource_update::Phase::failed) return true;
+    const auto& status = session->GetStatus();
+    if (status.phase == resource_update::Phase::failed) return true;
+    const auto file = session->GetDownloadProgress();
+    // HTTP can be in flight while the first VFS pass is still discovering files.
+    const auto phase = file.size ? resource_update::Phase::downloading : status.phase;
     const bool downloading = phase == resource_update::Phase::downloading;
-    const unsigned total = unsigned(downloading ? session->GetStatus().queued : session->GetStatus().total);
-    const unsigned completed = std::min(total, unsigned(downloading ? session->GetStatus().downloaded : session->GetStatus().checked));
-    const bool restart = phase != loading_phase || total != loading_total;
+    const unsigned total = unsigned(downloading ? status.queued : status.total);
+    const unsigned completed = std::min(total, unsigned(downloading ? status.downloaded : status.checked));
+    const bool open_file_bar = file.size && !loading_file.size;
+    const bool close_file_bar = !file.size && loading_file.size;
+    const bool phase_changed = phase != loading_phase || open_file_bar || close_file_bar;
+    const bool restart = phase_changed || total != loading_total;
+    const bool update_primary = restart || completed != loading_completed;
+    const bool update_file = file != loading_file;
     const auto now = std::chrono::steady_clock::now();
-    if (!restart && (completed == loading_completed || now < next_loading_update)) return true;
+    if (!phase_changed && ((!update_primary && !update_file) || now < next_loading_update)) return true;
+    const bool new_file = file.size && (open_file_bar || file.resourceIndex != loading_file.resourceIndex);
+    const auto dispatch = [owner = token](auto callback, auto... args) {
+        loading_dispatch = true;
+        callback(args...);
+        loading_dispatch = false;
+        return CurrentAdmission() && owner == token && stage == Stage::checking;
+    };
     next_loading_update = now + std::chrono::milliseconds(33);
     loading_phase = phase; loading_total = total; loading_completed = completed;
-    if (restart) {
-        loading_dispatch = true;
-        loading_start("GoldCraftResources", int(std::max(1u, total)));
-        loading_dispatch = false;
-        if (!CurrentAdmission() || owner != token || stage != Stage::checking) return false;
-        loading_dispatch = true;
-        loading_text(downloading ? "#GameUI_VerifyingAndDownloading" : "#GameUI_VerifyingResources");
-        loading_dispatch = false;
-        if (!CurrentAdmission() || owner != token || stage != Stage::checking) return false;
+    // Start reuses the same GameUI dialog, including its secondary layout.
+    // Close that layout through GameUI before starting the single-bar phase.
+    if (close_file_bar) {
+        loading_file = {};
+        if (!dispatch(loading_stop)) return false;
     }
-    loading_dispatch = true;
-    loading_advance("GoldCraftResources", int(completed), 0.f);
-    loading_dispatch = false;
-    return CurrentAdmission() && owner == token && stage == Stage::checking;
+    if (restart && !dispatch(loading_start, "GoldCraftResources", int(std::max(1u, total)))) return false;
+    loading_file = file;
+    // GameUI only opens the secondary layout when the initial fraction is
+    // at most .99. Resetting also starts a fresh ETA for the next file.
+    if (new_file && !dispatch(loading_file_progress, 0.f)) return false;
+    if (restart && !dispatch(loading_text, downloading ?
+        "#GameUI_VerifyingAndDownloading" : "#GameUI_VerifyingResources")) return false;
+    if (update_primary && !dispatch(loading_advance, "GoldCraftResources", int(completed), 0.f)) return false;
+    if (new_file) {
+        // Own the name across the callback in case it cancels the session.
+        char path[256];
+        const auto& name = session->Resources()[file.resourceIndex].name;
+        path[name.copy(path, sizeof(path) - 1)] = '\0';
+        if (!dispatch(loading_file_text, path)) return false;
+    }
+    if (file.size && update_file && (!new_file || file.received))
+        return dispatch(loading_file_progress, float(std::min(file.received, file.size)) / float(file.size));
+    return true;
 }
 bool RestoreNativeLoadingProgress() {
     // Native connect starts Connecting/12 (101A1D01..10). Its resource
@@ -514,6 +545,9 @@ const char* install(metahook_api_s* incoming_api, mh_interface_s* interfaces,
     loading_start = [](const char* type, int steps) { if (*game_ui) (*game_ui)->StartProgressBar(type, steps); };
     loading_advance = [](const char*, int point, float fraction) { if (*game_ui) (*game_ui)->ContinueProgressBar(point, fraction); };
     loading_text = [](const char* text) { if (*game_ui) (*game_ui)->SetProgressBarStatusText(text); };
+    loading_stop = [] { if (*game_ui) (*game_ui)->StopProgressBar(false, "", ""); };
+    loading_file_progress = [](float progress) { if (*game_ui) (*game_ui)->SetSecondaryProgressBar(progress); };
+    loading_file_text = [](const char* path) { if (*game_ui) (*game_ui)->SetSecondaryProgressBarText(path); };
     engine->pfnAddCommand(const_cast<char*>("gc_resource_abort"), AbortAdmission);
     client_precache::set_resource_sync({Available, Begin, Cancel});
     client_precache::set_native_download_gate(DeferNativeDownload);

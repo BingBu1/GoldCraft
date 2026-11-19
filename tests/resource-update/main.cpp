@@ -564,8 +564,17 @@ int main(int argc,char** argv){
             const auto until=std::chrono::steady_clock::now()+5s;
             while(!fsys::exists(base/"http-started")&&std::chrono::steady_clock::now()<until){session.Pump();std::this_thread::sleep_for(2ms);}
             Check(fsys::exists(base/"http-started"),"actual transfer started");
+            auto inFlight=session.GetDownloadProgress();
+            while(!inFlight.received&&std::chrono::steady_clock::now()<until){
+                session.Pump();std::this_thread::sleep_for(2ms);inFlight=session.GetDownloadProgress();
+            }
+            Check(inFlight.resourceIndex==0&&inFlight.size==next.size&&inFlight.received>0&&
+                inFlight.received<inFlight.size&&session.GetStatus().downloaded==0,
+                "slow HTTP exposes received bytes before the completed file count advances");
             session.Reset();Check(session.GetStatus().phase==update::Phase::idle&&session.Resources().empty(),"reset discards old state");
+            Check(!session.GetDownloadProgress().size,"cancelled HTTP file no longer reports progress");
             Check(session.Begin(2,url+"fresh/",{{name,third}}),"new same-generation connection accepted after cancel");Ready(session);
+            Check(!session.GetDownloadProgress().size,"final VFS success exposes no in-flight file");
             Check(EqualVfs(fs,name,newer),"only new connection body mounted");
             Check(!fsys::exists(storage.Path(name,next)),"old cancelled result never commits");
             Check(fsys::exists(storage.Path(name,third)),"new connection committed");

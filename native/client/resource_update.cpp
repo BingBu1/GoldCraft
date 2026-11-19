@@ -377,6 +377,11 @@ bool Session::Commit() {
     impl_->transaction = impl_->remounted = false; impl_->previous = {}; return true;
 }
 const Status& Session::GetStatus() const { return impl_->status; }
+DownloadProgress Session::GetDownloadProgress() const noexcept {
+    if (impl_->active.empty()) return {};
+    const auto& item = impl_->active.front();
+    return {item.index, item.job->transferred.load(std::memory_order_relaxed), item.job->expected.size};
+}
 const std::vector<Resource>& Session::Resources() const { return impl_->resources; }
 const std::vector<std::string>& Session::Changed() const { return impl_->changed; }
 bool Session::Begin(std::uint64_t generation, std::string url, std::vector<Resource> incoming) {

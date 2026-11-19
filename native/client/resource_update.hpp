@@ -28,6 +28,11 @@ struct Status {
     double pumpWorkMs{};
     Profile profile;
 };
+struct DownloadProgress {
+    std::size_t resourceIndex{};
+    std::uint32_t received{}, size{};
+    bool operator==(const DownloadProgress&) const = default;
+};
 // Main-thread gate before the engine begins resource precaching. Network jobs
 // own value copies only; Reset cancels a connection without borrowing any
 // resource_t/model_t, or continuing an obsolete connection.
@@ -43,6 +48,8 @@ public:
     bool Reset();
     bool Commit();
     const Status& GetStatus() const;
+    // The oldest in-flight HTTP file. A zero size means there is no transfer.
+    DownloadProgress GetDownloadProgress() const noexcept;
     const std::vector<Resource>& Resources() const;
     const std::vector<std::string>& Changed() const;
 private:
