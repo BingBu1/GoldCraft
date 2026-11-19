@@ -54,12 +54,17 @@ __declspec(noinline) std::uint32_t Current(std::uint32_t crc,const void* bytes,i
     current_crc::CRC32_ProcessBuffer(&crc,const_cast<void*>(bytes),size);
     return crc;
 }
+__declspec(noinline) std::uint32_t Slicing(std::uint32_t crc,const void* bytes,int size)
+{
+    return goldcraft::crc32_ieee::detail::UpdateSlicing(crc,bytes,size);
+}
 
 void Compare(std::uint32_t seed,const void* bytes,int size)
 {
     const auto reference=Bitwise(seed,bytes,size);
     Require(Legacy(seed,bytes,size)==reference,"legacy differs from bitwise oracle");
     Require(Current(seed,bytes,size)==reference,"current differs from bitwise oracle");
+    Require(Slicing(seed,bytes,size)==reference,"table fallback differs from bitwise oracle");
 }
 
 std::uint32_t Next(std::uint32_t& state)
@@ -130,10 +135,10 @@ void Functional()
     }
     // The input may alias the output word. Both actual wrappers must read the
     // whole original span before publishing their final state.
-    for(int length=0;length<=32;++length)
+    struct alignas(8) Aliased{CRC32_t state;std::array<unsigned char,188> tail;};
+    static_assert(sizeof(Aliased)==192);
+    for(int length=0;length<=int(sizeof(Aliased));++length)
     {
-        struct alignas(8) Aliased{CRC32_t state;std::array<unsigned char,28> tail;};
-        static_assert(sizeof(Aliased)==32);
         Aliased original{},candidate{};
         std::memcpy(&original,bytes.data(),sizeof(original));candidate=original;
         const auto expected=Bitwise(original.state,&original,length);
@@ -204,15 +209,18 @@ void Models(const char* listPath,int rounds)
         for(int round=0;round<rounds;++round)
         {
             const auto seed=seeds[std::size_t(round)%seeds.size()];
-            std::uint32_t oldValue{},newValue{};double oldTime{},newTime{};
+            std::uint32_t oldValue{},newValue{},tableValue{};double oldTime{},newTime{},tableTime{};
             const auto oldRun=[&]{const auto begin=Clock::now();oldValue=Legacy(seed,bytes.data(),int(bytes.size()));
                 oldTime=std::chrono::duration<double>(Clock::now()-begin).count();};
             const auto newRun=[&]{const auto begin=Clock::now();newValue=Current(seed,bytes.data(),int(bytes.size()));
                 newTime=std::chrono::duration<double>(Clock::now()-begin).count();};
-            if((index+round)&1){newRun();oldRun();}else{oldRun();newRun();}
-            Require(oldValue==newValue,"full real model CRC mismatch");
-            std::printf("sample\t%u\t%d\t%08x\t%08x\t%.9f\t%.9f\n",
-                index,round,seed,newValue,oldTime,newTime);
+            const auto tableRun=[&]{const auto begin=Clock::now();tableValue=Slicing(seed,bytes.data(),int(bytes.size()));
+                tableTime=std::chrono::duration<double>(Clock::now()-begin).count();};
+            oldRun();
+            if((index+round)&1){newRun();tableRun();}else{tableRun();newRun();}
+            Require(oldValue==newValue && tableValue==newValue,"full real model CRC mismatch");
+            std::printf("sample\t%u\t%d\t%08x\t%08x\t%.9f\t%.9f\t%.9f\n",
+                index,round,seed,newValue,oldTime,newTime,tableTime);
         }
         const auto baseline=Current(0xffffffffu,bytes.data(),int(bytes.size()));
         for(const std::size_t at:{std::size_t(0),bytes.size()/2,bytes.size()-1})
@@ -239,6 +247,7 @@ int main(int argc,char** argv)
         if(argc!=3)throw std::runtime_error("expected model list and rounds");
         const int rounds=std::stoi(argv[2]);
         if(rounds<1 || rounds>8)throw std::runtime_error("rounds outside 1..8");
+        std::printf("pclmul\t%d\n",goldcraft::crc32_ieee::detail::HasPclmul());
         Functional();ProtectedBoundaries();Models(argv[1],rounds);
         return 0;
     }

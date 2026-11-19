@@ -7,15 +7,15 @@
 - 使用真实 ReHLDS SDK 的 `CRC32_t`、Windows 页保护 API，与当前 `native/engine/crc32_ieee.h`；编译为 x86、C++20、O3、ThinLTO、AVX2、precise。
 - 旧 oracle 从 ReHLDS 提交 `550f2d62f13f4ebeb029c1d9d1c212133202611d` 的 `rehlds/engine/crc.cpp` 提取原表、Init、Final、ProcessByte、ProcessBuffer。Git blob 为 `df6f52ba991e081d0226fd636f1a964fbfed259a`，完整旧文件 SHA-256 为 `a24e83238af6bf397eb825e000debadb119a82b39dd65cb475713d81b685ad85`。
 - 当前 wrapper 从实际工作树同文件提取，直接调用生产头文件。只生成必要函数摘录，不复制源码树。每段偏移、SHA、编译命令和实际 include 身份写入本地证据。
-- 独立逐位 oracle 不使用任何查找表；实际模型另与 Python zlib 比较。每轮使用不同未取反种子，原/新计时次序交替。
+- 独立逐位 oracle 直接按多项式计算。回归覆盖生产分派与八表回退，实际模型另与 Python zlib 比较。每轮使用不同未取反种子，生产分派与八表算法的计时次序交替。
 - 默认复用 `build/engine-studio-storage-tests/plan.json` 的已核编译配置及 `build/engine-studio-safety-bench/plan.json` 的实际 150 个角色路径。运行时读真实资源，逐个释放，不生成资源副本。
 
-```powershell
-python tests/engine-crc32/run.py --prepare-only
-python tests/engine-crc32/run.py
+```bash
+python -B tests/engine-crc32/run.py --prepare-only
+python -B tests/engine-crc32/run.py --output build/engine-crc32-check
 ```
 
-先协调单 TU 编译与测试窗口。输出固定在 `build/engine-crc32`；准备模式不调用编译器、不运行测试。结果中的模型 SHA 在执行前后重新读取比对，哈希会预热文件缓存，所以计时仅表示缓冲区内 CRC 计算，不能代替换图时间。
+默认输出为 `build/engine-crc32`。`--output` 可选取新的 `build/` 子目录保留前次记录。准备模式只生成输入计划。执行结果记录主机 PCLMUL 支持状态，并在测试前后核对模型 SHA。计时覆盖已读入内存的缓冲区。
 
 ## 2026-11-07 独立审查与执行
 

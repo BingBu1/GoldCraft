@@ -2,6 +2,7 @@
   "format": 1,
   "files": [
     "docs/2026-11-19_优化-最终资源复核复用文件句柄-report.md",
+    "docs/2026-11-19_优化-模型CRC32硬件折叠-report.md",
     "tools/client-launcher/retarget.py",
     "tests/client-launcher-retarget/test_retarget.py",
     "tests/client-launcher-managed/LiveEndpoint.cs",

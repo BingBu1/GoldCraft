@@ -55,11 +55,14 @@ def main() -> int:
     parser.add_argument("--model-plan",type=Path,default=ROOT/"build/engine-studio-safety-bench/plan.json")
     parser.add_argument("--legacy-ref",default="550f2d62f13f4ebeb029c1d9d1c212133202611d")
     parser.add_argument("--rounds",type=int,default=3)
+    parser.add_argument("--output",type=Path,default=OUT)
     parser.add_argument("--prepare-only",action="store_true")
     args=parser.parse_args()
     if not 1<=args.rounds<=8:parser.error("rounds must be 1..8")
-    if OUT.resolve()!=OUT:raise ValueError("unexpected output redirection")
-    OUT.mkdir(parents=True,exist_ok=True)
+    out=args.output.absolute()
+    if not out.is_relative_to(OUT.parent) or out==OUT.parent or out.resolve()!=out:
+        raise ValueError("expected an independent directory under build/")
+    out.mkdir(parents=True,exist_ok=True)
     helper=ROOT/"tests/engine-studio-storage/run_resources.py"
     spec=importlib.util.spec_from_file_location("crc_extract_helper",helper)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -68,7 +71,7 @@ def main() -> int:
     flags=command[:command.index("/c")]
     if any(flag not in flags for flag in ("--target=i686-pc-windows-msvc","/clang:-O3","/clang:-flto=thin","/arch:AVX2","/fp:precise")):
         raise ValueError("fixture build plan is not x86 O3/ThinLTO/AVX2/precise")
-    flags.append(f"/I{OUT}")
+    flags.append(f"/I{out}")
     environment_path=Path(base["environmentInput"]["path"])
     revision=git("rev-parse",args.legacy_ref+"^{commit}").decode().strip()
     legacy=git("show",revision+":rehlds/engine/crc.cpp")
@@ -81,13 +84,13 @@ def main() -> int:
         # Ignore line endings; these APIs and the original table are not part of the change.
         if legacy[old["start"]:old["end"]].replace(b"\r\n",b"\n")!=current[new["start"]:new["end"]].replace(b"\r\n",b"\n"):
             raise ValueError("CRC table/Init/Final/ProcessByte changed outside intended wrapper")
-    for name,code in (("legacy-crc.inc",legacy_code),("current-crc.inc",current_code)):(OUT/name).write_bytes(code)
+    for name,code in (("legacy-crc.inc",legacy_code),("current-crc.inc",current_code)):(out/name).write_bytes(code)
     model_plan=json.loads(args.model_plan.read_text(encoding="utf-8"))
     models=[Path(row["path"]).resolve(strict=True) for row in model_plan["models"]]
     if not models or len(set(models))!=len(models) or any(not path.is_relative_to(ROOT/"sandbox") for path in models):
         raise ValueError("invalid or repeated model set")
-    model_list=OUT/"models.txt";model_list.write_text("\n".join(map(str,models))+"\n",encoding="utf-8")
-    fixture=HERE/"fixture.cpp";obj=OUT/"test.obj";exe=OUT/"test.exe"
+    model_list=out/"models.txt";model_list.write_text("\n".join(map(str,models))+"\n",encoding="utf-8")
+    fixture=HERE/"fixture.cpp";obj=out/"test.obj";exe=out/"test.exe"
     commands=[
         {"name":"compile","argv":[*flags,"/c",str(fixture),f"/Fo{obj}"]},
         {"name":"link","argv":[flags[0],"--target=i686-pc-windows-msvc","-fuse-ld=lld","/MT",str(obj),f"/Fe{exe}",
@@ -95,15 +98,15 @@ def main() -> int:
         {"name":"test","argv":[str(exe),str(model_list),str(args.rounds)]},
     ]
     source_paths=[fixture,Path(__file__),helper,current_path,ROOT/"native/engine/crc32_ieee.h",
-                  OUT/"legacy-crc.inc",OUT/"current-crc.inc",model_list]
+                  out/"legacy-crc.inc",out/"current-crc.inc",model_list]
     plan={"commands":commands,"sources":[identity(path) for path in source_paths],
           "legacy":{"revision":revision,"blob":legacy_blob,"sha256":hashlib.sha256(legacy).hexdigest(),"ranges":legacy_ranges},
           "current":{"identity":identity(current_path),"ranges":current_ranges},"buildPlan":identity(args.build_plan),
           "modelPlan":identity(args.model_plan),"environment":identity(environment_path),"compiler":identity(Path(flags[0])),
           "models":list(map(str,models)),"prepareOnly":args.prepare_only,"sourceTreesCopied":False,"liveGame":False}
-    write(OUT/"plan.json",plan)
+    write(out/"plan.json",plan)
     if args.prepare_only:
-        print(json.dumps({"prepared":str(OUT/"plan.json"),"models":len(models),"compiled":False}));return 0
+        print(json.dumps({"prepared":str(out/"plan.json"),"models":len(models),"compiled":False}));return 0
     result={"success":False,"commands":[],"liveGame":False};began=time.monotonic()
     try:
         seed_values=(0,1,0xffffffff,0x12345678,0x80000000,0xdeadbeef,0x55555555,0xaaaaaaaa)
@@ -119,21 +122,23 @@ def main() -> int:
         environment.update(overrides);environment["VSLANG"]="1033"
         for command in commands:
             start=time.monotonic()
-            ran=subprocess.run(command["argv"],cwd=OUT,env=environment,capture_output=True,text=True,
+            ran=subprocess.run(command["argv"],cwd=out,env=environment,capture_output=True,text=True,
                                timeout=180,creationflags=subprocess.CREATE_NO_WINDOW)
-            log=OUT/f"{command['name']}.log";log.write_text(ran.stdout+ran.stderr,encoding="utf-8")
+            log=out/f"{command['name']}.log";log.write_text(ran.stdout+ran.stderr,encoding="utf-8")
             result["commands"].append({"name":command["name"],"exit":ran.returncode,"seconds":time.monotonic()-start,"log":identity(log)})
             if ran.returncode:raise RuntimeError(f"{command['name']} exited {ran.returncode}; see {log}")
         headers={Path(line.split("including file:",1)[1].strip()).resolve()
-                 for line in (OUT/"compile.log").read_text(encoding="utf-8").splitlines() if "including file:" in line}
+                 for line in (out/"compile.log").read_text(encoding="utf-8").splitlines() if "including file:" in line}
         result["actualIncludes"]=[identity(path) for path in sorted(headers)]
-        samples=[];observed=[];mutations=[];checks={};complete=None
-        for line in (OUT/"test.log").read_text(encoding="utf-8").splitlines():
+        samples=[];observed=[];mutations=[];checks={};complete=None;pclmul=None
+        for line in (out/"test.log").read_text(encoding="utf-8").splitlines():
             fields=line.split("\t")
             if fields[0]=="checks":checks[fields[1]]=int(fields[2])
+            elif fields[0]=="pclmul":pclmul=int(fields[1])
             elif fields[0]=="model":observed.append((int(fields[1]),int(fields[2])))
             elif fields[0]=="sample":samples.append({"index":int(fields[1]),"round":int(fields[2]),"seed":int(fields[3],16),
-                "rawCrc":int(fields[4],16),"legacySeconds":float(fields[5]),"currentSeconds":float(fields[6])})
+                "rawCrc":int(fields[4],16),"legacySeconds":float(fields[5]),"currentSeconds":float(fields[6]),
+                "slicingSeconds":float(fields[7])})
             elif fields[0]=="mutations":mutations.append((int(fields[1]),int(fields[2])))
             elif fields[0]=="complete":complete=tuple(map(int,fields[1:]))
             else:raise ValueError("unexpected test output")
@@ -146,9 +151,11 @@ def main() -> int:
             if row["seed"]!=seed_values[row["round"]] or row["rawCrc"]!=inputs[row["index"]]["rawCrcByRound"][row["round"]]:
                 raise ValueError("real model disagrees with independent zlib oracle")
         if complete!=(len(models),args.rounds,sum(checks.values())):raise ValueError("incomplete assertion totals")
-        result.update(checks=checks,totalAssertions=complete[2],samples=samples,mutatedModels=len(mutations),zlibMatches=True)
+        if pclmul not in (0,1):raise ValueError("missing CRC CPU feature status")
+        result.update(checks=checks,totalAssertions=complete[2],samples=samples,mutatedModels=len(mutations),
+                      zlibMatches=True,pclmul=bool(pclmul))
         result["totalsByRound"]=[{"round":r,**{stage:sum(row[stage] for row in samples if row["round"]==r)
-            for stage in ("legacySeconds","currentSeconds")}} for r in range(args.rounds)]
+            for stage in ("legacySeconds","currentSeconds","slicingSeconds")}} for r in range(args.rounds)]
         result["sourcesUnchanged"]=all(identity(Path(row["path"]))==row for row in plan["sources"])
         result["modelsUnchanged"]=all(identity(Path(row["path"]))=={key:row[key] for key in ("path","bytes","sha256")} for row in inputs)
         result["executable"]=identity(exe);pe=exe.read_bytes();offset=struct.unpack_from("<I",pe,0x3c)[0]
@@ -156,7 +163,7 @@ def main() -> int:
         result["success"]=result["sourcesUnchanged"] and result["modelsUnchanged"] and result["x86"]
     except Exception as error:result["error"]=str(error)
     finally:
-        result["seconds"]=time.monotonic()-began;write(OUT/"result.json",result)
+        result["seconds"]=time.monotonic()-began;write(out/"result.json",result)
     print(json.dumps({key:result[key] for key in ("success","seconds")}))
     return 0 if result["success"] else 1
 
