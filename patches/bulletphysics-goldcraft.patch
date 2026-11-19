@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c8a0fe1..e6ee463 100644
+index c8a0fe1..9b1a336 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -78,6 +78,7 @@ endforeach()
@@ -19,7 +19,7 @@ index c8a0fe1..e6ee463 100644
          add_executable(${test} "tests/${test}.cpp")
          target_link_libraries(${test} PRIVATE bulletphysics_test_support)
          target_link_options(${test} PRIVATE /INCREMENTAL:NO $<$<CONFIG:Release>:/LTCG>)
-@@ -189,6 +190,10 @@ if(BULLETPHYSICS_BUILD_TESTS)
+@@ -189,6 +190,13 @@ if(BULLETPHYSICS_BUILD_TESTS)
      add_test(NAME physic_config_tests COMMAND physic_config_tests)
      add_test(NAME shipped_physic_assets_tests COMMAND shipped_physic_assets_tests "${CMAKE_CURRENT_SOURCE_DIR}/assets/svencoop_downloads")
      add_test(NAME bullet_backend_tests COMMAND bullet_backend_tests)
@@ -27,9 +27,24 @@ index c8a0fe1..e6ee463 100644
 +    add_test(NAME studio_sampling_state COMMAND studio_lifecycle_tests state)
 +    add_test(NAME studio_corpse_identity COMMAND studio_lifecycle_tests corpse)
 +    add_test(NAME studio_rebuild_pose COMMAND studio_lifecycle_tests rebuild)
++    add_test(NAME auto_ragdoll_lifecycle COMMAND studio_lifecycle_tests auto-lifecycle)
++    add_test(NAME auto_ragdoll_capacity COMMAND studio_lifecycle_tests auto-bounds)
++    add_test(NAME auto_ragdoll_collision COMMAND studio_lifecycle_tests auto-collision)
  endif()
  
  # The aggregate solution owns its single LaunchGame target.
+diff --git a/cmake/Sources.cmake b/cmake/Sources.cmake
+index 2a881bf..7ff78c4 100644
+--- a/cmake/Sources.cmake
++++ b/cmake/Sources.cmake
+@@ -144,6 +144,7 @@ set(BULLETPHYSICS_SOURCES
+     "src/BaseUI.cpp"
+     "src/BulletPhysicManager.cpp"
+     "src/BasePhysicManager.cpp"
++    "src/AutoRagdoll.cpp"
+     "src/ClientVGUI.cpp"
+     "src/PhysicConstraintEditDialog.cpp"
+     "src/PhysicConstraintPage.cpp"
 diff --git a/scripts/manifests/bulletphysics.json b/scripts/manifests/bulletphysics.json
 index afde27d..e95b3bc 100644
 --- a/scripts/manifests/bulletphysics.json
@@ -52,10 +67,87 @@ index afde27d..e95b3bc 100644
            "cl_viewentity": "global", "mod_known": "global", "mod_numknown": "global",
            "cl_parsecount": "global", "cl_numvisedicts": "global",
 diff --git a/src/BasePhysicManager.cpp b/src/BasePhysicManager.cpp
-index 70cc1c3..7d69e08 100644
+index 70cc1c3..41c7409 100644
 --- a/src/BasePhysicManager.cpp
 +++ b/src/BasePhysicManager.cpp
-@@ -3360,8 +3360,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::LoadPhysicObjectC
+@@ -7,6 +7,7 @@
+ 
+ #include "CounterStrike.h"
+ #include "BasePhysicManager.h"
++#include "AutoRagdoll.h"
+ #include "ClientEntityManager.h"
+ #include "PhysicUTIL.h"
+ 
+@@ -42,28 +43,18 @@ IClientPhysicManager* ClientPhysicManager()
+     return g_pClientPhysicManager;
+ }
+ 
+-bool StudioGetActivityType(model_t* mod, entity_state_t* entstate, StudioAnimActivityType* pStudioAnimActivityType, int* pAnimControlFlags)
++static bool GetStudioActivity(const model_t* mod, const studiohdr_t* studio, int sequence,
++    StudioAnimActivityType* pStudioAnimActivityType, int* pAnimControlFlags)
+ {
+-    //if (g_bIsSvenCoop)
+-    //{
+-    //	if (entstate->scale != 0 && entstate->scale != 1.0f)
+-    //		return StudioAnimActivityType_Idle;
+-    //}
+-
+-    if (mod->type != mod_studio)
+-        return false;
+-
+-    auto studiohdr = (studiohdr_t*)IEngineStudio.Mod_Extradata(mod);
+-
+-    if (!studiohdr)
+-        return false;
+-
+-    int sequence = entstate->sequence;
+-
+-    if (sequence < 0 || sequence >= studiohdr->numseq)
++    if (!studio || sequence < 0 || sequence >= studio->numseq ||
++        studio->seqindex < static_cast<int>(sizeof(studiohdr_t)) ||
++        studio->seqindex > studio->length || studio->seqindex % alignof(mstudioseqdesc_t) ||
++        static_cast<size_t>(studio->numseq) >
++            static_cast<size_t>(studio->length - studio->seqindex) / sizeof(mstudioseqdesc_t))
+         return false;
+ 
+-    auto pseqdesc = (mstudioseqdesc_t*)((byte*)studiohdr + studiohdr->seqindex) + sequence;
++    const auto* pseqdesc = reinterpret_cast<const mstudioseqdesc_t*>(
++        reinterpret_cast<const byte*>(studio) + studio->seqindex) + sequence;
+ 
+     if (
+         pseqdesc->activity == ACT_DIESIMPLE ||
+@@ -112,6 +103,13 @@ bool StudioGetActivityType(model_t* mod, entity_state_t* entstate, StudioAnimAct
+     return true;
+ }
+ 
++bool StudioGetActivityType(model_t* mod, entity_state_t* entstate,
++    StudioAnimActivityType* activity, int* flags)
++{
++    return mod->type == mod_studio && GetStudioActivity(mod,
++        static_cast<const studiohdr_t*>(IEngineStudio.Mod_Extradata(mod)), entstate->sequence, activity, flags);
++}
++
+ bool CheckPhysicComponentSubFilters(IPhysicComponent* pPhysicComponent, const CPhysicComponentSubFilters& subfilter)
+ {
+     if (subfilter.m_HasWithoutFlags)
+@@ -754,11 +752,16 @@ void CBasePhysicManager::Init()
+ 
+ void CBasePhysicManager::Shutdown()
+ {
++    RemoveAllPhysicObjects(PhysicObjectFlag_AutoRagdoll, 0);
++    m_autoRagdollConfigs.clear();
++    m_autoPlayerCorpses.fill(0);
+ }
+ 
+ void CBasePhysicManager::NewMap()
+ {
+     RemoveAllPhysicObjects(PhysicObjectFlag_AnyObject, 0);
++    m_autoRagdollConfigs.clear();
++    m_autoPlayerCorpses.fill(0);
+     RemoveAllPhysicObjectConfigs(PhysicObjectFlag_FromBSP, 0);
+ 
+     m_allocatedPhysicComponentId = 0;
+@@ -3360,8 +3363,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::LoadPhysicObjectC
  
      if (modelindex >= (int)m_physicObjectConfigs.size())
      {
@@ -65,7 +157,7 @@ index 70cc1c3..7d69e08 100644
      }
  
      auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3393,8 +3392,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+@@ -3393,8 +3395,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
  
      if (modelindex >= (int)m_physicObjectConfigs.size())
      {
@@ -75,7 +167,7 @@ index 70cc1c3..7d69e08 100644
      }
  
      auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3422,8 +3420,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
+@@ -3422,8 +3423,7 @@ std::shared_ptr<CClientPhysicObjectConfig> CBasePhysicManager::CreateEmptyPhysic
  
      if (modelindex >= (int)m_physicObjectConfigs.size())
      {
@@ -85,7 +177,237 @@ index 70cc1c3..7d69e08 100644
      }
  
      auto& Storage = m_physicObjectConfigs[modelindex];
-@@ -3657,7 +3654,7 @@ void CBasePhysicManager::SetupBonesForRagdoll(cl_entity_t* ent, entity_state_t*
+@@ -3469,143 +3469,119 @@ void CBasePhysicManager::CreatePhysicObjectForEntity(cl_entity_t* ent, entity_st
+     {
+         CreatePhysicObjectForStudioModel(ent, state, mod);
+     }
+-    else if (mod->type == mod_brush && state->solid == SOLID_BSP)
++    else
+     {
+-        CreatePhysicObjectForBrushModel(ent, state, mod);
++        const int index = ClientEntityManager()->GetEntityIndex(ent);
++        const auto* previous = GetPhysicObject(index);
++        if (previous && (previous->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll))
++            RemovePhysicObject(index);
++
++        if (mod->type == mod_brush && state->solid == SOLID_BSP)
++            CreatePhysicObjectForBrushModel(ent, state, mod);
+     }
+ 
+     (*currententity) = saved_currententity;
+ }
+ 
+-void CBasePhysicManager::CreatePhysicObjectForStudioModel(cl_entity_t* ent, entity_state_t* state, model_t* mod)
++namespace
+ {
+-    if (ClientEntityManager()->IsEntityNetworkEntity(ent))
+-    {
+-        if (ClientEntityManager()->IsEntityDeadPlayer(ent))
+-        {
+-            auto entindex    = ent->index;
+-            auto playerindex = state->renderamt;
+-            auto model       = IEngineStudio.SetupPlayerModel(playerindex - 1);
++constexpr int MaxAutoRagdolls = 16;
+ 
+-            if (!model)
+-                return;
++bool AutoRagdollsEnabled()
++{
++    return g_bIsCounterStrike && bv_auto_ragdoll && bv_auto_ragdoll->value > 0;
++}
+ 
+-            if (g_bIsCounterStrike)
+-            {
+-                //Counter-Strike redirects playermodel in a pretty tricky way
+-                int modelindex = 0;
+-                model          = CounterStrike_RedirectPlayerModel(model, playerindex, &modelindex);
+-            }
++bool IsNetworkDeath(const entity_state_t& state, bool player)
++{
++    return !state.spectator && state.solid == SOLID_NOT &&
++        (state.movetype == MOVETYPE_TOSS || (player && state.movetype == MOVETYPE_NONE));
++}
++}
+ 
+-            ClientEntityManager()->NotifyEntityModel(ent, model);
++void CBasePhysicManager::RefreshStudioPhysicObject(cl_entity_t* ent, entity_state_t* state, model_t* mod,
++    int entindex, int playerindex, bool transfer)
++{
++    ClientEntityManager()->NotifyEntityModel(ent, mod);
++    const float scale = ClientEntityManager()->GetEntityModelScaling(ent, mod);
++    const bool player = playerindex > 0 && playerindex <= MAX_CLIENTS;
++    const bool clientCorpse = transfer && ClientEntityManager()->IsEntityIndexTempEntity(entindex);
++    bool allowAuto = AutoRagdollsEnabled() && scale == 1.0f &&
++        (clientCorpse || (!transfer && IsNetworkDeath(*state, player)));
+ 
+-            auto PhysicObject = GetPhysicObject(entindex);
++    if (!transfer && player && m_autoPlayerCorpses[playerindex])
++    {
++        const auto* corpse = GetPhysicObject(m_autoPlayerCorpses[playerindex]);
++        if (allowAuto && corpse && corpse->GetModel() == mod &&
++            corpse->GetClientEntityState()->sequence == state->sequence)
++        {
++            // The native player may be visible for one more frame after ClCorpse.
++            return;
++        }
++        m_autoPlayerCorpses[playerindex] = 0;
++    }
+ 
+-            if (PhysicObject &&
+-                PhysicObject->GetModel() == model &&
+-                PhysicObject->GetModelScaling() == ClientEntityManager()->GetEntityModelScaling(ent, model) &&
+-                PhysicObject->GetPlayerIndex() == playerindex)
+-            {
+-            }
+-            else
+-            {
+-                if (TransferOwnershipForPhysicObject(playerindex, entindex))
+-                    return;
++    auto* object = GetPhysicObject(entindex);
++    if (object && object->GetModel() == mod && object->GetModelScaling() == scale &&
++        object->GetPlayerIndex() == playerindex &&
++        (!(object->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll) || allowAuto))
++        return;
+ 
+-                RemovePhysicObject(entindex);
+-                CreatePhysicObjectFromConfig(ent, state, model, entindex, playerindex);
+-            }
++    if (transfer)
++    {
++        const auto* source = GetPhysicObject(playerindex);
++        if (source && !(source->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll))
++        {
++            if (TransferOwnershipForPhysicObject(playerindex, entindex)) return;
+         }
+-        else if (ClientEntityManager()->IsEntityPlayer(ent))
++        else if (source && clientCorpse && allowAuto && player &&
++            source->GetPlayerIndex() == playerindex && source->GetModel() == mod &&
++            source->GetModelScaling() == scale)
+         {
+-            auto entindex    = ent->index;
+-            auto playerindex = state->number;
+-            auto model       = IEngineStudio.SetupPlayerModel(playerindex - 1);
+-
+-            if (!model)
+-                return;
+-
+-            if (g_bIsCounterStrike)
+-            {
+-                //Counter-Strike redirects playermodel in a pretty tricky way
+-                int modelindex = 0;
+-                model          = CounterStrike_RedirectPlayerModel(model, playerindex, &modelindex);
+-            }
+-
+-            ClientEntityManager()->NotifyEntityModel(ent, model);
+-
+-            auto PhysicObject = GetPhysicObject(entindex);
+-
+-            if (PhysicObject &&
+-                PhysicObject->GetModel() == model &&
+-                PhysicObject->GetModelScaling() == ClientEntityManager()->GetEntityModelScaling(ent, model) &&
+-                PhysicObject->GetPlayerIndex() == playerindex)
+-            {
+-            }
+-            else
++            const auto* playerState = R_GetPlayerState(playerindex - 1);
++            if (playerState && IsNetworkDeath(*playerState, true) && playerState->sequence == state->sequence &&
++                playerState->body == state->body && TransferOwnershipForPhysicObject(playerindex, entindex))
+             {
+-                RemovePhysicObject(entindex);
+-                CreatePhysicObjectFromConfig(ent, state, model, entindex, playerindex);
++                m_autoPlayerCorpses[playerindex] = entindex;
++                return;
+             }
+         }
+-        else
+-        {
+-            auto entindex = ent->index;
+-            auto model    = mod;
++    }
+ 
+-            if (!model)
+-                return;
++    RemovePhysicObject(entindex);
++    CreatePhysicObjectFromConfig(ent, state, mod, entindex, playerindex, allowAuto);
++}
+ 
+-            ClientEntityManager()->NotifyEntityModel(ent, model);
++void CBasePhysicManager::CreatePhysicObjectForStudioModel(cl_entity_t* ent, entity_state_t* state, model_t* mod)
++{
++    if (ClientEntityManager()->IsEntityNetworkEntity(ent))
++    {
++        const bool deadPlayer = ClientEntityManager()->IsEntityDeadPlayer(ent);
++        if (!deadPlayer && !ClientEntityManager()->IsEntityPlayer(ent))
++        {
++            RefreshStudioPhysicObject(ent, state, mod, ent->index, 0, false);
++            return;
++        }
+ 
+-            auto PhysicObject = GetPhysicObject(entindex);
++        const int playerindex = deadPlayer ? state->renderamt : state->number;
++        auto* model = IEngineStudio.SetupPlayerModel(playerindex - 1);
++        if (!model) return;
+ 
+-            if (PhysicObject &&
+-                PhysicObject->GetModel() == model &&
+-                PhysicObject->GetModelScaling() == ClientEntityManager()->GetEntityModelScaling(ent, model))
+-            {
+-            }
+-            else
+-            {
+-                RemovePhysicObject(entindex);
+-                CreatePhysicObjectFromConfig(ent, state, model, entindex, 0);
+-            }
++        if (g_bIsCounterStrike)
++        {
++            int modelindex = 0;
++            model = CounterStrike_RedirectPlayerModel(model, playerindex, &modelindex);
+         }
++        if (model) RefreshStudioPhysicObject(ent, state, model, ent->index, playerindex, deadPlayer);
+     }
+     else if (ClientEntityManager()->IsEntityTempEntity(ent))
+     {
++        const int index = ClientEntityManager()->GetEntityIndexFromTempEntity(ent);
+         if (ClientEntityManager()->IsEntityClientCorpse(ent))
+-        {
+-            auto entindex    = ClientEntityManager()->GetEntityIndex(ent);
+-            auto playerindex = ent->curstate.owner;
+-            auto model       = mod;
+-
+-            if (!model)
+-                return;
+-
+-            ClientEntityManager()->NotifyEntityModel(ent, model);
+-
+-            auto PhysicObject = GetPhysicObject(entindex);
+-
+-            if (PhysicObject &&
+-                PhysicObject->GetModel() == model &&
+-                PhysicObject->GetModelScaling() == ClientEntityManager()->GetEntityModelScaling(ent, model) &&
+-                PhysicObject->GetPlayerIndex() == playerindex)
+-            {
+-            }
+-            else
+-            {
+-                if (TransferOwnershipForPhysicObject(playerindex, entindex))
+-                    return;
+-
+-                RemovePhysicObject(entindex);
+-                CreatePhysicObjectFromConfig(ent, state, model, entindex, playerindex);
+-            }
+-        }
+-        else
+-        {
+-            //TODO other tempents are not supported yet?
+-        }
++            RefreshStudioPhysicObject(ent, state, mod, index, state->owner, true);
++        else if (const auto* previous = GetPhysicObject(index);
++                 previous && (previous->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll))
++            RemovePhysicObject(index);
+     }
+ }
+ 
+@@ -3657,7 +3633,7 @@ void CBasePhysicManager::SetupBonesForRagdoll(cl_entity_t* ent, entity_state_t*
  
          (*gpStudioInterface)->StudioDrawModel(STUDIO_RAGDOLL_SETUP_BONES);
  
@@ -94,7 +416,7 @@ index 70cc1c3..7d69e08 100644
      }
  
      (*currententity) = saved_currententity;
-@@ -3735,6 +3732,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
+@@ -3735,6 +3711,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
          int   iSavedSequence     = ent->curstate.sequence;
          int   iSavedGaitSequence = ent->curstate.gaitsequence;
          float flSavedFrame       = ent->curstate.frame;
@@ -103,7 +425,7 @@ index 70cc1c3..7d69e08 100644
          byte  ubSavedController[4];
          byte  ubSavedBlending[4];
  
-@@ -3778,6 +3777,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
+@@ -3778,6 +3756,8 @@ void CBasePhysicManager::SetupBonesForRagdollEx(cl_entity_t* ent, entity_state_t
          ent->curstate.sequence     = iSavedSequence;
          ent->curstate.gaitsequence = iSavedGaitSequence;
          ent->curstate.frame        = flSavedFrame;
@@ -112,8 +434,148 @@ index 70cc1c3..7d69e08 100644
      }
  
      (*currententity) = saved_currententity;
+@@ -4048,10 +4028,28 @@ void CBasePhysicManager::RemoveAllPhysicConfigs()
+ 
+ //Private impls
+ 
+-void CBasePhysicManager::CreatePhysicObjectFromConfig(cl_entity_t* ent, entity_state_t* state, model_t* mod, int entindex, int playerindex)
++void CBasePhysicManager::CreatePhysicObjectFromConfig(cl_entity_t* ent, entity_state_t* state, model_t* mod,
++    int entindex, int playerindex, bool allowAuto)
+ {
+     auto pPhysicConfig = LoadPhysicObjectConfigForModel(mod);
++    studiohdr_t* generatedStudio = nullptr;
++    if (!pPhysicConfig && allowAuto && m_autoRagdollCount < MaxAutoRagdolls)
++    {
++        auto found = m_autoRagdollConfigs.find(mod);
++        if (found != m_autoRagdollConfigs.end() && !found->second)
++            return;
+ 
++        generatedStudio = static_cast<studiohdr_t*>(IEngineStudio.Mod_Extradata(mod));
++        StudioAnimActivityType activity{};
++        int animFlags{};
++        if (!GetStudioActivity(mod, generatedStudio, state->sequence, &activity, &animFlags) ||
++            activity != StudioAnimActivityType_Death)
++            return;
++
++        if (found == m_autoRagdollConfigs.end())
++            found = m_autoRagdollConfigs.emplace(mod, BuildAutoRagdoll(*generatedStudio)).first;
++        pPhysicConfig = found->second;
++    }
+     if (!pPhysicConfig)
+         return;
+ 
+@@ -4068,7 +4066,8 @@ void CBasePhysicManager::CreatePhysicObjectFromConfig(cl_entity_t* ent, entity_s
+ 
+         if (mod->type == mod_studio)
+         {
+-            CreationParam.m_studiohdr     = (studiohdr_t*)IEngineStudio.Mod_Extradata(mod);
++            CreationParam.m_studiohdr = generatedStudio ? generatedStudio :
++                static_cast<studiohdr_t*>(IEngineStudio.Mod_Extradata(mod));
+             CreationParam.m_model_scaling = ClientEntityManager()->GetEntityModelScaling(ent, mod);
+         }
+ 
+@@ -4218,6 +4217,21 @@ void CBasePhysicManager::AddPhysicObject(int entindex, IPhysicObject* pPhysicObj
+     RemovePhysicObject(entindex);
+ 
+     m_physicObjects[entindex] = pPhysicObject;
++    if (pPhysicObject->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll)
++        ++m_autoRagdollCount;
++}
++
++void CBasePhysicManager::DestroyPhysicObject(IPhysicObject* object)
++{
++    if (object->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll)
++    {
++        --m_autoRagdollCount;
++        const int player = object->GetPlayerIndex();
++        const int index = object->GetEntityIndex();
++        if (player > 0 && player <= MAX_CLIENTS && m_autoPlayerCorpses[player] == index)
++            m_autoPlayerCorpses[player] = 0;
++    }
++    object->Destroy();
+ }
+ 
+ bool CBasePhysicManager::RemovePhysicObject(int entindex)
+@@ -4228,7 +4242,7 @@ bool CBasePhysicManager::RemovePhysicObject(int entindex)
+     {
+         auto pPhysicObject = itor->second;
+ 
+-        pPhysicObject->Destroy();
++        DestroyPhysicObject(pPhysicObject);
+ 
+         m_physicObjects.erase(itor);
+ 
+@@ -4264,7 +4278,7 @@ void CBasePhysicManager::RemoveAllPhysicObjects(int withflags, int withoutflags)
+ 
+         if ((pPhysicObject->GetObjectFlags() & withflags) && !(pPhysicObject->GetObjectFlags() & withoutflags))
+         {
+-            pPhysicObject->Destroy();
++            DestroyPhysicObject(pPhysicObject);
+ 
+             itor = m_physicObjects.erase(itor);
+             continue;
+@@ -4279,6 +4293,7 @@ void CBasePhysicManager::UpdateAllPhysicObjects(TEMPENTITY** ppTempEntFree, TEMP
+     if (frame_time <= 0)
+         return;
+ 
++    const bool autoRagdollsEnabled = AutoRagdollsEnabled();
+     for (auto itor = m_physicObjects.begin(); itor != m_physicObjects.end();)
+     {
+         auto entindex      = itor->first;
+@@ -4287,6 +4302,8 @@ void CBasePhysicManager::UpdateAllPhysicObjects(TEMPENTITY** ppTempEntFree, TEMP
+         CPhysicObjectUpdateContext ObjectUpdateContext;
+ 
+         ObjectUpdateContext.m_flGravity = cl_gravity;
++        ObjectUpdateContext.m_bShouldFree = !autoRagdollsEnabled &&
++            (pPhysicObject->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll);
+ 
+         if (!ObjectUpdateContext.m_bShouldFree)
+         {
+@@ -4304,7 +4321,7 @@ void CBasePhysicManager::UpdateAllPhysicObjects(TEMPENTITY** ppTempEntFree, TEMP
+ 
+         if (ObjectUpdateContext.m_bShouldFree)
+         {
+-            pPhysicObject->Destroy();
++            DestroyPhysicObject(pPhysicObject);
+ 
+             itor = m_physicObjects.erase(itor);
+             continue;
+diff --git a/src/BasePhysicManager.h b/src/BasePhysicManager.h
+index be4e584..9fb4088 100644
+--- a/src/BasePhysicManager.h
++++ b/src/BasePhysicManager.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <array>
+ #include <vector>
+ #include <map>
+ #include <unordered_map>
+@@ -39,6 +40,9 @@ protected:
+ #endif
+ 
+     CClientPhysicObjectConfigs m_physicObjectConfigs;
++    std::unordered_map<model_t*, std::shared_ptr<CClientRagdollObjectConfig>> m_autoRagdollConfigs;
++    std::array<int, MAX_CLIENTS + 1> m_autoPlayerCorpses{};
++    int m_autoRagdollCount{};
+ 
+     std::unordered_map<std::string, std::shared_ptr<CPhysicIndexArray>>  m_indexArrayResources;
+     std::unordered_map<std::string, std::shared_ptr<CPhysicVertexArray>> m_worldVertexResources;
+@@ -168,7 +172,11 @@ private:
+ 	void FreeGargantuaIndexVertexArray();
+ #endif
+ 
+-    void CreatePhysicObjectFromConfig(cl_entity_t* ent, entity_state_t* state, model_t* mod, int entindex, int playerindex);
++    void CreatePhysicObjectFromConfig(cl_entity_t* ent, entity_state_t* state, model_t* mod,
++        int entindex, int playerindex, bool allowAuto);
++    void RefreshStudioPhysicObject(cl_entity_t* ent, entity_state_t* state, model_t* mod,
++        int entindex, int playerindex, bool transfer);
++    void DestroyPhysicObject(IPhysicObject* object);
+     void CreatePhysicObjectForStudioModel(cl_entity_t* ent, entity_state_t* state, model_t* mod);
+     void CreatePhysicObjectForBrushModel(cl_entity_t* ent, entity_state_t* state, model_t* mod);
+ 
 diff --git a/src/BaseRagdollObject.cpp b/src/BaseRagdollObject.cpp
-index 5eb5b0b..0e73753 100644
+index 5eb5b0b..b80ecf9 100644
 --- a/src/BaseRagdollObject.cpp
 +++ b/src/BaseRagdollObject.cpp
 @@ -112,6 +112,8 @@ bool CBaseRagdollObject::Build(const CPhysicObjectCreationParameter& CreationPar
@@ -125,7 +587,50 @@ index 5eb5b0b..0e73753 100644
  
      for (const auto& pAnimConfig : m_AnimControlConfigs)
      {
-@@ -198,6 +200,8 @@ bool CBaseRagdollObject::Rebuild(const CPhysicObjectCreationParameter& CreationP
+@@ -139,7 +141,17 @@ bool CBaseRagdollObject::Build(const CPhysicObjectCreationParameter& CreationPar
+     m_ConstraintConfigs     = pRagdollObjectConfig->ConstraintConfigs;
+     m_PhysicBehaviorConfigs = pRagdollObjectConfig->PhysicBehaviorConfigs;
+ 
+-    if (CreationParam.m_model->type == mod_studio)
++    const bool autoRagdoll = (m_flags & PhysicObjectFlag_AutoRagdoll) != 0;
++    if (autoRagdoll)
++    {
++        // A ClCorpse already has its native model and uses the non-player draw callback.
++        const int posePlayer = ClientEntityManager()->IsEntityClientCorpse(CreationParam.m_entity) ?
++            0 : CreationParam.m_playerindex;
++        if (!SampleAutoRagdollPose(CreationParam.m_entity, CreationParam.m_entstate, CreationParam.m_model,
++                CreationParam.m_entindex, posePlayer, CreationParam.m_studiohdr))
++            return false;
++    }
++    else if (CreationParam.m_model->type == mod_studio)
+     {
+         if (m_IdleAnimConfig)
+         {
+@@ -147,7 +159,8 @@ bool CBaseRagdollObject::Build(const CPhysicObjectCreationParameter& CreationPar
+         }
+         else
+         {
+-            ClientPhysicManager()->SetupBonesForRagdoll(CreationParam.m_entity, CreationParam.m_entstate, CreationParam.m_model, CreationParam.m_entindex, CreationParam.m_playerindex);
++            ClientPhysicManager()->SetupBonesForRagdoll(CreationParam.m_entity, CreationParam.m_entstate,
++                CreationParam.m_model, CreationParam.m_entindex, CreationParam.m_playerindex);
+         }
+     }
+ 
+@@ -166,8 +179,11 @@ bool CBaseRagdollObject::Build(const CPhysicObjectCreationParameter& CreationPar
+         std::bind(&CBaseRagdollObject::AddPhysicBehavior, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+ 
+ 
+-    //SetupNonKeyBones(CreationParam);
+-
++    if (autoRagdoll)
++    {
++        if (m_PhysicComponents.size() != m_RigidBodyConfigs.size() + m_ConstraintConfigs.size()) return false;
++        UpdateActivity(StudioAnimActivityType_Idle, StudioAnimActivityType_Death, AnimControlFlag_OverrideAllBones);
++    }
+     return true;
+ }
+ 
+@@ -198,6 +214,8 @@ bool CBaseRagdollObject::Rebuild(const CPhysicObjectCreationParameter& CreationP
      m_PhysicBehaviorConfigs = pRagdollObjectConfig->PhysicBehaviorConfigs;
  
      m_AnimControlConfigs = pRagdollObjectConfig->AnimControlConfigs;
@@ -134,11 +639,163 @@ index 5eb5b0b..0e73753 100644
  
      for (const auto& pAnimConfig : m_AnimControlConfigs)
      {
+@@ -290,7 +308,8 @@ void CBaseRagdollObject::Update(CPhysicObjectUpdateContext* ObjectUpdateContext)
+     StudioAnimActivityType iNewActivityType     = iOldActivityType;
+     int                    iNewAnimControlFlags = m_iAnimControlFlags;
+ 
+-    if (!CalculateOverrideActivityType(playerState, &iNewActivityType, &iNewAnimControlFlags))
++    const bool autoRagdoll = (m_flags & PhysicObjectFlag_AutoRagdoll) != 0;
++    if (!autoRagdoll && !CalculateOverrideActivityType(playerState, &iNewActivityType, &iNewAnimControlFlags))
+     {
+         StudioGetActivityType(m_model, playerState, &iNewActivityType, &iNewAnimControlFlags);
+     }
+@@ -346,12 +365,12 @@ void CBaseRagdollObject::Update(CPhysicObjectUpdateContext* ObjectUpdateContext)
+         }
+     }
+ 
+-    if (!ClientEntityManager()->IsEntityInVisibleList(GetClientEntity()))
++    if (!autoRagdoll && !ClientEntityManager()->IsEntityInVisibleList(GetClientEntity()))
+     {
+         ObjectUpdateContext->m_bRigidbodyUpdateBonesRequired = true;
+     }
+ 
+-    if (!ObjectUpdateContext->m_bRigidbodyUpdateBonesRequired && ShouldForceUpdateBones())
++    if (!autoRagdoll && !ObjectUpdateContext->m_bRigidbodyUpdateBonesRequired && ShouldForceUpdateBones())
+     {
+         ObjectUpdateContext->m_bRigidbodyUpdateBonesRequired = true;
+     }
+diff --git a/src/BulletRagdollObject.cpp b/src/BulletRagdollObject.cpp
+index 9ad6dcd..54a4dfe 100644
+--- a/src/BulletRagdollObject.cpp
++++ b/src/BulletRagdollObject.cpp
+@@ -23,7 +23,9 @@ CBulletRagdollObject::~CBulletRagdollObject()
+ 
+ bool CBulletRagdollObject::SetupBones(CRagdollObjectSetupBoneContext* Context)
+ {
+-    if (CBaseRagdollObject::SetupBones(Context))
++    if (Context->m_studiohdr && Context->m_studiohdr->numbones <= MAXSTUDIOBONES &&
++        (!(m_flags & PhysicObjectFlag_AutoRagdoll) || Context->m_studiohdr->numbones == m_poseBoneCount) &&
++        CBaseRagdollObject::SetupBones(Context))
+     {
+         mstudiobone_t* pbones = (mstudiobone_t*)((byte*)Context->m_studiohdr + Context->m_studiohdr->boneindex);
+ 
+@@ -34,45 +36,24 @@ bool CBulletRagdollObject::SetupBones(CRagdollObjectSetupBoneContext* Context)
+             if (Context->m_boneStates[i] & BoneState_BoneMatrixUpdated)
+                 continue;
+ 
+-            auto parentMatrix3x4 = (*pbonetransform)[pbones[i].parent];
++            int parent = pbones[i].parent;
++            if (parent < 0 && m_rootAnchorBone >= 0)
++                parent = m_rootAnchorBone;
+ 
+-            btTransform parentMatrix;
+-
+-            Matrix3x4ToTransform(parentMatrix3x4, parentMatrix);
+-
+-            TransformGoldSrcToBullet(parentMatrix);
+-
+-            btTransform mergedMatrix = parentMatrix * m_BoneRelativeTransform[i];
++            btTransform mergedMatrix = m_BoneRelativeTransform[i];
++            if (parent >= 0)
++            {
++                btTransform parentMatrix;
++                Matrix3x4ToTransform((*pbonetransform)[parent], parentMatrix);
++                TransformGoldSrcToBullet(parentMatrix);
++                mergedMatrix = parentMatrix * mergedMatrix;
++            }
+ 
+             TransformBulletToGoldSrc(mergedMatrix);
+-
+             TransformToMatrix3x4(mergedMatrix, (*pbonetransform)[i]);
+-
++            memcpy((*plighttransform)[i], (*pbonetransform)[i], sizeof((*pbonetransform)[i]));
+             Context->m_boneStates[i] |= BoneState_BoneMatrixUpdated;
+         }
+-#if 0
+-		for (size_t index = 0; index < m_nonKeyBones.size(); index++)
+-		{
+-			auto i = m_nonKeyBones[index];
+-
+-			if (i == -1)
+-				continue;
+-
+-			auto parentMatrix3x4 = (*pbonetransform)[pbones[i].parent];
+-
+-			btTransform parentMatrix;
+-
+-			Matrix3x4ToTransform(parentMatrix3x4, parentMatrix);
+-
+-			TransformGoldSrcToBullet(parentMatrix);
+-
+-			btTransform mergedMatrix = parentMatrix * m_BoneRelativeTransform[i];
+-
+-			TransformBulletToGoldSrc(mergedMatrix);
+-
+-			TransformToMatrix3x4(mergedMatrix, (*pbonetransform)[i]);
+-		}
+-#endif
+         return true;
+     }
+ 
+@@ -717,7 +698,17 @@ void CBulletRagdollObject::SaveBoneRelativeTransform(const CPhysicObjectCreation
+ 
+     const auto pbones = (mstudiobone_t*)((byte*)CreationParam.m_studiohdr + CreationParam.m_studiohdr->boneindex);
+ 
+-    //Save bone's initial relative transform
++    m_poseBoneCount = CreationParam.m_studiohdr->numbones;
++    // Generated rigs use a driven body to carry the skeleton's undriven roots.
++    m_rootAnchorBone = (m_flags & PhysicObjectFlag_AutoRagdoll) && !m_RigidBodyConfigs.empty() ?
++        m_RigidBodyConfigs.front()->boneindex : -1;
++    btTransform inverseRootAnchor;
++    if (m_rootAnchorBone >= 0)
++    {
++        Matrix3x4ToTransform((*pbonetransform)[m_rootAnchorBone], inverseRootAnchor);
++        TransformGoldSrcToBullet(inverseRootAnchor);
++        inverseRootAnchor = inverseRootAnchor.inverse();
++    }
+ 
+     for (int i = 0; i < CreationParam.m_studiohdr->numbones; ++i)
+     {
+@@ -728,6 +719,8 @@ void CBulletRagdollObject::SaveBoneRelativeTransform(const CPhysicObjectCreation
+             Matrix3x4ToTransform((*pbonetransform)[i], m_BoneRelativeTransform[i]);
+ 
+             TransformGoldSrcToBullet(m_BoneRelativeTransform[i]);
++            if (m_rootAnchorBone >= 0)
++                m_BoneRelativeTransform[i] = inverseRootAnchor * m_BoneRelativeTransform[i];
+         }
+         else
+         {
+diff --git a/src/BulletRagdollObject.h b/src/BulletRagdollObject.h
+index c968685..b044f6a 100644
+--- a/src/BulletRagdollObject.h
++++ b/src/BulletRagdollObject.h
+@@ -23,5 +23,7 @@ protected:
+     void CheckConstraintLinearErrors(CPhysicObjectUpdateContext* ctx);
+ 
+ public:
+-    btTransform m_BoneRelativeTransform[128]{};
++    btTransform m_BoneRelativeTransform[MAXSTUDIOBONES]{};
++    int m_rootAnchorBone{-1};
++    int m_poseBoneCount{};
+ };
+\ No newline at end of file
 diff --git a/src/ClientEntityManager.cpp b/src/ClientEntityManager.cpp
-index 65bf13c..3355a96 100644
+index 65bf13c..ecd735d 100644
 --- a/src/ClientEntityManager.cpp
 +++ b/src/ClientEntityManager.cpp
-@@ -194,7 +194,7 @@ public:
+@@ -46,8 +46,10 @@ public:
+     bool IsEntityTempEntity(cl_entity_t* ent) override
+     {
+         auto tempEntBase = EngineGetTempTentsBase();
+-        auto tempEntEnd  = EngineGetTempTentByIndex(EngineGetMaxTempEnts());
++        if (!tempEntBase)
++            return false;
+ 
++        auto tempEntEnd = EngineGetTempTentByIndex(EngineGetMaxTempEnts());
+         if ((ULONG_PTR)ent >= (ULONG_PTR)&tempEntBase->entity && (ULONG_PTR)ent < (ULONG_PTR)tempEntEnd)
+         {
+             return true;
+@@ -194,7 +196,7 @@ public:
          if (IsEntityTempEntity(ent))
          {
              if (ent->curstate.iuser4 == PhyCorpseFlag &&
@@ -147,13 +804,25 @@ index 65bf13c..3355a96 100644
              {
                  return true;
              }
-@@ -457,4 +457,4 @@ static CClientEntityManager g_ClientEntityManager;
+@@ -457,4 +459,4 @@ static CClientEntityManager g_ClientEntityManager;
  IClientEntityManager* ClientEntityManager()
  {
      return &g_ClientEntityManager;
 -}
 \ No newline at end of file
 +}
+diff --git a/src/ClientPhysicCommon.h b/src/ClientPhysicCommon.h
+index e7a4ef7..5c5ad44 100644
+--- a/src/ClientPhysicCommon.h
++++ b/src/ClientPhysicCommon.h
+@@ -71,6 +71,7 @@ const int PhysicObjectFlag_DynamicObject           = 0x2000;
+ const int PhysicObjectFlag_RagdollObject           = 0x4000;
+ const int PhysicObjectFlag_FromBSP                 = 0x8000;
+ const int PhysicObjectFlag_FromConfig              = 0x10000;
++const int PhysicObjectFlag_AutoRagdoll             = 0x20000;
+ const int PhysicObjectFlag_AnyObject               = (PhysicObjectFlag_StaticObject | PhysicObjectFlag_RagdollObject | PhysicObjectFlag_DynamicObject);
+ 
+ const int PhysicRigidBodyFlag_None                          = 0;
 diff --git a/src/ClientPhysicConfig.h b/src/ClientPhysicConfig.h
 index 9b95177..aba7dc7 100644
 --- a/src/ClientPhysicConfig.h
@@ -174,7 +843,7 @@ index 9b95177..aba7dc7 100644
 \ No newline at end of file
 +using CClientPhysicObjectConfigs = std::deque<CClientPhysicObjectConfigStorage>;
 diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
-index e8be0e2..957abf8 100644
+index e8be0e2..c223978 100644
 --- a/src/exportfuncs.cpp
 +++ b/src/exportfuncs.cpp
 @@ -21,10 +21,9 @@
@@ -189,7 +858,15 @@ index e8be0e2..957abf8 100644
  static hook_t* g_phook_R_StudioDrawModel                   = NULL;
  static hook_t* g_phook_studioapi_StudioCheckBBox           = NULL;
  static hook_t* g_phook_efxapi_R_TempModel                  = NULL;
-@@ -174,13 +173,17 @@ TEMPENTITY* EngineGetTempTentByIndex(int index)
+@@ -49,6 +48,7 @@ cvar_t* bv_debug_draw_selected_color   = NULL;
+ cvar_t* bv_simrate           = NULL;
+ cvar_t* bv_syncview          = NULL;
+ cvar_t* bv_force_updatebones = NULL;
++cvar_t* bv_auto_ragdoll      = NULL;
+ 
+ cvar_t* chase_active = NULL;
+ cvar_t* sv_cheats    = NULL;
+@@ -174,13 +174,17 @@ TEMPENTITY* EngineGetTempTentByIndex(int index)
      return &gTempEnts[index];
  }
  
@@ -207,7 +884,7 @@ index e8be0e2..957abf8 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return 16384;
  
-@@ -189,6 +192,7 @@ int EngineGetMaxKnownModel()
+@@ -189,6 +193,7 @@ int EngineGetMaxKnownModel()
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -215,7 +892,7 @@ index e8be0e2..957abf8 100644
      auto start = (model_t*)(mod_known);
      auto end   = (model_t*)(mod_known);
      end += (*mod_numknown);
-@@ -205,6 +209,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -205,6 +210,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -223,32 +900,134 @@ index e8be0e2..957abf8 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < EngineGetNumKnownModel())
-@@ -463,19 +468,15 @@ __forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, s
+@@ -230,6 +236,60 @@ model_t* EngineFindWorldModelBySubModel(model_t* psubmodel)
+     return nullptr;
+ }
+ 
++namespace
++{
++struct RagdollPoseSample
++{
++    cl_entity_t* entity;
++    const studiohdr_t* studio{};
++};
++
++RagdollPoseSample* activeRagdollSample{};
++
++class ScopedRagdollBoneCache
++{
++public:
++    explicit ScopedRagdollBoneCache(bool ragdoll)
++    {
++        if (!ragdoll || !gEngfuncs.pfnGetCvarPointer)
++            return;
++
++        // Renderer may short-circuit StudioSetupBones with cached animation.
++        // Keep its cache enabled for unrelated models and drawing passes.
++        static auto* boneCache = gEngfuncs.pfnGetCvarPointer("r_studio_bone_caches");
++        cvar = boneCache;
++        if (cvar)
++        {
++            savedValue = cvar->value;
++            cvar->value = 0;
++        }
++    }
++
++    ~ScopedRagdollBoneCache()
++    {
++        if (cvar) cvar->value = savedValue;
++    }
++
++private:
++    cvar_t* cvar{};
++    float savedValue{};
++};
++}
++
++bool SampleAutoRagdollPose(cl_entity_t* entity, entity_state_t* state, model_t* model,
++    int entityIndex, int playerIndex, const studiohdr_t* expectedHeader)
++{
++    if (!expectedHeader || activeRagdollSample)
++        return false;
++
++    ScopedRagdollBoneCache boneCache{true};
++    RagdollPoseSample sample{entity};
++    activeRagdollSample = &sample;
++    ClientPhysicManager()->SetupBonesForRagdoll(entity, state, model, entityIndex, playerIndex);
++    activeRagdollSample = nullptr;
++    return sample.studio == expectedHeader;
++}
++
+ /*
+ 	Purpose : StudioSetupBones hook handler
+ */
+@@ -247,6 +307,8 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+         return;
+ 
+     pfnSetupBones(pthis, dummy);
++    if (activeRagdollSample && activeRagdollSample->entity == *currententity)
++        activeRagdollSample->studio = Context.m_studiohdr;
+ 
+     if (g_iRagdollRenderEntIndex > 0 && ClientPhysicManager()->SetupJiggleBones(&Context))
+         return;
+@@ -319,10 +381,15 @@ __forceinline int StudioDrawModel_Template(CallType pfnDrawModel, int flags, voi
+ 
+         if (pPhysicObject && pPhysicObject->IsRagdollObject())
+         {
++            const bool generated = (pPhysicObject->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll) != 0;
++            if (generated && pPhysicObject->GetModel() != (*currententity)->model)
++                return pfnDrawModel(pthis, 0, flags);
++
+             auto pRagdollObject = (IRagdollObject*)pPhysicObject;
+ 
+             if (pRagdollObject->GetActivityType() == StudioAnimActivityType_Death || pRagdollObject->GetActivityType() == StudioAnimActivityType_CaughtByBarnacle)
+             {
++                ScopedRagdollBoneCache boneCache{generated};
+                 g_iRagdollRenderEntIndex = entindex;
+                 g_iRagdollRenderFlags    = flags;
+ 
+@@ -418,10 +485,15 @@ __forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, s
+ 
+         if (pPhysicObject && pPhysicObject->IsRagdollObject())
+         {
++            const bool generated = (pPhysicObject->GetObjectFlags() & PhysicObjectFlag_AutoRagdoll) != 0;
++            if (generated && pPhysicObject->GetModel() != model)
++                return pfnDrawPlayer(pthis, 0, flags, pplayer);
++
+             auto pRagdollObject = (IRagdollObject*)pPhysicObject;
+ 
+             if (pRagdollObject->GetActivityType() == StudioAnimActivityType_Death || pRagdollObject->GetActivityType() == StudioAnimActivityType_CaughtByBarnacle)
+             {
++                ScopedRagdollBoneCache boneCache{generated};
+                 g_iRagdollRenderEntIndex = entindex;
+                 g_iRagdollRenderFlags    = flags;
+ 
+@@ -463,19 +535,15 @@ __forceinline int StudioDrawPlayer_Template(CallType pfnDrawPlayer, int flags, s
      return pfnDrawPlayer(pthis, 0, flags, pplayer);
  }
  
 -__forceinline int R_StudioDrawPlayer_originalcall_wrapper(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
--{
--    return gPrivateFuncs.R_StudioDrawPlayer(flags, pplayer);
--}
--
--int R_StudioDrawPlayer(int flags, struct entity_state_s* pplayer)
 +__forceinline int StudioDrawPlayer_originalcall_wrapper(void*, int, int flags, entity_state_t* player)
  {
--    return StudioDrawPlayer_Template(R_StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
+-    return gPrivateFuncs.R_StudioDrawPlayer(flags, pplayer);
 +    return gPrivateFuncs.studiointerface_StudioDrawPlayer(flags, player);
  }
  
--int __fastcall GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
+-int R_StudioDrawPlayer(int flags, struct entity_state_s* pplayer)
 +int studiointerface_StudioDrawPlayer(int flags, entity_state_t* player)
  {
+-    return StudioDrawPlayer_Template(R_StudioDrawPlayer_originalcall_wrapper, flags, pplayer);
+-}
+-
+-int __fastcall GameStudioRenderer_StudioDrawPlayer(void* pthis, int dummy, int flags, struct entity_state_s* pplayer)
+-{
 -    return StudioDrawPlayer_Template(gPrivateFuncs.GameStudioRenderer_StudioDrawPlayer, flags, pplayer, pthis, dummy);
 +    if (!player) return 0;
 +    return StudioDrawPlayer_Template(StudioDrawPlayer_originalcall_wrapper, flags, player);
  }
  
  int studioapi_StudioCheckBBox()
-@@ -501,8 +502,6 @@ void ClientStudio_FillAddress(PVOID clientBase)
+@@ -501,8 +569,6 @@ void ClientStudio_FillAddress(PVOID clientBase)
      //The client studio renderer is optional: clients without these virtuals keep the engine-side hooks only.
      gPrivateFuncs.GameStudioRenderer_StudioDrawModel = (decltype(gPrivateFuncs.GameStudioRenderer_StudioDrawModel))
          GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioDrawModel", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
@@ -257,7 +1036,7 @@ index e8be0e2..957abf8 100644
      gPrivateFuncs.GameStudioRenderer_StudioSetupBones = (decltype(gPrivateFuncs.GameStudioRenderer_StudioSetupBones))
          GamedataResolvePtr(clientBase, "client", "GameStudioRenderer_StudioSetupBones", MH_GAMESYMBOL_KIND_VIRTUAL_FUNCTION, false);
  }
-@@ -519,9 +518,12 @@ void ClientStudio_InstallHooks()
+@@ -519,9 +585,12 @@ void ClientStudio_InstallHooks()
          Install_InlineHook(GameStudioRenderer_StudioSetupBones);
      }
  
@@ -272,7 +1051,7 @@ index e8be0e2..957abf8 100644
      }
  
      if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
-@@ -538,11 +540,6 @@ void ClientStudio_InstallHooks()
+@@ -538,11 +607,6 @@ void ClientStudio_InstallHooks()
          Install_InlineHook(R_StudioSetupBones);
      }
  
@@ -284,7 +1063,7 @@ index e8be0e2..957abf8 100644
      if (gPrivateFuncs.R_StudioDrawModel)
      {
          Install_InlineHook(R_StudioDrawModel);
-@@ -572,9 +569,9 @@ void ClientStudio_UninstallHooks()
+@@ -572,9 +636,9 @@ void ClientStudio_UninstallHooks()
          Uninstall_Hook(GameStudioRenderer_StudioSetupBones);
      }
  
@@ -296,7 +1075,7 @@ index e8be0e2..957abf8 100644
      }
  
      if (gPrivateFuncs.GameStudioRenderer_StudioDrawModel)
-@@ -591,11 +588,6 @@ void ClientStudio_UninstallHooks()
+@@ -591,11 +655,6 @@ void ClientStudio_UninstallHooks()
          Uninstall_Hook(R_StudioSetupBones);
      }
  
@@ -308,7 +1087,7 @@ index e8be0e2..957abf8 100644
      if (gPrivateFuncs.R_StudioDrawModel)
      {
          Uninstall_Hook(R_StudioDrawModel);
-@@ -616,6 +608,9 @@ void EngineStudio_UninstallHooks()
+@@ -616,6 +675,9 @@ void EngineStudio_UninstallHooks()
  
  int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppinterface, struct engine_studio_api_s* pstudio)
  {
@@ -318,7 +1097,7 @@ index e8be0e2..957abf8 100644
      memcpy(&IEngineStudio, pstudio, sizeof(IEngineStudio));
      gpStudioInterface = ppinterface;
  
-@@ -630,6 +625,10 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppint
+@@ -630,6 +692,10 @@ int HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppint
  
      int result = gExportfuncs.HUD_GetStudioModelInterface ? gExportfuncs.HUD_GetStudioModelInterface(version, ppinterface, pstudio) : 1;
  
@@ -329,6 +1108,35 @@ index e8be0e2..957abf8 100644
      ClientStudio_FillAddress(g_ClientDLLInfo.ImageBase);
      ClientStudio_InstallHooks();
  
+@@ -701,6 +767,7 @@ void HUD_Init(void)
+     bv_simrate           = gEngfuncs.pfnRegisterVariable("bv_simrate", "64", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+     bv_syncview          = gEngfuncs.pfnRegisterVariable("bv_syncview", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+     bv_force_updatebones = gEngfuncs.pfnRegisterVariable("bv_force_updatebones", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
++    bv_auto_ragdoll      = gEngfuncs.pfnRegisterVariable("bv_auto_ragdoll", "1", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+     //bv_ragdoll_sleepaftertime = gEngfuncs.pfnRegisterVariable("bv_ragdoll_sleepaftertime", "3", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+     //bv_ragdoll_sleeplinearvel = gEngfuncs.pfnRegisterVariable("bv_ragdoll_sleeplinearvel", "5", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+     //bv_ragdoll_sleepangularvel = gEngfuncs.pfnRegisterVariable("bv_ragdoll_sleepangularvel", "3", FCVAR_CLIENTDLL | FCVAR_ARCHIVE);
+diff --git a/src/exportfuncs.h b/src/exportfuncs.h
+index 10e0bc2..e355998 100644
+--- a/src/exportfuncs.h
++++ b/src/exportfuncs.h
+@@ -44,6 +44,7 @@ extern cvar_t* bv_debug_draw_constraint_color;
+ extern cvar_t* bv_debug_draw_behavior_color;
+ extern cvar_t* bv_debug_draw_inspected_color;
+ extern cvar_t* bv_debug_draw_selected_color;
++extern cvar_t* bv_auto_ragdoll;
+ 
+ int  HUD_AddEntity(int type, cl_entity_t* ent, const char* model);
+ int  HUD_GetStudioModelInterface(int version, struct r_studio_interface_s** ppinterface, struct engine_studio_api_s* pstudio);
+@@ -76,6 +77,8 @@ bool AllowCheats();
+ bool IsDebugDrawEnabled();
+ bool IsDebugDrawWallHackEnabled();
+ bool ShouldForceUpdateBones();
++bool SampleAutoRagdollPose(cl_entity_t* entity, entity_state_t* state, model_t* model,
++    int entityIndex, int playerIndex, const studiohdr_t* expectedHeader);
+ int  GetSyncronizeViewLevel();
+ 
+ float GetSimulationTickRate();
 diff --git a/src/plugins.cpp b/src/plugins.cpp
 index d113b10..cff7331 100644
 --- a/src/plugins.cpp
@@ -356,7 +1164,7 @@ index d113b10..cff7331 100644
 \ No newline at end of file
 +EXPOSE_SINGLE_INTERFACE(IPluginsV4, IPluginsV4, METAHOOK_PLUGIN_API_VERSION_V4);
 diff --git a/src/privatehook.cpp b/src/privatehook.cpp
-index 9f4b53b..12e2898 100644
+index 9f4b53b..f9bd45e 100644
 --- a/src/privatehook.cpp
 +++ b/src/privatehook.cpp
 @@ -76,7 +76,6 @@ void Engine_FillAddress(PVOID engineBase)
@@ -367,6 +1175,17 @@ index 9f4b53b..12e2898 100644
      gPrivateFuncs.R_StudioSetupBones = (decltype(gPrivateFuncs.R_StudioSetupBones))GamedataResolvePtr(engineBase, "engine", "R_StudioSetupBones", MH_GAMESYMBOL_KIND_FUNCTION, true);
  
      //Engine global slots
+@@ -151,6 +150,10 @@ TEMPENTITY* efxapi_R_TempModel(float* pos, float* dir, float* angles, float life
+ 
+     if (r && g_bIsCreatingClCorpse && g_iCreatingClCorpsePlayerIndex > 0 && g_iCreatingClCorpsePlayerIndex <= gEngfuncs.GetMaxClients())
+     {
++        // R_TempModel allocated a new corpse, even when the slot and model are unchanged.
++        const int index = ClientEntityManager()->GetEntityIndex(&r->entity);
++        if (ClientEntityManager()->IsEntityIndexTempEntity(index))
++            ClientPhysicManager()->RemovePhysicObject(index);
+         r->entity.curstate.iuser4 = PhyCorpseFlag;
+         r->entity.curstate.owner  = g_iCreatingClCorpsePlayerIndex;
+     }
 diff --git a/src/privatehook.h b/src/privatehook.h
 index 032af3e..a2b0d0d 100644
 --- a/src/privatehook.h
@@ -385,27 +1204,256 @@ index 032af3e..a2b0d0d 100644
  
      //IEngineStudio / efxapi (public interface-derived, not game-private)
      int (*studioapi_StudioCheckBBox)(void);
+diff --git a/src/AutoRagdoll.cpp b/src/AutoRagdoll.cpp
+new file mode 100644
+index 0000000..b70a8ef
+--- /dev/null
++++ b/src/AutoRagdoll.cpp
+@@ -0,0 +1,200 @@
++#include <metahook.h>
++
++#include "AutoRagdoll.h"
++#include "ClientPhysicConfig.h"
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstring>
++#include <numeric>
++#include <string_view>
++
++namespace
++{
++constexpr int MaxBodies = 12;
++
++template <class Record>
++const Record* StudioRecords(const studiohdr_t& studio, int offset, int count)
++{
++    if (offset < static_cast<int>(sizeof(studiohdr_t)) || offset > studio.length ||
++        offset % alignof(Record) || count <= 0 ||
++        static_cast<size_t>(count) > static_cast<size_t>(studio.length - offset) / sizeof(Record))
++        return nullptr;
++    return reinterpret_cast<const Record*>(reinterpret_cast<const byte*>(&studio) + offset);
++}
++
++struct HitBox
++{
++    std::array<float, 3> center{};
++    std::array<float, 3> halfSize{};
++    float volume{};
++};
++
++constexpr std::array<std::string_view, 10> HumanoidBones{
++    "bip01 pelvis", "bip01 head",
++    "bip01 l upperarm", "bip01 l forearm", "bip01 r upperarm", "bip01 r forearm",
++    "bip01 l thigh", "bip01 l calf", "bip01 r thigh", "bip01 r calf"};
++constexpr std::array<std::string_view, 5> ChestBones{
++    "bip01 spine3", "bip01 spine2", "bip01 spine02", "bip01 spine1", "bip01 spine"};
++
++bool IsBoneNamed(const mstudiobone_t& bone, std::string_view name)
++{
++    return bone.name[name.size()] == '\0' && _strnicmp(bone.name, name.data(), name.size()) == 0;
++}
++}
++
++std::shared_ptr<CClientRagdollObjectConfig> BuildAutoRagdoll(const studiohdr_t& studio)
++{
++    constexpr int GoldSrcStudioId = 'I' | ('D' << 8) | ('S' << 16) | ('T' << 24);
++    if (studio.id != GoldSrcStudioId || studio.version != 10 ||
++        studio.numbones > MAXSTUDIOBONES || studio.numhitboxes > 256)
++        return {};
++
++    const auto* bones = StudioRecords<mstudiobone_t>(studio, studio.boneindex, studio.numbones);
++    const auto* boxes = StudioRecords<mstudiobbox_t>(studio, studio.hitboxindex, studio.numhitboxes);
++    if (!bones || !boxes) return {};
++
++    std::array<int, MAXSTUDIOBONES> roots;
++    for (int i = 0; i < studio.numbones; ++i)
++    {
++        const int parent = bones[i].parent;
++        if (parent < -1 || parent >= i) return {};
++        roots[i] = parent < 0 ? i : roots[parent];
++    }
++
++    std::array<HitBox, MAXSTUDIOBONES> hitBoxes{};
++    for (int i = 0; i < studio.numhitboxes; ++i)
++    {
++        const auto& box = boxes[i];
++        if (box.bone < 0 || box.bone >= studio.numbones) return {};
++
++        HitBox candidate;
++        candidate.volume = 1.0f;
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            const float lo = box.bbmin[axis];
++            const float hi = box.bbmax[axis];
++            if (!std::isfinite(lo) || !std::isfinite(hi) || lo < -1024.0f || hi > 1024.0f || hi <= lo)
++            {
++                candidate.volume = 0.0f;
++                break;
++            }
++            candidate.center[axis] = std::midpoint(lo, hi);
++            candidate.halfSize[axis] = (hi - lo) * 0.5f;
++            candidate.volume *= candidate.halfSize[axis];
++        }
++        if (candidate.volume > hitBoxes[box.bone].volume)
++            hitBoxes[box.bone] = candidate;
++    }
++
++    std::array<int, MaxBodies> selected;
++    int count = 0;
++    const auto findBody = [&](std::string_view name)
++    {
++        for (int i = 0; i < studio.numbones; ++i)
++            if (hitBoxes[i].volume > 0.0f && IsBoneNamed(bones[i], name))
++                return i;
++        return -1;
++    };
++
++    for (auto name : HumanoidBones)
++    {
++        const int bone = findBody(name);
++        if (bone < 0 || (count && roots[bone] != roots[selected[0]])) break;
++        selected[count++] = bone;
++    }
++    if (count == static_cast<int>(HumanoidBones.size()))
++    {
++        for (auto name : ChestBones)
++        {
++            const int bone = findBody(name);
++            if (bone < 0 || roots[bone] != roots[selected[0]]) continue;
++            selected[count++] = bone;
++            break;
++        }
++    }
++
++    if (count != static_cast<int>(HumanoidBones.size()) + 1)
++    {
++        // A quadruped or custom skeleton can still have an articulated body.
++        // Choose the connected skeleton with the largest collision volume.
++        std::array<float, MAXSTUDIOBONES> rootVolumes{};
++        for (int i = 0; i < studio.numbones; ++i)
++            rootVolumes[roots[i]] += hitBoxes[i].volume;
++        const int root = static_cast<int>(std::max_element(rootVolumes.begin(), rootVolumes.begin() + studio.numbones) - rootVolumes.begin());
++
++        std::array<int, MAXSTUDIOBONES> candidates;
++        int candidateCount = 0;
++        for (int i = 0; i < studio.numbones; ++i)
++            if (roots[i] == root && hitBoxes[i].volume > 0.0f)
++                candidates[candidateCount++] = i;
++
++        count = (std::min)(candidateCount, MaxBodies);
++        if (count < 3) return {};
++        std::partial_sort(candidates.begin(), candidates.begin() + count, candidates.begin() + candidateCount,
++            [&](int a, int b)
++            {
++                return hitBoxes[a].volume == hitBoxes[b].volume ? a < b : hitBoxes[a].volume > hitBoxes[b].volume;
++            });
++        std::copy_n(candidates.begin(), count, selected.begin());
++        std::sort(selected.begin(), selected.begin() + count);
++    }
++
++    auto config = std::make_shared<CClientRagdollObjectConfig>();
++    config->flags |= PhysicObjectFlag_AutoRagdoll | PhysicObjectFlag_OverrideStudioCheckBBox;
++    config->RigidBodyConfigs.reserve(count);
++    config->ConstraintConfigs.reserve(count - 1);
++
++    std::array<int, MAXSTUDIOBONES> bodyIndex;
++    bodyIndex.fill(-1);
++    for (int i = 0; i < count; ++i)
++    {
++        const int bone = selected[i];
++        const auto& box = hitBoxes[bone];
++        bodyIndex[bone] = i;
++
++        auto body = std::make_shared<CClientRigidBodyConfig>();
++        body->name = "bone" + std::to_string(bone);
++        body->boneindex = bone;
++        body->flags = PhysicRigidBodyFlag_AlwaysDynamic | PhysicRigidBodyFlag_NoCollisionToRagdollObject;
++        std::ranges::copy(box.center, body->origin);
++        // Clamp the mass ratio so a small hand or paw cannot destabilize the solver.
++        body->mass = std::clamp(std::cbrt(box.volume) * 3.0f, 4.0f, 45.0f);
++
++        auto shape = std::make_shared<CClientCollisionShapeConfig>();
++        shape->type = PhysicShape_Capsule;
++        const auto axis = std::max_element(box.halfSize.begin(), box.halfSize.end()) - box.halfSize.begin();
++        constexpr std::array directions{PhysicShapeDirection_X, PhysicShapeDirection_Y, PhysicShapeDirection_Z};
++        shape->direction = directions[axis];
++        shape->size[0] = (std::max)(0.25f, (std::min)({box.halfSize[0], box.halfSize[1], box.halfSize[2]}) * 0.9f);
++        shape->size[1] = (std::max)(0.0f, (box.halfSize[axis] * 0.9f - shape->size[0]) * 2.0f);
++        body->collisionShape = shape;
++        config->RigidBodyConfigs.push_back(std::move(body));
++    }
++
++    for (int i = 1; i < count; ++i)
++    {
++        const int bone = selected[i];
++        int parent = bones[bone].parent;
++        while (parent >= 0 && bodyIndex[parent] < 0)
++            parent = bones[parent].parent;
++
++        const auto& childBody = *config->RigidBodyConfigs[i];
++        auto joint = std::make_shared<CClientConstraintConfig>();
++        joint->name = childBody.name;
++        joint->type = PhysicConstraint_ConeTwist;
++        joint->flags = PhysicConstraintFlag_DontResetPoseOnErrorCorrection;
++        joint->rigidbodyA = config->RigidBodyConfigs[parent < 0 ? 0 : bodyIndex[parent]]->name;
++        joint->rigidbodyB = childBody.name;
++        // The child bone origin locates the joint in the sampled death pose.
++        joint->useGlobalJointFromA = false;
++        for (int axis = 0; axis < 3; ++axis)
++            joint->originB[axis] = -childBody.origin[axis];
++        joint->factors[PhysicConstraintFactorIdx_ConeTwistSwingSpanLimit1] = 0.25f;
++        joint->factors[PhysicConstraintFactorIdx_ConeTwistSwingSpanLimit2] = 0.25f;
++        joint->factors[PhysicConstraintFactorIdx_ConeTwistTwistSpanLimit] = 0.125f;
++        config->ConstraintConfigs.push_back(std::move(joint));
++    }
++    return config;
++}
+diff --git a/src/AutoRagdoll.h b/src/AutoRagdoll.h
+new file mode 100644
+index 0000000..aca5512
+--- /dev/null
++++ b/src/AutoRagdoll.h
+@@ -0,0 +1,8 @@
++#pragma once
++
++#include <memory>
++#include <studio.h>
++
++class CClientRagdollObjectConfig;
++
++std::shared_ptr<CClientRagdollObjectConfig> BuildAutoRagdoll(const studiohdr_t& studio);
 diff --git a/tests/studio_lifecycle_tests.cpp b/tests/studio_lifecycle_tests.cpp
 new file mode 100644
-index 0000000..a9590d2
+index 0000000..7a50f43
 --- /dev/null
 +++ b/tests/studio_lifecycle_tests.cpp
-@@ -0,0 +1,258 @@
+@@ -0,0 +1,567 @@
 +// Link the production draw wrappers, object manager and real Bullet backend.
++#include <algorithm>
++#include <array>
 +#include <cassert>
++#include <filesystem>
++#include <fstream>
++#include <memory>
 +#include <cstddef>
 +#include <cstdio>
 +#include <cstring>
 +#include <vector>
 +#include <cvardef.h>
 +#include "BulletPhysicManager.h"
++#include "AutoRagdoll.h"
 +#include "ClientEntityManager.h"
 +#include "enginedef.h"
 +#include "exportfuncs.h"
++#include "message.h"
 +#include "privatehook.h"
 +#include "test_support.h"
 +
++extern bool            StudioGetActivityType(model_t*, entity_state_t*, StudioAnimActivityType*, int*);
 +extern int             studiointerface_StudioDrawPlayer(int, entity_state_t*);
++extern int             R_StudioDrawModel(int);
 +extern void __fastcall GameStudioRenderer_StudioSetupBones(void*, int);
 +extern int             g_iRagdollRenderEntIndex;
 +extern int             g_iRagdollRenderFlags;
@@ -416,6 +1464,7 @@ index 0000000..a9590d2
 +static cl_entity_t* current    = &entities[1];
 +static int          maxEdicts  = 33;
 +static model_t      models[2]{};
++static int          modelCount = 2;
 +static struct StudioData
 +{
 +    studiohdr_t   header{};
@@ -428,13 +1477,23 @@ index 0000000..a9590d2
 +static r_studio_interface_t* apiPointer = &api;
 +static int                   nativeDrawFlags{};
 +static int                   nativeSequence{};
++static bool                  skipNativeBones{};
++static cvar_t                autoRagdoll{};
++static cvar_t                boneCache{};
++static cvar_t                simRate{};
 +
 +static void __fastcall NativeBones(void*, int)
 +{
-+    for (int i = 0; i < 3; ++i)
++    const auto* skeleton = reinterpret_cast<const mstudiobone_t*>(
++        reinterpret_cast<const byte*>(header) + header->boneindex);
++    for (int bone = 0; bone < header->numbones; ++bone)
 +    {
-+        bones[0][i][i] = 1;
-+        bones[0][i][3] = current->origin[i];
++        memset(bones[bone], 0, sizeof(bones[bone]));
++        for (int axis = 0; axis < 3; ++axis)
++        {
++            bones[bone][axis][axis] = 1;
++            bones[bone][axis][3] = current->origin[axis] + skeleton[bone].value[axis];
++        }
 +    }
 +}
 +
@@ -444,14 +1503,14 @@ index 0000000..a9590d2
 +    // never calls the old base StudioDrawPlayer wrapper (vtable slot 3).
 +    nativeDrawFlags = flags;
 +    nativeSequence  = player->sequence;
-+    GameStudioRenderer_StudioSetupBones(nullptr, 0);
++    if (!skipNativeBones) GameStudioRenderer_StudioSetupBones(nullptr, 0);
 +    return 1;
 +}
 +
 +static int NativeModel(int flags)
 +{
 +    nativeDrawFlags = flags;
-+    NativeBones(nullptr, 0);
++    if (!skipNativeBones) GameStudioRenderer_StudioSetupBones(nullptr, 0);
 +    return 1;
 +}
 +
@@ -468,7 +1527,11 @@ index 0000000..a9590d2
 +    gpStudioInterface                                 = &apiPointer;
 +    api.version                                       = 1;
 +    api.StudioDrawPlayer                              = studiointerface_StudioDrawPlayer;
-+    api.StudioDrawModel                               = NativeModel;
++    api.StudioDrawModel                               = R_StudioDrawModel;
++    gPrivateFuncs.R_StudioDrawModel                   = NativeModel;
++    mod_known                                        = models;
++    mod_numknown                                     = &modelCount;
++    gEngfuncs.GetEntityByIndex                        = [](int index) { return &entities[index]; };
 +    gPrivateFuncs.studiointerface_StudioDrawPlayer    = NativePlayer;
 +    gPrivateFuncs.GameStudioRenderer_StudioSetupBones = NativeBones;
 +    gEngfuncs.GetMaxClients                           = [] {
@@ -632,9 +1695,286 @@ index 0000000..a9590d2
 +    assert(oldIdle.expired() && oldDebug.expired());
 +}
 +
++struct RagdollStudio
++{
++    studiohdr_t header{};
++    mstudiobone_t bones[5]{};
++    mstudiobbox_t hitBoxes[4]{};
++    mstudioseqdesc_t sequences[2]{};
++};
++
++static RagdollStudio articulatedModel;
++
++static void InitAutoRagdoll()
++{
++    auto& model = articulatedModel;
++    model.header.id = 'I' | ('D' << 8) | ('S' << 16) | ('T' << 24);
++    model.header.version = 10;
++    model.header.length = sizeof(model);
++    model.header.numbones = std::size(model.bones);
++    model.header.boneindex = offsetof(RagdollStudio, bones);
++    model.header.numhitboxes = std::size(model.hitBoxes);
++    model.header.hitboxindex = offsetof(RagdollStudio, hitBoxes);
++    model.header.numseq = std::size(model.sequences);
++    model.header.seqindex = offsetof(RagdollStudio, sequences);
++    model.sequences[1].activity = ACT_DIESIMPLE;
++    model.bones[0].parent = -1; // The undriven root must move with the simulated skeleton.
++    for (int i = 1; i < model.header.numbones; ++i)
++    {
++        model.bones[i].parent = i - 1;
++        model.bones[i].value[0] = i * 3.0f;
++        model.bones[i].value[2] = i * 6.0f;
++        model.hitBoxes[i - 1] = {i, 0, {-3.0f, -3.0f, -4.0f}, {3.0f, 3.0f, 4.0f}};
++    }
++
++    header = &model.header;
++    g_bIsCounterStrike = true;
++    autoRagdoll.value = 1;
++    bv_auto_ragdoll = &autoRagdoll;
++    simRate.value = 64;
++    bv_simrate = &simRate;
++    boneCache.value = 1;
++    gEngfuncs.pfnGetCvarPointer = [](const char* name) -> cvar_t* {
++        return strcmp(name, "r_studio_bone_caches") == 0 ? &boneCache : nullptr;
++    };
++    gEngfuncs.GetMaxClients = [] { return 2; };
++}
++
++static void Present(cl_entity_t& entity, int index, int movement, int solidity, int sequence)
++{
++    entity.index = entity.curstate.number = index;
++    entity.model = &models[0];
++    entity.curstate.movetype = movement;
++    entity.curstate.solid = solidity;
++    entity.curstate.sequence = sequence;
++    ClientPhysicManager()->CreatePhysicObjectForEntity(&entity, &entity.curstate, entity.model);
++}
++
++static void TestRagdollLifecycle()
++{
++    InitAutoRagdoll();
++    auto* manager = ClientPhysicManager();
++    auto& player = entities[1];
++    auto& zombie = entities[3];
++
++    Present(player, 1, MOVETYPE_WALK, SOLID_SLIDEBOX, 1);
++    Present(zombie, 3, MOVETYPE_STEP, SOLID_SLIDEBOX, 1);
++    assert(!manager->GetPhysicObject(1) && !manager->GetPhysicObject(3));
++    Present(zombie, 3, MOVETYPE_TOSS, SOLID_NOT, 0); // A thrown model has no death activity.
++    assert(!manager->GetPhysicObject(3));
++
++    skipNativeBones = true; // Stale but matching pstudiohdr is insufficient.
++    Present(zombie, 3, MOVETYPE_TOSS, SOLID_NOT, 1);
++    assert(!manager->GetPhysicObject(3) && boneCache.value == 1);
++    skipNativeBones = false;
++    zombie.curstate.scale = 1.5f;
++    Present(zombie, 3, MOVETYPE_TOSS, SOLID_NOT, 1);
++    assert(!manager->GetPhysicObject(3));
++    zombie.curstate.scale = 0;
++
++    Present(player, 1, MOVETYPE_TOSS, SOLID_NOT, 1);
++    auto* death = manager->GetPhysicObject(1);
++    assert(death && death->IsRagdollObject() && death->GetPlayerIndex() == 1);
++    Present(player, 1, MOVETYPE_NONE, SOLID_NOT, 1);
++    assert(manager->GetPhysicObject(1) == death);
++    Present(zombie, 3, MOVETYPE_TOSS, SOLID_NOT, 1);
++    assert(manager->GetPhysicObject(3));
++    Present(zombie, 3, MOVETYPE_STEP, SOLID_SLIDEBOX, 0);
++    assert(!manager->GetPhysicObject(3));
++
++    std::vector<TEMPENTITY> temps(EngineGetMaxTempEnts());
++    gTempEnts = temps.data();
++    auto& corpse = gTempEnts->entity;
++    gPrivateFuncs.efxapi_R_TempModel = [](float*, float*, float*, float, int, int) { return gTempEnts; };
++    auto allocateCorpse = [&] {
++        g_bIsCreatingClCorpse = true;
++        g_iCreatingClCorpsePlayerIndex = 1;
++        efxapi_R_TempModel(nullptr, nullptr, nullptr, 0, 0, 0);
++        g_bIsCreatingClCorpse = false;
++        g_iCreatingClCorpsePlayerIndex = 0;
++    };
++    auto emitCorpse = [&] {
++        Present(corpse, 0, MOVETYPE_NONE, SOLID_NOT, 1);
++    };
++
++    allocateCorpse();
++    emitCorpse();
++    const int index = ClientEntityManager()->GetEntityIndex(&corpse);
++    assert(!manager->GetPhysicObject(1) && manager->GetPhysicObject(index) == death);
++    Present(player, 1, MOVETYPE_NONE, SOLID_NOT, 1);
++    assert(!manager->GetPhysicObject(1)); // No duplicate while the original slot is still drawn.
++    Present(player, 1, MOVETYPE_WALK, SOLID_SLIDEBOX, 0);
++    assert(manager->GetPhysicObject(index) == death);
++    allocateCorpse();
++    assert(!manager->GetPhysicObject(index));
++    corpse.origin[0] = 400;
++    emitCorpse();
++    vec3_t origin{};
++    auto* newCorpse = manager->GetPhysicObject(index);
++    assert(newCorpse && newCorpse->GetGoldSrcOriginAngles(origin, nullptr) && origin[0] > 400);
++    corpse.curstate.iuser4 = 0;
++    emitCorpse();
++    assert(!manager->GetPhysicObject(index));
++    gTempEnts = nullptr;
++
++    // A dead player object still in the manager must not transfer after the state revives.
++    Present(player, 1, MOVETYPE_TOSS, SOLID_NOT, 1);
++    death = manager->GetPhysicObject(1);
++    assert(death);
++    player.curstate.movetype = MOVETYPE_WALK;
++    player.curstate.solid = SOLID_SLIDEBOX;
++    gTempEnts = temps.data();
++    allocateCorpse();
++    emitCorpse();
++    assert(manager->GetPhysicObject(1) == death && manager->GetPhysicObject(index) != death);
++    Present(player, 1, MOVETYPE_WALK, SOLID_SLIDEBOX, 0);
++    assert(!manager->GetPhysicObject(1));
++
++    autoRagdoll.value = 0;
++    ClientEntityManager()->SetEntityEmitted(index);
++    manager->UpdateAllPhysicObjects(nullptr, nullptr, 1.0 / 64, 0, 800);
++    assert(!manager->GetPhysicObject(index));
++    assert(boneCache.value == 1 && current == &entities[1]);
++    gTempEnts = nullptr;
++}
++
++static void TestRagdollLimitAndFallback()
++{
++    InitAutoRagdoll();
++    auto* manager = ClientPhysicManager();
++    for (int index = 3; index <= 19; ++index)
++    {
++        Present(entities[index], index, MOVETYPE_TOSS, SOLID_NOT, 1);
++        assert((manager->GetPhysicObject(index) != nullptr) == (index < 19));
++    }
++    manager->RemovePhysicObject(3);
++    Present(entities[19], 19, MOVETYPE_TOSS, SOLID_NOT, 1);
++    assert(manager->GetPhysicObject(19));
++    ClientEntityManager()->ClearEntityEmitStates();
++    manager->UpdateAllPhysicObjects(nullptr, nullptr, 1.0 / 64, 0, 800);
++    for (int index = 3; index <= 19; ++index)
++        assert(!manager->GetPhysicObject(index));
++
++    auto invalidModel = articulatedModel;
++    invalidModel.bones[1].parent = 1;
++    assert(!BuildAutoRagdoll(invalidModel.header));
++    invalidModel = articulatedModel;
++    invalidModel.header.hitboxindex = invalidModel.header.length;
++    assert(!BuildAutoRagdoll(invalidModel.header));
++    invalidModel = articulatedModel;
++    invalidModel.header.seqindex = invalidModel.header.length;
++    header = &invalidModel.header;
++    Present(entities[20], 20, MOVETYPE_TOSS, SOLID_NOT, 1);
++    assert(!manager->GetPhysicObject(20));
++    header = &articulatedModel.header;
++}
++
++static void TestRagdollCollisionAndBones()
++{
++    InitAutoRagdoll();
++    auto* manager = ClientPhysicManager();
++    CClientStaticObjectConfig floorConfig;
++    auto floorBody = std::make_shared<CClientRigidBodyConfig>();
++    floorBody->mass = 0;
++    floorBody->collisionShape = std::make_shared<CClientCollisionShapeConfig>();
++    floorBody->collisionShape->type = PhysicShape_Box;
++    floorBody->collisionShape->size[0] = floorBody->collisionShape->size[1] = 256;
++    floorBody->collisionShape->size[2] = 4;
++    floorConfig.RigidBodyConfigs.push_back(floorBody);
++    model_t brush{};
++    brush.type = mod_brush;
++    entities[0].origin[2] = -4;
++    CPhysicObjectCreationParameter floorParams;
++    floorParams.m_model = &brush;
++    floorParams.m_entity = &entities[0];
++    floorParams.m_entstate = &entities[0].curstate;
++    floorParams.m_pPhysicObjectConfig = &floorConfig;
++    auto* floor = static_cast<CBulletPhysicManager*>(manager)->CreateStaticObject(floorParams);
++    assert(floor && floor->Build(floorParams));
++    manager->AddPhysicObject(0, floor);
++
++    auto& zombie = entities[3];
++    zombie.origin[2] = 96;
++    Present(zombie, 3, MOVETYPE_TOSS, SOLID_NOT, 1);
++    auto* ragdoll = static_cast<IRagdollObject*>(manager->GetPhysicObject(3));
++    assert(ragdoll && ragdoll->GetActivityType() == StudioAnimActivityType_Death);
++
++    manager->SetGravity(800);
++    for (int tick = 0; tick < 192; ++tick)
++        manager->StepSimulation(1.0 / 64);
++
++    int bodies = 0, joints = 0;
++    ragdoll->EnumPhysicComponents([&](IPhysicComponent* component) {
++        if (component->IsRigidBody())
++        {
++            ++bodies;
++            auto* body = static_cast<IPhysicRigidBody*>(component);
++            vec3_t mins{}, maxs{};
++            assert(body->GetAABB(mins, maxs));
++            assert(mins[2] > -3 && maxs[2] < 50); // Falls and rests on the Bullet floor.
++        }
++        if (component->IsConstraint())
++        {
++            ++joints;
++            auto* joint = static_cast<IPhysicConstraint*>(component);
++            float error = BulletGetConstraintLinearErrorMagnitude(
++                static_cast<btTypedConstraint*>(joint->GetInternalConstraint()));
++            FloatBulletToGoldSrc(&error);
++            assert(error < 2);
++        }
++        return false;
++    });
++    assert(bodies == 4 && joints == 3);
++    current = &zombie;
++    assert(R_StudioDrawModel(STUDIO_RENDER) == 1);
++    assert(boneCache.value == 1);
++    assert(bones[0][2][3] < 20);
++    assert(memcmp(bones, lights, sizeof(float) * 5 * 3 * 4) == 0);
++    assert(zombie.origin[2] == 96); // The physics pose does not overwrite network origin.
++    current = &entities[1];
++    manager->RemovePhysicObject(3);
++    manager->RemovePhysicObject(0);
++}
++
++static void InspectModels(int count, char** paths)
++{
++    for (int i = 0; i < count; ++i)
++    {
++        const auto path = std::filesystem::path(paths[i]);
++        std::ifstream stream(path, std::ios::binary);
++        studiohdr_t fileHeader{};
++        assert(stream.read(reinterpret_cast<char*>(&fileHeader), sizeof(fileHeader)));
++        const auto end = [](int offset, int count, size_t record) {
++            assert(offset > 0 && count >= 0);
++            return static_cast<size_t>(offset) + count * record;
++        };
++        const size_t prefix = (std::max)({end(fileHeader.boneindex, fileHeader.numbones, sizeof(mstudiobone_t)),
++            end(fileHeader.hitboxindex, fileHeader.numhitboxes, sizeof(mstudiobbox_t)),
++            end(fileHeader.seqindex, fileHeader.numseq, sizeof(mstudioseqdesc_t))});
++        assert(fileHeader.length > 0 && prefix <= static_cast<size_t>(fileHeader.length));
++        std::vector<int> bytes((prefix + sizeof(int) - 1) / sizeof(int));
++        assert(stream.seekg(0).read(reinterpret_cast<char*>(bytes.data()), prefix));
++        header = reinterpret_cast<studiohdr_t*>(bytes.data());
++        auto config = BuildAutoRagdoll(*header);
++        int deathSequences = 0;
++        for (int seq = 0; seq < header->numseq; ++seq)
++        {
++            entity_state_t state{};
++            state.sequence = seq;
++            StudioAnimActivityType activity{};
++            int flags{};
++            if (StudioGetActivityType(&models[0], &state, &activity, &flags) &&
++                activity == StudioAnimActivityType_Death)
++                ++deathSequences;
++        }
++        printf("%s|%zu|%d\n", paths[i], config ? config->RigidBodyConfigs.size() : 0, deathSequences);
++    }
++    header = &studio.header;
++}
++
 +int main(int argc, char** argv)
 +{
-+    assert(argc == 2);
++    assert(argc >= 2);
 +    Init();
 +    if (!strcmp(argv[1], "state")) TestSamplingRestoresState();
 +    else if (!strcmp(argv[1], "corpse"))
@@ -643,6 +1983,14 @@ index 0000000..a9590d2
 +        TestPlayerBoundsFollowPublicCallback();
 +    else if (!strcmp(argv[1], "rebuild"))
 +        TestRebuildDropsRemovedPose();
++    else if (!strcmp(argv[1], "auto-lifecycle"))
++        TestRagdollLifecycle();
++    else if (!strcmp(argv[1], "auto-bounds"))
++        TestRagdollLimitAndFallback();
++    else if (!strcmp(argv[1], "auto-collision"))
++        TestRagdollCollisionAndBones();
++    else if (!strcmp(argv[1], "models") && argc > 2)
++        InspectModels(argc - 2, argv + 2);
 +    else
 +        return 2;
 +    ClientPhysicManager()->Shutdown();

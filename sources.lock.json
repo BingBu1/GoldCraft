@@ -115,6 +115,8 @@
       "path": "external/MetaHookSv-20261007/Plugins/BulletPhysics",
       "patch": "patches/bulletphysics-goldcraft.patch",
       "newFiles": [
+        "src/AutoRagdoll.cpp",
+        "src/AutoRagdoll.h",
         "tests/studio_lifecycle_tests.cpp"
       ]
     },
