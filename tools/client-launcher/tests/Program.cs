@@ -48,7 +48,7 @@ byte[] Signed(Release release){byte[] p=JsonData.Write(release);return JsonData.
 byte[] next=Encoding.UTF8.GetBytes("core-new");var file=new Asset(config.CorePaths[0],next.Length,hash(next));
 var release=new Release(1,config.BundleId,1,"new","localhost:27015",[file]);
 using var endpoint=new FixtureHttp();
-endpoint.Files["/goldcraft/launcher/v1/manifest.json"]=Signed(release);
+endpoint.Files["/goldcraft/launcher/v1/manifest.json"]=[..Encoding.UTF8.Preamble,..Signed(release)];
 endpoint.Files["/goldcraft/launcher/v1/blobs/"+file.Sha256+"/GoldCraft.dll"]=next;
 endpoint.Files["/goldcraft/launcher/v1/status.json"]=JsonData.Write(new ServerStatus(1,true,"测试服务器","zs_deadend",1,32,"localhost:27015"));
 using var updates=new Updates(config,endpoint.Url);
@@ -85,10 +85,17 @@ Check(bundle.Installed(game)==null,"obsolete CPU alias blocks launch");
 bundle.Install(game,work,new Progress<string>(),CancellationToken.None);
 Check(!File.Exists(alias)&&bundle.Installed(game)!=null,"repair retires obsolete CPU alias");
 string pending=Path.Combine(game,".goldcraft-launcher/backups/pending-recovery");Directory.CreateDirectory(pending);
-File.WriteAllBytes(Path.Combine(pending,"transaction.json"),JsonData.Write(new Journal("prepared",[new("cstrike/interrupted.dll",false,null,hash(Encoding.UTF8.GetBytes("interrupted")))])));
+File.WriteAllBytes(Path.Combine(pending,"transaction.json"),[..Encoding.UTF8.Preamble,..JsonData.Write(new Journal("prepared",[new("cstrike/interrupted.dll",false,null,hash(Encoding.UTF8.GetBytes("interrupted")))]))]);
 File.WriteAllText(Path.Combine(game,"cstrike/interrupted.dll"),"interrupted");
 Transactions.Recover(game);
 Check(!File.Exists(Path.Combine(game,"cstrike/interrupted.dll")),"restart recovers an interrupted transaction");
+File.WriteAllText(Path.Combine(pending,"transaction.json"),"{");
+try { Transactions.Recover(game); throw new Exception("corrupt journal ignored"); }
+catch (InvalidDataException error)
+{
+    Check(error.Message.Contains("transaction.json") && error.InnerException is System.Text.Json.JsonException &&
+        File.ReadAllText(Path.Combine(pending,"transaction.json")) == "{", "corrupt local journal is identified and preserved");
+}
 if(args.Length>=3)
 {
     string assetsRoot=SafeFiles.Plain(args[1]),runtime=SafeFiles.Plain(args[2]);
@@ -115,7 +122,12 @@ if(args.Length>=3)
 const string privateEndpoint="http://downloads.example.test:28080/goldcraft/";
 string visible=UserMessages.Clean("Failed at "+privateEndpoint+"; host downloads.example.test:28080",privateEndpoint);
 Check(!visible.Contains("http",StringComparison.OrdinalIgnoreCase)&&!visible.Contains("example.test"),"HTTP URLs and host names removed from visible messages");
-Check(!UserMessages.Error(new HttpRequestException("Failed "+privateEndpoint),privateEndpoint).Contains("example.test"),"raw network error is not displayed");
+var httpFailure=new HttpRequestException("Failed "+privateEndpoint,new System.ComponentModel.Win32Exception(10060),HttpStatusCode.BadGateway);
+string httpMessage=UserMessages.Error(httpFailure,privateEndpoint,LauncherStep.Update);
+Check(httpMessage.Contains("检查更新") && httpMessage.Contains("HTTP 502") && !httpMessage.Contains("example.test"),"network failure names its stage and HTTP code without the endpoint");
+UserMessages.SaveDiagnostic(work,"fixture",LauncherStep.Update,httpFailure);
+string diagnostic=File.ReadAllText(Path.Combine(work,"last-error.txt"));
+Check(diagnostic.Contains("HTTP 502")&&diagnostic.Contains("Windows 10060")&&!diagnostic.Contains("example.test"),"support diagnostic preserves nested native code without URLs");
 Check(!Encoding.UTF8.GetString(JsonData.Write(new Preferences("test-game"))).Contains("updateBase"),"user preferences do not persist download address");
 Console.WriteLine($"{checks} checks passed; signed HTTP update, install gating, rollback, path restrictions, hard-link isolation and private UI messages verified.");
 

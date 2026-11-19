@@ -126,9 +126,23 @@ public static class Transactions
             SafeFiles.Plain(dir);
             string file = SafeFiles.Under(dir, "transaction.json");
             if (!File.Exists(file)) continue;
-            var j = JsonData.Read<Journal>(File.ReadAllBytes(file));
+            var j = ReadJournal(file);
             if (j.Status == "prepared") Rollback(game, dir, j);
         }
+    }
+
+    private static Journal ReadJournal(string file)
+    {
+        const string message = "本机更新备份中的 transaction.json 损坏。请保留备份并将错误信息发给服主。";
+        try
+        {
+            var journal = JsonData.Read<Journal>(File.ReadAllBytes(file));
+            if (string.IsNullOrEmpty(journal.Status) || (journal.Status == "prepared" &&
+                (journal.Files == null || journal.Files.Any(row => row == null || string.IsNullOrEmpty(row.Path)))))
+                throw new InvalidDataException(message);
+            return journal;
+        }
+        catch (System.Text.Json.JsonException error) { throw new InvalidDataException(message, error); }
     }
     public static void Apply(string game, IReadOnlyList<Change> changes, Action<int>? beforeWrite = null)
     {
@@ -182,7 +196,7 @@ public static class Transactions
         }
         // Retain two complete independent backups. Pending/failed recovery is never pruned.
         var completed = Directory.GetDirectories(backups).Where(d => File.Exists(SafeFiles.Under(d,"transaction.json")))
-            .Where(d => JsonData.Read<Journal>(File.ReadAllBytes(SafeFiles.Under(d,"transaction.json"))).Status != "prepared")
+            .Where(d => ReadJournal(SafeFiles.Under(d,"transaction.json")).Status != "prepared")
             .OrderByDescending(d => d, StringComparer.Ordinal).Skip(2).ToArray();
         foreach (var dir in completed) SafeFiles.RemoveTree(backups, dir);
     }

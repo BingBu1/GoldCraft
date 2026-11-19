@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -44,5 +45,28 @@ public static class GameLaunch
         // Resolve every launch so tunnel DNS changes do not pin an obsolete IP.
         foreach(string arg in new[]{"-game","cstrike","-insecure","+connect",resolvedAddress})info.ArgumentList.Add(arg);
         return info;
+    }
+
+    public static void Start(string game, string resolvedAddress) =>
+        Start(game, resolvedAddress, info =>
+        {
+            using var process = Process.Start(info) ?? throw new IOException("Windows 没有返回游戏进程，请重新启动。");
+        });
+
+    internal static void Start(string game, string resolvedAddress, Action<ProcessStartInfo> start)
+    {
+        var info = StartInfo(game, resolvedAddress);
+        try
+        {
+            start(info);
+        }
+        catch (Win32Exception error) when (error.NativeErrorCode == 740) // ERROR_ELEVATION_REQUIRED
+        {
+            // Windows may require consent because of the player's compatibility settings.
+            // Open the same executable with the same argument list via the normal Windows verb.
+            info.UseShellExecute = true;
+            info.Verb = "open";
+            start(info);
+        }
     }
 }

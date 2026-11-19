@@ -1,4 +1,5 @@
 using GoldCraft.Launcher;
+using System.ComponentModel;
 using System.Net;
 using System.Net.Sockets;
 
@@ -44,5 +45,54 @@ static class LaunchChecks
         cancel.Cancel();bool cancelled=false;
         try{await pending;}catch(OperationCanceledException){cancelled=true;}
         check(cancelled,"cancellation ends a pending resolver before launch");
+        WindowsStart(check, root, first);
+    }
+
+    private static void WindowsStart(Action<bool,string> check, string root, string address)
+    {
+        string game = Path.Combine(root, "中文 Steam Library", "Half-Life");
+        Directory.CreateDirectory(game);
+        string exe = Path.Combine(game, "MetaHook.exe");
+        int attempts = 0;
+        GameLaunch.Start(game, address, info =>
+        {
+            attempts++;
+            check(info.FileName == exe && info.WorkingDirectory == game &&
+                info.ArgumentList.SequenceEqual(new[] { "-game", "cstrike", "-insecure", "+connect", address }),
+                "process target, game directory and arguments survive the Windows handoff");
+            if (!info.UseShellExecute) throw new Win32Exception(740);
+            check(info.Verb == "open", "Windows uses the game's ordinary open verb for consent");
+        });
+        check(attempts == 2, "only an elevation-required result retries the fixed executable");
+
+        attempts = 0;
+        try
+        {
+            GameLaunch.Start(game, address, info =>
+            {
+                attempts++;
+                throw new Win32Exception(info.UseShellExecute ? 1223 : 740);
+            });
+            throw new Exception("cancelled Windows confirmation reported success");
+        }
+        catch (Win32Exception error) when (error.NativeErrorCode == 1223)
+        {
+            string message = UserMessages.Error(error, "", LauncherStep.Start);
+            check(attempts == 2 && message.Contains("1223") && message.Contains("已取消"),
+                "declining Windows consent reports cancellation and does not retry");
+        }
+
+        File.WriteAllText(exe, "fixture has no executable image");
+        try
+        {
+            GameLaunch.Start(game, address);
+            throw new Exception("Windows accepted an invalid image");
+        }
+        catch (Win32Exception error) when (error.NativeErrorCode is 193 or 216)
+        {
+            string message = UserMessages.Error(error, "", LauncherStep.Start);
+            check(message.Contains("启动 MetaHook") && message.Contains($"Windows {error.NativeErrorCode}"),
+                "actual Windows process failure at a valid game path displays its phase and native code");
+        }
     }
 }

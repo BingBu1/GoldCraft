@@ -186,3 +186,11 @@ DLL、配套文件、加载顺序、移除项和签名记录在同一事务内�
 回归 `tests/client-launcher-retarget` 检查打包边界；受管测试的 `--live-endpoint` 模式
 从实际交付 EXE 读取资源，在隔离目录验证旧安装、正式 HTTP 下载、签名及游戏地址解析，
 不启动游戏、不修改正式服或原版安装。
+
+## 组件校验通过后启动失败
+
+从启动器 2026.11.19.1 起，红字会显示发生错误的阶段以及 Windows 或 HTTP 错误码。玩家可以把这条提示截图发给服主。最近一次错误的版本、阶段、异常代码和方法名也会保存在 `%LOCALAPPDATA%\BingSangLauncher\last-error.txt`。
+
+Windows 返回 740 时，启动器会用同一个 MetaHook.exe、游戏目录和参数交给系统打开。玩家可以在 Windows 确认框中继续或取消。普通启动直接运行游戏。
+
+启动器兼容带 UTF-8 BOM 的 JSON 更新清单和本机备份记录。损坏的备份记录会保留，错误提示会点明 `transaction.json`，便于服主定位。

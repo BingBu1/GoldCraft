@@ -19,6 +19,7 @@ public sealed class LauncherForm : Form
     private readonly CancellationTokenSource lifetime=new();
     private CancellationTokenSource? work;
     private InstallState? installed;
+    private LauncherStep currentStep;
     private bool busy,refreshing,closingRequested;
     private int installCheck;
 
@@ -59,20 +60,23 @@ public sealed class LauncherForm : Form
         game.Text=initialGame??preferences.GameDirectory;game.Font=LauncherTheme.Font(9);
         browse.TabIndex=0;install.TabIndex=1;launch.TabIndex=2;refresh.TabIndex=3;cancel.TabIndex=4;
         browse.Click+=async(_,_)=>{using var dialog=new FolderBrowserDialog{Description="选择 CS 1.6 游戏文件夹",UseDescriptionForTitle=true,SelectedPath=game.Text};if(dialog.ShowDialog(this)==DialogResult.OK){game.Text=dialog.SelectedPath;await CheckInstalled();}};
-        install.Click+=async(_,_)=>await Run("正在准备组件…",async token=>{
+        install.Click+=async(_,_)=>await Run(LauncherStep.Install,async token=>{
             string path=NormalizeGame();var report=new Progress<string>(SetStatus);
             await Task.Run(()=>bundle.Install(path,data,report,token),token);
-            if(bundle.ReadState(path)?.Publication!=null){using var updates=new Updates(bundle.Config,updateBase);await Task.Run(()=>updates.Apply(path,data,bundle,report,token),token);}
+            if(bundle.ReadState(path)?.Publication!=null){BeginStep(LauncherStep.Update);using var updates=new Updates(bundle.Config,updateBase);await Task.Run(()=>updates.Apply(path,data,bundle,report,token),token);}
             SetStatus("组件已就绪，可以启动游戏。");});
-        launch.Click+=async(_,_)=>await Run("正在检查更新…",async token=>
+        launch.Click+=async(_,_)=>await Run(LauncherStep.Update,async token=>
         {
             string path=NormalizeGame();using var updates=new Updates(bundle.Config,updateBase);var report=new Progress<string>(SetStatus);
             var release=await Task.Run(()=>updates.Apply(path,data,bundle,report,token),token);token.ThrowIfCancellationRequested();
-            if(Process.GetProcessesByName("steam").Length==0)throw new IOException("请先打开 Steam 并登录，再启动游戏。");
-            SetStatus("正在连接游戏服务器…");
+            BeginStep(LauncherStep.Steam);
+            var steam = Process.GetProcessesByName("steam");
+            if(steam.Length==0)throw new IOException("请先打开 Steam 并登录，再启动游戏。");
+            foreach (var process in steam) process.Dispose();
+            BeginStep(LauncherStep.Resolve);
             string address=await GameLaunch.ResolveAddress(release.GameAddress,token);token.ThrowIfCancellationRequested();
-            SafeFiles.GameStopped(path);var info=GameLaunch.StartInfo(path,address);
-            Process.Start(info);SetStatus("游戏已启动，正在进入服务器。");
+            BeginStep(LauncherStep.Start);
+            SafeFiles.GameStopped(path);GameLaunch.Start(path,address);SetStatus("游戏已启动，正在进入服务器。");
         });
         cancel.Click+=(_,_)=>{work?.Cancel();SetStatus("正在取消，请稍候…");};refresh.Click+=async(_,_)=>await RefreshServer();timer.Tick+=async(_,_)=>await RefreshServer();
         Shown+=async(_,_)=>
@@ -114,16 +118,26 @@ public sealed class LauncherForm : Form
         int check=++installCheck;launch.Enabled=false;string path=game.Text.Trim();
         try{if(path.Length>0)path=NormalizeGame();}catch(Exception ex)when(ex is ArgumentException or IOException or UnauthorizedAccessException){}
         var result=await Task.Run(()=>bundle.Installed(path));if(IsDisposed||check!=installCheck)return;
-        installed=result;game.Text=path;installState.Text=installed==null?"尚未安装或需要修复":"已安装 · 可以启动";installState.ForeColor=installed==null?LauncherTheme.Muted:LauncherTheme.Accent;
+        installed=result;game.Text=path;installState.Text=installed==null?"尚未安装或需要修复":"已安装 · 校验通过";installState.ForeColor=installed==null?LauncherTheme.Muted:LauncherTheme.Accent;
         install.Text=installed==null?"安装 MetaHook":"检查组件";install.Enabled=!busy&&path.Length>0;launch.Enabled=!busy&&installed!=null;
         if(installed!=null&&operation.Text=="安装组件后，即可开始游戏。")SetStatus("准备就绪。点击启动游戏，自动完成更新并连接。");SavePreferences();
     }
-    private async Task Run(string message,Func<CancellationToken,Task> operationTask)
+    private void BeginStep(LauncherStep step)
     {
-        if(busy)return;busy=true;++installCheck;work=new();browse.Enabled=install.Enabled=launch.Enabled=false;launch.Text=message;cancel.Visible=true;SetStatus(message);
+        currentStep = step;
+        launch.Text = $"正在{UserMessages.StepName(step)}…";
+        SetStatus(launch.Text);
+    }
+    private async Task Run(LauncherStep step,Func<CancellationToken,Task> operationTask)
+    {
+        if(busy)return;busy=true;++installCheck;work=new();browse.Enabled=install.Enabled=launch.Enabled=false;cancel.Visible=true;BeginStep(step);
         try{await operationTask(work.Token);}
-        catch(OperationCanceledException){SetStatus(work.IsCancellationRequested?"操作已取消。":"连接超时，请稍后重试。");}
-        catch(Exception ex){SetStatus(UserMessages.Error(ex,updateBase));operation.ForeColor=LauncherTheme.Error;}
+        catch(OperationCanceledException) when(work.IsCancellationRequested){SetStatus("操作已取消。");}
+        catch(Exception ex)
+        {
+            SetStatus(UserMessages.Error(ex,updateBase,currentStep));operation.ForeColor=LauncherTheme.Error;
+            await Task.Run(()=>UserMessages.SaveDiagnostic(data,bundle.Config.Version,currentStep,ex));
+        }
         finally{busy=false;work.Dispose();work=null;browse.Enabled=true;cancel.Visible=false;launch.Text="启动游戏  →";await CheckInstalled();if(closingRequested)Close();}
     }
     private async Task RefreshServer()
