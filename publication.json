@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "tools/nightfall-hotfix/cumulative.py",
+    "tests/current-server-update/test_cumulative.py",
     "docs/2026-11-19_优化-换图人物语音资源探测-report.md",
     "docs/2026-11-19_验证-换图清单确认与重连进度-report.md",
     "docs/2026-11-19_修复-v4下载双进度窗口-report.md",

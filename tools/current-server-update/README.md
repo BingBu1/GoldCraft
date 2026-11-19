@@ -1,5 +1,13 @@
 # 冰桑服务器累计增量更新（2026-11-07）
 
+### 2026-11-19 混装版本更新
+
+`20261119-CumulativeFastDL` 可直接用于已具备 11 月 16 日 JumpRecovery 基线的服务器，包含 DownloadConnection、FastDLAdmission 和 RagdollFastDL 的后续差异。已用更新器成功安装 RagdollFastDL 的服也通过了 FastDL 引擎和启动器发布文件校验。只手动覆盖过 payload 的服可以运行累计包，补齐旧引擎或缺少的启动器插件。
+
+把累计 ZIP 解压到现有服务器目录外，运行 `Update-Server.cmd`。预检按文件识别版本。显示 `Already current. No files copied.` 时可以直接游玩，有变更时更新器会保存、停服并在安装后恢复原先运行的服务。玩家继续使用现有冰桑启动器。回滚本次写入使用同一包的 `Restore-Server.cmd`。
+
+### 2026-11-07 基线包
+
 这是现有 GoldCraft-Servers 的服务端更新，不是完整独立服务端。
 默认目录是 `E:\cs_MineCraft\GoldCraft-Servers`，不用重新输入。
 
