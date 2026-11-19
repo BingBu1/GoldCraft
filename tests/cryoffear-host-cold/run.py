@@ -100,6 +100,8 @@ def main():
                         help='Bound cold startup while other workspace builds are running (10–180 seconds)')
     parser.add_argument('--cof-live-probe', type=Path,
                         help='Optional compiled CoF inventory probe for the isolated real-client test')
+    parser.add_argument('--round-goal-probe', type=Path,
+                        help='Load the existing zs_deadend goal probe for same-map inventory checks')
     parser.add_argument('--cs-port', type=int, default=0,
                         help='Explicit localhost UDP port; zero selects a free port')
     args = parser.parse_args()
@@ -109,6 +111,8 @@ def main():
         parser.error('--hold-for-client does not create the fake jump-probe actor')
     if args.cof_live_probe and not args.hold_for_client:
         parser.error('--cof-live-probe requires --hold-for-client')
+    if args.round_goal_probe and not args.cof_live_probe:
+        parser.error('--round-goal-probe requires --cof-live-probe')
     if args.debugger_extra and (not args.debugger or not args.jump_probe):
         parser.error('--debugger-extra requires --debugger and --jump-probe')
     if args.include_mp5 and not args.include_tmp:
@@ -139,16 +143,17 @@ def main():
         if args.debugger_extra.stat().st_size > 32768:
             raise ValueError('Bounded debugger commands required')
         inputs[str(args.debugger_extra)] = sha(args.debugger_extra)
-    if args.jump_probe:
-        checked(args.jump_probe).resolve(strict=True)
-        if args.jump_probe.name != 'goldcraft_jump_snapshot_probe.amxx':
-            raise ValueError('Use the bounded native jump snapshot diagnostic')
-        inputs[str(args.jump_probe)] = sha(args.jump_probe)
-    if args.cof_live_probe:
-        checked(args.cof_live_probe).resolve(strict=True)
-        if args.cof_live_probe.name != 'cof_live.amxx':
-            raise ValueError('Use the local CoF inventory diagnostic')
-        inputs[str(args.cof_live_probe)] = sha(args.cof_live_probe)
+    probes = []
+    for probe, expected in ((args.jump_probe, 'goldcraft_jump_snapshot_probe.amxx'),
+                            (args.cof_live_probe, 'cof_live.amxx'),
+                            (args.round_goal_probe, 'goldcraft_oberon_sound_probe.amxx')):
+        if probe is None:
+            continue
+        checked(probe).resolve(strict=True)
+        if probe.name != expected:
+            raise ValueError(f'Expected the local test probe {expected}')
+        inputs[str(probe)] = sha(probe)
+        probes.append(probe)
     resources = json.loads(args.resources.read_text('utf8'))['files']
     if not resources or len(resources) > 1024:
         raise ValueError('Bounded explicit resource closure required')
@@ -229,13 +234,13 @@ def main():
         replace(game / 'swds.dll', args.engine)
         replace(config, out / 'gameplay.json')
         replace(cstrike / 'server.cfg', out / 'server.cfg')
-        probe = args.jump_probe or args.cof_live_probe
-        if probe:
+        if probes:
             plugins = cstrike / 'addons/amxmodx/configs/plugins.ini'
             text = plugins.read_text('utf-8-sig')
-            (out / 'plugins.ini').write_text(text + f'\n{probe.name}\n', 'utf8')
+            (out / 'plugins.ini').write_text(text + '\n' + '\n'.join(p.name for p in probes) + '\n', 'utf8')
             replace(plugins, out / 'plugins.ini')
-            replace(cstrike / 'addons/amxmodx/plugins' / probe.name, probe)
+            for probe in probes:
+                replace(cstrike / 'addons/amxmodx/plugins' / probe.name, probe)
         result['hud'] = csol_hud_resources.verify(cstrike)
         assert result['hud']['success']
         result['menu'] = pair.verify_pair(args.mp, args.client, pair.installed_resources(args.client, cstrike))
@@ -487,7 +492,7 @@ def main():
             deadline = time.monotonic() + 900
             while not (out / 'stop').exists():
                 if child.poll() is not None:
-                    raise RuntimeError('Owned playtest server exited')
+                    raise RuntimeError(f'Owned playtest server exited with code {child.returncode}')
                 if time.monotonic() >= deadline:
                     raise TimeoutError('Owned playtest server reached its 15-minute bound')
                 time.sleep(.25)

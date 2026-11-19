@@ -11,6 +11,7 @@ public plugin_init()
     register_srvcmd("cof_live_status", "Status");
     register_srvcmd("cof_live_purchase", "Purchase");
     register_srvcmd("cof_live_clear_batch", "ClearBatch");
+    register_srvcmd("cof_live_round_protect", "RoundProtect");
     register_srvcmd("cof_live_test_funds", "TestFunds");
     register_srvcmd("cof_live_burn_setup", "BurnSetup");
     register_srvcmd("cof_live_burn_state", "BurnState");
@@ -235,6 +236,29 @@ public BurnWave()
     }
     return PLUGIN_HANDLED;
 }
+// Keep the test CT at the second stage's normal shop for long inventory checks.
+public RoundProtect()
+{
+    if (read_argc() != 3 || get_cvar_num("csol_game_mode") != 2 ||
+        get_member_game(m_iNumCTWins) != 1 || get_member_game(m_bFreezePeriod) ||
+        get_member_game(m_bRoundTerminating)) return PLUGIN_HANDLED;
+    new slot[12], user[12], map[32], host[64], ip[32], address[32];
+    read_argv(1, slot, charsmax(slot));
+    read_argv(2, user, charsmax(user));
+    new id = str_to_num(slot);
+    if (!Human(id, str_to_num(user)) || !is_user_alive(id) || get_member(id, m_iTeam) != TEAM_CT)
+        return PLUGIN_HANDLED;
+    get_mapname(map, charsmax(map));
+    get_cvar_string("hostname", host, charsmax(host));
+    get_cvar_string("ip", ip, charsmax(ip));
+    get_user_ip(id, address, charsmax(address), 1);
+    if (!equal(map, "zs_deadend") || !equal(host, "GoldCraft isolated CoF cold") ||
+        !equal(ip, "127.0.0.1") || !equal(address, "127.0.0.1")) return PLUGIN_HANDLED;
+    set_entvar(id, var_takedamage, DAMAGE_NO);
+    server_print("[CoF live] protected test CT slot=%d userid=%d", id, get_user_userid(id));
+    return PLUGIN_HANDLED;
+}
+
 Inspect(id)
 {
     server_print("[CoF live] player=%d userid=%d alive=%d health=%.1f money=%d team=%d frags=%d",
@@ -249,8 +273,8 @@ Inspect(id)
             new classname[64];get_entvar(entity,var_classname,classname,charsmax(classname));
             new ammo=get_member(entity,m_Weapon_iPrimaryAmmoType);
             new reserve=ammo>=0&&ammo<32?get_member(id,m_rgAmmo,ammo):-1;
-            server_print("[CoF live] slot=%d entity=%d id=%d clip=%d reserve=%d active=%d classname=%s",
-                slot,entity,get_member(entity,m_iId),get_member(entity,m_Weapon_iClip),reserve,entity==active,classname);
+            server_print("[CoF live] slot=%d entity=%d id=%d clip=%d reserve=%d active=%d classname=%s serial=%d",
+                slot,entity,get_member(entity,m_iId),get_member(entity,m_Weapon_iClip),reserve,entity==active,classname,pev_serial(entity));
             entity=get_member(entity,m_pNext);
         }
     }

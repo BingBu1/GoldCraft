@@ -39,6 +39,18 @@ x86 CDB supplied with `--debugger` captures `Sys_Error` and access violations
 in the isolated test process. Dumps and generated files remain private build
 artifacts.
 
+For inventory checks across both stages of `zs_deadend`, compile
+`amxx/tests/cof/cof_live.sma` and
+`amxx/tests/csol/goldcraft_oberon_sound_probe.sma` into their namesake plugins.
+Use `--hold-for-client`, `--cof-live-probe` and `--round-goal-probe` with the
+two compiled files. With a living CT, record its inventory using `cof_live_status`
+and move that player to the map goal using `csol_sound_probe goal <slot> <userid>`.
+The BSP scanner advances the stage. After the freeze, compare the retained
+entity indices and serial numbers, clips and reserve ammunition, then switch
+and fire from B. During a long shop check, `cof_live_round_protect <slot> <userid>`
+keeps the local test CT alive at its current position after the second stage
+unfreezes.
+
 For the native movement diagnostic, compile
 `amxx/tests/csol/goldcraft_jump_snapshot_probe.sma` with the pinned AMXX/ReAPI
 headers and pass its bytecode using `--jump-probe`. This optional path creates
