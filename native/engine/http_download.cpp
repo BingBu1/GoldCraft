@@ -52,8 +52,8 @@ void ClearAdvertised() {
 }
 void Stats() {
     const auto s = store.stats(); const auto n = server.stats();
-    Con_Printf("GoldCraft built-in HTTP: TCP %u, resources=%u, reserved=%u, hits=%llu loads=%llu failures=%llu\n",
-        server.port(), static_cast<unsigned>(s.files), static_cast<unsigned>(s.reserved), s.hits, s.loads, s.failures);
+    Con_Printf("GoldCraft built-in HTTP: TCP %u, resources=%u, reserved=%u, hits=%llu loads=%llu failures=%llu capacity_waits=%llu load_timeouts=%llu\n",
+        server.port(), static_cast<unsigned>(s.files), static_cast<unsigned>(s.reserved), s.hits, s.loads, s.failures, s.capacity_waits, s.load_timeouts);
     Con_Printf("HTTP requests=%llu bytes=%llu rejected=%llu max_read_frame_ms=%.3f public_url=%s\n",
         n.requests, n.bytes, n.rejected, max_read_ms, advertised.empty() ? "not configured" : advertised.c_str());
 }

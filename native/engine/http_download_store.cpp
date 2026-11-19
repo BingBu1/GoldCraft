@@ -15,6 +15,7 @@ struct Store::Impl {
     std::shared_ptr<std::atomic<std::size_t>> used = std::make_shared<std::atomic<std::size_t>>(0);
     std::size_t budget;
     std::uint64_t epoch = 0, tick = 0, hits = 0, loads = 0, failures = 0;
+    std::uint64_t capacity_waits = 0, load_timeouts = 0;
     explicit Impl(std::size_t b) : budget(b) {}
 };
 Store::Store(std::size_t budget) : impl_(new Impl(budget)) {}
@@ -33,7 +34,7 @@ void Store::publish(const std::vector<Resource>& resources) {
     }
     c.ready.notify_all();
 }
-Body Store::request(const std::string& name) {
+LookupResult Store::request(const std::string& name) {
     auto& c = *impl_;
     std::unique_lock<std::mutex> lock(c.mutex);
     const auto resource = c.files.find(name);
@@ -48,7 +49,10 @@ Body Store::request(const std::string& name) {
                 if (it->second.use_count() == 1 && it->second->bytes.use_count() == 1 &&
                     (victim == c.cache.end() || it->second->touched < victim->second->touched)) victim = it;
             }
-            if (victim == c.cache.end()) { ++c.failures; return {}; }
+            if (victim == c.cache.end()) {
+                ++c.capacity_waits;
+                return LookupResult::busy();
+            }
             c.cache.erase(victim);
         }
         auto load = std::make_shared<Load>();
@@ -65,7 +69,8 @@ Body Store::request(const std::string& name) {
     auto load = found->second;
     load->touched = ++c.tick;
     if (!c.ready.wait_for(lock, std::chrono::seconds(10), [&] { return load->phase != Load::Phase::pending; })) {
-        ++c.failures; return {};
+        ++c.load_timeouts;
+        return LookupResult::busy();
     }
     return load->phase == Load::Phase::ready ? load->bytes : Body{};
 }
@@ -89,6 +94,6 @@ void Store::finish(const std::shared_ptr<Load>& load, bool success, const goldcr
 StoreStats Store::stats() const {
     auto& c = *impl_;
     std::lock_guard<std::mutex> lock(c.mutex);
-    return {c.files.size(), c.used->load(), c.hits, c.loads, c.failures};
+    return {c.files.size(), c.used->load(), c.hits, c.loads, c.failures, c.capacity_waits, c.load_timeouts};
 }
 } // namespace goldcraft::http

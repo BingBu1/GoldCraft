@@ -5,10 +5,12 @@
 #include "resource_update.hpp"
 #include "resource_overlay.hpp"
 #include "resource_cache.hpp"
+#include "http_download_store.h"
 #include <chrono>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <iterator>
 #include <iomanip>
@@ -58,6 +60,103 @@ void Pump(update::Session& session){
 }
 void Ready(update::Session& session){Pump(session);if(session.GetStatus().phase!=update::Phase::ready)
     throw std::runtime_error("not ready: "+session.GetStatus().error);++checks;}
+
+// Exercise one v4 admission across real WinHTTP, the bounded server store,
+// and the final VFileSystem009 consumer. A held response owns the whole budget.
+void StorePressure(update::Session& session, cache::Cache& storage, IFileSystem* fs,
+                   const std::string& name, const Entry& next, const Entry& third,
+                   const std::vector<std::uint8_t>& bytes, const std::vector<std::uint8_t>& old,
+                   const std::vector<std::uint8_t>& newer) {
+    namespace http = goldcraft::http;
+    http::Store store(next.size);
+    http::Server server;
+    Check(server.start("127.0.0.1", 0, [&](const auto& key) { return store.request(key); }), "start real FastDL");
+    const auto url = "http://127.0.0.1:" + std::to_string(server.port()) + "/goldcraft/";
+    const std::string heldName = "models/held.mdl";
+    auto pin = [&](const Entry& entry) {
+        store.publish({{heldName, next.size, next}, {name, entry.size, entry}});
+        auto result = std::async(std::launch::async, [&] { return store.request(heldName); });
+        const auto deadline = std::chrono::steady_clock::now() + 5s;
+        auto load = store.take();
+        while (!load && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(1ms);
+            load = store.take();
+        }
+        Check(load && load->name == heldName, "pin the registered response");
+        *load->bytes = bytes;
+        store.finish(load, true, &next.sha256);
+        auto held = result.get();
+        Check(held.status == http::LookupStatus::available && held.body && *held.body == bytes, "hold real cache bytes");
+        return held.body;
+    };
+    auto waitBusy = [&](std::uint64_t initial) {
+        const auto deadline = std::chrono::steady_clock::now() + 10s;
+        while (store.stats().capacity_waits < initial + 4 && std::chrono::steady_clock::now() < deadline) {
+            session.Pump();
+            if (session.GetStatus().phase == update::Phase::failed)
+                throw std::runtime_error("v4 abandoned a pending registered resource: " + session.GetStatus().error);
+            std::this_thread::sleep_for(2ms);
+        }
+        Check(store.stats().capacity_waits >= initial + 4, "four real capacity responses");
+        Check(session.GetStatus().phase == update::Phase::downloading, "same v4 admission still downloading");
+    };
+    auto serve = [&](const auto& content, const Entry& serverEntry) {
+        const auto deadline = std::chrono::steady_clock::now() + 12s;
+        for (;;) {
+            if (auto load = store.take()) {
+                Check(load->name == name, "only requested resource loaded");
+                *load->bytes = content;
+                store.finish(load, true, &serverEntry.sha256);
+            }
+            session.Pump();
+            const auto phase = session.GetStatus().phase;
+            if (phase == update::Phase::ready || phase == update::Phase::failed) return;
+            if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error("v4 admission timeout");
+            std::this_thread::sleep_for(2ms);
+        }
+    };
+    auto held = pin(next);
+    Check(session.Begin(1, url, {{name, next}}), "begin pressure admission once");
+    waitBusy(0);
+    Check(!fsys::exists(storage.Path(name, next)) && EqualVfs(fs, name, old), "pending download remains unmounted");
+    held.reset();
+    serve(bytes, next);
+    Check(session.GetStatus().phase == update::Phase::ready && session.GetStatus().downloaded == 1,
+          "original admission recovered");
+    Check(Disk(storage.Path(name, next)) == bytes && EqualVfs(fs, name, bytes), "verified disk and final VFS bytes");
+    Check(session.Reset() && EqualVfs(fs, name, old), "restore previous VFS");
+
+    held = pin(third);
+    const auto initial = store.stats().capacity_waits;
+    Check(session.Begin(2, url, {{name, third}}), "begin cancellable admission");
+    waitBusy(initial);
+    Check(session.Reset() && session.GetStatus().phase == update::Phase::idle, "cancel busy admission");
+    held.reset();
+    Check(!fsys::exists(storage.Path(name, third)) && EqualVfs(fs, name, old), "cancelled version stays unmounted");
+
+    // Keep a valid server resource at a different SHA from the client manifest.
+    store.publish({{name, next.size, next}});
+    Check(session.Begin(3, url, {{name, third}}), "begin wrong-SHA admission");
+    serve(bytes, next);
+    Check(session.GetStatus().phase == update::Phase::failed && !fsys::exists(storage.Path(name, third)) &&
+          EqualVfs(fs, name, old), "wrong SHA rejected without a mount");
+    Check(session.Reset(), "reset integrity failure");
+    store.publish({});
+    Check(session.Begin(4, url, {{name, third}}), "begin missing-file admission");
+    Pump(session);
+    Check(session.GetStatus().phase == update::Phase::failed && !fsys::exists(storage.Path(name, third)) &&
+          EqualVfs(fs, name, old), "unlisted resource still rejected");
+    Check(session.Reset(), "reset missing resource");
+
+    store.publish({{name, third.size, third}});
+    Check(session.Begin(5, url, {{name, third}}), "fresh admission");
+    serve(newer, third);
+    Check(session.GetStatus().phase == update::Phase::ready && session.GetStatus().downloaded == 1 &&
+          Disk(storage.Path(name, third)) == newer && EqualVfs(fs, name, newer), "only fresh verified bytes mounted");
+    Check(store.stats().failures == 0 && store.stats().reserved == next.size, "bounded server cache throughout");
+    std::cout << "{\"fastdlRequests\":" << server.stats().requests
+              << ",\"capacityWaits\":" << store.stats().capacity_waits << "}\n";
+}
 BY_HANDLE_FILE_INFORMATION FileInfo(const fsys::path& path){
     auto h=CreateFileA(path.string().c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
     Check(h!=INVALID_HANDLE_VALUE,"file info open");BY_HANDLE_FILE_INFORMATION info{};Check(GetFileInformationByHandle(h,&info),"file info read");CloseHandle(h);return info;
@@ -286,7 +385,9 @@ int main(int argc,char** argv){
         Check(overlay::Install(&api,&interfaces),"production identity checked overlay install");
         {
         update::Session session((base/"cache").string());cache::Cache storage((base/"cache").string());
-        if(mode=="same"||mode=="update"||mode=="pak"||mode=="reuse"||mode=="same-generation"||mode=="old-hardlink"||mode=="final-change"){
+        if(mode=="store-pressure"){
+            StorePressure(session,storage,fs,name,next,third,bytes,old,newer);
+        }else if(mode=="same"||mode=="update"||mode=="pak"||mode=="reuse"||mode=="same-generation"||mode=="old-hardlink"||mode=="final-change"){
             Check(EqualVfs(fs,name,mode=="same"?bytes:old),"baseline source winner");
             Check(session.Begin(3,url,{{name,next}}),"manifest accepted");
             if(mode=="final-change"){

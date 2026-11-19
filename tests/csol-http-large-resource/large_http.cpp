@@ -32,8 +32,8 @@ static void store_boundaries()
     store.publish({{"models/at_limit.mdl", limit}, {"models/above_limit.mdl", limit+1},
         {"models/one.mdl", 1}, {"models/zero.mdl", 0}});
     REQUIRE(store.stats().files == 2);
-    REQUIRE(!store.request("models/above_limit.mdl"));
-    REQUIRE(!store.request("models/zero.mdl"));
+    REQUIRE(store.request("models/above_limit.mdl").status == LookupStatus::missing);
+    REQUIRE(store.request("models/zero.mdl").status == LookupStatus::missing);
     auto request = std::async(std::launch::async, [&]{ return store.request("models/at_limit.mdl"); });
     std::shared_ptr<Load> pending;
     until([&]{ pending=store.take(); return bool(pending); });
@@ -41,26 +41,26 @@ static void store_boundaries()
     pending->bytes->assign(limit, 0x93);
     store.finish(pending, true);
     pending.reset();
-    auto held = request.get();
+    auto held = request.get().body;
     REQUIRE(held && held->size() == limit && held->front() == 0x93 && held->back() == 0x93);
-    REQUIRE(!store.request("models/one.mdl"));
+    REQUIRE(store.request("models/one.mdl").status == LookupStatus::busy);
     REQUIRE(store.stats().reserved == limit);
     // A map transition cancels the cache but cannot release bytes held by an
     // in-flight sender; the same fixed budget still applies to the next map.
     store.publish({{"models/one.mdl", 1}});
-    REQUIRE(store.stats().reserved == limit && !store.request("models/one.mdl"));
+    REQUIRE(store.stats().reserved == limit && store.request("models/one.mdl").status == LookupStatus::busy);
     held.reset();
     REQUIRE(store.stats().reserved == 0);
     request=std::async(std::launch::async,[&]{return store.request("models/one.mdl");});
     until([&]{pending=store.take();return bool(pending);});
     store.publish({});
-    REQUIRE(!request.get());
+    REQUIRE(request.get().status == LookupStatus::missing);
     pending->bytes->assign(1,42);
     store.finish(pending,true);pending.reset();
-    REQUIRE(store.stats().reserved == 0 && !store.request("models/one.mdl"));
+    REQUIRE(store.stats().reserved == 0 && store.request("models/one.mdl").status == LookupStatus::missing);
     Store too_small(22309735);
     too_small.publish({{"resource/Font/sarasa_ui_sc.ttf",22309736}});
-    REQUIRE(!too_small.request("resource/Font/sarasa_ui_sc.ttf"));
+    REQUIRE(too_small.request("resource/Font/sarasa_ui_sc.ttf").status == LookupStatus::missing);
     REQUIRE(too_small.stats().reserved == 0);
 }
 

@@ -242,15 +242,60 @@ static void server_tests(){
     CHECK(request(port,"/goldcraft/models/test.mdl").body==*data);CHECK(s.stats().rejected>=10);s.stop();
 }
 static void store_tests(){
-    Store store(16);store.publish({{"models/a.mdl",8},{"models/b.mdl",8},{"models/c.mdl",8},{"server.cfg",4},{"models/zero.mdl",0}});CHECK(store.stats().files==3);CHECK(!store.request("server.cfg"));
-    auto a=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});auto a2=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});std::shared_ptr<Load> load;until([&]{load=store.take();return !!load;});load->bytes->assign(8,7);store.finish(load,true);load.reset();auto body=a.get();CHECK(body&&body==a2.get());CHECK(store.stats().loads==1);
-    auto fill=[&](const char* name){auto f=std::async(std::launch::async,[&]{return store.request(name);});until([&]{load=store.take();return !!load;});load->bytes->assign(8,9);store.finish(load,true);load.reset();return f.get();};
-    auto b=fill("models/b.mdl");CHECK(store.stats().reserved==16);CHECK(!store.request("models/c.mdl"));b.reset();auto c=fill("models/c.mdl");CHECK(c&&body&&store.stats().reserved==16);
+    Store store(16);store.publish({{"models/a.mdl",8},{"models/b.mdl",8},{"models/c.mdl",8},{"server.cfg",4},{"models/zero.mdl",0}});CHECK(store.stats().files==3);CHECK(store.request("server.cfg").status==LookupStatus::missing);
+    auto a=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});auto a2=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});std::shared_ptr<Load> load;until([&]{load=store.take();return !!load;});load->bytes->assign(8,7);store.finish(load,true);load.reset();auto body=a.get().body;CHECK(body&&body==a2.get().body);CHECK(store.stats().loads==1);
+    auto fill=[&](const char* name){auto f=std::async(std::launch::async,[&]{return store.request(name);});until([&]{load=store.take();return !!load;});load->bytes->assign(8,9);store.finish(load,true);load.reset();return f.get().body;};
+    auto b=fill("models/b.mdl");CHECK(store.stats().reserved==16);CHECK(store.request("models/c.mdl").status==LookupStatus::busy);b.reset();auto c=fill("models/c.mdl");CHECK(c&&body&&store.stats().reserved==16);
     // A new map cannot revoke a body already returned to a sender; its memory
     // remains counted until that sender releases it.
-    store.publish({{"models/a.mdl",8}});CHECK(store.stats().reserved==16);CHECK(!store.request("models/a.mdl"));body.reset();c.reset();CHECK(store.stats().reserved==0);
-    a=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});until([&]{load=store.take();return !!load;});store.publish({{"models/b.mdl",8}});CHECK(!a.get());load->bytes->assign(8,1);store.finish(load,true);load.reset();CHECK(store.stats().reserved==0);CHECK(!store.request("models/a.mdl"));
-    a=std::async(std::launch::async,[&]{return store.request("models/b.mdl");});until([&]{load=store.take();return !!load;});load->bytes->assign(7,1);store.finish(load,true);load.reset();CHECK(!a.get());
+    store.publish({{"models/a.mdl",8}});CHECK(store.stats().reserved==16);CHECK(store.request("models/a.mdl").status==LookupStatus::busy);body.reset();c.reset();CHECK(store.stats().reserved==0);
+    a=std::async(std::launch::async,[&]{return store.request("models/a.mdl");});until([&]{load=store.take();return !!load;});store.publish({{"models/b.mdl",8}});CHECK(a.get().status==LookupStatus::missing);load->bytes->assign(8,1);store.finish(load,true);load.reset();CHECK(store.stats().reserved==0);CHECK(store.request("models/a.mdl").status==LookupStatus::missing);
+    a=std::async(std::launch::async,[&]{return store.request("models/b.mdl");});until([&]{load=store.take();return !!load;});load->bytes->assign(7,1);store.finish(load,true);load.reset();CHECK(a.get().status==LookupStatus::missing);
+}
+static void capacity_http_test() {
+    // Retain a single body as a sender would. No socket timing or large files required.
+    Store store(8);
+    store.publish({{"models/first.mdl", 8}, {"models/next.mdl", 8}});
+    auto first = std::async(std::launch::async, [&]{ return store.request("models/first.mdl"); });
+    std::shared_ptr<Load> load;
+    until([&]{ load = store.take(); return !!load; });
+    load->bytes->assign(8, 1);
+    store.finish(load, true);
+    load.reset();
+    auto pinned = first.get().body;
+    Server server;
+    CHECK(server.start("127.0.0.1", 0, [&](const std::string& name){ return store.request(name); }));
+    const auto port = server.port();
+    const auto waiting = request(port, "/goldcraft/models/next.mdl");
+    const auto missing = request(port, "/goldcraft/models/absent.mdl");
+    pinned.reset();
+    auto next = async_request(port, "models/next.mdl");
+    until([&]{ load = store.take(); return !!load; });
+    load->bytes->assign(8, 2);
+    store.finish(load, true);
+    auto done = next.get();
+    std::cout << "registered-pinned=" << waiting.status << " unlisted=" << missing.status
+              << " after-release=" << done.status << std::endl;
+    CHECK(waiting.status == 503 && waiting.body.empty());
+    CHECK(waiting.header.find("Retry-After: 1") != std::string::npos);
+    CHECK(store.stats().capacity_waits == 1 && store.stats().failures == 0);
+    CHECK(missing.status == 404 && done.status == 200 && done.body == Bytes(8, 2));
+}
+
+static void pending_http_test() {
+    Store store(8);
+    store.publish({{"models/slow.mdl", 8}});
+    Server server;
+    CHECK(server.start("127.0.0.1", 0, [&](const std::string& name){ return store.request(name); }));
+    auto waiting = async_request(server.port(), "models/slow.mdl");
+    std::shared_ptr<Load> load;
+    until([&]{ load = store.take(); return !!load; });
+    CHECK(waiting.wait_for(12s) == std::future_status::ready);
+    CHECK(waiting.get().status == 503 && store.stats().load_timeouts == 1);
+    load->bytes->assign(8, 3);
+    store.finish(load, true);
+    auto resumed = request(server.port(), "/goldcraft/models/slow.mdl", "Range: bytes=1-3\r\n");
+    CHECK(resumed.status == 206 && resumed.body == Bytes(3, 3) && store.stats().loads == 1);
 }
 static void adapter_tests(){
     for(auto v:{&sv_downloadurl,&sv_allow_download,&sv_send_resources,&sv_allow_dlfile})Cvar_RegisterVariable(v);
@@ -375,6 +420,9 @@ static void resource_sync_http_tests() {
 }
 int main(int argc,char** argv){try{
     WSADATA w;CHECK(WSAStartup(MAKEWORD(2,2),&w)==0);
+    if(argc==2&&std::string_view(argv[1])=="--capacity"){
+        capacity_http_test();WSACleanup();return 0;
+    }
     if(argc==2&&std::string_view(argv[1])=="--transport-only"){
         transport_tests();WSACleanup();std::cout<<"transport checks="<<checks.load()<<" passed\n";return 0;
     }
@@ -393,6 +441,6 @@ int main(int argc,char** argv){try{
         "resource/font/a.otf","resource/font/../other.ttf","resource/font/CON.ttf","resource/font/font.ttf:private"})CHECK(!resource_name(name));
     for(const char* name:{"inventoryitems/guest/cof/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/weapon_p345.txt","inventoryitems/guest/cof/weapons/weapon_revolver.txt","AURORA/GUEST/COF/GUNSMOKE.AUR"})CHECK(resource_name(name));
     for(const char* name:{"inventoryitems/private.txt","inventoryitems/guest/cof2/weapons/weapon_glock.txt","inventoryitems/guest/cof/weapons/../private.txt","inventoryitems/guest/cof/weapons/CON.txt","inventoryitems/guest/cof/weapons/item.txt.exe","aurora/private.aur","aurora/guest/cof2/gunsmoke.aur","aurora/guest/cof/gunsmoke.aur.exe","aurora/guest/cof/../secret.aur"})CHECK(!resource_name(name));
-    transport_tests();server_tests();store_tests();adapter_tests();resource_sync_http_tests();WSACleanup();
+    transport_tests();server_tests();store_tests();capacity_http_test();pending_http_test();adapter_tests();resource_sync_http_tests();WSACleanup();
     std::cout<<"HTTP production server/store/adapter checks="<<checks.load()<<" passed\n";
 }catch(const std::exception& error){std::cerr<<error.what()<<std::endl;WSACleanup();return 1;}}

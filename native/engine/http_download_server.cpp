@@ -417,8 +417,13 @@ struct Server::Impl {
             if (key == "transfer-encoding" || (key == "content-length" && value != "0")) { reply(socket, 400); return; }
             pos = next + 2;
         }
-        auto body = provider(name);
+        const auto result = provider(name);
         if (stopping) return;
+        if (result.status == LookupStatus::busy) {
+            reply(socket, 503, 0, "Retry-After: 1\r\n");
+            return;
+        }
+        const auto& body = result.body;
         if (!body) { reply(socket, 404); return; }
         if (body->empty() || body->size() > max_file_size) { reply(socket, 503); return; }
         std::size_t begin = 0, finish = body->size() - 1;

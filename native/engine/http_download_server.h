@@ -4,12 +4,25 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace goldcraft::http {
 using Bytes = std::vector<std::uint8_t>;
 using Body = std::shared_ptr<const Bytes>;
-using Provider = std::function<Body(const std::string&)>;
+enum class LookupStatus { missing, available, busy };
+struct LookupResult {
+    Body body;
+    LookupStatus status;
+    LookupResult(Body bytes = {}) : body(std::move(bytes)),
+        status(body ? LookupStatus::available : LookupStatus::missing) {}
+    static LookupResult busy() {
+        LookupResult result;
+        result.status = LookupStatus::busy;
+        return result;
+    }
+};
+using Provider = std::function<LookupResult(const std::string&)>;
 // The resource-list size is only a 24-bit progress estimate. Ordinary HTTP
 // downloads use the response body length; bound them by the store's budget.
 constexpr std::size_t max_file_size = 64u * 1024u * 1024u;

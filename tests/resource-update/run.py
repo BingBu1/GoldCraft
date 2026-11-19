@@ -47,6 +47,10 @@ def main():
         return source
     for component in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']:
         for extension in ['cpp', 'hpp']: freeze('native/client/' + component + '.' + extension)
+    fastdl = ['http_download_store', 'http_download_server', 'launcher_http']
+    for component in fastdl:
+        for extension in ['cpp', 'h']: freeze('native/engine/' + component + '.' + extension)
+    freeze('native/include/goldcraft/cof_resource_paths.hpp')
     freeze('native/include/goldcraft/resource_sync.hpp')
     freeze('native/include/goldcraft/async_download.hpp')
     freeze('tools/Prepare-Asio.py')
@@ -66,7 +70,7 @@ def main():
     if args.environment: env.update(json.loads(args.environment.read_text('utf-8-sig')))
     env['TEMP'] = env['TMP'] = str(out / 'temp')
     compiler = str(args.compiler.resolve(strict=True))
-    includes = [ROOT / 'native/client', ROOT / 'native/include', asio_include]
+    includes = [ROOT / 'native/client', ROOT / 'native/include', ROOT / 'native/engine', asio_include]
     includes += [ROOT / sdk / x for x in ['', 'Interface', 'HLSDK/common', 'HLSDK/cl_dll', 'HLSDK/engine', 'HLSDK/public', 'HLSDK/pm_shared', 'HLSDK/dlls', 'SourceSDK', 'SourceSDK/tier1']]
     flags = ['/nologo', '--target=i686-pc-windows-msvc', '/std:c++20', '/MT', '/EHsc', '/O2', '/clang:-O3', '/utf-8',
              '/arch:AVX2', '/fp:precise', '/clang:-flto=thin', '/D_CRT_SECURE_NO_WARNINGS', '/DNOMINMAX',
@@ -85,7 +89,9 @@ def main():
         save('steps.json', steps); print(name, code, flush=True)
         return code
     objects = []
-    for name, relative in [(x, 'native/client/' + x + '.cpp') for x in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']] + [('fixture', 'tests/resource-update/main.cpp')]:
+    sources = [(x, 'native/client/' + x + '.cpp') for x in ['resource_cache', 'resource_update', 'resource_download', 'resource_overlay']]
+    sources += [(x, 'native/engine/' + x + '.cpp') for x in fastdl]
+    for name, relative in sources + [('fixture', 'tests/resource-update/main.cpp')]:
         if name == 'resource_update' and args.baseline_update_object:
             obj = args.baseline_update_object.resolve(strict=True)
             frozen.append(identity(obj)); objects.append(obj); continue
@@ -160,6 +166,7 @@ def main():
              ('shadow', 'shadow', 'models/update.mdl', 0),
              ('download-releases-lease', 'download-releases-lease', 'models/update.mdl', 1),
              ('parallel', 'batch', 'models/update.mdl', 16),
+             ('store-pressure', 'store-pressure', 'models/update.mdl', 0),
              ('outage', 'batch', 'models/update.mdl', 20)]
     if args.case: cases = [case for case in cases if case[0] == args.case]; assert cases
     results = []
@@ -200,6 +207,13 @@ def main():
             arguments += ['captured-corruption'] if mode == 'batch' else [mode, name, len(body), sha, third_sha]
             code = execute('case-' + label, arguments)
             with lock: count = sum(x['case'] == label for x in requests)
+            if mode == 'store-pressure' and code == 0:
+                assert count == 0  # This case connects to the C++ FastDL server.
+                log = (out / ('case-' + label + '.log')).read_text('utf-8')
+                counters = next(json.loads(line) for line in log.splitlines() if line.startswith('{"fastdlRequests":'))
+                assert counters['capacityWaits'] >= 8
+                count = counters['fastdlRequests']
+                request_count = counters['capacityWaits'] + 8  # Two successes and three attempts per permanent failure.
             if label == 'parallel' and parallel['peak'] < 8:
                 code = code or 1
             preserved = all(identity(x['path']) == x for x in before)
