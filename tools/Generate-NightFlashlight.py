@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Author GoldSrc first- and third-person models for GoldCraft's flashlight."""
 import argparse
+import hashlib
+import json
 from math import cos, pi, sin, sqrt
 from pathlib import Path
 import struct
@@ -113,6 +115,7 @@ def main():
     models.mkdir(parents=True)
     (scratch / "flashlight.bmp").write_bytes(material_atlas())
 
+    files = []
     for prefix in ("v", "p"):
         name = f"{prefix}_night_flashlight"
         reference, idle = model_source(prefix == "v")
@@ -129,7 +132,16 @@ def main():
         data = path.read_bytes()
         if data[:8] != b"IDST\x0a\0\0\0" or struct.unpack_from("<i", data, 72)[0] != len(data):
             raise RuntimeError(f"Invalid GoldSrc model produced for {name}")
-        path.replace(models / path.name)
+        installed = path.replace(models / path.name)
+        files.append({
+            "source": str(installed),
+            "destination": installed.relative_to(output).as_posix(),
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+
+    (output / "resource-plan.json").write_text(
+        json.dumps({"files": files}, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -71,6 +71,9 @@ def command(text, *, config_path=None):
     config=json.loads(path.read_text(encoding='utf-8-sig'))
     token=config['csRconToken']
     with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as connection:
+        if text.split(maxsplit=1)[:1] == ['reslist']:
+            # A map manifest can fill the default UDP queue before the first recv.
+            connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 2 * 1024 * 1024)
         connection.settimeout(3)
         connection.connect(('127.0.0.1',config['csPort']))
         connection.send(b'\xff\xff\xff\xffchallenge rcon\n')

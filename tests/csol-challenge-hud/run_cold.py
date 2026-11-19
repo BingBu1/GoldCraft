@@ -41,6 +41,8 @@ def main():
     parser.add_argument('--live-time-controls',action='store_true',
                         help='Start time disabled, then verify real CVAR edits in this same no-player map via matching PDB')
     parser.add_argument('--map',default='zs_deadend')
+    parser.add_argument('--startup-timeout', type=int, default=45, choices=range(10, 181), metavar='SECONDS',
+                        help='Maximum wait for the isolated map to answer status after cold resource preparation')
     parser.add_argument('--map-id',type=int,
                         help='Explicit current catalog id when multiple rows share one filename')
     parser.add_argument('--http-resource',action='append',default=[],
@@ -57,7 +59,8 @@ def main():
         if any(p.exists()and p.lstat().st_file_attributes&0x400 for p in (path,*path.parents)):
             raise ValueError('reparse path')
     out.mkdir();rollback=out/'rollback';rollback.mkdir();changes=[];child=None
-    receipt=dict(success=False,sourceCopies=0,gameplay=False,guiInput=False,mainRuntimeTouched=False,checks={},responses={})
+    receipt=dict(success=False,sourceCopies=0,gameplay=False,guiInput=False,mainRuntimeTouched=False,
+                 startupTimeout=args.startup_timeout,checks={},responses={})
     catalog=cstrike/'resource/maplist.csv'
     rows=list(csv.reader(io.StringIO(catalog.read_bytes().removeprefix(b'\xef\xbb\xbf').decode('latin1'),newline='')))
     assert rows[0][0].strip()==';map_id'and rows[0][2].strip()=='map_filename'and rows[0][58].strip()=='SubType'
@@ -109,12 +112,14 @@ def main():
         env={k:v for k,v in os.environ.items()if not k.startswith(('GOLDCRAFT_','METAHOOK_'))}
         env.update(GOLDCRAFT_HTTP_ENABLED='1',GOLDCRAFT_HTTP_BIND='127.0.0.1',GOLDCRAFT_HTTP_PORT=str(http_port),GOLDCRAFT_HTTP_PUBLIC_URL=f'http://127.0.0.1:{http_port}/goldcraft/')
         child=subprocess.Popen([str(game/'hlds.exe'),'-game','cstrike','-insecure','-nomaster','-console','-condebug','+ip','127.0.0.1','-port',str(cs_port),'-maxplayers','32','-csol_game_mode','2','-csol_scenario_map_id',str(map_id),'+map',args.map],cwd=game,env=env,startupinfo=startup,creationflags=subprocess.CREATE_NEW_CONSOLE)
-        receipt['pid']=child.pid;deadline=time.monotonic()+45
+        receipt['pid']=child.pid;started=time.monotonic();deadline=started+args.startup_timeout
         while time.monotonic()<deadline:
             if child.poll()is not None:raise RuntimeError('isolated server exited before ready')
             try:
                 status=rcon.command('status',config_path=private)
-                if args.map in status and '0 active'in status:break
+                if args.map in status and '0 active'in status:
+                    receipt['readySeconds']=time.monotonic()-started
+                    break
             except (TimeoutError,ConnectionResetError,ConnectionRefusedError):pass
             except ValueError as error:
                 if str(error)!='Unexpected GoldSrc RCON reply type':raise
