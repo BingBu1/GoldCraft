@@ -50,6 +50,8 @@ void CheckAt(bool value,int line){++checks;if(!value){std::cerr<<"Famas SDK chec
 template<class... T>void Event(unsigned kind,T... values)
 {events.insert(events.end(),{kind,sizeof...(T),static_cast<unsigned>(values)...});}
 bool Current(void*) noexcept{return current;}
+constexpr int RifleAmmoSlot = 4;
+constexpr int BoxAmmoSlot = 3;
 bool OwnerFrame(void*,FamasOwnerFrame& out) noexcept{out=frame;return ownerFrameReady;}
 void Recoil(void*,CBasePlayer&,const Vector&) noexcept{++meleeCalls;}
 bool Effect(void*,CBasePlayer&,CBasePlayerWeapon& item,const FamasEvent& e) noexcept
@@ -111,9 +113,13 @@ struct Player final:CBasePlayer
     Vector GetGunPosition() override{return {2,3,4};}
     int GiveAmmo(int amount,const char* name,int maximum) override
     {
-        Check(amount>=0&&!std::strcmp(name,"cof_famas")&&(maximum==90||maximum==150));
-        const int add=std::min(amount,maximum-m_rgAmmo[1]);if(add<0)return -1;
-        m_rgAmmo[1]+=add;Event(104,amount,maximum);return 1;
+        const int slot = GetAmmoIndex(name);
+        Check(amount >= 0 && slot == RifleAmmoSlot && (maximum == 90 || maximum == 150));
+        const int add = std::min(amount, maximum - m_rgAmmo[slot]);
+        if (add < 0) return -1;
+        m_rgAmmo[slot] += add;
+        Event(104, amount, maximum);
+        return slot;
     }
 };
 edict_t ownerEdict{},weaponEdict{};
@@ -159,7 +165,8 @@ void Initialize()
     weapon.pev=&weaponEdict.v;weaponEdict.v.pContainingEntity=&weaponEdict;weaponEdict.pvPrivateData=&weapon;
     weapon.ConfigureColdHost({});
     for(auto& item:player.m_rgpPlayerItems)item=nullptr;
-    CBasePlayerItem::m_AmmoInfoArray[1].pszName="cof_famas";
+    CBasePlayerItem::m_AmmoInfoArray[RifleAmmoSlot].pszName = "556Nato";
+    CBasePlayerItem::m_AmmoInfoArray[BoxAmmoSlot].pszName = "556NatoBox";
     player.has_disconnected=false;player.m_iNumSpawns=0;
     player.pev->health=100;player.pev->modelindex=1;player.m_Activity=ACT_WALK;player.m_IdealActivity=ACT_WALK;
     player.m_fSequenceFinished=true;player.m_flFlinchTime=0;
@@ -203,7 +210,7 @@ void Initialize()
     backends={};backends.current=Current;backends.ownerFrame=OwnerFrame;backends.effect=Effect;
     backends.recoil=NativeRecoil;backends.firstEquip=FirstEquip;backends.playerAnimation=&animations;
     backends.playerModelGeneration={1,1};backends.ownerLife=17;backends.playerThink=&playerThink;
-    weapon.Spawn();weapon.m_iPrimaryAmmoType=1;player.m_rgAmmo[1]=150;weapon.m_iClip=30;
+    weapon.Spawn();weapon.m_iPrimaryAmmoType=RifleAmmoSlot;player.m_rgAmmo[RifleAmmoSlot]=150;weapon.m_iClip=30;
     Check(weapon.Bind(player,prepared,backends)==FamasStatus::Ready);
     Check(weapon.Deploy());events.clear();live=&weapon;
 }
@@ -322,8 +329,31 @@ int main(int argc,char** argv)
         FamasWeapon fresh;ItemInfo info{};
         Check(fresh.GetItemInfo(&info)&&info.iId==905&&info.iMaxClip==30&&info.iMaxAmmo1==150&&
             info.iSlot==0&&info.iPosition==5&&!std::strcmp(info.pszName,"weapon_cof_famas")&&
-            !std::strcmp(info.pszAmmo1,"cof_famas")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT);
+            !std::strcmp(info.pszAmmo1,"556Nato")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT);
         Check(!fresh.GetItemInfo(nullptr)&&!fresh.IsPistol()&&!fresh.UseDecrement());
+    }
+    // New and dropped duplicates take different SDK paths into the same reserve.
+    for (int limit : {90, 150})
+    {
+        Prime();
+        frame.reserveLimit = limit;
+        player.m_rgAmmo[RifleAmmoSlot] = limit - 12;
+        player.m_rgAmmo[BoxAmmoSlot] = 81;
+        FamasWeapon pickup;
+        edict_t entity{};
+        entity.v.pContainingEntity = &entity;
+        entity.pvPrivateData = &pickup;
+        pickup.pev = &entity.v;
+        pickup.ConfigureColdHost({nullptr, Current, ColdPrepare, ColdOwner, ColdInventory});
+        pickup.Precache();
+        weapon.m_iClip = 0;
+        pickup.m_iDefaultAmmo = 35;
+        Check(pickup.AddDuplicate(&weapon) && pickup.m_iDefaultAmmo == 0);
+        Check(weapon.m_iClip == 30 && weapon.m_iPrimaryAmmoType == RifleAmmoSlot);
+        Check(player.m_rgAmmo[RifleAmmoSlot] == limit - 7 && player.m_rgAmmo[BoxAmmoSlot] == 81);
+        pickup.m_iClip = 10;
+        Check(pickup.AddDuplicate(&weapon) && player.m_rgAmmo[RifleAmmoSlot] == limit);
+        Check(weapon.m_iClip == 30 && player.m_rgAmmo[BoxAmmoSlot] == 81);
     }
     // Continuous automatic fire ignores the previous secondary cooldown and
     // does not require a new pressed edge for each round.
@@ -345,19 +375,19 @@ int main(int argc,char** argv)
     // ID23 refills without reserve consumption or the ordinary observer.
     for(int reserve:{0,150,32000})for(int clip:{0,5})
     {
-        Initialize();Ready();weapon.m_iClip=clip;player.m_rgAmmo[1]=reserve;
+        Initialize();Ready();weapon.m_iClip=clip;player.m_rgAmmo[RifleAmmoSlot]=reserve;
         events.clear();weapon.Reload();
         const float duration=viewTimes.duration[clip?5:6];
         Check(SawView(clip?5:6)&&weapon.m_iClip==0&&State().loading&&State().action==2&&
             Bits(State().ownerAttack)==Bits(10.F+duration));
         globals.time=std::nextafter(State().ownerAttack,INFINITY);events.clear();weapon.ItemPostFrame();
-        Check(weapon.m_iClip==30&&player.m_rgAmmo[1]==reserve&&!State().loading);
+        Check(weapon.m_iClip==30&&player.m_rgAmmo[RifleAmmoSlot]==reserve&&!State().loading);
         globals.time+=.01F;weapon.ItemPostFrame();Check(State().action==0);
     }
     Initialize();Ready();weapon.m_iClip=75;weapon.Reload();
     Check(weapon.m_iClip==75&&!State().loading);
     State().loading=true;State().action=2;State().ownerAttack=0;weapon.ItemPostFrame();
-    Check(weapon.m_iClip==75&&!State().loading&&player.m_rgAmmo[1]==150);
+    Check(weapon.m_iClip==75&&!State().loading&&player.m_rgAmmo[RifleAmmoSlot]==150);
     Ready(20);weapon.ItemPostFrame();weapon.PrimaryAttack();Check(weapon.m_iClip==74);
     // Presentation delivery is optional. It cannot veto the input dispatcher,
     // mechanical reload completion, deployment or subsequent weapon use.

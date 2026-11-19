@@ -31,6 +31,7 @@ bool Finite(const Vector& v) noexcept
 }
 float AddDouble(float now, double delay) noexcept { return static_cast<float>(double(now) + delay); }
 constexpr unsigned OriginalId = 23;
+constexpr char Ammunition[] = "556Nato";
 constexpr std::uint64_t InventoryKind = 0x434f4646414d0001ULL;
 }
 
@@ -286,7 +287,7 @@ int FamasWeapon::GetItemInfo(ItemInfo* info)
     if (!info) return 0;
     *info = {};
     info->pszName = "weapon_cof_famas";
-    info->pszAmmo1 = "cof_famas";
+    info->pszAmmo1 = Ammunition;
     info->iMaxAmmo1 = 150;
     info->iMaxAmmo2 = -1;
     info->iMaxClip = 30;
@@ -428,7 +429,7 @@ int FamasWeapon::ExtractAmmo(CBasePlayerWeapon* weapon)
         target->m_iClip = ready;
         amount -= ready;
     }
-    const int ammo = owner.player->GiveAmmo(amount, "cof_famas", frame.reserveLimit);
+    const int ammo = owner.player->GiveAmmo(amount, Ammunition, frame.reserveLimit);
     if (!current()) return FALSE;
     m_iDefaultAmmo = 0;
     if (ammo <= 0) return FALSE;
@@ -450,7 +451,7 @@ int FamasWeapon::ExtractClipAmmo(CBasePlayerWeapon* weapon)
     if (!target->Check(frame, false) || (frame.reserveLimit!=90 && frame.reserveLimit!=150) ||
         (m_iClip < 0 && m_iClip != -1)) return FALSE;
     Lease owner = target->lease_;
-    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, "cof_famas", frame.reserveLimit);
+    const int result = owner.player->GiveAmmo(m_iClip == -1 ? 0 : m_iClip, Ammunition, frame.reserveLimit);
     return WorldCurrent(source) && Current(&owner) ? result : FALSE;
 }
 void FamasWeapon::AttachToPlayer(CBasePlayer* player)
