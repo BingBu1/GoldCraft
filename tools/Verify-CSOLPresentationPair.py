@@ -15,10 +15,13 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 MENU = re.compile(rb"models/csol/buymenu_v[0-9]+[.]json\x00")
 
+BASE_MENU = "models/csol/buymenu_v16.json"
+EQUIPMENT_MENU = "models/csol/buymenu_v17.json"
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def compiled_menu(path: Path) -> str:
+def compiled_menus(path: Path) -> tuple[str, ...]:
     data = path.read_bytes()
     if len(data) < 64 or data[:2] != b"MZ":
         raise ValueError(f"Not a PE module: {path.name}")
@@ -26,9 +29,17 @@ def compiled_menu(path: Path) -> str:
     if pe + 26 > len(data) or data[pe:pe+4] != b"PE\0\0" or struct.unpack_from("<H", data, pe+4)[0] != 0x14c:
         raise ValueError(f"Expected x86 PE: {path.name}")
     names = {match[:-1].decode("ascii") for match in MENU.findall(data)}
-    if len(names) != 1:
-        raise ValueError(f"Expected one compiled buy-menu resource in {path.name}; found {sorted(names)}")
-    return names.pop()
+    if len(names) == 1:
+        return (names.pop(),)
+    # v17 is negotiated on signon. The same DLLs use v16 on maps where
+    # the server has only the base catalogue. Reject unrelated marker pairs.
+    negotiated = (BASE_MENU, EQUIPMENT_MENU)
+    if names == set(negotiated):
+        return negotiated
+    raise ValueError(f"Unexpected compiled buy-menu resources in {path.name}: {sorted(names)}")
+
+def compiled_menu(path: Path) -> str:
+    return compiled_menus(path)[0]
 
 def resource_path(name: str) -> str:
     parts = PurePosixPath(name)
@@ -40,6 +51,15 @@ def menu_resources(name: str, data: bytes) -> list[str]:
     value = json.loads(data.decode("utf-8-sig"))
     if not isinstance(value, dict) or value.get("version") not in (3, 4):
         raise ValueError("Unsupported buy-menu presentation schema")
+    if name == EQUIPMENT_MENU:
+        # CSOL_PrecacheBuyMenu requires both the list image and the detail
+        # card for each offered item, even when every referenced file exists.
+        details = value.get("weaponInfo")
+        for rows in (value.get("images"), details.get("items") if isinstance(details, dict) else None):
+            ids = [row.get("id") for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+            for item_id in (976, 977):
+                if ids.count(item_id) != 1:
+                    raise ValueError(f"Missing or duplicate equipment card for item {item_id}")
     header = (ROOT / "native/csol/character_menu.hpp").read_text("utf-8-sig")
     resources = {name}
     # These two mandatory non-image consumers are the actual published contract.
@@ -63,13 +83,24 @@ def menu_resources(name: str, data: bytes) -> list[str]:
     visit(value)
     return sorted(resources)
 
+def installed_resources(client: Path, root: Path) -> dict[str, Path]:
+    tables = compiled_menus(client)
+    paths = set()
+    for i, table in enumerate(tables):
+        path = root / table
+        if i and not path.exists():
+            continue
+        paths.update(menu_resources(table, path.read_bytes()))
+    return {name: root / name for name in paths}
+
 def verify_pair(server: Path, client: Path, resources: dict[str, Path], http_url: str | None = None) -> dict:
-    server_name, client_name = compiled_menu(server), compiled_menu(client)
-    if server_name != client_name:
-        raise ValueError(f"Compiled menu revisions differ: server={server_name}, client={client_name}")
-    if client_name not in resources:
-        raise ValueError(f"Compiled menu is absent from the resource set: {client_name}")
-    names = menu_resources(client_name, resources[client_name].read_bytes())
+    server_tables, client_tables = compiled_menus(server), compiled_menus(client)
+    if server_tables != client_tables:
+        raise ValueError(f"Compiled menu revisions differ: server={server_tables}, client={client_tables}")
+    if client_tables[0] not in resources:
+        raise ValueError(f"Compiled menu is absent from the resource set: {client_tables[0]}")
+    active = [table for table in client_tables if table in resources]
+    names = sorted({name for table in active for name in menu_resources(table, resources[table].read_bytes())})
     missing = [name for name in names if name not in resources or not resources[name].is_file() or resources[name].stat().st_size == 0]
     if missing:
         raise ValueError("Missing required menu resources: " + ", ".join(missing))
@@ -91,7 +122,7 @@ def verify_pair(server: Path, client: Path, resources: dict[str, Path], http_url
             return row["path"]
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             list(pool.map(download, rows))
-    return dict(success=True, menu=client_name, serverSha256=sha(server.read_bytes()),
+    return dict(success=True, menu=active[-1], menus=active, serverSha256=sha(server.read_bytes()),
                 clientSha256=sha(client.read_bytes()), resources=rows, httpVerified=bool(http_url),
                 boundary="Compiled revision and actual resource bytes; presentation parser, UI, gameplay and performance require separate checks")
 
@@ -102,11 +133,7 @@ def main() -> None:
     parser.add_argument("--http-url")
     args = parser.parse_args()
     base = args.resources.resolve(strict=True)
-    name = compiled_menu(args.client)
-    menu = base / name
-    if not menu.is_file():
-        raise ValueError("Compiled menu is missing: " + name)
-    resources = {name: base / name for name in menu_resources(name, menu.read_bytes())}
+    resources = installed_resources(args.client, base)
     result = verify_pair(args.server.resolve(strict=True), args.client.resolve(strict=True), resources, args.http_url)
     output = args.output.absolute()
     if output.exists() or not output.resolve().is_relative_to(ROOT / "build") or any(p.is_symlink() or p.is_junction() for p in (output, *output.parents)):

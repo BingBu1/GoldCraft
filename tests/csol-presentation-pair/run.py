@@ -19,7 +19,7 @@ def main():
     spec = importlib.util.spec_from_file_location('pair', ROOT/'tools/Verify-CSOLPresentationPair.py')
     pair = importlib.util.module_from_spec(spec);spec.loader.exec_module(pair)
     name = pair.compiled_menu(args.client)
-    files = {n: args.resources/n for n in pair.menu_resources(name, (args.resources/name).read_bytes())}
+    files = pair.installed_resources(args.client, args.resources)
     receipt = pair.verify_pair(args.server, args.client, files)
     checks = []
     def rejects(label, callback, text):
@@ -28,11 +28,26 @@ def main():
             assert text in str(error), (label, type(error), str(error))
             checks.append(label);return
         raise AssertionError('Accepted invalid pairing: '+label)
-    assert pair.compiled_menu(args.legacy_server)!=name
+    assert pair.compiled_menus(args.legacy_server)!=pair.compiled_menus(args.client)
     rejects('actual compiled revision mismatch', lambda: pair.verify_pair(args.legacy_server,args.client,files), 'revisions differ')
     rejects('missing compiled JSON', lambda: pair.verify_pair(args.server,args.client,{n:p for n,p in files.items() if n!=name}), 'absent')
     image = next(n for n in files if n.startswith('gfx/'))
     rejects('missing referenced image', lambda: pair.verify_pair(args.server,args.client,{n:p for n,p in files.items() if n!=image}), 'Missing required')
+    if len(receipt['menus']) == 2:
+        base = {n: files[n] for n in pair.menu_resources(name, files[name].read_bytes())}
+        assert pair.verify_pair(args.server, args.client, base)['menus'] == [name]
+        checks.append('same DLL pair with only the base catalogue')
+        for icon in ('gfx/csol/buy/cof_lantern.tga', 'gfx/csol/buy/cof_flare.tga'):
+            rejects('incomplete equipment catalogue '+icon, lambda: pair.verify_pair(
+                args.server, args.client, {n:p for n,p in files.items() if n!=icon}), 'Missing required')
+        equipment_menu = receipt['menus'][1]
+        for section in ('images', 'items'):
+            for item_id in (976, 977):
+                document = json.loads(files[equipment_menu].read_bytes())
+                rows = document['images'] if section == 'images' else document['weaponInfo']['items']
+                rows[:] = [row for row in rows if row['id'] != item_id]
+                rejects(f'missing {section} row for {item_id}', lambda: pair.menu_resources(
+                    equipment_menu, json.dumps(document).encode('utf8')), 'equipment card')
     rejects('traversal', lambda: pair.resource_path('../models/menu.json'), 'Unsafe')
     checks.append('actual module pair and resource closure')
     fault = ''
