@@ -193,10 +193,10 @@ index f8e193e..66d23c5 100644
 \ No newline at end of file
 +}
 diff --git a/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl b/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
-index 0812a10..e1ba545 100644
+index 0812a10..a580c4b 100644
 --- a/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/dfinal_shader.frag.glsl
-@@ -179,20 +179,26 @@ void main()
+@@ -179,20 +179,29 @@ void main()
      }
  #endif
  
@@ -227,6 +227,9 @@ index 0812a10..e1ba545 100644
  #endif
 -}
 \ No newline at end of file
++#ifdef DFINAL_GAMMA_OUTPUT
++    out_FragColor = LinearToGamma(out_FragColor);
++#endif
 +}
 diff --git a/assets/svencoop/renderer/shader/dlight_shader.frag.glsl b/assets/svencoop/renderer/shader/dlight_shader.frag.glsl
 index df2097c..f61be0b 100644
@@ -831,6 +834,30 @@ index 63c012a..6debb2d 100644
            "GameStudioRenderer_StudioMergeBones": "virtualFunction",
            "GameStudioRenderer_StudioRenderFinal": "virtualFunction",
            "GameStudioRenderer_StudioRenderModel": "virtualFunction",
+diff --git a/src/GameUI.cpp b/src/GameUI.cpp
+index 1dfb2c2..96032b9 100644
+--- a/src/GameUI.cpp
++++ b/src/GameUI.cpp
+@@ -98,19 +98,6 @@ public:
+         m_pTexGamma->ApplyChanges();
+         m_pLightGamma->ApplyChanges();
+ 
+-        if (m_pGammaBlending->IsEnabled() && m_pDeferredShading->IsEnabled())
+-        {
+-            if (m_pGammaBlending->IsSelected() && m_pDeferredShading->IsSelected())
+-            {
+-                auto box = new vgui::MessageBox("#GameUI_Renderer_ConflictTitle", "#GameUI_Renderer_GammaBlendingDeferredLightingConflict", this);
+-                box->SetOKButtonText("#GameUI_OK");
+-                box->SetCancelCommand(new KeyValues("Command", "command", "ReleaseModalWindow"));
+-                box->AddActionSignalTarget(this);
+-                box->DoModal();
+-                return;
+-            }
+-        }
+-
+         if (m_pAmbientOcclusion->IsEnabled() && m_pDeferredShading->IsEnabled())
+         {
+             if (m_pAmbientOcclusion->IsSelected() && !m_pDeferredShading->IsSelected())
 diff --git a/src/exportfuncs.cpp b/src/exportfuncs.cpp
 index 06bf06e..3c36564 100644
 --- a/src/exportfuncs.cpp
@@ -980,7 +1007,7 @@ index 06bf06e..3c36564 100644
  }
  
 diff --git a/src/gl_common.h b/src/gl_common.h
-index 2567c84..3b6f1cc 100644
+index 2567c84..3e11564 100644
 --- a/src/gl_common.h
 +++ b/src/gl_common.h
 @@ -5,6 +5,8 @@
@@ -1020,7 +1047,15 @@ index 2567c84..3b6f1cc 100644
  
  #    define WSURF_BIND_DIFFUSE_TEXTURE    0
  #    define WSURF_BIND_DETAIL_TEXTURE     1
-@@ -313,6 +320,8 @@ public:
+@@ -258,6 +265,7 @@ public:
+ #    define DFINAL_SSR_EXPONENTIAL_STEP_ENABLED 0x40ull
+ #    define DFINAL_SSR_BINARY_SEARCH_ENABLED    0x80ull
+ #    define DFINAL_LINEAR_FOG_SHIFT_ENABLED     0x100ull
++#    define DFINAL_GAMMA_OUTPUT                 0x200ull
+ 
+ #    define PORTAL_OVERLAY_TEXTURE_ENABLED  0x1ull
+ #    define PORTAL_TEXCOORD_ENABLED         0x2ull
+@@ -313,6 +321,8 @@ public:
  #    define WSURF_STENCIL_NO_GLOW_BLUR_ENABLED  0x100000000ull
  #    define WSURF_STENCIL_NO_GLOW_COLOR_ENABLED 0x200000000ull
  #    define WSURF_DOUBLE_FACE_ENABLED           0x400000000ull
@@ -1029,7 +1064,7 @@ index 2567c84..3b6f1cc 100644
  
  #    define STUDIO_VBO_BASE 0
  #    define STUDIO_VBO_TBN  1
-@@ -421,27 +430,9 @@ typedef struct world_material_s
+@@ -421,27 +431,9 @@ typedef struct world_material_s
      vec2_t specularScale;
  } world_material_t;
  
@@ -1060,7 +1095,7 @@ index 2567c84..3b6f1cc 100644
  
  // A fragment node stores rendering information about one specific fragment
  typedef struct FragmentNode_s
-@@ -505,17 +496,11 @@ typedef struct scene_ubo_s
+@@ -505,17 +497,11 @@ typedef struct scene_ubo_s
      float r_lightmap_pow;
      float padding;
      float padding2;
@@ -1079,7 +1114,7 @@ index 2567c84..3b6f1cc 100644
  static_assert((sizeof(dlight_ubo_t) % 16) == 0, "Size check");
  
  typedef struct entity_ubo_s
-@@ -542,12 +527,19 @@ typedef struct studio_ubo_s
+@@ -542,12 +528,19 @@ typedef struct studio_ubo_s
      vec4   entity_origin;
      vec4   r_elight_color[4];
      vec4   r_elight_origin_radius[4];
@@ -1279,7 +1314,7 @@ index b05298d..9234261 100644
      Install_InlineHook(D_FillRect);
      Install_InlineHook(R_GetSpriteFrame);
 diff --git a/src/gl_light.cpp b/src/gl_light.cpp
-index 81f47a5..dcaedb1 100644
+index 81f47a5..18cccd6 100644
 --- a/src/gl_light.cpp
 +++ b/src/gl_light.cpp
 @@ -1,4 +1,5 @@
@@ -1298,7 +1333,25 @@ index 81f47a5..dcaedb1 100644
  
  GLuint r_sphere_vbo = 0;
  GLuint r_sphere_ebo = 0;
-@@ -354,6 +352,9 @@ void R_LoadDLightProgramStates(void)
+@@ -98,6 +96,9 @@ void R_UseDFinalProgram(program_state_t state, dfinal_program_t* progOutput)
+         if (state & DFINAL_SSR_BINARY_SEARCH_ENABLED)
+             defs << "#define SSR_BINARY_SEARCH_ENABLED\n";
+ 
++        if (state & DFINAL_GAMMA_OUTPUT)
++            defs << "#define DFINAL_GAMMA_OUTPUT\n";
++
+         if (state & DFINAL_LINEAR_FOG_SHIFT_ENABLED)
+             defs << "#define LINEAR_FOG_SHIFT_ENABLED\n";
+ 
+@@ -162,6 +163,7 @@ const program_state_mapping_t s_DFinalProgramStateName[] = {
+     {DFINAL_SSR_EXPONENTIAL_STEP_ENABLED, "DFINAL_SSR_EXPONENTIAL_STEP_ENABLED"},
+     {DFINAL_SSR_BINARY_SEARCH_ENABLED, "DFINAL_SSR_BINARY_SEARCH_ENABLED"},
+     {DFINAL_LINEAR_FOG_SHIFT_ENABLED, "DFINAL_LINEAR_FOG_SHIFT_ENABLED"},
++    {DFINAL_GAMMA_OUTPUT, "DFINAL_GAMMA_OUTPUT"},
+ };
+ 
+ void R_SaveDFinalProgramStates(void)
+@@ -354,6 +356,9 @@ void R_LoadDLightProgramStates(void)
  
  void R_ShutdownLight(void)
  {
@@ -1308,7 +1361,7 @@ index 81f47a5..dcaedb1 100644
      g_BSPDynamicLights.clear();
      g_EngineDynamicLights.clear();
      g_VisibleDynamicLights.clear();
-@@ -600,51 +601,6 @@ bool R_IsDLightFlashlight(dlight_t* dl)
+@@ -600,59 +605,11 @@ bool R_IsDLightFlashlight(dlight_t* dl)
      return false;
  }
  
@@ -1360,7 +1413,15 @@ index 81f47a5..dcaedb1 100644
  bool R_IsDeferredRenderingEnabled(void)
  {
      if ((int)r_deferred_lighting->value < 1)
-@@ -692,7 +648,7 @@ void R_BeginRenderGBuffer(void)
+         return false;
+ 
+-    if ((int)r_gamma_blend->value >= 1)
+-        return false;
+-
+     if ((*r_refdef.onlyClientDraws))
+         return false;
+ 
+@@ -692,7 +649,7 @@ void R_BeginRenderGBuffer(void)
      GL_BeginDebugGroup("R_BeginRenderGBuffer");
  
      r_draw_gbuffer = true;
@@ -1369,7 +1430,18 @@ index 81f47a5..dcaedb1 100644
  
      GL_BindFrameBuffer(&s_GBufferFBO);
  
-@@ -1664,16 +1620,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
+@@ -1573,7 +1530,9 @@ void R_FinalShadingPass(FBO_Container_t* dst)
+     //No blend for final shading pass
+     glDisable(GL_BLEND);
+ 
+-    program_state_t FinalProgramState = 0;
++    // The G-buffer stores linear material and light. Encode once when the
++    // destination scene will blend its translucent effects in gamma space.
++    program_state_t FinalProgramState = r_draw_gammablend ? DFINAL_GAMMA_OUTPUT : 0;
+ 
+     if (R_IsRenderingFog())
+     {
+@@ -1664,16 +1623,22 @@ void R_EndRenderGBuffer(FBO_Container_t* dst)
  {
      if (R_IsAmbientOcclusionEnabled())
      {
@@ -1396,7 +1468,7 @@ index 81f47a5..dcaedb1 100644
  }
  
  void R_BlitGBufferToFrameBuffer(FBO_Container_t* dst, bool color, bool depth, bool stencil)
-@@ -1959,7 +1921,19 @@ void R_ProcessEngineDynamicLights()
+@@ -1959,7 +1924,19 @@ void R_ProcessEngineDynamicLights()
              float specular    = r_dynlight_specular->GetValue();
              float specularpow = r_dynlight_specularpow->GetValue();
  
@@ -1417,7 +1489,7 @@ index 81f47a5..dcaedb1 100644
  
              vec3_t distToLight;
              VectorSubtract((*r_refdef.vieworg), dl->origin, distToLight);
-@@ -1973,9 +1947,9 @@ void R_ProcessEngineDynamicLights()
+@@ -1973,9 +1950,9 @@ void R_ProcessEngineDynamicLights()
              dynamicLight->specular    = specular;
              dynamicLight->specularpow = specularpow;
  
@@ -1599,7 +1671,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..a46372c 100644
+index d59b139..c71c22f 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,11 @@
@@ -1648,6 +1720,15 @@ index d59b139..a46372c 100644
  
  cvar_t* r_wsurf_sky_fog = nullptr;
  
+@@ -479,7 +498,7 @@ bool R_IsRenderingManipulatedLightmap()
+ 
+ bool R_IsRenderingGammaBlending()
+ {
+-    return r_draw_gammablend;
++    return r_draw_gammablend && !r_draw_gbuffer;
+ }
+ 
+ /*
 @@ -786,10 +805,14 @@ bool AllowCheats()
  
  qboolean R_CullBox(vec3_t mins, vec3_t maxs)
