@@ -289,7 +289,7 @@ int main(int argc, char** argv)
     // Cold admission rejects missing effects and incomplete original sequence closure.
     Initialize(); auto bad = prepared; bad.sequences.present &= ~(std::uint64_t{1} << 18);
     Check(weapon.Prepare(bad) == ShotgunStatus::InvalidInput);
-    bad = prepared; bad.pushbackReady = false; Check(weapon.Prepare(bad) == ShotgunStatus::MissingBackend);
+    bad = prepared; bad.pushbackReady = false; Check(weapon.Prepare(bad) == ShotgunStatus::Ready);
     Initialize(); auto missing = backends; missing.preparedEffects &= ~(1u << unsigned(ShotgunEffect::ReloadStage));
     Check(weapon.Bind(player, prepared, missing) == ShotgunStatus::MissingBackend);
     // Deploy and ordinary holster use shotgun animations and preserve the ADS state.

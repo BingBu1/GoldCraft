@@ -613,7 +613,8 @@ struct GlockRuntime::State
         if (!owner || owner->player != &player || !M16Current(owner)) return false;
         const auto& view = owner->m16View;
         output = {owner, M16Current, M16Frame, M16EffectBoundary, map.host.m16.effects | M16SoundEffects,
-            view.animation, view.animationGeneration, owner->view.binding.life, view.playerThink};
+            view.animation, view.animationGeneration, owner->view.binding.life,
+            view.playerThink && map.players[index].actions.Think() == view.playerThink ? view.playerThink : nullptr};
         return true;
     }
     static bool M16InventoryPickup(void* opaque, CBasePlayer& player, M16Weapon& weapon, int itemString) noexcept
@@ -648,7 +649,8 @@ struct GlockRuntime::State
         if (!owner || owner->player != &player || !G43Current(owner)) return false;
         const auto& view = owner->g43View;
         output = {owner, G43Current, G43Frame, G43EffectBoundary, map.host.g43.effects | G43SoundEffects,
-            view.animation, view.animationGeneration, owner->view.binding.life, view.playerThink};
+            view.animation, view.animationGeneration, owner->view.binding.life,
+            view.playerThink && map.players[index].actions.Think() == view.playerThink ? view.playerThink : nullptr};
         return true;
     }
     static bool G43InventoryPickup(void* opaque, CBasePlayer& player, G43Weapon& weapon, int itemString) noexcept
@@ -683,7 +685,8 @@ struct GlockRuntime::State
         if (!owner || owner->player != &player || !ShotgunCurrent(owner)) return false;
         const auto& view = owner->shotgunView;
         output = {owner, ShotgunCurrent, ShotgunFrame, ShotgunEffectBoundary, map.host.shotgun.effects | ShotgunRuntimeEffects,
-            view.animation, view.animationGeneration, owner->view.binding.life, view.playerThink};
+            view.animation, view.animationGeneration, owner->view.binding.life,
+            view.playerThink && map.players[index].actions.Think() == view.playerThink ? view.playerThink : nullptr};
         return true;
     }
     static bool ShotgunInventoryPickup(void* opaque, CBasePlayer& player, ShotgunWeapon& weapon, int itemString) noexcept
@@ -835,73 +838,62 @@ struct GlockRuntime::State
         const bool same = p.object == &player && player.edict()->serialnumber == p.serial;
         const auto oldLife = p.life;
         const auto oldModel = p.model;
-        PlayerActionBinding m16Actions;
-        if (request.m16Rules)
+        const auto identityCurrent = [&]
         {
-            const auto rules = *request.m16Rules;
-            if (!Current(map) || !map->m16Prepared || !map->host.m16.actions ||
-                map->bindings.size() >= limits.ownerBindingsPerMap || p.model == std::numeric_limits<std::uint64_t>::max() || rules.bulletDamage < 0 ||
-                (rules.reserveLimit != 60 && rules.reserveLimit != 200) ||
-                ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))
-            { error = "M16 map resources, rules or player-action service are unavailable"; return false; }
-            const auto nextLife = (spawn || !same) ? oldLife + 1 : oldLife;
-            if (!map->host.m16.actions(map->host.context, player, map->epoch, nextLife, m16Actions) ||
-                !Current(map) || p.life != oldLife || p.model != oldModel ||
-                !m16Actions.PreparedFor(player, map->epoch, nextLife))
-            { error = "M16 player actions do not match the current map/player life"; return false; }
-        }
-        PlayerActionBinding g43Actions;
-        if (request.g43Rules)
-        {
-            const auto rules = *request.g43Rules;
-            if (!Current(map) || !map->g43Prepared || !map->host.g43.actions ||
-                map->bindings.size() >= limits.ownerBindingsPerMap || p.model == std::numeric_limits<std::uint64_t>::max() || rules.bulletDamage < 0 ||
-                (rules.reserveLimit != 30 && rules.reserveLimit != 40) ||
-                ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))
-            { error = "G43 map resources, rules or player-action service are unavailable"; return false; }
-            const auto nextLife = (spawn || !same) ? oldLife + 1 : oldLife;
-            if (!map->host.g43.actions(map->host.context, player, map->epoch, nextLife, g43Actions) ||
-                !Current(map) || p.life != oldLife || p.model != oldModel ||
-                !g43Actions.PreparedFor(player, map->epoch, nextLife))
-            { error = "G43 player actions do not match the current map/player life"; return false; }
-        }
-        PlayerActionBinding shotgunActions;
-        if (request.shotgun)
-        {
-            const auto& preparation = *request.shotgun;
-            const auto rules = preparation.rules;
-            if (!Current(map) || !map->shotgunPrepared || !map->host.shotgun.actions ||
-                map->bindings.size() >= limits.ownerBindingsPerMap || p.model == std::numeric_limits<std::uint64_t>::max() || rules.bulletDamage < 0 ||
-                (rules.reserveLimit != 15 && rules.reserveLimit != 50) ||
-                (preparation.state.reloadUntil && !std::isfinite(*preparation.state.reloadUntil)) ||
-                ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))
-            { error = "870 map resources, rules or player-action service are unavailable"; return false; }
-            const auto nextLife = (spawn || !same) ? oldLife + 1 : oldLife;
-            if (!map->host.shotgun.actions(map->host.context, player, map->epoch, nextLife, shotgunActions) ||
-                !Current(map) || p.life != oldLife || p.model != oldModel ||
-                !shotgunActions.PreparedFor(player, map->epoch, nextLife))
-            { error = "870 player actions do not match the current map/player life"; return false; }
-        }
+            return Current(map) && p.life == oldLife && p.model == oldModel;
+        };
+        if (!identityCurrent() || map->bindings.size() >= limits.ownerBindingsPerMap ||
+            oldModel == std::numeric_limits<std::uint64_t>::max() ||
+            ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))
+        { error = "Glock map authority or retained binding budget exhausted"; return false; }
+
+        if (request.m16Rules && (!map->m16Prepared || request.m16Rules->bulletDamage < 0 ||
+            (request.m16Rules->reserveLimit != 60 && request.m16Rules->reserveLimit != 200)))
+        { error = "M16 map resources or rules are unavailable"; return false; }
+        if (request.g43Rules && (!map->g43Prepared || request.g43Rules->bulletDamage < 0 ||
+            (request.g43Rules->reserveLimit != 30 && request.g43Rules->reserveLimit != 40)))
+        { error = "G43 map resources or rules are unavailable"; return false; }
+        if (request.shotgun && (!map->shotgunPrepared || request.shotgun->rules.bulletDamage < 0 ||
+            (request.shotgun->rules.reserveLimit != 15 && request.shotgun->rules.reserveLimit != 50) ||
+            (request.shotgun->state.reloadUntil && !std::isfinite(*request.shotgun->state.reloadUntil))))
+        { error = "870 map resources or rules are unavailable"; return false; }
+
+        const auto nextLife = (spawn || !same) ? oldLife + 1 : oldLife;
+        const auto priorActions = (!spawn && same) ? p.actions : PlayerActionBinding{};
+        PlayerActionBinding sharedActions;
         PlayerThinkSlot* sharedThink{};
-        for (const auto& actions : {m16Actions, g43Actions, shotgunActions})
+        const auto bindPushback = [&](bool requested, auto acquire, PlayerActionBinding& output)
         {
-            auto* think = actions.Think();
-            if (think && sharedThink && think != sharedThink)
-            { error = "Long guns require the same player-owned action service"; return false; }
-            if (think) sharedThink = think;
-        }
+            if (!requested) return true;
+            PlayerActionBinding actions;
+            if (!acquire || !acquire(map->host.context, player, map->epoch, nextLife, actions))
+                actions = priorActions;
+            if (!identityCurrent()) return false;
+            const bool prepared = actions.PreparedFor(player, map->epoch, nextLife);
+            if (!identityCurrent()) return false;
+            auto* think = prepared ? actions.Think() : nullptr;
+            // One scheduler owns pushback per life. A gun may still be used
+            // while its optional scheduler is unavailable.
+            if (think && (!sharedThink || think == sharedThink))
+            {
+                sharedThink = think;
+                sharedActions = output = actions;
+            }
+            return true;
+        };
+        PlayerActionBinding m16Actions, g43Actions, shotgunActions;
+        if (!bindPushback(bool(request.m16Rules), map->host.m16.actions, m16Actions) ||
+            !bindPushback(bool(request.g43Rules), map->host.g43.actions, g43Actions) ||
+            !bindPushback(bool(request.shotgun), map->host.shotgun.actions, shotgunActions))
+        { error = "Player ownership changed during preparation"; return false; }
         // Same-life renewal can arrive through userinfo without a model prehook.
         // Retain authenticated inventory tasks before replacing their authority.
         Invalidate(player, !spawn && same);
-        if (!Current(map) || map->bindings.size() >= limits.ownerBindingsPerMap ||
-            p.model == std::numeric_limits<std::uint64_t>::max() ||
-            ((spawn || !same) && oldLife == std::numeric_limits<std::uint64_t>::max()))
+        if (!identityCurrent() || map->bindings.size() >= limits.ownerBindingsPerMap)
         { error = "Glock map authority or retained binding budget exhausted"; return false; }
         p.object = &player; p.serial = player.edict()->serialnumber;
-        p.life = (spawn || !same) ? oldLife + 1 : oldLife;
-        if (request.m16Rules) p.actions = m16Actions;
-        else if (request.g43Rules) p.actions = g43Actions;
-        else if (request.shotgun) p.actions = shotgunActions;
+        p.life = nextLife;
+        p.actions = sharedActions;
         ++p.model;
         p.ready = true;
         OwnerBackendView view{};
@@ -1020,13 +1012,13 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
         (mp5Requested&&(!host.mp5.prepare||!host.mp5.effect||
             (host.mp5.effects&~MP5RequiredEffects)||
             ((host.mp5.effects|MP5NativeSoundEffects)&MP5RequiredEffects)!=MP5RequiredEffects))||
-        (m16Requested&&(!host.m16.prepare||!host.m16.effect||!host.m16.actions||host.m16.soundRules != guest::cof::PlaySfxRules::Cooperative||
+        (m16Requested&&(!host.m16.prepare||!host.m16.effect||host.m16.soundRules != guest::cof::PlaySfxRules::Cooperative||
             (host.m16.effects & ~M16RequiredEffects)||
             ((host.m16.effects | State::M16SoundEffects) & M16RequiredEffects) != M16RequiredEffects))||
-        (g43Requested&&(!host.g43.prepare||!host.g43.effect||!host.g43.actions||host.g43.soundRules != guest::cof::PlaySfxRules::Cooperative||
+        (g43Requested&&(!host.g43.prepare||!host.g43.effect||host.g43.soundRules != guest::cof::PlaySfxRules::Cooperative||
             (host.g43.effects & ~G43RequiredEffects)||
             ((host.g43.effects | State::G43SoundEffects) & G43RequiredEffects) != G43RequiredEffects))||
-        (shotgunRequested&&(!host.shotgun.prepare||!host.shotgun.effect||!host.shotgun.actions||host.shotgun.soundRules != guest::cof::PlaySfxRules::Cooperative||
+        (shotgunRequested&&(!host.shotgun.prepare||!host.shotgun.effect||host.shotgun.soundRules != guest::cof::PlaySfxRules::Cooperative||
             (host.shotgun.effects & ~ShotgunRequiredEffects)||
             ((host.shotgun.effects | State::ShotgunRuntimeEffects) & ShotgunRequiredEffects) != ShotgunRequiredEffects)))
         return {ResourceStatus::InvalidAuthority};

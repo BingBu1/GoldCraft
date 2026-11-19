@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "guest_cof_host.hpp"
 #include "weapons.h"
 #include "weapon_damage_runtime.h"
 #include "wpn_beamgun.h"
@@ -639,6 +640,7 @@ void CSOL_InitWeapons()
 bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
 {
     if (!weapon) return false;
+    if (CSOL_IsGuestCof(*weapon)) return true;
     const char* name = STRING(weapon->pev->classname);
     return (weapon->m_iId == CSOL_WEAPON_TKNIFEEX2 && !Q_strcmp(name, "weapon_tknifeex2")) ||
         (weapon->m_iId == CSOL_WEAPON_BEAMGUN && !Q_strcmp(name, "weapon_beamgun")) ||
@@ -657,6 +659,7 @@ bool CSOL_IsWeapon(const CBasePlayerWeapon* weapon)
 
 const char* CSOL_WorldModel(const CBasePlayerItem* item)
 {
+    if (item) if (const char* model = CSOL_GuestCofWorldModel(*item)) return model;
     if (const auto* weapon = dynamic_cast<const CBasePlayerWeapon*>(item)) {
         if (CSOL_M249EXEmptyMonsterKillCallbacks(*weapon)) return csol::m249ex::WorldModel;
         if (CSOL_Skull1EmptyMonsterKillCallbacks(*weapon)) return csol::skull1::WorldModel;
@@ -704,6 +707,7 @@ void CSOL_PrecacheWeapons()
         CSOL_PrecacheSkull3();
         CSOL_PrecacheSkull5();
         CSOL_PrecacheBalrog11();
+        CSOL_PrecacheGuestCof();
     }
 #ifdef GOLDCRAFT_CSOL_WEAPON_TESTS
     CSOL_PrecacheWeaponTests();

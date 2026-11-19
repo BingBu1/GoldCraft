@@ -140,7 +140,9 @@ int main(int argc,char** argv)
     G43OwnerView other;G43OwnerBackendView otherView;
     Check(other.Prepare(second,secondInput,{false,17,0,40},secondActions,PistolAnimationRig::Stock,model,_stricmp,otherView,error));
     Check(other.Read(otherView.binding,value)&&value.stamina==73&&value.randomSeed==71&&Read().stamina==11);
-    auto stale=view.binding;actions.Retire();Check(!g43.Current(stale)&&other.Current(otherView.binding));
+    auto stale=view.binding;
+    actions.Retire();
+    Check(g43.Current(stale)&&other.Current(otherView.binding)&&!Read().stamina);
     ++runtimeAuth.life;Check(runtime.Prepare(player,Request(),runtimeView,error));
     Check(!Prepare());ledger.amount=73;actions=actionRuntime.PrepareShared(19,player,runtimeAuth.life,ActionBackend());
     Check(bool(actions)&&Prepare()&&!g43.Current(stale)&&Read().stamina==73);

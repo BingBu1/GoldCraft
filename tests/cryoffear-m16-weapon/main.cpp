@@ -466,9 +466,9 @@ int main(int argc,char** argv)
     Check(weapon.Status()==M16Status::MissingBackend&&weapon.m_iClip==20);
     failEffect=false;Ready(12);weapon.PrimaryAttack();Drain();Check(weapon.m_iClip==17);
     Initialize();auto bad=prepared;bad.pushbackReady=false;
-    Check(weapon.Bind(player,bad,backends)==M16Status::MissingBackend);
+    Check(weapon.Bind(player,bad,backends)==M16Status::Ready);
     Initialize();auto noTask=backends;noTask.playerThink=nullptr;
-    Check(weapon.Bind(player,prepared,noTask)==M16Status::MissingBackend);
+    Check(weapon.Bind(player,prepared,noTask)==M16Status::Ready);
     Initialize();auto wrongLife=backends;++wrongLife.ownerLife;
     Check(weapon.Bind(player,prepared,wrongLife)==M16Status::MissingBackend);
     auto wrongMap=backends;++wrongMap.playerModelGeneration.mapEpoch;

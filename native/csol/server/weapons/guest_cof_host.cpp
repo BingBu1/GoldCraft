@@ -285,22 +285,22 @@ bool PrepareMP5(void* context,const MP5Resources& resources,TMPPrepared& output)
 bool PrepareM16(void* context,const M16Resources& resources,M16Prepared& output) noexcept
 {
     auto& map=*static_cast<Map*>(context);
-    if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    if(!Current(&map)||!map.ready||!map.effects.FillPrepared(resources,output))return false;
     const auto* rules=map.damage.Find(Firearm::M16);if(!rules)return false;
     output.csPenetration=rules->penetration;
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
-    return output.pushbackReady;
+    return Current(&map);
 }
 bool PrepareG43(void* context,const G43Resources& resources,G43Prepared& output) noexcept
 {
     auto& map=*static_cast<Map*>(context);
-    if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    if(!Current(&map)||!map.ready||!map.effects.FillPrepared(resources,output))return false;
     const auto* rules=map.damage.Find(Firearm::G43);if(!rules)return false;
     output.csPenetration=rules->penetration;
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
-    return output.pushbackReady;
+    return Current(&map);
 }
 bool PrepareRevolver(void* context,const RevolverResources& resources,RevolverPrepared& output) noexcept
 {
@@ -314,10 +314,10 @@ bool PrepareRevolver(void* context,const RevolverResources& resources,RevolverPr
 bool PrepareShotgun(void* context,const ShotgunResources& resources,ShotgunPrepared& output) noexcept
 {
     auto& map=*static_cast<Map*>(context);
-    if(!Current(&map)||!map.ready||!map.actions.Current()||!map.effects.FillPrepared(resources,output))return false;
+    if(!Current(&map)||!map.ready||!map.effects.FillPrepared(resources,output))return false;
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
-    return output.pushbackReady;
+    return Current(&map);
 }
 bool Effect(void* context, const GlockResources& resources, const OwnerBinding& binding,
     CBasePlayer& player, CBasePlayerWeapon& weapon, const GlockEvent& event) noexcept
@@ -744,11 +744,11 @@ void CSOL_PrecacheGuestCof()
         {
             const auto factory=Sys_GetFactory("swds.dll");
             auto* stage=factory?static_cast<goldcraft::IPlayerThinkStage*>(factory(goldcraft::PlayerThinkStageVersion,nullptr)):nullptr;
-            const bool installed=stage&&map->actions.Install(*stage,map->epoch);
-            map->m16Enabled=installed&&map->damage.Find(Firearm::M16);
-            map->g43Enabled=installed&&map->damage.Find(Firearm::G43);
-            map->shotgunEnabled=installed&&map->damage.Find(Firearm::Shotgun);
-            if(!installed)ALERT(at_error,"[CoF] Long guns disabled: actual player Think stage is unavailable\n");
+            if (!stage || !map->actions.Install(*stage, map->epoch))
+                ALERT(at_warning, "[CoF] Long-gun pushback unavailable: missing player Think stage\n");
+            map->m16Enabled = map->damage.Find(Firearm::M16) != nullptr;
+            map->g43Enabled = map->damage.Find(Firearm::G43) != nullptr;
+            map->shotgunEnabled = map->damage.Find(Firearm::Shotgun) != nullptr;
         }
         for(const auto& definition:Firearms)
             if((definition.identity!=Firearm::M16||map->m16Enabled)&&
@@ -819,16 +819,21 @@ void CSOL_PrecacheGuestCof()
             {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Guest HUD resource preparation failed: %s\n",hud.path?hud.path:"map authority");return;}
         }
         current.ready = true;
-        for(const auto& definition:Firearms)
+        for (const auto& definition : Firearms)
         {
-            if(!(current.configuredWeapons&FirearmCapability(definition.identity)))continue;
-            if(definition.identity==Firearm::MP5&&!host.runtime.PreparedMP5Resources())continue;
-            if(definition.identity==Firearm::TMP&&!tmpEnabled)continue;
+            const auto capability = FirearmCapability(definition.identity);
+            if (!(current.configuredWeapons & capability)) continue;
+            if (definition.identity == Firearm::MP5 && !host.runtime.PreparedMP5Resources()) continue;
+            if (definition.identity == Firearm::TMP && !tmpEnabled) continue;
             UTIL_PrecacheOtherWeapon(definition.classname.data());
-            if(!Current(&current))return;
-            const auto* info=CSOL_ItemInfo(definition.hostId);
-            if(!info||!info->pszName||Q_strcmp(info->pszName,definition.classname.data()))
-            {CSOL_EndGuestCofMap();ALERT(at_error,"[CoF] Guest weapon registration failed: %s\n",definition.classname.data());return;}
+            if (!Current(&current)) return;
+            const auto* info = CSOL_ItemInfo(definition.hostId);
+            if (!info || !info->pszName || Q_strcmp(info->pszName, definition.classname.data()))
+            {
+                current.configuredWeapons &= ~capability;
+                ALERT(at_warning, "[CoF] Guest weapon registration failed: %s\n", definition.classname.data());
+                if (!Current(&current)) return;
+            }
         }
         PRECACHE_GENERIC(DamagePath);
     }

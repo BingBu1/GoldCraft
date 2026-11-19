@@ -88,11 +88,14 @@ void CheckShotgunSharedLongGuns(GlockRuntime& runtime)
     Check(m16.playerThink==g43.playerThink&&g43.playerThink==shotgun.playerThink&&
         m16.ownerLife==shotgun.ownerLife&&g43.ownerLife==shotgun.ownerLife);
     ShotgunOwnerFrame frame;Check(shotgun.ownerFrame(shotgun.context,frame)&&frame.stamina==48);
-    // A different valid service must not retire any of the three current guns.
     differentShotgunActions=true;
-    Check(!runtime.PlayerModelChanged(player,request,error)&&shotgun.current(shotgun.context)&&
-        m16.current(m16.context)&&g43.current(g43.context));
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,m16)&&
+        runtime.Backend(player,g43)&&runtime.Backend(player,shotgun));
+    Check(m16.playerThink==g43.playerThink&&!shotgun.playerThink&&
+        shotgun.ownerFrame(shotgun.context,frame)&&!frame.stamina);
     differentShotgunActions=false;
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,m16)&&
+        runtime.Backend(player,g43)&&runtime.Backend(player,shotgun));
     player.m_rgAmmo[9]=0;
     edict_t entity;InitEdict(entity);auto* gun=CreateShotgun(entity.v);Check(gun);gun->Spawn();
     Check(gun->AddToPlayer(&player));gun->AttachToPlayer(&player);
@@ -106,6 +109,17 @@ void CheckShotgunSharedLongGuns(GlockRuntime& runtime)
     M16OwnerFrame m16Frame;G43OwnerFrame g43Frame;
     Check(g43Pushes==1&&g43Ledger.amount==33&&m16.ownerFrame(m16.context,m16Frame)&&
         g43.ownerFrame(g43.context,g43Frame)&&m16Frame.stamina==33&&g43Frame.stamina==33);
+    // A later life can keep the two compatible rifles despite an incompatible
+    // shotgun action provider. The previous life's shotgun lease stays retired.
+    const auto staleShotgun=shotgun;
+    runtime.PlayerDied(player);++player.m_iNumSpawns;
+    differentShotgunActions=true;
+    Check(runtime.PlayerSpawned(player,request,error));
+    differentShotgunActions=false;
+    Check(runtime.Backend(player,m16)&&runtime.Backend(player,g43)&&m16.playerThink==g43.playerThink);
+    Check(runtime.Backend(player,shotgun)&&!shotgun.playerThink&&!staleShotgun.current(staleShotgun.context));
+    Check(gun->RestoreInventoryBinding(player)&&gun->CanDeploy());
+    Check(shotgun.ownerFrame(shotgun.context,frame)&&!frame.stamina);
     player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]=nullptr;player.m_pActiveItem=nullptr;
     DestroyP345();entity.pvPrivateData=nullptr;
     const auto epoch=runtime.MapEpoch();runtime.EndMap();Check(runtime.EngineEntitiesReleased(epoch));
@@ -123,12 +137,11 @@ void CheckShotgunRuntime(GlockRuntime& runtime,const fs::path& root,bool shared)
     for(const auto& path:ShotDecals)put(path.host);
     put(ShotgunInventory.host);put(ShotgunParticle.host);
     context.epoch=runtime.LastIssuedMapEpoch()+1;
-    for(unsigned missing=0;missing<5;++missing)
+    for(unsigned missing : {0U, 1U, 3U, 4U})
     {
         auto host=ShotgunCallbacks();
         if(missing==0)host.shotgun.prepare=nullptr;
         else if(missing==1)host.shotgun.effect=nullptr;
-        else if(missing==2)host.shotgun.actions=nullptr;
         else if(missing==3)host.shotgun.effects&=~(1u<<unsigned(ShotgunEffect::Shell));
         else host.shotgun.soundRules=guest::cof::PlaySfxRules::Unsupported;
         Check(!runtime.BeginMap(host)&&!runtime.PreparedShotgunResources());
@@ -178,7 +191,10 @@ void CheckShotgunRuntime(GlockRuntime& runtime,const fs::path& root,bool shared)
     Check(gun->m_iClip==74&&gun->Status()==ShotgunStatus::Applied&&g43Packets==96);
     Check(runtime.EndPostThink(player));g43Ledger.readable=true;
     globals.time=gun->pev->nextthink;gun->DispatchThink();
-    failG43Actions=true;Check(!runtime.PlayerModelChanged(player,request,error)&&backend.current(backend.context));
+    const auto* existingThink = backend.playerThink;
+    failG43Actions=true;
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,backend)&&
+        backend.playerThink==existingThink&&gun->RestoreInventoryBinding(player));
     failG43Actions=false;auto invalid=request;invalid.shotgun->rules.reserveLimit=90;
     Check(!runtime.PlayerModelChanged(player,invalid,error)&&backend.current(backend.context));
     invalid=request;invalid.shotgun->state.reloadUntil=std::numeric_limits<float>::infinity();

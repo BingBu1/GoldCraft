@@ -195,7 +195,6 @@ ShotgunStatus ShotgunWeapon::Prepare(const ShotgunPrepared& p) noexcept
         !p.inventoryReady || !p.pickupSoundReady || !p.deployPreludeReady ||
         p.world != MeleeWorld::Multiplayer || !p.worldModelString || !p.inventoryItemString ||
         !p.viewModelString || !p.playerModelString || p.shellModel <= 0 ||
-        !p.pushbackReady ||
         p.ballistics.customDecalMessage <= 0 || p.ballistics.bubbleModel <= 0 ||
         !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnSetModel ||
         !g_engfuncs.pfnIndexOfEdict)
@@ -233,8 +232,8 @@ ShotgunStatus ShotgunWeapon::Bind(CBasePlayer& owner, const ShotgunPrepared& p,
     status_ = ShotgunStatus::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
         backends.preparedEffects != ShotgunRequiredEffects || !backends.playerAnimation ||
-        !backends.playerThink || !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
-            backends.playerModelGeneration.mapEpoch, backends.ownerLife))
+        (backends.playerThink && !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
+            backends.playerModelGeneration.mapEpoch, backends.ownerLife)))
         return status_;
     if (Prepare(p) != ShotgunStatus::Ready) return status_;
     if (m_iPrimaryAmmoType < 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
@@ -680,7 +679,8 @@ void ShotgunWeapon::Reload()
 void ShotgunWeapon::SecondaryAttack()
 {
     ShotgunOwnerFrame frame{}; if (!Check(frame)) return;
-    if (!frame.stamina) { status_ = ShotgunStatus::Ineligible; return; }
+    if (!prepared_.pushbackReady || !backends_.playerThink || !frame.stamina)
+    { status_ = ShotgunStatus::Ineligible; return; }
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     const auto result = StartShotgunPushback(shot_.action, *frame.stamina, ControlHost(bridge));
     if (!Current(&bridge.lease)) return;

@@ -132,7 +132,9 @@ int main(int argc,char** argv)
     M16OwnerView other;M16OwnerBackendView otherView;
     Check(other.Prepare(second,secondInput,{false,17,0,200},secondActions,PistolAnimationRig::Stock,model,_stricmp,otherView,error));
     Check(other.Read(otherView.binding,value)&&value.stamina==73&&value.randomSeed==71&&Read().stamina==11);
-    auto stale=view.binding;actions.Retire();Check(!m16.Current(stale)&&other.Current(otherView.binding));
+    auto stale=view.binding;
+    actions.Retire();
+    Check(m16.Current(stale)&&other.Current(otherView.binding)&&!Read().stamina);
     ++runtimeAuth.life;Check(runtime.Prepare(player,Request(),runtimeView,error));
     Check(!Prepare());actions=actionRuntime.Prepare(19,player,runtimeAuth.life,seed,originalOwner,ActionBackend());
     Check(bool(actions)&&Prepare()&&!m16.Current(stale)&&Read().stamina==73);

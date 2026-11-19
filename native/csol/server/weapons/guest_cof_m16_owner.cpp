@@ -30,9 +30,9 @@ bool M16OwnerView::Local(M16OwnerBinding key) const noexcept
 bool M16OwnerView::Current(M16OwnerBinding key) const noexcept
 {
     if (!Local(key)) return false;
-    const auto canonical = canonical_; const auto actions = actions_; auto* player = player_;
-    return canonical.runtime && canonical.runtime->Current(canonical) && Local(key) &&
-        actions.PreparedFor(*player, canonical.map, canonical.life) && Local(key) && Same(canonical, canonical_);
+    const auto canonical = canonical_;
+    return canonical.runtime && canonical.runtime->Current(canonical) &&
+        Local(key) && Same(canonical, canonical_);
 }
 bool M16OwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shared, NativeOwnerRules rules,
     guest::cof::server::PlayerActionBinding actions, guest::cof::server::PistolAnimationRig rig,
@@ -50,7 +50,8 @@ bool M16OwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shared, 
     {
         return generation_ == generation && requested.runtime->Backend(requested.slot, player, canonical) &&
             Same(requested, canonical.binding) &&
-            actions.PreparedFor(player, requested.map, requested.life) && generation_ == generation;
+            (!actions.HasBinding() || actions.PreparedFor(player, requested.map, requested.life)) &&
+            generation_ == generation;
     };
     if (!matches()) { error = "M16 input and player actions do not belong to the same current life"; return false; }
     const auto plan = guest::cof::server::RecommendedLongGunAnimationPlan(guest::cof::server::LongGun::M16, rig);
@@ -58,7 +59,7 @@ bool M16OwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shared, 
     if (!plan || !candidate.Prepare(player, model, {requested.map, requested.model},
         guest::cof::server::LongGun::M16, *plan, compare, error, extent) || !matches()) return false;
     auto* think = actions.Think();
-    if (!think || !matches()) return false;
+    if (!matches()) return false;
     if (generation_ == std::numeric_limits<std::uint64_t>::max())
     { error = "M16 owner generation exhausted"; return false; }
     // Commit only after all cold work succeeds. An unrelated bad request must
@@ -78,7 +79,8 @@ bool M16OwnerView::Read(M16OwnerBinding key, guest::cof::server::M16OwnerFrame& 
     float stamina{}; bool infiniteStamina{};
     if (!canonical.runtime || !canonical.runtime->Read(canonical, shared) || !Local(key)) return false;
     const bool staminaAvailable=actions.ReadStamina(stamina,infiniteStamina);
-    if(!Local(key)||!actions.Current()||!Same(canonical,canonical_))return false;
+    if (!Local(key) || !Same(canonical, canonical_) ||
+        (actions.HasBinding() && !Current(key))) return false;
     guest::cof::server::M16OwnerFrame value;
     value.activityBlock = shared.activityBlock; value.pendingGateTime = shared.pendingGateTime;
     value.condition3AA = shared.condition3AA; value.pendingGate = shared.pendingGate;

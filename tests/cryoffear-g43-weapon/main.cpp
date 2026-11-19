@@ -450,8 +450,8 @@ int main(int argc,char** argv)
     }
     Initialize();Ready();player.pev->button=0x40;frame.pressed=0x40;cancel=int(G43Effect::CameraZoom);
     events.clear();weapon.ItemPostFrame();Check(!current&&!SawView(20));
-    Initialize();auto noTask=backends;noTask.playerThink=nullptr;Check(weapon.Bind(player,prepared,noTask)==G43Status::MissingBackend);
-    Initialize();auto noReady=prepared;noReady.pushbackReady=false;Check(weapon.Bind(player,noReady,backends)==G43Status::MissingBackend);
+    Initialize();auto noTask=backends;noTask.playerThink=nullptr;Check(weapon.Bind(player,prepared,noTask)==G43Status::Ready);
+    Initialize();auto noReady=prepared;noReady.pushbackReady=false;Check(weapon.Bind(player,noReady,backends)==G43Status::Ready);
     Initialize();auto invalid=prepared;invalid.sequences.duration[37]=NAN;Check(weapon.Bind(player,invalid,backends)==G43Status::InvalidInput);
     Initialize();auto wrongLife=backends;++wrongLife.ownerLife;Check(weapon.Bind(player,prepared,wrongLife)==G43Status::MissingBackend);
     for(int kind=0;kind<static_cast<int>(G43Effect::Count);++kind)

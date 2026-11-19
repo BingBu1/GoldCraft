@@ -30,9 +30,9 @@ bool ShotgunOwnerView::Local(ShotgunOwnerBinding key) const noexcept
 bool ShotgunOwnerView::Current(ShotgunOwnerBinding key) const noexcept
 {
     if (!Local(key)) return false;
-    const auto canonical = canonical_; const auto actions = actions_; auto* player = player_;
-    return canonical.runtime && canonical.runtime->Current(canonical) && Local(key) &&
-        actions.PreparedFor(*player, canonical.map, canonical.life) && Local(key) && Same(canonical, canonical_);
+    const auto canonical = canonical_;
+    return canonical.runtime && canonical.runtime->Current(canonical) &&
+        Local(key) && Same(canonical, canonical_);
 }
 bool ShotgunOwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shared, NativeOwnerRules rules,
     guest::cof::server::PlayerActionBinding actions, ShotgunOwnerState state, guest::cof::server::PistolAnimationRig rig,
@@ -51,7 +51,8 @@ bool ShotgunOwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shar
     {
         return generation_ == generation && requested.runtime->Backend(requested.slot, player, canonical) &&
             Same(requested, canonical.binding) &&
-            actions.PreparedFor(player, requested.map, requested.life) && generation_ == generation;
+            (!actions.HasBinding() || actions.PreparedFor(player, requested.map, requested.life)) &&
+            generation_ == generation;
     };
     if (!matches()) { error = "Shotgun input and player actions do not belong to the same current life"; return false; }
     const auto plan = guest::cof::server::RecommendedLongGunAnimationPlan(guest::cof::server::LongGun::Shotgun, rig);
@@ -59,7 +60,7 @@ bool ShotgunOwnerView::Prepare(CBasePlayer& player, const OwnerBackendView& shar
     if (!plan || !candidate.Prepare(player, model, {requested.map, requested.model},
         guest::cof::server::LongGun::Shotgun, *plan, compare, error, extent) || !matches()) return false;
     auto* think = actions.Think();
-    if (!think || !matches()) return false;
+    if (!matches()) return false;
     if (generation_ == std::numeric_limits<std::uint64_t>::max())
     { error = "Shotgun owner generation exhausted"; return false; }
     // Commit only after all cold work succeeds. An unrelated bad request must
@@ -79,7 +80,8 @@ bool ShotgunOwnerView::Read(ShotgunOwnerBinding key, guest::cof::server::Shotgun
     float stamina{}; bool infiniteStamina{};
     if (!canonical.runtime || !canonical.runtime->Read(canonical, shared) || !Local(key)) return false;
     const bool staminaAvailable=actions.ReadStamina(stamina,infiniteStamina);
-    if(!Local(key)||!actions.Current()||!Same(canonical,canonical_))return false;
+    if (!Local(key) || !Same(canonical, canonical_) ||
+        (actions.HasBinding() && !Current(key))) return false;
     guest::cof::server::ShotgunOwnerFrame value;
     value.activityBlock = shared.activityBlock; value.pendingGateTime = shared.pendingGateTime;
     value.condition3AA = shared.condition3AA; value.pendingGate = shared.pendingGate;

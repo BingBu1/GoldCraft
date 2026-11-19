@@ -156,8 +156,12 @@ void CheckG43SharedLongGuns(GlockRuntime& runtime)
     // BeginMap always ends the old map, so inject the alternative through a
     // controlled callback while the map stays active instead.
     failDifferentG43Actions=true;
-    Check(!runtime.PlayerModelChanged(player,request,error)&&m16.current(m16.context)&&g43.current(g43.context));
-    failDifferentG43Actions=false;Check(gun->CanDeploy());
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,m16)&&runtime.Backend(player,g43));
+    Check(m16.playerThink&&!g43.playerThink&&gun->RestoreInventoryBinding(player)&&gun->CanDeploy());
+    Check(g43.ownerFrame(g43.context,g43Frame)&&!g43Frame.stamina);
+    failDifferentG43Actions=false;
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,m16)&&runtime.Backend(player,g43));
+    Check(g43.playerThink==m16.playerThink&&gun->RestoreInventoryBinding(player)&&gun->CanDeploy());
     globals.time=gun->ActionState().primary+1;g43Pushes=0;gun->SecondaryAttack();
     const auto due=g43.playerThink->Deadline();Check(due>globals.time&&m16.playerThink->Deadline()==due);
     Check(g43.playerThink->SourceHostId()==G43HostId&&m16.playerThink->SourceHostId()==G43HostId);
@@ -183,11 +187,13 @@ void CheckG43Runtime(GlockRuntime& runtime,const fs::path& root,bool m16Prepared
     for(const auto& path:G43Events)put(path.host);
     put(G43Inventory.host);put(G43Particle.host);put(G43ClipTexture.host);
     context.epoch=runtime.LastIssuedMapEpoch()+1;
-    for(unsigned missing=0;missing<5;++missing)
+    for(unsigned missing : {0U, 1U, 3U, 4U})
     {
         auto host=G43Callbacks();
-        if(missing==0)host.g43.prepare=nullptr;else if(missing==1)host.g43.effect=nullptr;
-        else if(missing==2)host.g43.actions=nullptr;else if(missing==4)host.g43.soundRules=guest::cof::PlaySfxRules::Unsupported;else host.g43.effects&=~(1u<<unsigned(G43Effect::Gunsmoke));
+        if(missing==0)host.g43.prepare=nullptr;
+        else if(missing==1)host.g43.effect=nullptr;
+        else if(missing==3)host.g43.effects&=~(1u<<unsigned(G43Effect::Gunsmoke));
+        else host.g43.soundRules=guest::cof::PlaySfxRules::Unsupported;
         Check(!runtime.BeginMap(host)&&!runtime.PreparedG43Resources());
     }
     const auto inventory=context.files.at(G43Inventory.host);context.files.erase(G43Inventory.host);
@@ -234,7 +240,10 @@ void CheckG43Runtime(GlockRuntime& runtime,const fs::path& root,bool m16Prepared
     gun->PrimaryAttack();Check(gun->Status()==G43Status::Applied&&gun->m_iClip==6&&g43Packets==96);
     Check(runtime.EndPostThink(player));g43Ledger.readable=true;player.pev->button=0;const auto loads=context.loads;
     // Failed action preparation and invalid rules cannot retire the current gun.
-    failG43Actions=true;Check(!runtime.PlayerModelChanged(player,request,error)&&backend.current(backend.context));
+    const auto* existingThink = backend.playerThink;
+    failG43Actions=true;
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,backend)&&
+        backend.playerThink==existingThink&&gun->RestoreInventoryBinding(player));
     failG43Actions=false;auto invalid=request;invalid.g43Rules->reserveLimit=90;
     Check(!runtime.PlayerModelChanged(player,invalid,error)&&backend.current(backend.context));
     globals.time=520;gun->m_iClip=2;player.m_rgAmmo[8]=1000;gun->Reload();Check(gun->ActionState().loading);

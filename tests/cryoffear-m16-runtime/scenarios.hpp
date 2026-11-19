@@ -126,11 +126,13 @@ void CheckM16Runtime(GlockRuntime& runtime,const fs::path& root)
     for(const auto& path:M16Events)put(path.host);
     put(M16Inventory.host);put(M16Particle.host);put(M16ClipTexture.host);
     context.epoch=runtime.LastIssuedMapEpoch()+1;
-    for(unsigned missing=0;missing<5;++missing)
+    for(unsigned missing : {0U, 1U, 3U, 4U})
     {
         auto host=M16Callbacks();
-        if(missing==0)host.m16.prepare=nullptr;else if(missing==1)host.m16.effect=nullptr;
-        else if(missing==2)host.m16.actions=nullptr;else if(missing==4)host.m16.soundRules=guest::cof::PlaySfxRules::Unsupported;else host.m16.effects&=~(1u<<unsigned(M16Effect::Gunsmoke));
+        if(missing==0)host.m16.prepare=nullptr;
+        else if(missing==1)host.m16.effect=nullptr;
+        else if(missing==3)host.m16.effects&=~(1u<<unsigned(M16Effect::Gunsmoke));
+        else host.m16.soundRules=guest::cof::PlaySfxRules::Unsupported;
         Check(!runtime.BeginMap(host)&&!runtime.PreparedM16Resources());
     }
     const auto inventory=context.files.at(M16Inventory.host);context.files.erase(M16Inventory.host);
@@ -175,7 +177,10 @@ void CheckM16Runtime(GlockRuntime& runtime,const fs::path& root)
     gun->PrimaryAttack();Check(gun->Status()==M16Status::Applied&&gun->m_iClip==17&&m16Fires==2&&m16Packets==64);
     Check(runtime.EndPostThink(player));player.pev->button=0;const auto loads=context.loads;
     // Failed action preparation and invalid rules cannot retire the current gun.
-    failM16Actions=true;Check(!runtime.PlayerModelChanged(player,request,error)&&backend.current(backend.context));
+    const auto* existingThink = backend.playerThink;
+    failM16Actions=true;
+    Check(runtime.PlayerModelChanged(player,request,error)&&runtime.Backend(player,backend)&&
+        backend.playerThink==existingThink&&gun->RestoreInventoryBinding(player));
     failM16Actions=false;auto invalid=request;invalid.m16Rules->reserveLimit=90;
     Check(!runtime.PlayerModelChanged(player,invalid,error)&&backend.current(backend.context));
     globals.time=520;gun->m_iClip=2;player.m_rgAmmo[7]=1000;gun->Reload();Check(gun->ActionState().loading);
@@ -199,6 +204,26 @@ void CheckM16Runtime(GlockRuntime& runtime,const fs::path& root)
     // a new action life; the prior backend and task cannot revive.
     const auto stale=backend;player.pev->health=0;runtime.PlayerDied(player);Check(!m16Life.Current()&&!stale.current(stale.context));
     player.pev->health=100;++player.m_iNumSpawns;
+    failM16Actions=true;
+    Check(runtime.PlayerSpawned(player,request,error));
+    GlockBackends pistol;
+    Check(runtime.Backend(player,pistol)&&pistol.current(pistol.context));
+    Check(runtime.Backend(player,backend)&&!backend.playerThink&&!stale.current(stale.context));
+    Check(backend.ownerFrame(backend.context,frame)&&!frame.stamina);
+    const auto retainedClip = gun->m_iClip;
+    Check(gun->RestoreInventoryBinding(player)&&gun->CanDeploy()&&gun->m_iClip==retainedClip);
+    globals.time = 560;
+    player.pev->button = 0;
+    player.m_pActiveItem = gun;
+    Check(gun->Deploy());
+    globals.time=gun->ActionState().primary+1;
+    gun->SecondaryAttack();
+    Check(gun->Status()==M16Status::Ineligible&&gun->m_iClip==retainedClip&&m16Pushes==1);
+    command(IN_ATTACK);gun->PrimaryAttack();
+    Check(gun->Status()==M16Status::Applied&&gun->m_iClip==retainedClip-1);
+    Check(runtime.EndPostThink(player));
+    failM16Actions=false;
+    runtime.PlayerDied(player);++player.m_iNumSpawns;
     Check(runtime.PlayerSpawned(player,request,error)&&runtime.Backend(player,backend)&&backend.ownerLife!=life);
     Check(!backend.playerThink->Deadline()&&!stale.current(stale.context));
     player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]=nullptr;player.m_pActiveItem=nullptr;

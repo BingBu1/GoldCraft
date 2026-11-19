@@ -202,7 +202,6 @@ M16Status M16Weapon::Prepare(const M16Prepared& p) noexcept
         !p.inventoryReady || !p.pickupSoundReady || !p.deployPreludeReady ||
         p.world != MeleeWorld::Multiplayer || !p.worldModelString || !p.inventoryItemString ||
         !p.viewModelString || !p.playerModelString || p.shellModel <= 0 ||
-        !p.pushbackReady ||
         p.ballistics.customDecalMessage <= 0 || p.ballistics.bubbleModel <= 0 ||
         !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnSetModel ||
         !g_engfuncs.pfnIndexOfEdict)
@@ -241,8 +240,8 @@ M16Status M16Weapon::Bind(CBasePlayer& owner, const M16Prepared& p,
     status_ = M16Status::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
         backends.preparedEffects != M16RequiredEffects || !backends.playerAnimation ||
-        !backends.playerThink || !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
-            backends.playerModelGeneration.mapEpoch, backends.ownerLife))
+        (backends.playerThink && !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
+            backends.playerModelGeneration.mapEpoch, backends.ownerLife)))
         return status_;
     if (Prepare(p) != M16Status::Ready) return status_;
     if (m_iPrimaryAmmoType < 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
@@ -720,7 +719,8 @@ void M16Weapon::SecondaryAttack()
     M16OwnerFrame frame{}; if (!Check(frame)) return;
     const float now = gpGlobals->time;
     if (action_.primary > now || action_.secondary > now || action_.action ||
-        action_.special || action_.aiming || !frame.stamina || *frame.stamina <= 0)
+        action_.special || action_.aiming || !prepared_.pushbackReady ||
+        !backends_.playerThink || !frame.stamina || *frame.stamina <= 0)
     { status_ = M16Status::Ineligible; return; }
     // Original100520BD/100520CE: the player owns this task. Dropping or
     // replacing the weapon must not cancel it or restore an older player task.

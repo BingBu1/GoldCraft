@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "goldcraft/inventory_restore.hpp"
 #include "primary_purchase.h"
 #include "weapons.h"
 #include "weapon_slots.h"
@@ -21,6 +22,7 @@
 #include "../../weapons/balrog11.hpp"
 #include <climits>
 #include <vector>
+#include <optional>
 
 namespace {
 bool Contains(const CBasePlayer& player, const CBaseEntity* wanted)
@@ -76,23 +78,34 @@ struct Timers {
     bool delay;
     CSOLSkull2PurchaseState skull2;
     CSOLSkull3PurchaseState skull3;
+    std::optional<goldcraft::inventory::Snapshot> custom;
+    bool captured{true};
     explicit Timers(CBasePlayerWeapon& w):handle(&w),
         primary(w.m_flNextPrimaryAttack),secondary(w.m_flNextSecondaryAttack),idle(w.m_flTimeWeaponIdle),
         lastFire(w.m_flLastFireTime),lastAttempt(w.m_flLastFire),previousAttack(w.m_flPrevPrimaryAttack),decreaseShots(w.m_flDecreaseShotsFired),
         accuracy(w.m_flAccuracy),nextReload(w.m_flNextReload),shots(w.m_iShotsFired),inReload(w.m_fInReload),
         specialReload(w.m_fInSpecialReload),delay(w.m_bDelayFire),skull2(CSOL_SaveSkull2PurchaseState(w)),
-        skull3(CSOL_SaveSkull3PurchaseState(w)) {}
-    void Restore(CBasePlayer& player) const
+        skull3(CSOL_SaveSkull3PurchaseState(w)) {
+        if(auto* restore=dynamic_cast<goldcraft::inventory::RestorableWeapon*>(&w)) {
+            custom.emplace();captured=restore->SaveInventorySnapshot(*custom);
+        }
+    }
+    bool Restore(CBasePlayer& player) const
     {
         auto* w=dynamic_cast<CBasePlayerWeapon*>(handle.Get<CBaseEntity>());
         if(!w || (w->pev->flags&FL_KILLME) || !Contains(player,w) ||
-            w->m_pPlayer!=&player || w->pev->owner!=player.edict())return;
+            w->m_pPlayer!=&player || w->pev->owner!=player.edict())return true;
         w->m_flNextPrimaryAttack=primary;w->m_flNextSecondaryAttack=secondary;w->m_flTimeWeaponIdle=idle;
         w->m_flLastFireTime=lastFire;w->m_flLastFire=lastAttempt;w->m_flPrevPrimaryAttack=previousAttack;w->m_flDecreaseShotsFired=decreaseShots;
         w->m_flAccuracy=accuracy;w->m_flNextReload=nextReload;w->m_iShotsFired=shots;
         w->m_fInReload=inReload;w->m_fInSpecialReload=specialReload;w->m_bDelayFire=delay;
         CSOL_RestoreSkull2PurchaseState(*w,skull2);
         CSOL_RestoreSkull3PurchaseState(*w,skull3);
+        if(custom) {
+            auto* restore=dynamic_cast<goldcraft::inventory::RestorableWeapon*>(w);
+            if(!restore||!restore->RestoreInventorySnapshot(*custom))return false;
+        }
+        return true;
     }
 };
 // AddPlayerItem's post hook can return FALSE after insertion; removal can
@@ -120,13 +133,15 @@ bool UnlinkFresh(CBasePlayer& player,CBasePlayerWeapon& weapon)
 }
 }
 
-bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
+namespace {
+bool DeliverGun(CBasePlayer& buyer,int weaponId,const CSOLGunPurchaseAdapter* adapter)
 {
     CSOLScenarioSdkScope sdk;
     if(!sdk.Current() || !gpGlobals ||
-        (weaponId!=csol::m249ex::Id && weaponId!=csol::balrog11::Id && weaponId!=csol::skull1::Id &&
+        (!adapter && weaponId!=csol::m249ex::Id && weaponId!=csol::balrog11::Id && weaponId!=csol::skull1::Id &&
          weaponId!=csol::skull2::Id && weaponId!=csol::skull3::Id && weaponId!=csol::skull5::Id))return false;
-    const int slot=weaponId==csol::skull1::Id||weaponId==csol::skull2::Id?PISTOL_SLOT:PRIMARY_WEAPON_SLOT;
+    const int slot=adapter?adapter->slot:
+        weaponId==csol::skull1::Id||weaponId==csol::skull2::Id?PISTOL_SLOT:PRIMARY_WEAPON_SLOT;
     const EHANDLE playerHandle(&buyer);
     const int userid=GETPLAYERUSERID(buyer.edict()),spawns=buyer.m_iNumSpawns;
     const auto players=sdk.Scenario()?CSOL_ScenarioPlayerAuthority(sdk.EntityAccess().get()):nullptr;
@@ -142,11 +157,21 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
     const auto current=[&]() {
         return samePlayer() && buyer.IsAlive() && !buyer.HasShield() && CSOL_WeaponsReady() &&
             CSOL_CanUseExtendedWeapons(&buyer) &&
-            (weaponId==csol::skull1::Id?CSOL_Skull1Ready():weaponId==csol::skull2::Id?CSOL_Skull2Ready():
+            (adapter?adapter->ready(buyer,weaponId):weaponId==csol::skull1::Id?CSOL_Skull1Ready():weaponId==csol::skull2::Id?CSOL_Skull2Ready():
              weaponId==csol::skull3::Id?CSOL_Skull3Ready():weaponId==csol::skull5::Id?CSOL_Skull5Ready():
              weaponId==csol::m249ex::Id?CSOL_M249EXReady():CSOL_Balrog11Ready()) &&
             (sdk.Scenario()?players->Active() && players->Find(playerHandle)==state &&
                 state->generation==generation && buyer.m_iTeam==CT && CSOL_ScenarioCanBuy():CSOL_ZombieHuman(&buyer)) && samePlayer();
+    };
+    const auto identity=[&](const CBasePlayerWeapon& weapon,int id) {
+        const EHANDLE handle(const_cast<CBasePlayerWeapon*>(&weapon));
+        const bool result=adapter?adapter->identity(weapon,id):Identity(weapon,id);
+        return samePlayer()&&handle.Get<CBaseEntity>()==&weapon&&result;
+    };
+    const auto deployed=[&](const CBasePlayerWeapon& weapon,int id) {
+        const EHANDLE handle(const_cast<CBasePlayerWeapon*>(&weapon));
+        const bool result=adapter?adapter->deployed(weapon,id):Deployed(weapon,id);
+        return samePlayer()&&handle.Get<CBaseEntity>()==&weapon&&result;
     };
     if(!current())return false;
     struct Prior { EHANDLE handle; CBasePlayerWeapon* object; };
@@ -155,6 +180,7 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
         auto* w=dynamic_cast<CBasePlayerWeapon*>(item);
         if(!w || prior.size()>=2 || w->m_pPlayer!=&buyer || w->pev->owner!=playerHandle.Get() ||
             (!prior.empty() && !CSOL_SameWeaponGroup(prior.front().object,w)))return false;
+        if(adapter && w->m_iId==weaponId)return false;
         prior.push_back({EHANDLE(w),w});
     }
     EHANDLE active(buyer.m_pActiveItem),last(buyer.m_pLastItem),box;
@@ -178,19 +204,19 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
     for(auto* head:buyer.m_rgpPlayerItems)
         for(auto* item=head;item && remaining-->0;item=item->m_pNext)
             if(auto* w=dynamic_cast<CBasePlayerWeapon*>(item))timers.emplace_back(*w);
-    if(remaining<=0)return false;
+    if(remaining<=0||std::any_of(timers.begin(),timers.end(),[](const Timers& value){return !value.captured;}))return false;
     const auto live=[&](const EHANDLE& handle)->CBaseEntity* {
         if(!sdk.Current())return nullptr;
         auto* entity=handle.Get<CBaseEntity>();
         return entity && !(entity->pev->flags&FL_KILLME)?entity:nullptr;
     };
     struct Fresh { int id; const char* classname; EHANDLE handle; CBaseEntity* object{}; };
-    const char* classname=weaponId==csol::skull1::Id?csol::skull1::Classname:
+    const char* classname=adapter?adapter->classname:weaponId==csol::skull1::Id?csol::skull1::Classname:
         weaponId==csol::skull2::Id?csol::skull2::Classname:weaponId==csol::skull3::Id?csol::skull3::Classname:
         weaponId==csol::skull5::Id?csol::skull5::Classname:
         weaponId==csol::m249ex::Id?csol::m249ex::Classname:csol::balrog11::Classname;
     std::array<Fresh,2> fresh{{{weaponId,classname,{}},{csol::skull3::DualId,csol::skull3::DualClassname,{}}}};
-    const int freshCount=weaponId==csol::skull3::Id?2:1;
+    const int freshCount=!adapter && weaponId==csol::skull3::Id?2:1;
     const auto acquired=[&]() {
         if(!current())return false;
         int count{};
@@ -203,7 +229,7 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
         if(count!=freshCount)return false;
         for(int i=0;i<freshCount;++i) {
             auto* w=dynamic_cast<CBasePlayerWeapon*>(live(fresh[i].handle));
-            if(!w || !Identity(*w,fresh[i].id) || w->m_pPlayer!=&buyer || w->pev->owner!=playerHandle.Get())return false;
+            if(!w || !identity(*w,fresh[i].id) || w->m_pPlayer!=&buyer || w->pev->owner!=playerHandle.Get())return false;
         }
         return true;
     };
@@ -250,8 +276,20 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
             }
             if(!detached)continue;
             old->m_pNext=buyer.m_rgpPlayerItems[slot];buyer.m_rgpPlayerItems[slot]=old;
-            old->m_pPlayer=&buyer;old->AttachToPlayer(&buyer);
+            old->m_pPlayer=&buyer;
+            if(auto* restore=dynamic_cast<goldcraft::inventory::RestorableWeapon*>(old)) {
+                if(!restore->RestoreInventoryBinding(buyer))return false;
+            } else old->AttachToPlayer(&buyer);
             if(!current())return false;
+        }
+        // Drop hooks can revoke guest binding even when removal is vetoed.
+        for(const auto& saved:prior) {
+            auto* old=dynamic_cast<CBasePlayerWeapon*>(live(saved.handle));
+            if(old&&Contains(buyer,old)&&old->m_pPlayer==&buyer)
+                if(auto* restore=dynamic_cast<goldcraft::inventory::RestorableWeapon*>(old)) {
+                    const bool rebound=restore->RestoreInventoryBinding(buyer);
+                    if(!current()||!rebound)return false;
+                }
         }
         if(!current())return false;
         auto* container=dynamic_cast<CWeaponBox*>(live(box));
@@ -277,7 +315,10 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
         buyer.m_flNextAttack=nextAttack;
         buyer.m_iHideHUD=(buyer.m_iHideHUD&~HIDEHUD_WEAPONS)|hidden;
         for(int i=0;i<4;++i)if(ammoSlots[i]>=0 && ammoSlots[i]<MAX_AMMO_SLOTS)buyer.m_rgAmmo[ammoSlots[i]]=savedAmmo[i];
-        for(const auto& saved:timers)saved.Restore(buyer);
+        for(const auto& saved:timers) {
+            const bool restored=saved.Restore(buyer);
+            if(!current()||!restored)return false;
+        }
         buyer.m_csolSlotPos[slot-1]=slotPosition;buyer.m_csolValidSlotPos[slot-1]=validPosition;
         CSOL_UpdateWeaponInventory(&buyer);
         return false;
@@ -294,10 +335,11 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
         // reclaimed, without treating a later reused edict as our allocation.
         entry.object=CBaseEntity::Instance(created);
         created->v.origin=buyer.pev->origin;created->v.spawnflags|=SF_NORESPAWN;
+        if(adapter && adapter->oneShotTouch)created->v.iuser4=1;
         const int spawned=DispatchSpawn(created);
         if(!current())return reject();
         auto* w=dynamic_cast<CBasePlayerWeapon*>(live(entry.handle));
-        if(spawned<0 || !w || w!=entry.object || !Identity(*w,entry.id))return reject();
+        if(spawned<0 || !w || w!=entry.object || !identity(*w,entry.id))return reject();
     }
     if(!prior.empty()) {
         auto* old=prior.front().object;
@@ -319,20 +361,29 @@ bool CSOL_DeliverSkullBalrog(CBasePlayer& buyer,int weaponId)
         if(!w || w!=fresh[i].object || !Contains(buyer,w) || w->m_pPlayer!=&buyer || w->pev->owner!=playerHandle.Get())return reject();
     }
     if(!acquired())return reject();
-    if(weaponId==csol::skull3::Id) {
+    if(!adapter && weaponId==csol::skull3::Id) {
         // MP114CE4A0 -> 114BB9D0: each normal AddPlayerItem decides whether
         // to switch. A and D have equal weight, and auto-switch can be off.
         // A successful purchase must not override that choice afterward.
         for(int i=0;i<freshCount;++i) {
             auto* w=dynamic_cast<CBasePlayerWeapon*>(live(fresh[i].handle));
-            if(!w || (buyer.m_pActiveItem==w && !Deployed(*w,fresh[i].id)))return reject();
+            if(!w || (buyer.m_pActiveItem==w && !deployed(*w,fresh[i].id)))return reject();
         }
     } else {
         buyer.SelectItem(classname);
         if(!acquired())return reject();
         auto* w=dynamic_cast<CBasePlayerWeapon*>(live(fresh[0].handle));
-        if(!w || buyer.m_pActiveItem!=w || !Deployed(*w,weaponId))return reject();
+        if(!w || buyer.m_pActiveItem!=w || !deployed(*w,weaponId))return reject();
     }
     CSOL_UpdateWeaponInventory(&buyer);
     return acquired()?true:reject();
+}
+}
+bool CSOL_DeliverSkullBalrog(CBasePlayer& player,int weaponId) {return DeliverGun(player,weaponId,nullptr);}
+bool CSOL_DeliverAdaptedGun(CBasePlayer& player,const CSOLGunPurchaseAdapter& request)
+{
+    const auto adapter=request;
+    if(!CSOL_ExtendedWeapon(adapter.id) || (adapter.slot!=PRIMARY_WEAPON_SLOT && adapter.slot!=PISTOL_SLOT) ||
+       !adapter.classname || !*adapter.classname || !adapter.ready || !adapter.identity || !adapter.deployed)return false;
+    return DeliverGun(player,adapter.id,&adapter);
 }

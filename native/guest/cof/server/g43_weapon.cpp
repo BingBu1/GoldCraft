@@ -192,7 +192,6 @@ G43Status G43Weapon::Prepare(const G43Prepared& p) noexcept
         !p.inventoryReady || !p.pickupSoundReady || !p.deployPreludeReady ||
         p.world != MeleeWorld::Multiplayer || !p.worldModelString || !p.inventoryItemString ||
         !p.viewModelString || !p.playerModelString || p.shellModel <= 0 ||
-        !p.pushbackReady ||
         p.ballistics.customDecalMessage <= 0 || p.ballistics.bubbleModel <= 0 ||
         !g_engfuncs.pfnMakeVectors || !g_engfuncs.pfnRandomLong || !g_engfuncs.pfnSetModel ||
         !g_engfuncs.pfnIndexOfEdict)
@@ -231,8 +230,8 @@ G43Status G43Weapon::Bind(CBasePlayer& owner, const G43Prepared& p,
     status_ = G43Status::MissingBackend;
     if (!pev || !owner.pev || !backends.current || !backends.ownerFrame || !backends.effect ||
         backends.preparedEffects != G43RequiredEffects || !backends.playerAnimation ||
-        !backends.playerThink || !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
-            backends.playerModelGeneration.mapEpoch, backends.ownerLife))
+        (backends.playerThink && !backends.playerThink->PreparedFor(owner, PlayerThinkKind::Pushback,
+            backends.playerModelGeneration.mapEpoch, backends.ownerLife)))
         return status_;
     if (Prepare(p) != G43Status::Ready) return status_;
     if (m_iPrimaryAmmoType < 0 || m_iPrimaryAmmoType >= MAX_AMMO_SLOTS)
@@ -694,7 +693,8 @@ void G43Weapon::Reload()
 void G43Weapon::SecondaryAttack()
 {
     G43OwnerFrame frame{}; if (!Check(frame)) return;
-    if (!frame.stamina) { status_ = G43Status::Ineligible; return; }
+    if (!prepared_.pushbackReady || !backends_.playerThink || !frame.stamina)
+    { status_ = G43Status::Ineligible; return; }
     ActionBridge bridge{this, lease_}; bridge.lease.active = true;
     const auto result = StartG43Pushback(action_, *frame.stamina, ControlHost(bridge));
     if (!Current(&bridge.lease)) return;
