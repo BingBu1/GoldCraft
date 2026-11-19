@@ -392,28 +392,58 @@ bool PrecacheCharacterActions(const std::shared_ptr<CCSOLScenarioSession>& sessi
         if (!LoadFile("sound/sentences.json", text, error) || !candidate->access->Allowed()) return false;
         if (!csol::voice::ReadSentences(text, sentences, "MRAD_EMOTION"))
         { error.message = "character emotion sentence table is invalid"; return false; }
-        csol::voice::ExpandTemplates(sentences,
-            [](const std::string& path) { return g_engfuncs.pfnGetFileSize(path.c_str()) > 0; });
-        if (!candidate->access->Allowed()) return false;
+
+        struct VoiceFile
+        {
+            std::string path;
+            bool explicitEntry;
+        };
         std::set<std::string_view> voices;
         for (const auto& c : candidate->characters) voices.insert(csol::voice::CharacterVoiceKey(c.id, c.male));
+        std::vector<VoiceFile> files;
+        for (const auto& [name, entry] : sentences)
+        {
+            for (const auto& [voice, list] : entry)
+                if (voices.contains(voice))
+                    for (const auto& file : list) files.push_back({"sound/" + file, true});
+
+            const auto patterns = entry.find(csol::voice::TemplateVoice);
+            if (patterns == entry.end()) continue;
+            for (const auto voice : csol::voice::TemplateVoices)
+            {
+                if (!voices.contains(voice)) continue;
+                const auto own = entry.find(voice);
+                if (own != entry.end() && !own->second.empty()) continue;
+                for (const auto& pattern : patterns->second)
+                {
+                    auto file = csol::voice::ExpandTemplate(pattern, voice);
+                    if (file.empty()) continue;
+                    file.insert(0, "sound/");
+                    files.push_back({std::move(file), false});
+                }
+            }
+        }
+        // Keep explicit references for the missing-file diagnostic. Test the
+        // current VFS winner once, directly before registering each WAV.
+        std::ranges::sort(files, [](const VoiceFile& a, const VoiceFile& b) {
+            const int order = a.path.compare(b.path);
+            return order ? order < 0 : a.explicitEntry && !b.explicitEntry;
+        });
+        files.erase(std::ranges::unique(files, {}, &VoiceFile::path).begin(), files.end());
+        if (!candidate->access->Allowed()) return false;
         PRECACHE_GENERIC(const_cast<char*>("sound/sentences.json"));
         if (!candidate->access->Allowed()) return false;
-        std::set<std::string> files;
-        int missing{};
-        for (const auto& [name, entry] : sentences)
-            for (const auto& [voice, list] : entry)
-                if (voices.contains(voice)) files.insert(list.begin(), list.end());
+        int missing{}, available{};
         for (const auto& file : files)
         {
-            const auto full = "sound/" + file;
-            const int size = g_engfuncs.pfnGetFileSize(full.c_str());
+            const int size = g_engfuncs.pfnGetFileSize(file.path.c_str());
             if (!candidate->access->Allowed()) return false;
-            if (size <= 0) { ++missing; continue; }
-            PRECACHE_GENERIC(const_cast<char*>(full.c_str()));
+            if (size <= 0) { missing += file.explicitEntry; continue; }
+            PRECACHE_GENERIC(const_cast<char*>(file.path.c_str()));
             if (!candidate->access->Allowed()) return false;
+            ++available;
         }
-        if (missing) ALERT(at_console, "CSOL emotion voices: %d of %d wav files are missing\n", missing, int(files.size()));
+        if (missing) ALERT(at_console, "CSOL emotion voices: %d of %d wav files are missing\n", missing, available + missing);
     }
     const std::array<const char*, 2> paths{"models/v_emotion0.mdl", "models/v_emotion1.mdl"};
     for (unsigned i = 0; i < paths.size(); ++i)
