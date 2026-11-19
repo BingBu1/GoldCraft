@@ -153,7 +153,8 @@ int Scale(const fsys::path& binary,const fsys::path& base,const std::string& url
             const auto& s=session.GetStatus();
             Check(s.hashedBytes==bytes,"scale only changed source bodies are hashed");
             Check(s.downloaded==0&&s.checked==count,"scale complete without HTTP");
-            Check(s.profile.openReader.calls==2*count&&s.leased==0,"scale resolves every VFS name again in the final pass");
+            Check(s.profile.openReader.calls==2*count,"scale resolves every VFS name again in the final pass");
+            Check(s.leased==count&&s.profile.leaseOpen.calls==count,"scale reuses verified leases");
             std::cout<<"{\"files\":"<<count<<",\"run\":\""<<label<<"\",\"elapsedMs\":"<<s.elapsedMs
                 <<",\"pumpWorkMs\":"<<s.pumpWorkMs<<",\"hashedBytes\":"<<s.hashedBytes
                 <<",\"openCalls\":"<<s.profile.openReader.calls<<",\"openMs\":"<<s.profile.openReader.totalMs
@@ -229,13 +230,16 @@ int Join(const fsys::path& binary,const fsys::path& base,const std::string& url)
             <<",\"sourceMs\":"<<s.profile.backgroundSource.totalMs
             <<",\"cacheOpenCalls\":"<<s.profile.cacheOpen.calls<<",\"cacheOpenMs\":"<<s.profile.cacheOpen.totalMs
             <<",\"mountMs\":"<<s.profile.mount.totalMs<<",\"hashedBytes\":"<<s.hashedBytes
-            <<",\"cached\":"<<s.cached<<",\"reused\":"<<s.reused<<",\"leased\":"<<s.leased<<"}"<<std::endl;
+            <<",\"cached\":"<<s.cached<<",\"reused\":"<<s.reused<<",\"leased\":"<<s.leased
+            <<",\"leaseOpenCalls\":"<<s.profile.leaseOpen.calls<<",\"leaseOpenMs\":"<<s.profile.leaseOpen.totalMs
+            <<",\"leaseCheckCalls\":"<<s.profile.leaseCheck.calls<<",\"leaseCheckMs\":"<<s.profile.leaseCheck.totalMs<<"}"<<std::endl;
         Check(session.Commit(),"join commit");
     };
-    // Only names bound by the old or the new mount are resolved a second time.
-    auto passes=[&](unsigned mounted,unsigned mounts){
+    // A replaced binding still gets a new independent read lease.
+    auto passes=[&](unsigned remapped,unsigned mounts){
         const auto& s=session.GetStatus();
-        Check(s.profile.openReader.calls==2*count&&s.leased==0&&s.profile.mount.calls==mounts,"join final pass shape");
+        Check(s.profile.openReader.calls==2*count&&s.profile.mount.calls==mounts,"join final pass shape");
+        Check(s.leased==count-remapped&&s.profile.leaseOpen.calls==count+remapped,"join only reopens changed bindings");
     };
     Check(session.Begin(1,url,resources),"join first begin");run("first-join");
     Check(session.GetStatus().cached==wrong,"join repaired every wrong root file from cache");passes(wrong,1);
@@ -298,12 +302,20 @@ int main(int argc,char** argv){
                 if(mode=="same") {
                     Check(!fsys::exists(base/"cache"),"matching source makes no cache");
                     Check(session.GetStatus().hashedBytes==next.size,"final VFS reuses unchanged source digest");
-                    Check(session.GetStatus().reused==1&&session.GetStatus().leased==0,"final VFS pass reuses the unchanged identity digest");
+                    Check(session.GetStatus().reused==1&&session.GetStatus().leased==1,"final VFS pass reuses the unchanged identity digest");
                     Check(session.Reset()&&session.Begin(4,url,{{name,next}}),"warm reconnect setup");Ready(session);
-                    Check(session.GetStatus().hashedBytes==0&&session.GetStatus().reused==2&&session.GetStatus().leased==0,"warm reconnect avoids all repeated body reads");
+                    Check(session.GetStatus().hashedBytes==0&&session.GetStatus().reused==2&&session.GetStatus().leased==1,"warm reconnect avoids all repeated body reads");
                     auto reader=overlay::OpenReader(name.c_str());Check(bool(reader),"open actual source for lease");
                     auto deferred=reader->DeferredSource();Check(bool(deferred),"engine winner borrowed");
                     auto lease=deferred->Lease();Check(bool(lease),"independent OS lease acquired");
+                    Check(deferred->Matches(*lease),"same exact file and range match");
+                    if(name=="sprites/packed.spr") {
+                        auto alternate=overlay::OpenReader("sprites/alternate.spr");
+                        Check(bool(alternate)&&alternate->Size()==reader->Size(),"second equal-length PAK entry");
+                        auto other=alternate->DeferredSource();
+                        Check(bool(other)&&!other->Matches(*lease),"different span of same PAK cannot use the lease");
+                        Check(EqualVfs(fs,"sprites/alternate.spr",newer),"second PAK entry has different bytes");
+                    }
                     std::vector<std::uint8_t> tail(113),head(71);
                     bool readGood{};
                     std::thread worker([&]{readGood=lease->ReadAt(next.size-113,tail);});
@@ -330,19 +342,54 @@ int main(int argc,char** argv){
                 }
             }
         }else if(mode=="shadow"){
-            Check(session.Begin(1,url,{{name,next}}),"shadow begin");
+            const auto game=base/"game", shadow=base/"higher-priority";
+            fsys::create_directories((shadow/name).parent_path());
+            std::ofstream replacement(shadow/name,std::ios::binary);
+            replacement.write(reinterpret_cast<const char*>(newer.data()),newer.size());replacement.close();
+            Check(fs->RemoveSearchPath(game.string().c_str()),"switch to alternate path for memoization");
+            fs->AddSearchPath(shadow.string().c_str(),"GAME");
+            Check(session.Begin(1,url,{{name,third}}),"prime digest cache for alternate VFS winner");
+            Ready(session);
+            Check(session.Reset()&&fs->RemoveSearchPath(shadow.string().c_str()),"restore original mount");
+            fs->AddSearchPath(game.string().c_str(),"GAME");
+            Check(session.Begin(2,url,{{name,next}}),"shadow begin");
             const auto until=std::chrono::steady_clock::now()+5s;
             while(session.GetStatus().phase!=update::Phase::verifying&&std::chrono::steady_clock::now()<until){session.Pump();std::this_thread::sleep_for(2ms);}
             Check(session.GetStatus().phase==update::Phase::verifying,"shadow final pass reached");
-            const auto shadow=base/"higher-priority";
-            fsys::create_directories((shadow/name).parent_path());
-            std::ofstream replacement(shadow/name,std::ios::binary);replacement.write(reinterpret_cast<const char*>(old.data()),old.size());replacement.close();
-            Check(fs->RemoveSearchPath((base/"game").string().c_str()),"remove original lookup path while preserving its read lease");
+            Check(fs->RemoveSearchPath(game.string().c_str()),"remove original lookup path while preserving its read lease");
             fs->AddSearchPath(shadow.string().c_str(),"GAME");
-            fs->AddSearchPath((base/"game").string().c_str(),"GAME");
-            Check(EqualVfs(fs,name,old),"actual VFS winner changes despite pinned original bytes");
+            fs->AddSearchPath(game.string().c_str(),"GAME");
+            Check(EqualVfs(fs,name,newer),"actual VFS winner changes despite pinned original bytes");
             Pump(session);
             Check(session.GetStatus().phase==update::Phase::failed,"final verification rejects higher-priority stale winner");
+            const auto& s=session.GetStatus();
+            Check(s.leased==0&&s.profile.leaseCheck.calls==1&&s.profile.leaseOpen.calls==2,
+                  "different VFS winner falls back to independent reopen");
+            Check(s.hashedBytes==2ull*next.size&&s.reused==0,"rejected lease requires fresh SHA despite a cached digest");
+        }else if(mode=="download-releases-lease"){
+            const std::string companion="models/unchanged.mdl";
+            const auto path=base/"game"/companion;
+            Check(EqualVfs(fs,companion,bytes),"companion matches before transfer");
+            Check(session.Begin(1,url,{{companion,next},{name,next}}),"mixed manifest accepted");
+            const auto until=std::chrono::steady_clock::now()+5s;
+            while(session.GetStatus().phase!=update::Phase::verifying&&std::chrono::steady_clock::now()<until) {
+                session.Pump();
+                std::this_thread::sleep_for(2ms);
+            }
+            Check(session.GetStatus().phase==update::Phase::verifying&&session.GetStatus().downloaded==1,
+                  "transfer completed after releasing first-pass leases");
+            {
+                std::ofstream replacement(path,std::ios::binary|std::ios::trunc);
+                replacement.write(reinterpret_cast<const char*>(old.data()),old.size());
+                Check(bool(replacement),"can write previous winner after download begins");
+            }
+            Pump(session);
+            Check(session.GetStatus().phase==update::Phase::failed&&session.GetStatus().leased==0,
+                  "post-transfer verification rejects changed companion.");
+            Check(EqualVfs(fs,name,old),"failed verification rolls back the downloaded mount");
+            std::ofstream restore(path,std::ios::binary|std::ios::trunc);
+            restore.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+            Check(bool(restore),"restore verified fixture bytes");
         }else if(mode=="lease"){
             // Pin proved bytes while independently resolving the final winner.
             const auto path=(base/"game"/name).string();
@@ -355,7 +402,9 @@ int main(int argc,char** argv){
             Check(!DeleteFileA(path.c_str())&&GetLastError()==ERROR_SHARING_VIOLATION,"proved source cannot be deleted");
             Check(!MoveFileExA(path.c_str(),(path+".moved").c_str(),0),"proved source cannot be renamed");
             Ready(session);
-            Check(session.GetStatus().leased==0&&session.GetStatus().profile.openReader.calls==2,"final pass searches the VFS again under the read lease");
+            const auto& s=session.GetStatus();
+            Check(s.profile.openReader.calls==2&&s.profile.leaseCheck.calls==1,"final pass searches the VFS again under the read lease");
+            Check(s.leased==1&&s.profile.leaseOpen.calls==1,"final pass avoids the duplicate OS reopen");
             Check(EqualVfs(fs,name,bytes),"leased source is the consumer body");
             const auto writer=write();Check(writer!=INVALID_HANDLE_VALUE,"lease released at ready");CloseHandle(writer);
         }else if(mode=="mtime-change"||mode=="replace-source"){

@@ -39,7 +39,7 @@ public:
         resource_sync::Digest digest{};
         std::uint32_t size{};
         std::uint64_t bytes{};
-        bool success{}, reused{};
+        bool success{}, reused{}, leased{};
         Profile profile;
         std::atomic<bool> cancelled{}, done{};
     };
@@ -52,10 +52,16 @@ public:
         // Join before destroying the queue, cache or mutex.
         threads_.clear();
     }
-    std::shared_ptr<Job> Submit(std::unique_ptr<resource_cache::PendingSource> pending, std::uint32_t size) {
-        auto job = std::make_shared<Job>(); job->pending = std::move(pending); job->size = size;
+    std::shared_ptr<Job> Submit(std::unique_ptr<resource_cache::PendingSource> pending,
+                                const resource_sync::Entry& expected,
+                                std::unique_ptr<resource_cache::SourceFile>& verifiedLease) {
+        auto job = std::make_shared<Job>();
+        job->pending = std::move(pending);
+        job->expected = expected;
+        job->size = expected.size;
         std::lock_guard lock(mutex_);
         if (identities_.size() >= 64) return {};
+        job->source = std::move(verifiedLease);
         identities_.push_back(job); ready_.notify_one(); return job;
     }
     // Bounded by the manifest: at most one per resource of the live session.
@@ -76,6 +82,52 @@ public:
         return finished_.wait_until(lock, deadline, [&] { return completions_ != seen; });
     }
 private:
+    void Verify(Job& job, std::span<std::uint8_t> buffer, std::stop_token stop) {
+        if (job.cancelled || stop.stop_requested()) return;
+        // A rejected lease match can include missing or ambiguous file IDs.
+        const bool useDigestCache = !job.source;
+        if (job.pending) {
+            if (job.source && Measure(job.profile.leaseCheck, [&] { return job.pending->Matches(*job.source); })) {
+                if (job.cancelled || stop.stop_requested()) return;
+                job.digest = job.expected.sha256;
+                job.reused = job.leased = job.success = true;
+                return;
+            }
+            job.source = Measure(job.profile.leaseOpen, [&] { return job.pending->Lease(); });
+        } else if (job.cache) {
+            job.source = Measure(job.profile.cacheOpen, [&] { return job.cache->Open(job.name, job.expected); });
+        }
+        if (!job.source || job.cancelled || stop.stop_requested()) return;
+        const auto stamp = job.source->Identity();
+        if (useDigestCache) {
+            std::lock_guard lock(mutex_);
+            if (const auto found = digests_.find(stamp); found != digests_.end()) {
+                job.digest = found->second;
+                job.reused = true;
+            }
+        }
+        if (!job.reused) {
+            resource_cache::Hash hash;
+            for (std::uint32_t offset = 0; offset < job.size;) {
+                if (job.cancelled || stop.stop_requested()) break;
+                const auto count = std::min<std::size_t>(buffer.size(), job.size - offset);
+                auto span = buffer.first(count);
+                if (!Measure(job.profile.readAt, [&] { return job.source->ReadAt(offset, span); })) break;
+                Measure(job.profile.hashUpdate, [&] { hash.Update(span); });
+                offset += std::uint32_t(count);
+                job.bytes += count;
+            }
+            if (job.bytes == job.size)
+                job.digest = Measure(job.profile.hashFinish, [&] { return hash.Finish(); });
+        }
+        job.success = !job.cancelled && !stop.stop_requested() &&
+            (job.reused || job.bytes == job.size) && Measure(job.profile.unchanged, [&] { return job.source->Unchanged(); });
+        if (job.success && useDigestCache && !job.reused) {
+            std::lock_guard lock(mutex_);
+            if (digests_.size() >= 32768) digests_.clear();
+            digests_[stamp] = job.digest;
+        }
+    }
     void Run(std::stop_token stop) {
         std::array<std::uint8_t, ChunkSize> buffer{};
         for (;;) {
@@ -87,39 +139,8 @@ private:
                 auto& queue = identities_.empty() ? objects_ : identities_;
                 job = std::move(queue.front()); queue.pop_front();
             }
-            try {
-                if (!job->cancelled && job->pending)
-                    job->source = Measure(job->profile.leaseOpen, [&] { return job->pending->Lease(); });
-                else if (!job->cancelled && job->cache)
-                    job->source = Measure(job->profile.cacheOpen, [&] { return job->cache->Open(job->name, job->expected); });
-                if (!job->cancelled && job->source) {
-                    const auto stamp = job->source->Identity();
-                    {
-                        std::lock_guard lock(mutex_);
-                        if (const auto found = digests_.find(stamp); found != digests_.end()) {
-                            job->digest = found->second; job->reused = true;
-                        }
-                    }
-                    if (!job->reused) {
-                        resource_cache::Hash hash;
-                        for (std::uint32_t offset = 0; offset < job->size;) {
-                            if (job->cancelled || stop.stop_requested()) break;
-                            const auto count = std::min<std::size_t>(buffer.size(), job->size - offset);
-                            auto span = std::span<std::uint8_t>(buffer.data(), count);
-                            if (!Measure(job->profile.readAt, [&] { return job->source->ReadAt(offset, span); })) break;
-                            Measure(job->profile.hashUpdate, [&] { hash.Update(span); }); offset += std::uint32_t(count); job->bytes += count;
-                        }
-                        if (job->bytes == job->size) job->digest = Measure(job->profile.hashFinish, [&] { return hash.Finish(); });
-                    }
-                    job->success = !job->cancelled && !stop.stop_requested() &&
-                        (job->reused || job->bytes == job->size) && Measure(job->profile.unchanged, [&] { return job->source->Unchanged(); });
-                    if (job->success && !job->reused) {
-                        std::lock_guard lock(mutex_);
-                        if (digests_.size() >= 32768) digests_.clear();
-                        digests_[stamp] = job->digest;
-                    }
-                }
-            } catch (...) { job->success = false; }
+            try { Verify(*job, buffer, stop); }
+            catch (...) { job->success = false; }
             // A proven source keeps its read lease for the final pass.
             job->pending.reset();
             if (!job->success) job->source.reset();
@@ -221,6 +242,7 @@ struct Session::Impl {
                 const auto& resource = resources[item.index];
                 status.hashedBytes += item.job->bytes;
                 status.profile.leaseOpen.Merge(item.job->profile.leaseOpen);
+                status.profile.leaseCheck.Merge(item.job->profile.leaseCheck);
                 status.profile.cacheOpen.Merge(item.job->profile.cacheOpen);
                 status.profile.readAt.Merge(item.job->profile.readAt);
                 status.profile.hashUpdate.Merge(item.job->profile.hashUpdate);
@@ -232,11 +254,13 @@ struct Session::Impl {
                 }
                 if (item.cache) {
                     mounted[resource.name] = cache.Path(resource.name, resource.expected); ++status.cached;
-                } else if (status.phase == Phase::checking) {
-                    // A matching file can already be supplied by the previous
-                    // server's verified overlay. Keep that binding.
-                    const auto found = previous.paths.find(Lower(resource.name));
-                    if (found != previous.paths.end()) { mounted[resource.name] = found->second; ++carried; }
+                } else {
+                    if (status.phase == Phase::checking) {
+                        // Keep a binding that was supplied by the previous verified overlay.
+                        const auto found = previous.paths.find(Lower(resource.name));
+                        if (found != previous.paths.end()) { mounted[resource.name] = found->second; ++carried; }
+                    }
+                    if (item.job->leased) ++status.leased;
                     leases[item.index] = std::move(item.job->source);
                 }
                 ++status.checked;
@@ -250,7 +274,9 @@ struct Session::Impl {
                 });
                 Measure(status.profile.closeReader, [&] { reader.reset(); }); // Engine Close stays on the main thread.
                 if (!source) { ++cursor; Mismatch(index, false); continue; }
-                auto job = Measure(status.profile.submitHash, [&] { return hashes.Submit(std::move(source), resource.expected.size); });
+                auto job = Measure(status.profile.submitHash, [&] {
+                    return hashes.Submit(std::move(source), resource.expected, leases[index]);
+                });
                 if (!job) break; // A cancelled generation may still be draining.
                 checking.push_back({index, false, std::move(job)}); ++cursor;
             }
@@ -337,8 +363,8 @@ struct Session::Impl {
             // written under cstrike_downloads that an older GAME/PAK can hide.
             // A read lease pins bytes, not the winner of a VFS name lookup:
             // another search path can acquire a higher-priority same-name file.
-            // Resolve every name again; unchanged identities still reuse their
-            // verified digest and background/cache scheduling stays intact.
+            // Resolve every name again. The worker can reuse a retained lease
+            // only when the newly resolved handle proves the same file and range.
             status.phase = Phase::verifying; cursor = 0; status.checked = 0;
         } catch (const std::exception& failure) { Fail(failure.what()); }
     }

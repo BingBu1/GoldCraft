@@ -22,7 +22,8 @@ public:
     bool ReadAt(std::uint32_t offset, std::span<std::uint8_t> output);
 private:
     SourceFile(void* handle, std::uint64_t offset, std::uint32_t size);
-    bool Inspect(Stamp& stamp) const;
+    friend class PendingSource;
+    static bool Inspect(void* handle, std::uint64_t offset, std::uint32_t size, Stamp& stamp);
     void* handle_{};
     std::uint64_t offset_{};
     std::uint32_t size_{};
@@ -39,6 +40,8 @@ public:
     PendingSource(const PendingSource&) = delete;
     PendingSource& operator=(const PendingSource&) = delete;
     std::unique_ptr<SourceFile> Lease() const;
+    // Check the actual newly resolved handle against an uninterrupted read lease.
+    bool Matches(const SourceFile& lease) const;
 private:
     PendingSource(void* handle, std::uint64_t offset, std::uint32_t size);
     void* handle_{};

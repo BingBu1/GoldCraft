@@ -23,8 +23,7 @@ struct Status {
     double elapsedMs{}, pumpMaxMs{};
     std::size_t queued{};
     std::size_t reused{};
-    // Reserved diagnostic from the withdrawn lease-only final pass. Full VFS
-    // resolution keeps this at zero; retain the field for status consumers.
+    // Final VFS matches that reused their first-pass OS read lease.
     std::size_t leased{};
     double pumpWorkMs{};
     Profile profile;

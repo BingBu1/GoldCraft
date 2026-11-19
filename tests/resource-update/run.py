@@ -158,6 +158,7 @@ def main():
              ('rollback-failure', 'rollback-failure', 'models/update.mdl', 0),
              ('lease', 'lease', 'models/update.mdl', 0),
              ('shadow', 'shadow', 'models/update.mdl', 0),
+             ('download-releases-lease', 'download-releases-lease', 'models/update.mdl', 1),
              ('parallel', 'batch', 'models/update.mdl', 16),
              ('outage', 'batch', 'models/update.mdl', 20)]
     if args.case: cases = [case for case in cases if case[0] == args.case]; assert cases
@@ -169,8 +170,11 @@ def main():
                 (base / filename).write_bytes(data)
             initial = body if mode in ('same', 'mtime-change', 'replace-source', 'lease', 'shadow') else old
             if name == 'sprites/packed.spr':
-                entry = struct.pack('<56sii', name.encode(), 12, len(initial))
-                (game / 'pak0.pak').write_bytes(struct.pack('<4sii', b'PACK', 12 + len(initial), len(entry)) + initial + entry)
+                entries = (struct.pack('<56sii', name.encode(), 12, len(initial)) +
+                           struct.pack('<56sii', b'sprites/alternate.spr', 12 + len(initial), len(third)))
+                (game / 'pak0.pak').write_bytes(
+                    struct.pack('<4sii', b'PACK', 12 + len(initial) + len(third), len(entries)) +
+                    initial + third + entries)
                 # Prove we hash the actual PAK winner, not GetLocalPath's loose
                 # filename. The competing loose body is deliberately different.
                 loose = base / 'fallback' / name; loose.parent.mkdir(parents=True); loose.write_bytes(third)
@@ -178,6 +182,8 @@ def main():
                 destination = game / name; destination.parent.mkdir(parents=True)
                 if mode == 'old-hardlink': os.link(base / 'old-linked-source.bin', destination)
                 else: destination.write_bytes(initial)
+            if mode == 'download-releases-lease':
+                (game / 'models/unchanged.mdl').write_bytes(body)
             if label == 'corrupt-cache':
                 cached = base / 'cache/objects' / sha / name; cached.parent.mkdir(parents=True); cached.write_bytes(old)
             if mode == 'batch':

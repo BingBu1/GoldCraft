@@ -7,6 +7,7 @@
 #include "resource_overlay.hpp"
 #include <array>
 #include <atomic>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -80,17 +81,17 @@ std::atomic<unsigned long> serial{};
 SourceFile::SourceFile(void* handle, std::uint64_t offset, std::uint32_t size)
     : handle_(handle), offset_(offset), size_(size) {}
 SourceFile::~SourceFile() { if (handle_) CloseHandle(handle_); }
-bool SourceFile::Inspect(Stamp& stamp) const {
+bool SourceFile::Inspect(void* handle, std::uint64_t offset, std::uint32_t size, Stamp& stamp) {
     BY_HANDLE_FILE_INFORMATION info{};
     FILE_BASIC_INFO basic{};
-    if (!GetFileInformationByHandle(handle_, &info) ||
-        !GetFileInformationByHandleEx(handle_, FileBasicInfo, &basic, sizeof(basic)) ||
+    if (!GetFileInformationByHandle(handle, &info) ||
+        !GetFileInformationByHandleEx(handle, FileBasicInfo, &basic, sizeof(basic)) ||
         (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) return false;
     const auto length = (std::uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-    if (offset_ > length || size_ > length - offset_) return false;
+    if (offset > length || size > length - offset) return false;
     stamp = {info.dwVolumeSerialNumber, (std::uint64_t(info.nFileIndexHigh) << 32) | info.nFileIndexLow,
         std::uint64_t(basic.CreationTime.QuadPart), std::uint64_t(basic.LastWriteTime.QuadPart),
-        std::uint64_t(basic.ChangeTime.QuadPart), length, offset_, size_, info.dwFileAttributes};
+        std::uint64_t(basic.ChangeTime.QuadPart), length, offset, size, info.dwFileAttributes};
     return true;
 }
 std::unique_ptr<SourceFile> SourceFile::Reopen(void* source, std::uint64_t offset, std::uint32_t size) {
@@ -99,7 +100,7 @@ std::unique_ptr<SourceFile> SourceFile::Reopen(void* source, std::uint64_t offse
     auto handle = ReOpenFile(source, GENERIC_READ, FILE_SHARE_READ, FILE_FLAG_SEQUENTIAL_SCAN);
     if (handle == INVALID_HANDLE_VALUE) return {};
     auto result = std::unique_ptr<SourceFile>(new SourceFile(handle, offset, size));
-    if (!result->Inspect(result->stamp_)) return {};
+    if (!Inspect(handle, offset, size, result->stamp_)) return {};
     return result;
 }
 PendingSource::PendingSource(void* handle, std::uint64_t offset, std::uint32_t size)
@@ -112,7 +113,21 @@ std::unique_ptr<PendingSource> PendingSource::Duplicate(void* handle, std::uint6
     return std::unique_ptr<PendingSource>(new PendingSource(copy, offset, size));
 }
 std::unique_ptr<SourceFile> PendingSource::Lease() const { return SourceFile::Reopen(handle_, offset_, size_); }
-bool SourceFile::Unchanged() const { Stamp now{}; return Inspect(now) && now == stamp_; }
+bool PendingSource::Matches(const SourceFile& lease) const {
+    if (offset_ != lease.offset_ || size_ != lease.size_) return false;
+    SourceFile::Stamp current{};
+    if (!SourceFile::Inspect(handle_, offset_, size_, current) || current != lease.stamp_) return false;
+    // The 64-bit index in the digest stamp alone is not unique on ReFS.
+    FILE_ID_INFO winner{}, pinned{};
+    return GetFileInformationByHandleEx(handle_, FileIdInfo, &winner, sizeof(winner)) &&
+        GetFileInformationByHandleEx(lease.handle_, FileIdInfo, &pinned, sizeof(pinned)) &&
+        winner.VolumeSerialNumber == pinned.VolumeSerialNumber &&
+        std::memcmp(winner.FileId.Identifier, pinned.FileId.Identifier, sizeof(winner.FileId.Identifier)) == 0;
+}
+bool SourceFile::Unchanged() const {
+    Stamp now{};
+    return Inspect(handle_, offset_, size_, now) && now == stamp_;
+}
 bool SourceFile::ReadAt(std::uint32_t offset, std::span<std::uint8_t> output) {
     if (offset > size_ || output.size() > size_ - offset) return false;
     LARGE_INTEGER at{}; at.QuadPart = offset_ + offset;
