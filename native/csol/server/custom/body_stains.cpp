@@ -54,12 +54,15 @@ struct PendingSplash
 };
 PendingSplash pendingSplash;
 
-unsigned NewSeed() noexcept
+void AddHit(unsigned& mark) noexcept
 {
-    randomState ^= randomState << 13;
-    randomState ^= randomState >> 17;
-    randomState ^= randomState << 5;
-    return 1u + randomState % custom::BodyStainSeedMask;
+    if (!mark)
+    {
+        randomState ^= randomState << 13;
+        randomState ^= randomState >> 17;
+        randomState ^= randomState << 5;
+    }
+    mark = custom::AddBodyStainHit(mark, randomState);
 }
 
 const Stain* Find(unsigned slot, const edict_t& edict) noexcept
@@ -79,7 +82,7 @@ Stain* Record(CBaseEntity& actor) noexcept
     return &entry;
 }
 
-unsigned WeaponSeed(CBasePlayerItem& weapon) noexcept
+unsigned WeaponMark(CBasePlayerItem& weapon) noexcept
 {
     const auto* edict = weapon.edict();
     if (edict->free || (edict->v.flags & FL_KILLME)) return 0;
@@ -136,8 +139,8 @@ void CSOL_ClearBodyStain(CBaseEntity& actor) noexcept
 void CSOL_CopyDroppedBodyStain(CWeaponBox& box, CBasePlayerItem& weapon) noexcept
 {
     if (!hasWeaponStains) return;
-    if (const auto seed = WeaponSeed(weapon))
-        if (auto* entry = Record(box)) entry->weapon = seed;
+    if (const auto mark = WeaponMark(weapon))
+        if (auto* entry = Record(box)) entry->weapon = mark;
 }
 
 CSOLBodyStainShot::CSOLBodyStainShot(CBaseEntity* shooter, const Vector& source) noexcept
@@ -191,14 +194,14 @@ void CSOL_RecordBodyStains(CCSOLScenarioMonster& monster, entvars_t* attacker,
     const TraceResult* trace, const Vector& hit) noexcept
 {
     if (!enabled || !std::isfinite(hit.x) || !std::isfinite(hit.y) || !std::isfinite(hit.z)) return;
-    if (auto* entry = Record(monster); entry && !entry->body)
-        entry->body = NewSeed();
+    if (auto* entry = Record(monster))
+        AddHit(entry->body);
 
     auto* contact = bulletTrace;
     if (!contact || contact->trace != trace || contact->target != &monster || contact->recorded) return;
     contact->recorded = true;
     const auto& shot = contact->shot;
-    if (shot.generation_ != generation || attacker != &shot.owner_->v ||
+    if (shot.splashed_ || shot.generation_ != generation || attacker != &shot.owner_->v ||
         gMultiDamage.hEntity.Get<CBaseEntity>() != &monster || !(gMultiDamage.amount > 0)) return;
     const Vector distance = Vector(shot.source_[0], shot.source_[1], shot.source_[2]) - hit;
     if (DotProduct(distance, distance) <= splashRadiusSquared)
@@ -226,20 +229,21 @@ void CSOL_ApplyBodyStainSplash(CBaseEntity& victim, entvars_t* inflictor, entvar
         player.has_disconnected || !weapon.Matches(player)) return;
     auto* weaponStain = Record(*player.m_pActiveItem);
     if (!weaponStain) return;
-    if (!weaponStain->weapon) weaponStain->weapon = NewSeed();
+    shot.splashed_ = true;
+    AddHit(weaponStain->weapon);
     hasWeaponStains = true;
-    if (auto* entry = Record(player); entry && !entry->body)
-        entry->body = NewSeed();
+    if (auto* entry = Record(player))
+        AddHit(entry->body);
 }
 
-std::uint32_t CSOL_PackBodyStain(const edict_t& actor, unsigned index, bool player, bool local) noexcept
+float CSOL_PackBodyStain(const edict_t& actor, unsigned index, bool player, bool local) noexcept
 {
     if (!enabled) return 0;
     const auto* entry = Find(index, actor);
     if (!player)
     {
         if (!entry || !(entry->body || entry->weapon) || (actor.v.effects & EF_NODRAW)) return 0;
-        return custom::PackBodyStain({entry->body, entry->weapon, true});
+        return custom::EncodeBodyStainField({entry->body, entry->weapon, true});
     }
 
     const auto body = entry ? entry->body : 0u;
@@ -247,8 +251,8 @@ std::uint32_t CSOL_PackBodyStain(const edict_t& actor, unsigned index, bool play
     if (hasWeaponStains && actor.pvPrivateData && actor.v.deadflag == DEAD_NO && actor.v.health > 0)
     {
         const auto* owner = static_cast<const CBasePlayer*>(actor.pvPrivateData);
-        if (owner->m_pActiveItem) held = WeaponSeed(*owner->m_pActiveItem);
+        if (owner->m_pActiveItem) held = WeaponMark(*owner->m_pActiveItem);
     }
     if (!local && !held) return 0;
-    return custom::PackBodyStain({local ? body : 0u, held, true});
+    return custom::EncodeBodyStainField({local ? body : 0u, held, true});
 }

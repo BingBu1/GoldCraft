@@ -33,5 +33,5 @@ void ShutdownBodyStains() noexcept;
 void ReadLocalBodyStain(const entity_state_s* state, const clientdata_s* client) noexcept;
 void BodyStainsFrame() noexcept;
 BodyStainSurface BodyStainForModel(const cl_entity_s* entity, const model_s* model) noexcept;
-bool BodyStainMaterial(BodyStainSurface surface, unsigned material, bool isArm, MetaRendererStudioStain& output) noexcept;
+bool BodyStainMaterial(BodyStainSurface surface, unsigned material, unsigned armMaterial, MetaRendererStudioStain& output) noexcept;
 }

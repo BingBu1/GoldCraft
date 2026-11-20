@@ -23,7 +23,8 @@ struct Material : MaterialPolicy
     GLuint texture{}, environment{};
     int width{},height{},flags{},hand=-1,originalHeight{},sprite=-1,fade=-1;
     float environmentAdd{};
-    bool stainArm{}, externalTexture{};
+    unsigned stainArm{};
+    bool externalTexture{};
 };
 struct Vertex { float position[3],normal[3],uv[2]; int bone,normalBone; };
 struct Batch { unsigned offset{},count{}; int group{},submodel{},skinref{}; };

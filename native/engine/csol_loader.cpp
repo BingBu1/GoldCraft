@@ -198,8 +198,8 @@ void GoldCraftCsolSequenceDelta(delta_t* delta)
 
     // The wire description carries its SDK offset. Use our own field name so
     // the game DLL can distinguish this capability from an installed delta.lst.
-    constexpr int offset = offsetof(entity_state_t, iuser3);
-    static_assert(offset == 268 && sizeof(entity_state_t) == 340);
+    constexpr int offset = offsetof(entity_state_t, fuser4);
+    static_assert(offset == 288 && sizeof(entity_state_t) == 340);
     for (int i = 0; i < delta->fieldCount; ++i)
         if (delta->pdd[i].fieldOffset == offset) return;
 

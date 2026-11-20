@@ -178,7 +178,8 @@ void Materials(Asset& asset)
             if(w && height){m.width=w;m.height=height;dimensions=true;asset.special=true;}
         }
         m.originalHeight=m.height;m.hand=HandType(name);
-        m.stainArm=m.hand>=0 || scenario::custom::IsBodyStainArmMaterial(original);
+        m.stainArm=scenario::custom::BodyStainArmMaterial(original);
+        if(!m.stainArm && m.hand>=0)m.stainArm=scenario::custom::BodyStainArmMaterial(name);
         // CSO's ordinary guns also use the full 256x256 MaleOrg atlas. Keep
         // stock unprefixed hand.bmp out of this mapping (different UV layout).
         if(m.hand==4 && m.originalHeight!=252 && !(dimensions && m.width==256 && m.height==256))m.hand=-1;

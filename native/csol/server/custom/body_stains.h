@@ -21,7 +21,7 @@ void CSOL_ResetBodyStains() noexcept;
 void CSOL_SetBodyStainPolicy(bool enabled, float splashRadius) noexcept;
 void CSOL_ClearBodyStain(CBaseEntity& actor) noexcept;
 void CSOL_CopyDroppedBodyStain(CWeaponBox& box, CBasePlayerItem& weapon) noexcept;
-std::uint32_t CSOL_PackBodyStain(const edict_s& actor, unsigned index, bool player, bool local) noexcept;
+float CSOL_PackBodyStain(const edict_s& actor, unsigned index, bool player, bool local) noexcept;
 
 void CSOL_RecordBodyStains(CCSOLScenarioMonster& monster, entvars_s* attacker,
     const TraceResult* trace, const Vector& hit) noexcept;
@@ -49,4 +49,5 @@ private:
     int ownerSerial_{}, weaponSerial_{}, spawn_{}, view_{}, held_{};
     float source_[3]{};
     unsigned generation_{};
+    mutable bool splashed_{};
 };

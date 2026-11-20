@@ -293,11 +293,8 @@ void main(){vec4 tex=texture(diffuse,uv);if(masked && tex.a<0.5)discard;
 vec3 rgb=tex.rgb;if(environment){vec3 r=reflect(worldPosition-eye,normalize(worldNormal));r.z=-r.z;rgb=(rgb+environmentAdd)*texture(environmentMap,r).rgb;}
 if(stainUvTransform.x!=0.0){
     vec2 p=uv*stainUvTransform.xy+stainUvTransform.zw;
-    vec2 dx=dFdx(p),dy=dFdy(p);
-    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThanEqual(p,vec2(1.0)))){
-        vec4 blood=textureGrad(stainTexture,p,dx,dy);
-        rgb=mix(rgb,blood.rgb*mix(vec3(0.65),vec3(1.0),rgb),0.85*blood.a);
-    }
+    vec4 blood=texture(stainTexture,p);
+    rgb=mix(rgb,blood.rgb*(0.78+0.28*rgb),blood.a);
 }
 float exponent=gammaSettings.w>0.5?1.0/gammaSettings.x:1.0;
 rgb=pow(max(rgb,vec3(0)),vec3(gammaSettings.y*exponent));

@@ -573,7 +573,7 @@ index 70cdd7d..4ad0af7 100644
  	float SetBoneController(int iController, float flValue = 0.0f);
  	void InitBoneControllers();
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..42c7990 100644
+index daee11d12e3acc1567bf3603a48cabcf76562421..e31d252b6473ee8b87aec4e4e05690c9710d4527 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,34 @@
@@ -1393,7 +1393,7 @@ index daee11d..42c7990 100644
  
 -	state->iuser4 = ent->v.iuser4;
 +	state->iuser4 = ent->v.iuser4 | (player ? CSOL_LanternPlayerState(*ent, state->weaponmodel) : 0);
-+	state->iuser3 = static_cast<int>(CSOL_PackBodyStain(*ent, static_cast<unsigned>(e), player != 0, ent == host));
++	state->fuser4 = CSOL_PackBodyStain(*ent, static_cast<unsigned>(e), player != 0, ent == host);
 +	if (player)
 +		GoldCraft_StatusVisibility(state, ent);
  	return TRUE;

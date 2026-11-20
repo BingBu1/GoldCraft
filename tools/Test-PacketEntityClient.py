@@ -15,6 +15,7 @@ from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_EIP, UC_X86_REG_ESP
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPECTED = "9ba9a2db5e07598fd59afa35507a98c86162e4e15b3835177b78c11842cd2295"
+STOCK_CLIENT = "b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2"
 
 
 class Bits:
@@ -93,6 +94,30 @@ class Engine:
                 self.mu.mem_write(field_table+i*68,packed)
             self.registrations[name] = pointer
             at = (field_table+len(fields)*68+63) & ~63
+    def install_local_overrides(self, path):
+        # Execute the matching stock callback from the workspace client. The
+        # checked function contains no absolute addresses or external calls.
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != STOCK_CLIENT:
+            raise ValueError("Unverified stock client")
+        pe = struct.unpack_from("<I", data, 60)[0]
+        count = struct.unpack_from("<H", data, pe + 6)[0]
+        optional = struct.unpack_from("<H", data, pe + 20)[0]
+        rva, length = 0x49850, 76
+        for i in range(count):
+            _, start, size, offset = struct.unpack_from("<IIII", data, pe + 24 + optional + i * 40 + 8)
+            if start <= rva and rva + length <= start + size:
+                source = offset + rva - start
+                callback = self.registry + 0x100
+                self.mu.mem_write(callback, data[source:source + length])
+                self.set(0x145efac, callback)
+                return
+        raise ValueError("Stock local override export is outside file-backed sections")
+
+    def set_local_client_flags(self, sequence, flags):
+        frame = self.base + 0x1282f08 + (sequence & 63) * 17176
+        self.mu.mem_write(frame + 10912 + 404, struct.pack("<I", flags))
+
     def baselines(self,states):
         assert len(states)%340 == 0 and len(states)//340 <= 2048
         for i in range(len(states)//340): self.mu.mem_write(self.entities+i*3000+8,states[i*340:(i+1)*340])
@@ -221,16 +246,22 @@ def delta(count,previous,changes=()):
 
 
 
-def body_stain_snapshots(path):
+def body_stain_snapshots(path, stock_client=None, offset=288):
     engine = Engine(path)
-    offset = 268
+    if stock_client:
+        engine.install_local_overrides(stock_client)
+        for sequence in (65, 66, 67, 68):
+            engine.set_local_client_flags(sequence, 1)
     width = 28
     engine.schema({name: [dict(fieldType=8, fieldName="modelindex", fieldOffset=40, fieldSize=1,
                                significant_bits=16, premultiply=1, postmultiply=1),
-                          dict(fieldType=8, fieldName="goldcraft_body_stain", fieldOffset=offset, fieldSize=1,
+                          dict(fieldType=8, fieldName="goldcraft_body_stain_v2", fieldOffset=offset, fieldSize=1,
                                significant_bits=width, premultiply=1, postmultiply=1)]
                    for name in ("entity_state_t", "entity_state_player_t", "custom_entity_state_t", "event_t")})
-    cases = ((8, 307, 0x6dfc3e3), (33, 518, 0x6d0023e))
+    player = 1 if stock_client else 8
+    tag = 0xB000000
+    arm, weapon, body = 23 << 6 | 1, 51 << 6 | 1, 62 << 6 | 1
+    cases = ((player, 307, tag | (weapon << 12) | arm), (33, 518, tag | body))
     bits = Bits()
     for slot, model, stain in cases:
         bits.put(0, 1)
@@ -254,24 +285,32 @@ def body_stain_snapshots(path):
     checks = {"stainsFullPlayerAndMonster": count == len(cases) and matches(states, cases)}
     count, _, states, _ = engine.parse(delta(len(cases), 65), 66, True)
     checks["stainsUnchangedDelta"] = count == len(cases) and matches(states, cases)
-    bits = Bits()
-    last = 0
-    clear = ((8, 311, 0x6d003e3), (33, 518, 0))
-    for (slot, old_model, _), (_, model, stain) in zip(cases, clear):
-        bits.put(0, 1)
-        bits.put(0, 1)
-        bits.put(slot - last, 6)
-        bits.put(0, 1)
-        bits.put(1, 3)
-        bits.put(3 if old_model != model else 2, 8)
-        if old_model != model:
-            bits.put(model, 16)
-        bits.put(stain, width)
-        last = slot
-    bits.put(0, 16)
-    count, _, states, _ = engine.parse(struct.pack("<hB", len(cases), 66) + bits.bytes(), 67, True)
+    def changed(source, changes, sequence):
+        bits = Bits()
+        last = 0
+        for (slot, old_model, _), (_, model, stain) in zip(source, changes):
+            bits.put(0, 1)
+            bits.put(0, 1)
+            bits.put(slot - last, 6)
+            bits.put(0, 1)
+            bits.put(1, 3)
+            bits.put(3 if old_model != model else 2, 8)
+            if old_model != model:
+                bits.put(model, 16)
+            bits.put(stain, width)
+            last = slot
+        bits.put(0, 16)
+        return engine.parse(struct.pack("<hB", len(changes), sequence - 1) + bits.bytes(), sequence, True)
+
+    next_hit = ((player, 307, tag | ((weapon + 1) << 12) | (arm + 1)), (33, 518, tag | (body + 1)))
+    count, _, states, _ = changed(cases, next_hit, 67)
+    checks["stainsAccumulateOnBothSurfaces"] = count == len(cases) and matches(states, next_hit)
+    clear = ((player, 311, tag | (arm + 1)), (33, 518, 0))
+    count, _, states, _ = changed(next_hit, clear, 68)
     checks["stainsSwitchPreservesArmsAndRetiresMonster"] = count == len(cases) and matches(states, clear)
     checks["stainsAllocationCanaries"] = engine.canaries()
+    if stock_client:
+        checks["nativeMovementFlagsUnaffected"] = engine.integer(engine.entities + player * 3000 + 688 + 268) == 1
     return checks
 
 def run(args):
@@ -308,7 +347,18 @@ def run(args):
     except EngineError:checks["full1025RejectsBeforeOverflow"] = "MAX_PACKET_ENTITIES" in engine.rejections[-1]
     else:checks["full1025RejectsBeforeOverflow"] = False
     checks["allocationCanaries"] = engine.canaries()
+    stock_client = args.stock_client.resolve(strict=True) if args.stock_client else None
+    if stock_client and not stock_client.is_relative_to(ROOT):
+        raise ValueError("Use the workspace stock client")
     checks.update(body_stain_snapshots(path))
+    if stock_client:
+        checks.update({"withStockOverrides_" + key: value for key, value
+                       in body_stain_snapshots(path, stock_client).items()})
+        former = body_stain_snapshots(path, stock_client, offset=268)
+        checks["stockOverridesReproduceOldFieldLoss"] = (
+            former["nativeMovementFlagsUnaffected"] and not former["stainsFullPlayerAndMonster"]
+            and not former["stainsUnchangedDelta"])
+
     result = dict(engineSha256=EXPECTED,scope="Actual x86 bitread/delta/full/history/publication; no live rendering/network/gameplay",checks=checks,frames=frames,passed=all(checks.values()))
     if args.server_fixture:
         directory = args.server_fixture if args.server_fixture.is_dir() else args.server_fixture.parent
@@ -361,4 +411,5 @@ if __name__ == "__main__":
     parser.add_argument("--engine",type=Path,default=ROOT/"sandbox/cs-client-b/Half-Life/hw.dll")
     parser.add_argument("--output",type=Path,default=ROOT/"analysis/packet-entities/client-x86.json")
     parser.add_argument("--server-fixture",type=Path)
+    parser.add_argument("--stock-client", type=Path, help="Matching x86 client.dll for local player callback coverage")
     run(parser.parse_args())

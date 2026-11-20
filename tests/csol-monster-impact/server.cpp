@@ -146,6 +146,8 @@ void BodyStains(Engine& e)
     e.globals.v_up = Vector(0, 0, 1);
     g_engfuncs.pfnCheckVisibility = [](edict_t*, unsigned char*) { return 1; };
     g_engfuncs.pfnTraceTexture = [](edict_t*, const float*, const float*) -> const char* { return "CONCRETE"; };
+    // The dry firing lane has no water for the native buckshot bubble trail.
+    g_engfuncs.pfnPointContents = [](const float*) { return CONTENTS_EMPTY; };
     g_engfuncs.pfnDeltaFindField = [](delta_s*, const char* field)
     { return std::strcmp(field, custom::BodyStainDeltaField) ? -1 : 20; };
     alignas(void*) std::byte testDelta{};
@@ -162,11 +164,11 @@ void BodyStains(Engine& e)
         entity_state_t state{};
         Require(e.api.pfnAddToFullPack(&state, entity.entindex(), entity.edict(), host, 0, isPlayer, nullptr) != 0,
             "native AddToFullPack produced the model snapshot");
-        return static_cast<std::uint32_t>(state.iuser3);
+        return state.fuser4;
     };
-    const auto local = [&]{ return custom::UnpackBodyStain(wire(player, true, playerEdict)); };
-    const auto zombie = [&]{ return custom::UnpackBodyStain(wire(*f.monster, false, playerEdict)); };
-    const auto hit = [&](float distance, bool lands = true)
+    const auto local = [&]{ return custom::DecodeBodyStainField(wire(player, true, playerEdict)); };
+    const auto zombie = [&]{ return custom::DecodeBodyStainField(wire(*f.monster, false, playerEdict)); };
+    const auto hit = [&](float distance, bool lands = true, unsigned pellets = 1)
     {
         e.onTrace = [&](edict_t* shooter, TraceResult& trace)
         {
@@ -177,7 +179,16 @@ void BodyStains(Engine& e)
             trace.iHitgroup = HITGROUP_CHEST;
         };
         Vector origin{}, direction(1, 0, 0);
-        player.FireBullets3(origin, direction, 0, 512, 1, BULLET_PLAYER_762MM, 20, 1, player.pev, false, 1);
+        if (pellets > 1)
+        {
+            Vector spread{};
+            const auto randomFloat = g_engfuncs.pfnRandomFloat;
+            g_engfuncs.pfnRandomFloat = [](float low, float high) { return (low + high) * .5f; };
+            player.FireBuckshots(pellets, origin, direction, spread, 512, 0, 20, player.pev);
+            g_engfuncs.pfnRandomFloat = randomFloat;
+        }
+        else
+            player.FireBullets3(origin, direction, 0, 512, 1, BULLET_PLAYER_762MM, 20, 1, player.pev, false, 1);
         e.onTrace = {};
     };
 
@@ -187,7 +198,7 @@ void BodyStains(Engine& e)
     hit(129);
     Expect(!local().body && !local().weapon && zombie().body && !zombie().weapon,
         "a distant hit stains only the zombie");
-    const auto originalZombie = zombie().body;
+    Expect(custom::BodyStainHits(zombie().body) == 1, "the first hit starts one zombie stain");
 
     ClearMultiDamage();
     TraceResult thrown{};
@@ -197,15 +208,28 @@ void BodyStains(Engine& e)
     f.monster->TraceAttack(player.pev, 10, Vector(1, 0, 0), &thrown, DMG_BULLET);
     ApplyMultiDamage(player.pev, player.pev);
     Expect(!local().body && !local().weapon, "an unrelated close TraceAttack cannot stain the shooter");
+    const auto previousZombie = zombie().body;
     hit(128);
-    const auto stained = local();
-    Require(stained.enabled && stained.body && stained.weapon, "a confirmed boundary hit stains arms and the weapon");
-    Expect(zombie().body == originalZombie, "the hit retains the prior zombie variation");
-    const auto held = custom::UnpackBodyStain(wire(player, true, observer));
-    Expect(held.enabled && !held.body && held.weapon == stained.weapon,
-        "another observer receives the authoritative gun variation");
+    const auto first = local();
+    Require(first.enabled && custom::BodyStainHits(first.body) == 1 &&
+        custom::BodyStainHits(first.weapon) == 1, "a confirmed boundary hit stains arms and weapon once");
+    Expect(zombie().body == previousZombie + 1, "the next hit adds to the established zombie pattern");
+    const unsigned full = (first.body & ~custom::BodyStainMaxHits) | custom::BodyStainMaxHits;
+    Expect(custom::AddBodyStainHit(full, 0) == full,
+        "a saturated pattern keeps its seed and all existing marks");
     hit(16);
-    Expect(local().body == stained.body && local().weapon == stained.weapon, "successive shots keep established stains");
+    const auto second = local();
+    Expect(second.body == first.body + 1 && second.weapon == first.weapon + 1,
+        "each qualifying shot adds a layer while retaining both placement seeds");
+    hit(64, true, 3);
+    const auto stained = local();
+    const auto finalZombie = zombie().body;
+    Expect(stained.body == second.body + 1 && stained.weapon == second.weapon + 1,
+        "multiple confirmed pellets from one discharge add one set of splashes");
+    Expect(finalZombie > previousZombie, "the victim keeps accumulating its own marks");
+    const auto held = custom::DecodeBodyStainField(wire(player, true, observer));
+    Expect(held.enabled && !held.body && held.weapon == stained.weapon,
+        "another observer receives the complete authoritative gun pattern");
 
     auto* pistol = equip("weapon_usp");
     Expect(local().body == stained.body && !local().weapon, "a clean pistol inherits arms without inheriting rifle blood");
@@ -215,11 +239,11 @@ void BodyStains(Engine& e)
 
     e.globals.time = 3600;
     CSOL_SetBodyStainPolicy(true, 128);
-    Expect(local().body == stained.body && local().weapon == stained.weapon && zombie().body == originalZombie,
+    Expect(local().body == stained.body && local().weapon == stained.weapon && zombie().body == finalZombie,
         "elapsed time neither clears nor replaces stains");
     f.monster->pev->deadflag = DEAD_DYING;
     f.monster->pev->health = 0;
-    Expect(zombie().body == originalZombie, "visible dying zombie retains its stain");
+    Expect(zombie().body == finalZombie, "visible dying zombie retains its stain");
     player.pev->deadflag = DEAD_DEAD;
     player.pev->health = 0;
     Expect(local().body == stained.body && !local().weapon, "dead player retains their arms without showing a held gun");
@@ -232,7 +256,7 @@ void BodyStains(Engine& e)
     Vector origin{}, angles{}, velocity{};
     auto* box = CreateWeaponBox(rifle, &player, "models/w_ak47.mdl", origin, angles, velocity, 300, false);
     Require(box && rifle->pev->owner == box->edict(), "actual drop packs this exact native weapon");
-    const auto dropped = custom::UnpackBodyStain(wire(*box, false, playerEdict));
+    const auto dropped = custom::DecodeBodyStainField(wire(*box, false, playerEdict));
     Expect(!dropped.body && dropped.weapon == stained.weapon, "weaponbox publishes the same gun stain");
     Expect(local().body == stained.body && !local().weapon, "dropping the rifle retains arms only");
     box->pev->flags |= FL_ONGROUND;
@@ -240,13 +264,13 @@ void BodyStains(Engine& e)
     Require(rifle->m_pPlayer == &receiver && rifle->pev->owner == observer, "actual weaponbox pickup keeps rifle entity");
     receiver.SelectItem("weapon_ak47");
     Require(receiver.m_pActiveItem == rifle, "receiver wields the picked-up rifle");
-    const auto received = [&]{ return custom::UnpackBodyStain(wire(receiver, true, observer)); };
+    const auto received = [&]{ return custom::DecodeBodyStainField(wire(receiver, true, observer)); };
     Expect(!received().body && received().weapon == stained.weapon, "pickup transfers the weapon blood without transferring arms");
 
     CSOL_SetBodyStainPolicy(false, 128);
     Expect(!local().enabled && !received().enabled && !zombie().enabled, "off hides all stains");
     CSOL_SetBodyStainPolicy(true, 0);
-    Expect(local().body == stained.body && received().weapon == stained.weapon && zombie().body == originalZombie,
+    Expect(local().body == stained.body && received().weapon == stained.weapon && zombie().body == finalZombie,
         "turning the feature back on shows established stains even at zero splash radius");
     player.SelectItem("weapon_usp");
     Require(player.m_pActiveItem == pistol, "actual alternate survives the rifle drop");
@@ -290,7 +314,7 @@ void BodyStains(Engine& e)
     FreeGameRules(&g_pGameRules);
     Expect(!CSOL_BodyStainsActive(), "map retirement resets stain policy");
     CSOL_SetBodyStainPolicy(true, 128);
-    const auto freshMap = custom::UnpackBodyStain(CSOL_PackBodyStain(*playerEdict, 1, true, true));
+    const auto freshMap = custom::DecodeBodyStainField(CSOL_PackBodyStain(*playerEdict, 1, true, true));
     Expect(freshMap.enabled && !freshMap.body && !freshMap.weapon,
         "a fresh map cannot publish stains from the retired map");
     CSOL_SetBodyStainPolicy(false, 0);
