@@ -15,6 +15,7 @@ public plugin_init()
     register_srvcmd("cof_live_round_protect", "RoundProtect");
     register_srvcmd("cof_live_test_funds", "TestFunds");
     register_srvcmd("cof_live_burn_setup", "BurnSetup");
+    register_srvcmd("cof_live_flare_scene", "FlareScene");
     register_srvcmd("cof_live_burn_state", "BurnState");
     register_srvcmd("cof_live_join", "Join");
     register_srvcmd("cof_live_burn_wave", "BurnWave");
@@ -165,6 +166,52 @@ public BurnTeammate()
         get_member(id, m_iMenu) != Menu_ChooseAppearance) return PLUGIN_HANDLED;
     engclient_cmd(id, "joinclass", "1");
     if (OwnsTeammate(id)) set_task(0.1, "MoveTeammate", TeammateMoveTask, _, _, "b");
+    return PLUGIN_HANDLED;
+}
+// Fixed camera and resting position for comparing rendered frames across builds.
+// The player must buy, ignite and throw a real flare before it can be aligned.
+new photoFlare, photoSerial;
+public FlareScene()
+{
+    new slot[12], user[12], action[12], map[32], host[64], address[32];
+    if (read_argc() != 4) return PLUGIN_HANDLED;
+    read_argv(1, slot, charsmax(slot)); read_argv(2, user, charsmax(user));
+    read_argv(3, action, charsmax(action));
+    new id = str_to_num(slot);
+    if (!Human(id, str_to_num(user)) || !is_user_alive(id)) return PLUGIN_HANDLED;
+    get_user_ip(id, address, charsmax(address), 1);
+    get_mapname(map, charsmax(map)); get_cvar_string("hostname", host, charsmax(host));
+    if (!equal(address,"127.0.0.1") || !equal(map,"zs_deadend") ||
+        !equal(host,"GoldCraft isolated CoF cold")) return PLUGIN_HANDLED;
+    if (equal(action,"camera"))
+    {
+        new Float:camera[3] = {-1808.0, 1248.0, 36.03125};
+        new trace = create_tr2();
+        engfunc(EngFunc_TraceHull,camera,camera,IGNORE_MONSTERS,HULL_HUMAN,id,trace);
+        new solid = get_tr2(trace,TR_StartSolid) || get_tr2(trace,TR_AllSolid);
+        free_tr2(trace);
+        if (solid) { server_print("[flare-photo] camera obstructed"); return PLUGIN_HANDLED; }
+        set_entvar(id,var_velocity,Float:{0.0,0.0,0.0});
+        engfunc(EngFunc_SetOrigin,id,camera);
+        server_print("[flare-photo] camera placed");
+        return PLUGIN_HANDLED;
+    }
+    if (equal(action,"align"))
+    {
+        new entity, count, landed;
+        while ((entity = rg_find_ent_by_class(entity,"weapon_cof_flare")) > 0)
+            if (get_entvar(entity,var_body)==1 && get_entvar(entity,var_solid)==SOLID_TRIGGER &&
+                (get_entvar(entity,var_flags)&FL_ONGROUND) && is_nullent(get_entvar(entity,var_owner)))
+            { landed=entity; ++count; }
+        if (count != 1) { server_print("[flare-photo] landed=%d",count); return PLUGIN_HANDLED; }
+        photoFlare=landed; photoSerial=pev_serial(landed);
+        engfunc(EngFunc_SetOrigin,landed,burnOrigin);
+    }
+    else if (!equal(action,"status")) return PLUGIN_HANDLED;
+    if (!photoFlare || !pev_valid(photoFlare) || pev_serial(photoFlare)!=photoSerial) return PLUGIN_HANDLED;
+    new Float:at[3]; get_entvar(photoFlare,var_origin,at);
+    server_print("[flare-photo] t=%.3f entity=%d body=%d solid=%d at=%.3f,%.3f,%.3f",
+        get_gametime(),photoFlare,get_entvar(photoFlare,var_body),get_entvar(photoFlare,var_solid),at[0],at[1],at[2]);
     return PLUGIN_HANDLED;
 }
 public BurnSetup()

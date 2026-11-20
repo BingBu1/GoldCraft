@@ -8,6 +8,7 @@
 #include <event_api.h>
 #include <r_efx.h>
 #include <dlight.h>
+#include <IMetaRendererScene.h>
 #include <pmtrace.h>
 #include <algorithm>
 #include <cmath>
@@ -39,6 +40,52 @@ unsigned frame{};
 LightPose localPose;
 std::array<LightPose,33> playerPoses;
 
+struct GroundFlare
+{
+    int entity{};
+    unsigned lastFrame{};
+    dlight_t* light{};
+};
+std::array<GroundFlare,32> groundFlares{};
+unsigned groundCount{};
+IMetaRendererScene* shadowScene{};
+
+int LightKey(int entity) { return -0x4c00-entity; }
+
+void ReleaseGroundFlare(unsigned slot)
+{
+    const auto& flare=groundFlares[slot];
+    const int key=LightKey(flare.entity);
+    if(flare.light && flare.light->key==key)flare.light->radius=0;
+    if(shadowScene)shadowScene->SetDynamicLightShadowSize(key,0);
+    groundFlares[slot]=groundFlares[--groundCount];
+}
+
+void GroundLight(const cl_entity_s& entity)
+{
+    if(!engine.pEfxAPI || !engine.pEfxAPI->CL_AllocDlight)return;
+    const int key=LightKey(entity.index);
+    unsigned slot=0;
+    while(slot<groundCount && groundFlares[slot].entity!=entity.index)++slot;
+    if(slot==groundCount && slot==groundFlares.size())return;
+    auto* light=engine.pEfxAPI->CL_AllocDlight(key);
+    if(!light)return;
+    if(slot==groundCount){
+        ++groundCount;
+        if(shadowScene)shadowScene->SetDynamicLightShadowSize(key,256);
+    }
+    groundFlares[slot]={entity.index,frame,light};
+    std::copy_n(&entity.origin[0],3,&light->origin[0]);
+    light->origin[2]+=5.f;
+    // The renderer accumulates engine lights before multiplying by the
+    // material albedo. Keep the radius stable to reuse its BSP shadow map.
+    light->radius=520.f;
+    const int flicker=engine.pfnRandomLong(-3,3);
+    light->color={255,static_cast<byte>(151+flicker),static_cast<byte>(84+flicker)};
+    light->die=engine.GetClientTime()+.12f;
+}
+
+
 int ModelIndex(const char* path)
 {
     return engine.pEventAPI->EV_FindModelIndex(path);
@@ -63,7 +110,7 @@ void Illuminate(int entity, const Position& origin, bool flare)
 {
     if(!std::all_of(origin.begin(),origin.end(),[](float x){return std::isfinite(x);}))return;
     // Isolate these lights from the engine's player-keyed flashlight.
-    const int key=-0x4c00-entity;
+    const int key=LightKey(entity);
     auto* original=AllocateGuestCofPointLight(key);
     auto* native=(!original && engine.pEfxAPI && engine.pEfxAPI->CL_AllocDlight) ?
         engine.pEfxAPI->CL_AllocDlight(key) : nullptr;
@@ -104,6 +151,8 @@ void HeldLight(int index, LightPose& pose, const HeldModel& expected, bool flare
 
 void ResetCofLightEquipment()
 {
+    while(groundCount)ReleaseGroundFlare(groundCount-1);
+    shadowScene=nullptr;
     prepared=false; lanternWorld=flareWorld=0;
     lanternView={};lanternPlayer={};flareView={};flarePlayer={};
     localPose={};playerPoses={};frame=0;
@@ -115,6 +164,12 @@ void PrepareCofLightEquipment()
        !engine.pEventAPI || !engine.pEventAPI->EV_FindModelIndex || !studio.GetModelByIndex ||
        !studio.Mod_Extradata || !engine.GetViewModel || !engine.GetLocalPlayer || !engine.PM_TraceLine ||
        !engine.GetClientTime || !engine.pfnRandomLong || !engine.pfnRandomFloat)return;
+    if(api && api->GetPluginModuleHandleByBaseFileName){
+        auto module=api->GetPluginModuleHandleByBaseFileName("Renderer");
+        if(!module)module=api->GetPluginModuleHandleByBaseFileName("Renderer_AVX2");
+        auto factory=module?reinterpret_cast<CreateInterfaceFn>(GetProcAddress(HMODULE(module),"CreateInterface")):nullptr;
+        if(factory)shadowScene=static_cast<IMetaRendererScene*>(factory(METARENDERER_SCENE_INTERFACE_VERSION,nullptr));
+    }
     lanternView=Held(gear::Lantern.view,2); lanternPlayer=Held(gear::Lantern.player,2);
     flareView=Held(gear::Flare.view,1); flarePlayer=Held(gear::FlareLitPlayer,1);
     lanternWorld=ModelIndex(gear::Lantern.world); flareWorld=ModelIndex(gear::Flare.world);
@@ -153,6 +208,8 @@ void CofLightEquipmentView(const ref_params_s& params)
 {
     if(!prepared || params.nextView)return;
     ++frame;
+    for(unsigned i=groundCount;i>0;--i)
+        if(frame-groundFlares[i-1].lastFrame>1)ReleaseGroundFlare(i-1);
     const auto* local=engine.GetLocalPlayer();
     const auto* item=engine.GetViewModel();
     if(!local || !item || !item->model || params.spectator || params.health<=0 ||
@@ -178,6 +235,12 @@ void CofLightEquipmentEntity(const cl_entity_s& entity)
     const int index=entity.curstate.modelindex;
     if(index<=0)return;
     const bool flare=index==flareWorld && entity.curstate.body==1;
+    if(index==flareWorld && entity.curstate.solid==SOLID_TRIGGER){
+        if(flare)GroundLight(entity);
+        else for(unsigned i=0;i<groundCount;++i)
+            if(groundFlares[i].entity==entity.index){ReleaseGroundFlare(i);break;}
+        return;
+    }
     if(!flare && index!=lanternWorld)return;
     Illuminate(entity.index,{entity.origin[0],entity.origin[1],entity.origin[2]+(flare?5.f:6.f)},flare);
 }
