@@ -12,6 +12,7 @@ public plugin_init()
     register_srvcmd("cof_live_purchase", "Purchase");
     register_srvcmd("cof_live_famas_rays", "ArmFamasRays");
     register_srvcmd("cof_live_glock", "GlockActionState");
+    register_srvcmd("cof_live_glock_world", "GlockWorldProbe");
     register_srvcmd("cof_live_clear_batch", "ClearBatch");
     register_srvcmd("cof_live_round_protect", "RoundProtect");
     register_srvcmd("cof_live_test_funds", "TestFunds");
@@ -95,6 +96,8 @@ new glockOwner, glockUserid, glockItem, glockItemSerial, glockTarget, glockTarge
 new glockShots, glockSounds, glockHits, glockButtons;
 new bool:glockObserved;
 new HamHook:glockDamageHook;
+new glockEvent, glockFlags, glockB1, glockB2;
+new Float:glockDelay, Float:glockOrigin[3], Float:glockAngles[3], Float:glockF1, Float:glockF2;
 
 bool:ObservedGlock(id)
 {
@@ -105,6 +108,7 @@ bool:ObservedGlock(id)
 
 public GlockInput(id, cmd, seed)
 {
+    ReplayGlockOnActorCommand(id);
     if (!ObservedGlock(id)) return FMRES_IGNORED;
     new buttons = get_uc(cmd, UC_Buttons) & (IN_ATTACK | IN_ATTACK2 | 0x40);
     if (buttons != glockButtons)
@@ -119,8 +123,13 @@ public GlockPlayback(flags, id, event, Float:delay, const Float:origin[3], const
     Float:f1, Float:f2, originalWeapon, item, b1, b2)
 {
     if (originalWeapon == 3 && item == glockItem && ObservedGlock(id))
+    {
+        glockEvent = event; glockFlags = flags; glockDelay = delay;
+        glockOrigin = origin; glockAngles = angles;
+        glockF1 = f1; glockF2 = f2; glockB1 = b1; glockB2 = b2;
         server_print("[cof-glock] muzzle t=%.3f shot=%d owner=%d item=%d event=%d flags=%d",
             get_gametime(), ++glockShots, id, item, event, flags);
+    }
     return FMRES_IGNORED;
 }
 
@@ -177,6 +186,7 @@ public GlockActionState()
         }
         glockOwner = id; glockUserid = userid; glockItem = item; glockItemSerial = pev_serial(item);
         glockShots = glockSounds = glockHits = glockButtons = 0;
+        glockEvent = 0;
         glockTarget = glockTargetSerial = 0;
     }
     else if (!ObservedGlock(id)) return PLUGIN_HANDLED;
@@ -236,11 +246,71 @@ bool:OwnsActor(which)
         get_user_userid(id) == actorUserid[which] && pev_valid(id) && pev_serial(id) == actorSerial[which];
 }
 
+// Only this loopback fixture owns Lamp. Its native weapon and inventory stay
+// in place while the receiving client sees either of two real P models.
+new bool:glockReplayPending;
+new glockActorPreviousModel[64];
+
+public GlockWorldProbe()
+{
+    if (!IsolatedCoFMap() || read_argc() != 4 || !OwnsActor(Lamp)) return PLUGIN_HANDLED;
+    new actor = actorSlot[Lamp], id = read_argv_int(1), userid = read_argv_int(2);
+    if (!is_user_bot(actor) || !is_user_alive(actor) || id != glockOwner || userid != glockUserid)
+        return PLUGIN_HANDLED;
+    new action[12], model[64];
+    read_argv(3, action, charsmax(action));
+    if (equal(action, "restore"))
+    {
+        glockReplayPending = false;
+        if (glockActorPreviousModel[0])
+        {
+            set_entvar(actor, var_weaponmodel, glockActorPreviousModel);
+            glockActorPreviousModel[0] = 0;
+        }
+    }
+    else if (glockEvent && ObservedGlock(id))
+    {
+        if (equal(action, "model") && !glockActorPreviousModel[0])
+        {
+            get_entvar(id, var_weaponmodel, model, charsmax(model));
+            if (!equal(model, "models/guest/cof/glock/p_glock.mdl")) return PLUGIN_HANDLED;
+            get_entvar(actor, var_weaponmodel, glockActorPreviousModel, charsmax(glockActorPreviousModel));
+            if (!glockActorPreviousModel[0]) return PLUGIN_HANDLED;
+            set_entvar(actor, var_weaponmodel, model);
+        }
+        else if (equal(action, "fire")) glockReplayPending = true;
+        else return PLUGIN_HANDLED;
+    }
+    else return PLUGIN_HANDLED;
+    get_entvar(actor, var_weaponmodel, model, charsmax(model));
+    server_print("[cof-glock-world] action=%s actor=%d model=%s index=%d event=%d",
+        action, actor, model, engfunc(EngFunc_ModelIndex, model), glockEvent);
+    return PLUGIN_HANDLED;
+}
+
+ReplayGlockOnActorCommand(id)
+{
+    if (!glockReplayPending || id != actorSlot[Lamp]) return;
+    glockReplayPending = false;
+    if (!OwnsActor(Lamp) || !is_user_alive(id) || !glockEvent || !ObservedGlock(glockOwner)) return;
+    // PF_RunPlayerMove has bound host_client to this actor. Preserve every
+    // event argument from the observed purchase/shot except the invoker.
+    engfunc(EngFunc_PlaybackEvent, glockFlags, id, glockEvent, glockDelay, glockOrigin, glockAngles,
+        glockF1, glockF2, 3, glockItem, glockB1, glockB2);
+    server_print("[cof-glock-world] replay t=%.3f actor=%d item=%d event=%d flags=%d",
+        get_gametime(), id, glockItem, glockEvent, glockFlags);
+}
+
 public client_disconnected(id)
 {
     for (new which; which < SceneActors; which++)
     {
         if (actorSlot[which] != id) continue;
+        if (which == Lamp)
+        {
+            glockReplayPending = false;
+            glockActorPreviousModel[0] = 0;
+        }
         remove_task(TeammateMoveTask + which);
         if (which == Walker) walkerMoving = false;
         actorSlot[which] = actorUserid[which] = actorSerial[which] = 0;
