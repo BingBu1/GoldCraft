@@ -48,9 +48,24 @@ struct GroundFlare
 };
 std::array<GroundFlare,32> groundFlares{};
 unsigned groundCount{};
+constexpr int FlareBaseRadius=220;
 IMetaRendererScene* shadowScene{};
 
 int LightKey(int entity) { return -0x4c00-entity; }
+
+Position FlareColor()
+{
+    const float red=engine.pfnRandomFloat(-.5f,.5f);
+    const float other=engine.pfnRandomFloat(-.05f,.05f);
+    return {red+1.15f,other+.2f,other+.1f};
+}
+
+color24 NativeLightColor(const Position& color)
+{
+    // GoldSrc dlights store one byte per channel.
+    const auto channel=[](float x){return static_cast<byte>(std::clamp(x,0.f,1.f)*255.f+.5f);};
+    return {channel(color[0]),channel(color[1]),channel(color[2])};
+}
 
 void ReleaseGroundFlare(unsigned slot)
 {
@@ -79,9 +94,8 @@ void GroundLight(const cl_entity_s& entity)
     light->origin[2]+=5.f;
     // The renderer accumulates engine lights before multiplying by the
     // material albedo. Keep the radius stable to reuse its BSP shadow map.
-    light->radius=520.f;
-    const int flicker=engine.pfnRandomLong(-3,3);
-    light->color={255,static_cast<byte>(151+flicker),static_cast<byte>(84+flicker)};
+    light->radius=FlareBaseRadius;
+    light->color=NativeLightColor(FlareColor());
     light->die=engine.GetClientTime()+.12f;
 }
 
@@ -115,25 +129,18 @@ void Illuminate(int entity, const Position& origin, bool flare)
     auto* native=(!original && engine.pEfxAPI && engine.pEfxAPI->CL_AllocDlight) ?
         engine.pEfxAPI->CL_AllocDlight(key) : nullptr;
     if(!original && !native)return;
-    Position color{.4f,.4f,.4f};
-    if(flare){
-        const float red=engine.pfnRandomFloat(-.5f,.5f);
-        const float other=engine.pfnRandomFloat(-.05f,.05f);
-        color={red+1.15f,other+.2f,other+.1f};
-    }
+    const Position color=flare ? FlareColor() : Position{.4f,.4f,.4f};
     // The scenario doubles the lantern's reach. CoF's per-frame jitter,
     // attenuation curve and flare radius are shared by both rendering backends.
-    constexpr int lanternRadius=440, flareRadius=220;
+    constexpr int lanternRadius=440;
     const int flicker=flare?15:5;
-    const float radius=float((flare?flareRadius:lanternRadius)+engine.pfnRandomLong(-flicker,flicker));
+    const float radius=float((flare?FlareBaseRadius:lanternRadius)+engine.pfnRandomLong(-flicker,flicker));
     const float die=float(double(engine.GetClientTime())+.01);
     if(original){
         original->origin=origin; original->color=color; original->radius=radius; original->die=die;
     }else{
-        // The standalone engine dlight ABI carries one byte per channel.
-        const auto channel=[](float x){return static_cast<byte>(std::clamp(x,0.f,1.f)*255.f+.5f);};
         std::copy(origin.begin(),origin.end(),&native->origin[0]);
-        native->color={channel(color[0]),channel(color[1]),channel(color[2])};
+        native->color=NativeLightColor(color);
         native->radius=radius;native->die=die;
     }
 }
