@@ -40,14 +40,17 @@ unsigned frame{};
 LightPose localPose;
 std::array<LightPose,33> playerPoses;
 
-struct GroundFlare
+struct EquipmentLight
 {
     int entity{};
     unsigned lastFrame{};
     dlight_t* light{};
+    bool groundShadow{};
 };
-std::array<GroundFlare,32> groundFlares{};
-unsigned groundCount{};
+// GoldSrc has 32 engine dlight slots. Track only active equipment sources.
+std::array<EquipmentLight,32> equipmentLights{};
+unsigned lightCount{};
+constexpr float NativeRefreshWindow=.12f;
 constexpr int FlareBaseRadius=220;
 IMetaRendererScene* shadowScene{};
 
@@ -67,36 +70,45 @@ color24 NativeLightColor(const Position& color)
     return {channel(color[0]),channel(color[1]),channel(color[2])};
 }
 
-void ReleaseGroundFlare(unsigned slot)
+void ReleaseEquipmentLight(unsigned slot)
 {
-    const auto& flare=groundFlares[slot];
-    const int key=LightKey(flare.entity);
-    if(flare.light && flare.light->key==key)flare.light->radius=0;
-    if(shadowScene)shadowScene->SetDynamicLightShadowSize(key,0);
-    groundFlares[slot]=groundFlares[--groundCount];
+    const auto& entry=equipmentLights[slot];
+    const int key=LightKey(entry.entity);
+    if(entry.light->key==key)entry.light->radius=0;
+    if(entry.groundShadow && shadowScene)shadowScene->SetDynamicLightShadowSize(key,0);
+    equipmentLights[slot]=equipmentLights[--lightCount];
+}
+
+dlight_t* RefreshNativeLight(int entity,bool groundShadow)
+{
+    if(!engine.pEfxAPI || !engine.pEfxAPI->CL_AllocDlight)return nullptr;
+    const int key=LightKey(entity);
+    unsigned slot=0;
+    while(slot<lightCount && equipmentLights[slot].entity!=entity)++slot;
+    if(slot==equipmentLights.size())return nullptr;
+    auto* light=engine.pEfxAPI->CL_AllocDlight(key);
+    if(!light)return nullptr;
+    const bool hadShadow=slot<lightCount && equipmentLights[slot].groundShadow;
+    if(slot==lightCount)++lightCount;
+    if(hadShadow!=groundShadow && shadowScene)
+        shadowScene->SetDynamicLightShadowSize(key,groundShadow?256:0);
+    equipmentLights[slot]={entity,frame,light,groundShadow};
+    // The Renderer collects engine lights before the next view submits its poses.
+    // Keep the light across that boundary, then retire it when submissions stop.
+    light->die=engine.GetClientTime()+NativeRefreshWindow;
+    return light;
 }
 
 void GroundLight(const cl_entity_s& entity)
 {
-    if(!engine.pEfxAPI || !engine.pEfxAPI->CL_AllocDlight)return;
-    const int key=LightKey(entity.index);
-    unsigned slot=0;
-    while(slot<groundCount && groundFlares[slot].entity!=entity.index)++slot;
-    if(slot==groundCount && slot==groundFlares.size())return;
-    auto* light=engine.pEfxAPI->CL_AllocDlight(key);
+    auto* light=RefreshNativeLight(entity.index,true);
     if(!light)return;
-    if(slot==groundCount){
-        ++groundCount;
-        if(shadowScene)shadowScene->SetDynamicLightShadowSize(key,256);
-    }
-    groundFlares[slot]={entity.index,frame,light};
     std::copy_n(&entity.origin[0],3,&light->origin[0]);
     light->origin[2]+=5.f;
     // The renderer accumulates engine lights before multiplying by the
     // material albedo. Keep the radius stable to reuse its BSP shadow map.
     light->radius=FlareBaseRadius;
     light->color=NativeLightColor(FlareColor());
-    light->die=engine.GetClientTime()+.12f;
 }
 
 
@@ -125,23 +137,23 @@ void Illuminate(int entity, const Position& origin, bool flare)
     if(!std::all_of(origin.begin(),origin.end(),[](float x){return std::isfinite(x);}))return;
     // Isolate these lights from the engine's player-keyed flashlight.
     const int key=LightKey(entity);
-    auto* original=AllocateGuestCofPointLight(key);
-    auto* native=(!original && engine.pEfxAPI && engine.pEfxAPI->CL_AllocDlight) ?
-        engine.pEfxAPI->CL_AllocDlight(key) : nullptr;
-    if(!original && !native)return;
+    // Native material lighting reaches Studio players, held models and the world.
+    // The guest fallback draws only BSP and brush surfaces.
+    auto* native=RefreshNativeLight(entity,false);
+    auto* brushLight=native ? nullptr : AllocateGuestCofPointLight(key);
+    if(!native && !brushLight)return;
     const Position color=flare ? FlareColor() : Position{.4f,.4f,.4f};
-    // The scenario doubles the lantern's reach. CoF's per-frame jitter,
-    // attenuation curve and flare radius are shared by both rendering backends.
+    // The scenario doubles the lantern's reach and keeps the CoF radius variation.
     constexpr int lanternRadius=440;
     const int flicker=flare?15:5;
     const float radius=float((flare?FlareBaseRadius:lanternRadius)+engine.pfnRandomLong(-flicker,flicker));
-    const float die=float(double(engine.GetClientTime())+.01);
-    if(original){
-        original->origin=origin; original->color=color; original->radius=radius; original->die=die;
-    }else{
+    if(native){
         std::copy(origin.begin(),origin.end(),&native->origin[0]);
         native->color=NativeLightColor(color);
-        native->radius=radius;native->die=die;
+        native->radius=radius;
+    }else{
+        brushLight->origin=origin; brushLight->color=color;
+        brushLight->radius=radius; brushLight->die=float(double(engine.GetClientTime())+.01);
     }
 }
 
@@ -158,7 +170,7 @@ void HeldLight(int index, LightPose& pose, const HeldModel& expected, bool flare
 
 void ResetCofLightEquipment()
 {
-    while(groundCount)ReleaseGroundFlare(groundCount-1);
+    while(lightCount)ReleaseEquipmentLight(lightCount-1);
     shadowScene=nullptr;
     prepared=false; lanternWorld=flareWorld=0;
     lanternView={};lanternPlayer={};flareView={};flarePlayer={};
@@ -215,8 +227,8 @@ void CofLightEquipmentView(const ref_params_s& params)
 {
     if(!prepared || params.nextView)return;
     ++frame;
-    for(unsigned i=groundCount;i>0;--i)
-        if(frame-groundFlares[i-1].lastFrame>1)ReleaseGroundFlare(i-1);
+    for(unsigned i=lightCount;i>0;--i)
+        if(frame-equipmentLights[i-1].lastFrame>1)ReleaseEquipmentLight(i-1);
     const auto* local=engine.GetLocalPlayer();
     const auto* item=engine.GetViewModel();
     if(!local || !item || !item->model || params.spectator || params.health<=0 ||
@@ -244,8 +256,8 @@ void CofLightEquipmentEntity(const cl_entity_s& entity)
     const bool flare=index==flareWorld && entity.curstate.body==1;
     if(index==flareWorld && entity.curstate.solid==SOLID_TRIGGER){
         if(flare)GroundLight(entity);
-        else for(unsigned i=0;i<groundCount;++i)
-            if(groundFlares[i].entity==entity.index){ReleaseGroundFlare(i);break;}
+        else for(unsigned i=0;i<lightCount;++i)
+            if(equipmentLights[i].entity==entity.index){ReleaseEquipmentLight(i);break;}
         return;
     }
     if(!flare && index!=lanternWorld)return;

@@ -20,6 +20,7 @@ public plugin_init()
     register_srvcmd("cof_live_join", "Join");
     register_srvcmd("cof_live_burn_wave", "BurnWave");
     register_srvcmd("cof_live_burn_teammate", "BurnTeammate");
+    register_srvcmd("cof_live_flashlight_scene", "FlashlightScene");
     RegisterHookChain(RG_CBasePlayer_Spawn, "TeammateSpawned", true);
 }
 
@@ -99,32 +100,42 @@ new burnFlare, burnSerial, burnCount, burnTargets[sizeof burnCenters], burnTarge
 new burnHits[sizeof burnCenters], bool:burnDead[sizeof burnCenters];
 new HamHook:burnHook;
 new const Float:burnOrigin[3] = {-2000.0, 1288.0, 0.03125};
-new teammate, teammateUserid, teammateSerial;
+enum { Lamp, Walker, SceneActors };
+new actorSlot[SceneActors], actorUserid[SceneActors], actorSerial[SceneActors];
 const TeammateMoveTask = 31871;
+new bool:walkerMoving;
+new Float:walkerDestination;
 
-bool:OwnsTeammate(id)
+bool:OwnsActor(which)
 {
-    return id > 0 && id == teammate && is_user_connected(id) && teammateUserid > 0 &&
-        get_user_userid(id) == teammateUserid && pev_valid(id) && pev_serial(id) == teammateSerial;
+    new id = actorSlot[which];
+    return id > 0 && is_user_connected(id) && actorUserid[which] > 0 &&
+        get_user_userid(id) == actorUserid[which] && pev_valid(id) && pev_serial(id) == actorSerial[which];
 }
 
 public client_disconnected(id)
 {
-    if (id != teammate) return;
-    remove_task(TeammateMoveTask);
-    teammate = teammateUserid = teammateSerial = 0;
+    for (new which; which < SceneActors; which++)
+    {
+        if (actorSlot[which] != id) continue;
+        remove_task(TeammateMoveTask + which);
+        if (which == Walker) walkerMoving = false;
+        actorSlot[which] = actorUserid[which] = actorSerial[which] = 0;
+    }
 }
 
 public plugin_end()
 {
-    if (OwnsTeammate(teammate))
-        rh_drop_client(teammate, "CoF flare fixture finished");
+    for (new which; which < SceneActors; which++)
+        if (OwnsActor(which)) rh_drop_client(actorSlot[which], "CoF fixture finished");
 }
 
 public TeammateSpawned(id)
 {
-    if (OwnsTeammate(id) && pev_valid(id) == 2 && IsReapiHookOriginalWasCalled(RG_CBasePlayer_Spawn))
+    if (pev_valid(id) != 2 || !IsReapiHookOriginalWasCalled(RG_CBasePlayer_Spawn)) return HC_CONTINUE;
+    for (new which; which < SceneActors; which++)
     {
+        if (id != actorSlot[which] || !OwnsActor(which)) continue;
         set_entvar(id, var_flags, get_entvar(id, var_flags) | FL_FAKECLIENT | FL_CLIENT);
         if (get_member(id, m_iTeam) == TEAM_CT && is_user_alive(id))
             set_entvar(id, var_takedamage, DAMAGE_NO);
@@ -132,40 +143,148 @@ public TeammateSpawned(id)
     return HC_CONTINUE;
 }
 
-public MoveTeammate()
+public MoveTeammate(task)
 {
-    if (!OwnsTeammate(teammate) || pev_valid(teammate) != 2 || !is_user_bot(teammate)) return;
+    new which = task - TeammateMoveTask;
+    new id = actorSlot[which];
+    if (!OwnsActor(which) || pev_valid(id) != 2 || !is_user_bot(id)) return;
     new Float:angles[3];
-    get_entvar(teammate, var_v_angle, angles);
-    engfunc(EngFunc_RunPlayerMove, teammate, angles, 0.0, 0.0, 0.0, 0, 0, 100);
+    get_entvar(id, var_v_angle, angles);
+    new Float:speed;
+    if (which == Walker && walkerMoving)
+    {
+        new Float:position[3];
+        get_entvar(id, var_origin, position);
+        new Float:remaining = walkerDestination - position[0];
+        if (floatabs(remaining) < 1.0)
+        {
+            walkerMoving = false;
+            set_entvar(id, var_velocity, Float:{0.0, 0.0, 0.0});
+        }
+        else
+            speed = floatclamp(remaining * 4.0, -140.0, 140.0);
+        angles[0] = angles[1] = angles[2] = 0.0;
+    }
+    engfunc(EngFunc_RunPlayerMove, id, angles, speed, 0.0, 0.0, 0, 0, 100);
 }
 
-public BurnTeammate()
+bool:IsolatedCoFMap()
 {
     new map[32], host[64], ip[32];
     get_mapname(map, charsmax(map));
     get_cvar_string("hostname", host, charsmax(host));
     get_cvar_string("ip", ip, charsmax(ip));
-    if (read_argc() != 1 || !equal(map, "zs_deadend") || get_cvar_num("csol_game_mode") != 2 ||
-        !equal(ip, "127.0.0.1") || !equal(host, "GoldCraft isolated CoF cold") || teammate)
-        return PLUGIN_HANDLED;
-    new id = engfunc(EngFunc_CreateFakeClient, "CoF_Flare_Teammate");
-    if (id < 1 || id > MaxClients || !is_user_connected(id) || !is_user_bot(id)) return PLUGIN_HANDLED;
+    return equal(map, "zs_deadend") && get_cvar_num("csol_game_mode") == 2 &&
+        equal(ip, "127.0.0.1") && equal(host, "GoldCraft isolated CoF cold");
+}
+
+AddFixtureActor(which, const name[])
+{
+    if (actorSlot[which]) return;
+    new id = engfunc(EngFunc_CreateFakeClient, name);
+    if (id < 1 || id > MaxClients || !is_user_connected(id) || !is_user_bot(id)) return;
     if (pev_valid(id) == 2) engfunc(EngFunc_FreeEntPrivateData, id);
-    teammate = id;
-    teammateUserid = get_user_userid(id);
-    teammateSerial = pev_serial(id);
+    actorSlot[which] = id;
+    actorUserid[which] = get_user_userid(id);
+    actorSerial[which] = pev_serial(id);
     set_pev(id, pev_flags, pev(id, pev_flags) | FL_FAKECLIENT | FL_CLIENT);
     dllfunc(DLLFunc_ClientPutInServer, id);
-    if (!OwnsTeammate(id) || pev_valid(id) != 2) return PLUGIN_HANDLED;
+    if (!OwnsActor(which) || pev_valid(id) != 2) return;
     set_entvar(id, var_flags, get_entvar(id, var_flags) | FL_FAKECLIENT | FL_CLIENT);
     set_member(id, m_iMenu, Menu_ChooseTeam);
     set_member(id, m_iJoiningState, PICKINGTEAM);
     engclient_cmd(id, "jointeam", "2");
-    if (!OwnsTeammate(id) || get_member(id, m_iTeam) != TEAM_CT ||
-        get_member(id, m_iMenu) != Menu_ChooseAppearance) return PLUGIN_HANDLED;
+    if (!OwnsActor(which) || get_member(id, m_iTeam) != TEAM_CT ||
+        get_member(id, m_iMenu) != Menu_ChooseAppearance) return;
     engclient_cmd(id, "joinclass", "1");
-    if (OwnsTeammate(id)) set_task(0.1, "MoveTeammate", TeammateMoveTask, _, _, "b");
+    if (OwnsActor(which)) set_task(0.1, "MoveTeammate", TeammateMoveTask + which, _, _, "b");
+}
+
+public BurnTeammate()
+{
+    if (read_argc() == 1 && IsolatedCoFMap()) AddFixtureActor(Lamp, "CoF_Flare_Teammate");
+    return PLUGIN_HANDLED;
+}
+
+// Fixed side view. The holder uses the same select command and impulse as a human.
+// The second CT can occupy the beam while its body stays clear of the sampled wall.
+bool:PlaceStandingPlayer(id, const Float:position[3])
+{
+    new trace = create_tr2();
+    engfunc(EngFunc_TraceHull, position, position, DONT_IGNORE_MONSTERS, HULL_HUMAN, id, trace);
+    new blocked = get_tr2(trace, TR_StartSolid) || get_tr2(trace, TR_AllSolid);
+    free_tr2(trace);
+    if (blocked) return false;
+    set_entvar(id, var_velocity, Float:{0.0, 0.0, 0.0});
+    engfunc(EngFunc_SetOrigin, id, position);
+    return true;
+}
+
+public FlashlightScene()
+{
+    if (!IsolatedCoFMap()) return PLUGIN_HANDLED;
+    new action[12];
+    read_argv(1, action, charsmax(action));
+    if (read_argc() == 2 && equal(action, "actors"))
+    {
+        AddFixtureActor(Lamp, "CoF_Flare_Teammate");
+        AddFixtureActor(Walker, "CoF_Light_Walker");
+        return PLUGIN_HANDLED;
+    }
+    if (read_argc() != 4) return PLUGIN_HANDLED;
+    new slot[12], user[12], address[32];
+    read_argv(2, slot, charsmax(slot)); read_argv(3, user, charsmax(user));
+    new id = str_to_num(slot);
+    if (!Human(id, str_to_num(user)) || !is_user_alive(id)) return PLUGIN_HANDLED;
+    get_user_ip(id, address, charsmax(address), 1);
+    if (!equal(address, "127.0.0.1")) return PLUGIN_HANDLED;
+    for (new which; which < SceneActors; which++)
+    {
+        if (!OwnsActor(which) || !is_user_alive(actorSlot[which]) ||
+            get_member(actorSlot[which], m_iTeam) != TEAM_CT)
+        {
+            server_print("[lamp-scene] actor %d unavailable slot=%d", which, actorSlot[which]);
+            return PLUGIN_HANDLED;
+        }
+    }
+    new lamp = actorSlot[Lamp], walker = actorSlot[Walker];
+    new const Float:aim[3] = {0.0, -90.0, 0.0};
+    if (equal(action, "pose"))
+    {
+        if (!PlaceStandingPlayer(id, Float:{-1824.0, 1256.0, 36.03125}) ||
+            !PlaceStandingPlayer(lamp, Float:{-2020.0, 1300.0, 36.03125}) ||
+            !PlaceStandingPlayer(walker, Float:{-2144.0, 1200.0, 36.03125}))
+        {
+            server_print("[lamp-scene] occupied pose");
+            return PLUGIN_HANDLED;
+        }
+        walkerMoving = false;
+        // Real clients acknowledge the spawn angle. Server-only actors never receive that message.
+        // ReHLDS copies usercmd angles into both v_angle and replicated angles only with fixangle clear.
+        set_entvar(lamp, var_fixangle, 0);
+        set_entvar(walker, var_fixangle, 0);
+        set_entvar(lamp, var_v_angle, aim);
+        engfunc(EngFunc_RunPlayerMove, lamp, aim, 0.0, 0.0, 0.0, 0, 0, 100);
+    }
+    else if (equal(action, "select")) engclient_cmd(lamp, "goldcraft_night_flashlight");
+    else if (equal(action, "toggle"))
+        engfunc(EngFunc_RunPlayerMove, lamp, aim, 0.0, 0.0, 0.0, 0, 100, 100);
+    else if (equal(action, "cross") || equal(action, "clear"))
+    {
+        walkerDestination = equal(action, "cross") ? -2030.0 : -2144.0;
+        walkerMoving = true;
+    }
+    else if (!equal(action, "status")) return PLUGIN_HANDLED;
+    new Float:pos[3], Float:view[3], model[64];
+    for (new which; which < SceneActors; which++)
+    {
+        new actor = actorSlot[which];
+        get_entvar(actor, var_origin, pos); get_entvar(actor, var_angles, view);
+        get_entvar(actor, var_weaponmodel, model, charsmax(model));
+        server_print("[lamp-scene] role=%d slot=%d userid=%d xyz=%.2f,%.2f,%.2f yaw=%.2f lit=%d weapon=%s moving=%d",
+            which, actor, actorUserid[which], pos[0], pos[1], pos[2], view[1],
+            !!(get_entvar(actor, var_effects) & EF_DIMLIGHT), model, which == Walker && walkerMoving);
+    }
     return PLUGIN_HANDLED;
 }
 // Fixed camera and resting position for comparing rendered frames across builds.
@@ -228,8 +347,8 @@ public BurnSetup()
     {
         new mode[12];
         read_argv(3,mode,charsmax(mode));
-        if (!equal(mode,"credit") || !OwnsTeammate(teammate) || !is_user_alive(teammate) ||
-            get_member(teammate,m_iTeam)!=TEAM_CT) return PLUGIN_HANDLED;
+        if (!equal(mode,"credit") || !OwnsActor(Lamp) || !is_user_alive(actorSlot[Lamp]) ||
+            get_member(actorSlot[Lamp],m_iTeam)!=TEAM_CT) return PLUGIN_HANDLED;
         required = sizeof burnCenters;
     }
     else if (read_argc() != 3) return PLUGIN_HANDLED;
@@ -401,10 +520,10 @@ public Status()
         get_member_game(m_bFreezePeriod), get_member_game(m_bRoundTerminating));
     for(new id=1;id<=MaxClients;id++)
         if(is_user_connected(id)&&!is_user_bot(id)&&!is_user_hltv(id))Inspect(id);
-    if (OwnsTeammate(teammate) && pev_valid(teammate)==2)
+    if (OwnsActor(Lamp) && pev_valid(actorSlot[Lamp])==2)
         server_print("[cof-burn] teammate=%d userid=%d serial=%d bot=%d alive=%d team=%d frags=%d",
-            teammate,teammateUserid,teammateSerial,is_user_bot(teammate),is_user_alive(teammate),
-            get_member(teammate,m_iTeam),get_user_frags(teammate));
+            actorSlot[Lamp],actorUserid[Lamp],actorSerial[Lamp],is_user_bot(actorSlot[Lamp]),is_user_alive(actorSlot[Lamp]),
+            get_member(actorSlot[Lamp],m_iTeam),get_user_frags(actorSlot[Lamp]));
     return PLUGIN_HANDLED;
 }
 
