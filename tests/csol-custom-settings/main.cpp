@@ -164,7 +164,9 @@ void GroupedVersion2()
         const std::string key(feature.key);
         Require(document["features"].HasMember(key.c_str()), "generated group uses existing stable feature key");
         const auto& group = document["features"][key.c_str()];
-        Require(group.IsObject() && group.MemberCount() == 3 && group.HasMember("enabled") &&
+        const bool blindBox = feature.id == Feature::BlindBox;
+        Require(group.IsObject() && group.MemberCount() == (blindBox ? 4u : 3u) &&
+            group.HasMember("pools") == blindBox && group.HasMember("enabled") &&
             group.HasMember("comment") && group.HasMember("values"), "feature toggle explanation and values are colocated");
         Check(group["enabled"].IsBool() && group["comment"].IsString() && group["values"].IsObject(),
             "group uses editable boolean and adjacent prose without a comments lookup");
@@ -228,6 +230,33 @@ void GroupedVersion2()
     Reject(Grouped(R"("cof_sprint":{"enabled":false,"comment":"x","values":{"sprint_maximum":{"value":"100","comment":"a"}}})"), "grouped numeric string rejected");
     Reject(Grouped(R"("cof_sprint":{"enabled":false,"comment":"x","values":{"sprint_maximum":{"value":100,"comment":false}}})"), "grouped nonstring numeric explanation rejected");
     Reject(Grouped(R"("time_cycle":{"enabled":false,"comment":"x","values":{"midday_seconds":{"value":0,"comment":"a"}}})"), "grouped range validation remains strict");
+}
+void BlindBoxPools()
+{
+    const auto groupedPools = [](std::string_view pools) {
+        return Grouped(std::string(R"("blind_box":{"enabled":true,"comment":"盲盒","values":{},"pools":)") +
+            std::string(pools) + '}');
+    };
+    const auto defaults = Read(Document());
+    for (const auto& box : BlindBoxes())
+    {
+        Check(FindBlindBox(box.key) == box.id && !defaults->Pool(box.id).empty() &&
+            !defaults->Comment(box.id).empty(), "legacy documents receive a default pool for each category");
+    }
+    const auto edited = Read(groupedPools(R"({"cof":{"comment":"客串权重","weapons":[{"weapon":"cof_glock","weight":0},{"weapon":"cof_p345","weight":17}]},"cs16":{"comment":"暂停发放","weapons":[]}})"));
+    const auto restored = Read(Serialize(*edited));
+    const auto cof = restored->Pool(BlindBox::Cof);
+    Check(cof.size() == 2 && cof[0].weapon == "cof_glock" && cof[0].weight == 0 &&
+        cof[1].weapon == "cof_p345" && cof[1].weight == 17 && restored->Comment(BlindBox::Cof) == "客串权重",
+        "weights, disabled entries and Chinese explanations survive save and reload");
+    Check(restored->Pool(BlindBox::CounterStrike).empty() && !restored->Pool(BlindBox::Csol).empty(),
+        "explicitly empty and omitted reward pools have distinct meanings");
+    Reject(groupedPools(R"({"csol":{"comment":"x","weapons":[{"weapon":"k3","weight":1},{"weapon":"k3","weight":2}]}})"),
+        "duplicate catalog alias cannot silently increase the configured weight");
+    Reject(groupedPools(R"({"csol":{"comment":"x","weapons":[{"weapon":"k3","weight":1000001}]}})"),
+        "a reward weight above the bound is rejected");
+    Reject(groupedPools(R"({"csol":{"comment":"x","weapons":[{"weapon":"k3","weight":0.5}]}})"),
+        "fractional weight is rejected");
 }
 void FeatureRequirements()
 {
@@ -324,7 +353,7 @@ int main(int argc, char** argv)
             if (!defaults.Finish(value, error)) throw std::runtime_error(error.message);
             std::cout << Serialize(*value); return 0;
         }
-        Defaults(); InputValidation(); RoundTrip(); FeatureRequirements(); DraftValidation(); HotReads(); GroupedVersion2();
+        Defaults(); InputValidation(); RoundTrip(); FeatureRequirements(); DraftValidation(); HotReads(); GroupedVersion2(); BlindBoxPools();
     }
     catch (const std::exception& error) { ++failures; std::cerr << "ERROR " << error.what() << '\n'; }
     std::cout << "checks=" << checks << " failures=" << failures << '\n';

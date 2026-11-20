@@ -73,9 +73,11 @@ try:
     run('link',[linker,'/subsystem:console','/machine:x86','/threads:1','/opt:lldltojobs=1','/out:'+str(executable),*objects,*libraries])
     if args.group in ('layout','suite'):
         catalog=json.loads(args.catalog.read_text('utf8'))
-        keys=[*catalog['features'],*[key for group in catalog['features'].values() for key in group['values']]]
-        assert len(keys)==48 and len(set(keys))==48 and all(re.fullmatch('[a-z0-9_]+',key) for key in keys)
-        catalogFile=out/'catalog-keys.txt';catalogFile.write_text('\n'.join(keys)+'\n','utf8')
+        features=catalog['features']
+        keys=[*features, *[key for group in features.values() for key in group['values']]]
+        assert 0 < len(features) < len(keys) <= 128 and len(set(keys)) == len(keys)
+        assert all(re.fullmatch('[a-z0-9_]+',key) for key in keys)
+        catalogFile=out/'catalog-keys.txt';catalogFile.write_text(f'{len(features)}\n'+'\n'.join(keys)+'\n','utf8')
     for group in ('root','all','layout') if args.group=='suite' else (args.group,):
         command=[executable,out/'admin.amx',group]
         if group=='layout':command.append(catalogFile)

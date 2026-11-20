@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Actual server adapter, Store/worker/JSON and CreateInterface registry. Only
-// named engine/mode edges and the kick-policy output are controlled here.
+// named engine/mode edges, the kick policy and the reward pool output are controlled here.
 #include "precompiled.h"
+#include "../../native/csol/server/buy_menu.h"
 #include "../../native/csol/server/custom/gameplay_settings.h"
 #include "goldcraft/csol_gameplay_settings_api.hpp"
 
@@ -36,6 +37,8 @@ std::array<int, 33> userids;
 struct Cvar { cvar_t* native{}; std::string text; };
 std::map<std::string, Cvar> cvars;
 std::vector<bool> policies;
+std::array<std::size_t, custom::BlindBoxCount> preparedPoolSizes{};
+unsigned poolPreparations{};
 std::vector<std::string> alerts;
 std::function<void()> onCvarSet, onUserid;
 csol::IGameplaySettingsService* service{};
@@ -134,13 +137,17 @@ void Init()
     Check(registrations == int(custom::FeatureCount + custom::SettingCount), "all feature and numeric CVARs register once");
     const int before = registrations; CSOL_InitGameplaySettings();
     Check(registrations == before, "duplicate initialization does not recreate file owner or CVARs");
+    Check(poolPreparations == 1, "startup prepares the reward pools once");
+    for (const auto& box : custom::BlindBoxes())
+        Check(preparedPoolSizes[static_cast<std::size_t>(box.id)] == Disk()->Pool(box.id).size(),
+            "reward pool boundary receives the persisted category contents");
     CheckMirrors();
     for (int id = 0; id < state.count; ++id)
     {
         csol::GameplaySetting field; Require(service->Read(id, field), "real service exposes each typed descriptor");
         Check(field.id == id && field.key[0] && field.cvar[0] && field.comment[0], "every service field retains identity and explanation");
         if (id < int(custom::FeatureCount))
-            Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::TimeCycle) || id == int(custom::Feature::DamageRefundCap) ||
+            Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::TimeCycle) || id == int(custom::Feature::BlindBox) || id == int(custom::Feature::DamageRefundCap) ||
                 id == int(custom::Feature::NightPlayerLights) || id == int(custom::Feature::CofSprint) ||
                 id == int(custom::Feature::DuskBuff) || id == int(custom::Feature::NightBuff) ||
                 id == int(custom::Feature::ZombiePopulation) || id == int(custom::Feature::RandomHorde)),
@@ -205,6 +212,19 @@ void Negative()
 void Writer()
 {
     Init(); Negative();
+    Check(!CSOL_ReadBlindBoxPrices(), "disabled blind boxes expose no live quote");
+    Set("csol_custom_blind_box", "1");
+    auto prices = CSOL_ReadBlindBoxPrices();
+    Check(prices && *prices == std::array{3000, 6000, 9000}, "live quotes use the three registered CS prices");
+    Set("csol_custom_blind_box_price_2", "3000");
+    Check(!CSOL_ReadBlindBoxPrices(), "equal effective prices disable all quotes");
+    Set("csol_custom_blind_box_price_2", "6000.5");
+    Check(!CSOL_ReadBlindBoxPrices(), "fractional effective prices disable all quotes");
+    Set("csol_custom_blind_box_price_2", "6001");
+    prices = CSOL_ReadBlindBoxPrices();
+    Check(prices && (*prices)[1] == 6001, "in-range live quote reflects a temporary CVAR edit");
+    Set("csol_custom_blind_box_price_2", "6000");
+    Set("csol_custom_blind_box", "0");
     const auto savedTime = CSOL_CustomSettings();
     const auto savedFile = Bytes(Target());
     custom::TimeCycleControls controls;
@@ -350,6 +370,13 @@ void InvalidStartup()
 }
 int CSOL_LockedGameMode() { return test::mode; }
 bool CSOL_ScenarioTimeCycleReady() { return test::timeReady; }
+void CSOL_PrepareBlindBoxPools(const csol::scenario::custom::Snapshot& settings)
+{
+    test::EngineThread();
+    ++test::poolPreparations;
+    for (const auto& box : csol::scenario::custom::BlindBoxes())
+        test::preparedPoolSizes[static_cast<std::size_t>(box.id)] = settings.Pool(box.id).size();
+}
 void CSOL_SetHumanKickPolicy(bool value)
 {
     test::EngineThread(); test::policies.push_back(value);

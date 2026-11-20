@@ -11,6 +11,7 @@ void CSOL_PollGameplaySettings();
 void CSOL_ShutdownGameplaySettings();
 bool CSOL_CustomFeatureEnabled(csol::scenario::custom::Feature feature);
 csol::scenario::custom::SnapshotPtr CSOL_CustomSettings();
+std::optional<std::array<int, csol::scenario::custom::BlindBoxCount>> CSOL_ReadBlindBoxPrices();
 bool CSOL_ReadTimeCycleControls(csol::scenario::custom::TimeCycleControls& output);
 bool CSOL_ReadNightLightingControls(csol::scenario::custom::NightLightingConfig& output);
 csol::scenario::custom::MonsterPhaseBuff CSOL_ReadMonsterPhaseBuff(csol::scenario::custom::Phase phase);

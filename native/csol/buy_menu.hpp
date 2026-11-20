@@ -42,6 +42,7 @@ constexpr int RebuyOrder(const Item& item)
 { return IsAmmunition(item.id) ? 2 : IsEquipment(item.id) ? 1 : 0; }
 std::span<const Item> Catalog();
 const Item* Find(int id);
+const Item* Find(std::string_view alias);
 struct WeaponInfoItem {
     unsigned itemId{};
     std::string name,description;

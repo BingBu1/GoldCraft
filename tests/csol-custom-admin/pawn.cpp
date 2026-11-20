@@ -4,6 +4,7 @@
 #define main legacy_scenario_admin_fixture_main
 #include "../csol-scenario-admin/pawn.cpp"
 #undef main
+#include <array>
 #include <bit>
 #include <cmath>
 #include <cstdio>
@@ -17,6 +18,7 @@ struct State : Context
     int userid{71}, revision{5}, status{2}, busy{}, edits{}, editIndex{-1}, expectedUserid{}, expectedRevision{};
     bool settingsAvailable{true}, immediateSaved{};
     float editValue{};
+    std::array<float, 4> blindBoxCvars{0, 3000, 6000, 9000};
     std::string error;
     std::vector<Field> fields{{"kick", "踢击开关，可反复修改。",0,1,0,1},
         {"midday_seconds","正午持续秒数。",1,180,1,86400,1},
@@ -37,6 +39,19 @@ struct State : Context
 };
 State* state{};
 cell AMX_NATIVE_CALL Userid(AMX*,cell*){return state->userid;}
+cell AMX_NATIVE_CALL CustomCvarPointer(AMX* amx, cell* params)
+{
+    const auto name = Read(amx, params[1]);
+    if (name == "csol_custom_blind_box") return 3;
+    if (name == "csol_custom_blind_box_price_1") return 4;
+    if (name == "csol_custom_blind_box_price_2") return 5;
+    if (name == "csol_custom_blind_box_price_3") return 6;
+    return Pointer(amx, params);
+}
+cell AMX_NATIVE_CALL CvarFloat(AMX*, cell* params)
+{
+    return std::bit_cast<cell>(state->blindBoxCvars.at(params[1] - 3));
+}
 cell AMX_NATIVE_CALL Notice(AMX* amx,cell* p)
 {
     auto text=Read(amx,p[3]);int argument=4;
@@ -123,6 +138,7 @@ cell AMX_NATIVE_CALL Edit(AMX*,cell* p)
 }
 const AMX_NATIVE_INFO overrides[]{
     {"get_user_userid",Userid},{"client_print",Notice},{"console_print",ConsoleNotice},{"min",Minimum},
+    {"get_cvar_pointer",CustomCvarPointer},{"get_pcvar_float",CvarFloat},
     {"menu_setprop",Property},{"client_cmd",Command},{"engclient_cmd",EngineCommand},{"formatex",Format},
     {"set_task",Task},{"remove_task",RemoveTask},{"float",Float},{"floatround",FloatRound},{"str_to_float",FloatString},
     {"floatcmp",FloatCmp},{"floatadd",FloatAdd},{"floatsub",FloatSub},{"floatmul",FloatMul},{"floatdiv",FloatDiv},
@@ -207,6 +223,36 @@ void RootCases()
     {VM v;v.Call("CommandChooseTeam",{1});const int old=v.s.shown;v.Call("CommandChooseTeam",{1});const int fresh=v.s.shown;
         const auto destroys=v.s.destroys;v.Call("PlayerMenuHandler",{1,old,0});
         Check(v.s.engineCommands.empty()&&v.s.shown==fresh&&v.s.destroys==destroys,"old root handler cannot close newer root or dispatch a command");}
+    for (int item = 0; item <= 3; ++item)
+    {
+        VM v;
+        v.s.flags = 0;
+        v.s.blindBoxCvars[0] = 1;
+        v.Call("CommandChooseTeam", {1});
+        v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        const auto purchase = v.s.shown;
+        const auto& menu = v.s.menus.at(purchase);
+        Check(menu.handler == "PurchaseMenuHandler" && menu.items.size() == 4 && v.s.engineCommands.empty(),
+            "ordinary player sees standard buying and three configured boxes");
+        const std::array<std::string_view, 4> keys{"", "cof", "cs16", "csol"};
+        const std::array<std::string_view, 4> quotes{"", "3000", "6000", "9000"};
+        v.s.blindBoxCvars[1] = 3500;
+        v.Call("PurchaseMenuHandler", {1, purchase, item});
+        const auto& command = v.s.engineCommands.at(0);
+        Check(command.command == (item ? "csol_blindbox" : "buy") && command.arg1 == keys[item] &&
+            command.arg2 == quotes[item] && command.menuDestroyed,
+            "purchase menu sends the fixed category and displayed quote after closing the menu");
+        v.Call("PurchaseMenuHandler", {1, purchase, item});
+        Check(v.s.engineCommands.size() == 1, "duplicate selection cannot charge twice");
+    }
+    {
+        VM v;
+        v.s.blindBoxCvars = {1, 3000, 3000, 9000};
+        v.Call("CommandChooseTeam", {1});
+        v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        Check(v.s.engineCommands.size() == 1 && v.s.engineCommands.front().command == "buy",
+            "invalid price ordering keeps the normal buy entry usable");
+    }
 }
 bool CompleteUtf8(std::string_view text)
 {
@@ -225,16 +271,23 @@ bool CompleteUtf8(std::string_view text)
 void LayoutCases(const char* catalog)
 {
     VM v;v.s.fields.clear();std::ifstream input(catalog);std::string key;
+    std::size_t featureCount{};
+    if (!(input >> featureCount)) throw std::runtime_error("missing feature count in JSON catalog fixture");
+    int refundIndex = -1;
     std::string explanation="a";for(unsigned i=0;i<166;++i)explanation+="说";
     while(std::getline(input,key))if(!key.empty())
-        v.s.fields.push_back({key,explanation,v.s.fields.size()<11?0:2,1000000000.f,0,1000000000.f,1,1});
-    Check(v.s.fields.size()==48,"layout fixture uses actual complete48-field JSON catalog");
+    {
+        if (key == "damage_refund_max_per_monster") refundIndex = static_cast<int>(v.s.fields.size());
+        v.s.fields.push_back({key,explanation,v.s.fields.size()<featureCount?0:2,1000000000.f,0,1000000000.f,1,1});
+    }
+    if (!featureCount || featureCount >= v.s.fields.size() || refundIndex < 0)
+        throw std::runtime_error("incomplete JSON catalog fixture");
     const int index=v.Settings();const auto& menu=v.s.menus.at(index);
-    Check(menu.perPage==5&&menu.items.size()==48,"actual Pawn keeps all48 fields with five rows per page");
+    Check(menu.perPage==5&&menu.items.size()==v.s.fields.size(),"actual Pawn keeps all fields with five rows per page");
     Check(menu.title.size()<255&&CompleteUtf8(menu.title),"actual AMXX255-byte title remains complete UTF8");
     Check(menu.items[0].first.find("范围踢击")!=std::string::npos&&
-        menu.items.back().first.find("单怪伤害返金上限")!=std::string::npos,
-        "first and last actual settings map to short Chinese labels");
+        menu.items.at(refundIndex).first.find("单怪伤害返金上限")!=std::string::npos,
+        "settings reordered by JSON feature still map to short Chinese labels");
     for(const auto& entry:menu.items)
         Check(entry.first.size()<96&&CompleteUtf8(entry.first)&&entry.first.find('_')==std::string::npos&&
             entry.first.find("说")==std::string::npos,"long explanations and raw keys cannot consume menu rows");
@@ -254,7 +307,7 @@ void LayoutCases(const char* catalog)
         maximum=std::max(maximum,payload.size());
         Check(payload.size()<=511&&CompleteUtf8(payload),"all menu rows and footer fit conservative native transport budget");
     }
-    v.Call("CustomSettingsHandler",{1,index,47});
+    v.Call("CustomSettingsHandler",{1,index,refundIndex});
     const auto& detail=v.s.menus.at(v.s.shown);
     Check(detail.title.size()<192&&detail.items.size()==1&&detail.title.find(explanation.substr(0,12))==std::string::npos,
         "detail menu keeps input control visible and moves full explanation out of title");

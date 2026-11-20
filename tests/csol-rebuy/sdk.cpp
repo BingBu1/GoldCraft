@@ -8,12 +8,15 @@
 #include "../../native/csol/server/scenario/monsters/scenario_zombie_bomb.h"
 #include "../../native/csol/scenario/core/scenario_respawn_resources.hpp"
 #include "../../native/csol/scenario/core/wall_upgrade.hpp"
+#include "../../native/csol/scenario/core/human_kick.hpp"
+#include "../../native/csol/scenario/custom/stamina_audio.hpp"
 #include "../../native/csol/scenario/bosses/boss_health.hpp"
 #include "../../native/csol/scenario/monsters/monster_appearances.hpp"
 #include "../../native/csol/scenario_part_effects.hpp"
 #include "../../native/csol/scenario/monsters/frozen_death.hpp"
 #include "../../native/csol/scenario/monsters/frozen_smoke.hpp"
 #include "../../native/csol/server/buy_menu.h"
+#include "../../native/csol/server/custom/gameplay_settings.h"
 #include "../../native/csol/server/weapons/weapons.h"
 #include "../../native/csol/server/weapons/weapon_service.h"
 #include "../../native/csol/server/weapons/weapon_slots.h"
@@ -23,8 +26,10 @@
 #include "../../native/csol/server/weapons/wpn_skull3.h"
 #include "../../native/csol/server/weapons/melee_purchase.h"
 #include "../../native/csol/server/weapons/knife_selection.h"
+#include "../../native/csol/server/weapons/guest_cof_host.hpp"
 #include "../../native/csol/buy_menu.hpp"
 #include "../../native/csol/weapons/skull3.hpp"
+#include "../../native/guest/cof/catalog.hpp"
 #include "client.h"
 #include "hostage/hostage.h"
 #include "pm_math.h"
@@ -57,6 +62,7 @@ bool Equal(const RebuyStruct& a,const RebuyStruct& b){
 
 struct Fixture {
  inline static Fixture* active{};
+ static constexpr const char* GuestPlayerModel = "models/player/urban/urban.mdl";
  std::unique_ptr<Engine> storage=std::make_unique<Engine>();Engine& engine=*storage;
  std::shared_ptr<CCSOLScenarioRuntime> runtime;
  CBasePlayer* player{};
@@ -68,6 +74,7 @@ struct Fixture {
  std::function<void(CBasePlayer&)> intermediate;
  int message{},userId=71,adds{},deploys{},removes{},gunAmmoCalls{},rejectItem{},rejectDeployId{};
  bool hooks{},observe{},rejectWeapon{},rejectAmmo{},insideMessage{};
+ const bool guestBox;
  static void Animation(IReGameHook_CBasePlayer_SetAnimation*,CBasePlayer*,PLAYER_ANIM){}
  static CBaseEntity* Weapon(IReGameHook_BuyWeaponByWeaponID* chain,CBasePlayer* p,WeaponIdType id){
   auto& f=*active;f.events.push_back("weapon:"+std::to_string(id));
@@ -111,7 +118,7 @@ struct Fixture {
   g_ReGameHookchains.m_CBasePlayer_RemovePlayerItem.registerHook(Remove,192);
   g_ReGameHookchains.m_CBasePlayerWeapon_DefaultDeploy.registerHook(Deploy,192);hooks=true;
  }
- explicit Fixture(const std::filesystem::path& root){
+ explicit Fixture(const std::filesystem::path& root, bool prepareGuest = false) : guestBox(prepareGuest) {
   Require(!active,"one actual rebuy SDK fixture per process");active=this;
   engine.files=oberon_chain::BaseResources();
   // Required loader fallback, authored with zero champion schedules. The
@@ -132,11 +139,21 @@ struct Fixture {
    const std::string path="csol/weapons/"+std::string(name)+"_damage.json";
    engine.files[path]=Resource(root,path.c_str());
   }
+  if(guestBox){
+   const auto guestRoot=root/"guest-box";
+   for(const auto& entry:std::filesystem::recursive_directory_iterator(guestRoot))
+    if(entry.is_regular_file())engine.files[entry.path().lexically_relative(guestRoot).generic_string()]=Read(entry.path());
+  }
   for(const auto& image:csol::scenario_respawn_ui::Outcomes)engine.files[image.path]="controlled-image";
   for(const auto& image:csol::scenario_respawn_ui::RetryImages)engine.files[image.path]="controlled-image";
   for(const auto* path:{csol::scenario_respawn_ui::CenterBackground.path,csol::scenario_respawn_ui::ItemSprite,
    csol::scenario_respawn_ui::LocalizationPath})engine.files[path]="controlled-image";
   for(const char* sound:csol::scenario_respawn_ui::RetrySounds)engine.files[sound]="controlled-sound";
+  namespace kick = csol::scenario::human_kick;
+  engine.files[kick::FootModel]="controlled-model";
+  engine.files["sound/"+std::string(kick::SwingSound)]="controlled-sound";
+  for(const char* sound:kick::HitSounds)engine.files["sound/"+std::string(sound)]="controlled-sound";
+  for(const char* sound:csol::scenario::custom::RecoverySounds)engine.files["sound/"+std::string(sound)]="controlled-sound";
   for(const char* path:csol::part_effects::Sprites)engine.files[path]="controlled-sprite";
   for(const char* path:{CSOLZombieBombModel,csol::monster_effects::ZombieBombSprite,"models/grenade.mdl",
    csol::frozen_death::IceModel,csol::frozen_smoke::SmokeSprite,CSOLZombieBombEvent})engine.files[path]="controlled-model";
@@ -172,8 +189,7 @@ struct Fixture {
   g_psv_maxvelocity=g_engfuncs.pfnCVarGetPointer("sv_maxvelocity");
   g_engfuncs.pfnFreeFile=[](void* value){if(value)Engine::Free(value);};
   g_engfuncs.pfnCanSkipPlayer=[](const edict_t*){return 0;};
-  // Third-party studio decoding stays outside this purchase fixture. A
-  // nullptr prevents opportunistic sequence lookup without inventing labels.
+  // Only the CoF case needs the recorded player studio for weapon admission.
   g_engfuncs.pfnMakeVectors=[](const float* angles){AngleVectors(angles,gpGlobals->v_forward,gpGlobals->v_right,gpGlobals->v_up);};
   engine.onTrace=[](edict_t*,TraceResult&){};
   // Explicit authored horizontal floor for native GiveNamedItem item Spawn.
@@ -187,10 +203,14 @@ struct Fixture {
    Vector origin=ed->v.origin;origin.z=-ed->v.mins.z;
    g_engfuncs.pfnSetOrigin(ed,origin);ed->v.flags|=FL_ONGROUND;ed->v.groundentity=&Engine::self->edicts[0];return 1;
   };
-  g_engfuncs.pfnGetModelPtr=[](edict_t*)->void*{return nullptr;};
+  g_engfuncs.pfnGetModelPtr=[](edict_t* ed)->void*{
+   if(!active->guestBox || !FStrEq(STRING(ed->v.model),GuestPlayerModel))return nullptr;
+   return active->engine.files.at(GuestPlayerModel).data();};
   g_engfuncs.pfnGetPlayerUserId=[](edict_t*){return active->userId;};
   g_engfuncs.pfnInfoKeyValue=[](char*,const char* name)->char*{
-   return const_cast<char*>(!std::strcmp(name,"csol_protocol")?"1":"");};
+   return const_cast<char*>(FStrEq(name,"csol_protocol") ||
+    (active->guestBox && (FStrEq(name,"cof_protocol") || FStrEq(name,"cof_weapons"))) ? "1" : "");};
+  if(guestBox)g_engfuncs.pfnPlaybackEvent=[](int,const edict_t*,unsigned short,float,float*,float*,float,float,int,int,int,int){};
   g_engfuncs.pfnCmd_Argc=[](){return int(active->args.size());};
   g_engfuncs.pfnCmd_Argv=[](int i){return active->args.at(i).c_str();};
   g_engfuncs.pfnMessageBegin=[](int,int id,const float*,edict_t*){
@@ -209,7 +229,9 @@ struct Fixture {
   for(const char* name:{"weapon_knife","weapon_m4a1","weapon_usp","weapon_hegrenade","weapon_flashbang","weapon_smokegrenade"})UTIL_PrecacheOtherWeapon(name);
   Require(CSOL_WeaponsReady()&&CSOL_MeleeReady(1022)&&CSOL_MeleeReady(1023)&&CSOL_CannonReady()&&CSOL_Skull3Ready()&&CSOL_K3Ready(),
    "actual extension configs and weapon factories ready");
-  g_pGameRules=InstallGameRules();CSOL_PrecacheGameRules();
+  g_pGameRules=InstallGameRules();
+  if(guestBox)CSOL_PrecacheGuestCof();
+  CSOL_PrecacheGameRules();
   if(CSOL_RulesRejected())for(const auto& line:engine.events)std::cerr<<line<<'\n';
   Require(g_pGameRules&&!CSOL_RulesRejected(),"actual combat rules precache");
   {CSOLScenarioSdkScope scope;runtime=CSOL_ScenarioRuntimeForAccess(scope.EntityAccess().get());
@@ -227,6 +249,14 @@ struct Fixture {
   ed->v.flags=FL_CLIENT;ed->v.health=100;ed->v.deadflag=DEAD_NO;ed->v.takedamage=DAMAGE_YES;
   player->m_iTeam=CT;player->m_iNumSpawns=1;player->m_bJustConnected=false;player->m_iJoiningState=JOINED;player->has_disconnected=false;
   Profile();player->m_iAccount=16000;player->m_iAutoWepSwitch=0;
+  if(guestBox){
+   SET_MODEL(ed,GuestPlayerModel);
+   CSOL_GuestCofSpawned(*player);
+   const auto id=::guest::cof::FindFirearm(::guest::cof::Firearm::Glock)->hostId;
+   if(!CSOL_GuestCofCanUse(*player,id))
+    for(const auto& line:engine.events)if(line.find("[CoF]")!=line.npos)std::cerr<<line<<'\n';
+   Require(CSOL_GuestCofCanUse(*player,id),"actual guest model and userinfo admit the prepared Glock");
+  }
   player->m_signals.Signal(SIGNAL_BUY);player->m_signals.Update();
   Require(CSOL_PrecacheBuyMenu()&&CSOL_ScenarioCanBuy()&&player->CanPlayerBuy(false),"unmodified production buy eligibility accepts real combat player");
   // Admit the fresh connection before test-owned snapshot seeding. The host
@@ -262,7 +292,9 @@ struct Fixture {
    g_ReGameHookchains.m_CBasePlayer_RemovePlayerItem.unregisterHook(Remove);
    g_ReGameHookchains.m_CBasePlayerWeapon_DefaultDeploy.unregisterHook(Deploy);
   }
+  if(guestBox)CSOL_EndGuestCofMap();
   try{engine.Clear();}catch(const std::exception& error){sdk_test::Check(false,error.what());}
+  if(guestBox)CSOL_ShutdownGuestCof();
   runtime.reset();active=nullptr;
  }
 };
@@ -663,6 +695,126 @@ void Stale(Fixture& f,const std::string& kind){
  }
 }
 
+void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindBox)
+{
+ Require(std::filesystem::create_directory(directory), "purchase SDK uses a fresh game directory");
+ const auto config = directory / "cstrike/addons/goldcraft/config";
+ std::filesystem::create_directories(config);
+ std::ofstream file(config / "gameplay.json", std::ios::binary);
+ file << R"({"version":2,"features":{"kick":{"enabled":false,"comment":"","values":{}})";
+ if (blindBox)
+  file << R"(,"blind_box":{"enabled":true,"comment":"","values":{},"pools":{
+ "cof":{"comment":"","weapons":[{"weapon":"cof_glock","weight":1}]},
+ "cs16":{"comment":"","weapons":[{"weapon":"m4a1","weight":2},{"weapon":"usp","weight":5},
+ {"weapon":"knife","weight":0},{"weapon":"cannon","weight":99},{"weapon":"unknown_alias","weight":99}]},
+ "csol":{"comment":"","weapons":[{"weapon":"k3","weight":1}]}
+ }})";
+ file << "}}";
+ file.close();
+ Require(bool(file), "fixture writes the gameplay JSON before SDK registration");
+ std::filesystem::current_path(directory);
+}
+
+void BlindBox(Fixture& fixture, std::string_view group)
+{
+ auto& player = *fixture.player;
+ namespace custom = csol::scenario::custom;
+ Require(CSOL_ReadBlindBoxPrices() == std::array<int, custom::BlindBoxCount>{3000, 6000, 9000},
+  "actual JSON enables native blind box prices");
+ static int minimum{}, maximum{}, draws{}, nextRoll{};
+ static const auto nativeRandomLong = g_engfuncs.pfnRandomLong;
+ g_engfuncs.pfnRandomLong = [](int32 low, int32 high) -> int32 {
+  // The box draws tickets from 1..total. Keep the guest weapon's own
+  // deployment randomization (pitch and sleeve) outside the draw count.
+  if (low != 1) return nativeRandomLong(low, high);
+  minimum = low; maximum = high; ++draws;
+  return nextRoll;
+ };
+ const auto open = [&](const char* category, const char* quote) {
+  Require(fixture.Command({"csol_blindbox", category, quote}), "native scenario command consumes blind box selection");
+ };
+ const auto owns = [&](int slot, int id) {
+  const auto* weapon = player.m_rgpPlayerItems[slot];
+  return weapon && weapon->m_iId == id && weapon->m_pPlayer == &player && weapon->pev->owner == player.edict();
+ };
+ nextRoll = 2;
+ if (group == "blind-weights")
+ {
+  open("cs16", "6000");
+  Check(owns(PRIMARY_WEAPON_SLOT, WEAPON_M4A1) && player.m_iAccount == 10000 &&
+   fixture.debits == std::vector<int>{-6000}, "last ticket for the first stock weapon grants its real entity at the quoted price");
+  Check(draws == 1 && minimum == 1 && maximum == 7,
+   "disabled, out-of-category and unresolved entries contribute no weight");
+  nextRoll = 5;
+  open("cs16", "6000");
+  Check(owns(PISTOL_SLOT, WEAPON_USP) && player.m_iAccount == 4000 && draws == 2 && maximum == 5,
+   "the owned rifle is removed before the next weighted draw");
+ }
+ else if (group == "blind-csol")
+ {
+  nextRoll = 1;
+  open("csol", "9000");
+  Check(owns(PRIMARY_WEAPON_SLOT, CSOL_WEAPON_K3) && player.m_iAccount == 7000 && draws == 1 && maximum == 1,
+   "the extension category pays once and grants the ready K3 through its actual provider");
+  player.m_iAccount = 16000;
+  open("csol", "9000");
+  Check(player.m_iAccount == 16000 && draws == 1 && fixture.debits == std::vector<int>{-9000},
+   "no second purchase when the only extension reward is already owned");
+ }
+ else if (group == "blind-cof")
+ {
+  const int id=::guest::cof::FindFirearm(::guest::cof::Firearm::Glock)->hostId;
+  nextRoll = 1;
+  open("cof", "3000");
+  const auto* item=dynamic_cast<const CBasePlayerWeapon*>(player.m_rgpPlayerItems[PISTOL_SLOT]);
+  Check(owns(PISTOL_SLOT, id) && item && CSOL_IsGuestCof(*item) && player.m_pActiveItem == item &&
+   player.m_iAccount == 13000 && fixture.debits == std::vector<int>{-3000} && draws == 1 && maximum == 1,
+   "the CoF box charges the quoted price and deploys a real admitted CoF Glock");
+  open("cof", "3000");
+  Check(player.m_iAccount == 13000 && draws == 1 && fixture.debits.size() == 1,
+   "an already-owned CoF reward is skipped without a second debit");
+ }
+ else if (group == "blind-gates")
+ {
+  open("cs16", "5999");
+  Check(player.m_iAccount == 16000 && draws == 0, "stale quote cannot draw or debit");
+  player.m_signals.Update();
+  Require(!player.CanPlayerBuy(false), "real native buy-zone predicate refuses a player outside the buy area");
+  open("cs16", "6000");
+  Check(player.m_iAccount == 16000 && draws == 0, "blind box respects the real buy zone");
+  player.m_signals.Signal(SIGNAL_BUY); player.m_signals.Update();
+  player.m_iAccount = 5999;
+  open("cs16", "6000");
+  Check(player.m_iAccount == 5999 && draws == 0, "insufficient CS money causes no draw");
+  player.m_iAccount = 16000;
+  open("cof", "3000");
+  Check(player.m_iAccount == 16000 && draws == 0 && fixture.debits.empty(),
+   "unprepared guest reward is omitted without charging");
+  fixture.engine.Set("csol_custom_blind_box", "0");
+  open("cs16", "6000");
+  Check(player.m_iAccount == 16000 && draws == 0 && !player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT],
+   "administrator toggle disables the gameplay consumer immediately");
+ }
+ else if (group == "blind-refund")
+ {
+  fixture.intermediate = [&](CBasePlayer&) { fixture.engine.Set("csol_custom_blind_box_price_2", "6100"); };
+  const int allocations = fixture.engine.allocations;
+  open("cs16", "6000");
+  fixture.intermediate = {};
+  Check(player.m_iAccount == 16000 && !player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT] &&
+   fixture.engine.allocations == allocations, "a price change in the debit hook refunds the wallet before any weapon grant");
+  fixture.rejectDeployId = WEAPON_M4A1;
+  open("cs16", "6100");
+  Check(player.m_iAccount == 16000 && !player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT] &&
+   fixture.debits == std::vector<int>{-6000, -6100}, "a rejected deployment fully refunds exactly one purchase with no replacement draw");
+  fixture.rejectDeployId = 0;
+  open("cs16", "6100");
+  Check(player.m_iAccount == 9900 && owns(PRIMARY_WEAPON_SLOT, WEAPON_M4A1) && draws == 3,
+   "a subsequent purchase can commit once after the prior transaction refunded");
+ }
+ else throw std::runtime_error("unknown blind box group");
+}
+
 void NativeFallback(){
  auto engine=std::make_unique<Engine>();engine->Prepare("0");g_pGameRules=InstallGameRules();
  Require(g_pGameRules&&!CSOL_UsesScenarioRules(),"real ordinary CS rules installed");
@@ -681,8 +833,12 @@ int main(int argc,char** argv){
   const std::string group=argv[1];
   if(group=="native-fallback")rebuy_test::NativeFallback();
   else{
-   rebuy_test::Fixture f(argv[2]);
-   if(group=="snapshot")rebuy_test::Snapshot(f);
+   const bool blindBox = group.starts_with("blind-");
+   const auto resourcePath = std::filesystem::absolute(argv[2]);
+   rebuy_test::PreparePurchaseSettings(std::filesystem::absolute(argv[0]).parent_path() / (group + "-game"), blindBox);
+   rebuy_test::Fixture f(resourcePath, group == "blind-cof");
+   if (blindBox) rebuy_test::BlindBox(f, group);
+   else if(group=="snapshot")rebuy_test::Snapshot(f);
    else if(group=="failed-capture")rebuy_test::FailedCapture(f);
    else if(group=="ordinary")rebuy_test::Ordinary(f);
    else if(group=="order")rebuy_test::Order(f);

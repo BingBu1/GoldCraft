@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "goldcraft/inventory_restore.hpp"
 #include "primary_purchase.h"
+#include "../buy_menu.h"
 #include "weapons.h"
 #include "weapon_slots.h"
 #include "weapon_service.h"
@@ -386,4 +387,37 @@ bool CSOL_DeliverAdaptedGun(CBasePlayer& player,const CSOLGunPurchaseAdapter& re
     if(!CSOL_ExtendedWeapon(adapter.id) || (adapter.slot!=PRIMARY_WEAPON_SLOT && adapter.slot!=PISTOL_SLOT) ||
        !adapter.classname || !*adapter.classname || !adapter.ready || !adapter.identity || !adapter.deployed)return false;
     return DeliverGun(player,adapter.id,&adapter);
+}
+namespace {
+bool ScenarioStockGunRegistered(CBasePlayer& player, int weaponId) noexcept
+{
+    if (CSOL_ExtendedWeapon(weaponId) || player.HasShield() ||
+        (!IsPrimaryWeapon(weaponId) && !IsSecondaryWeapon(weaponId)) ||
+        !CSOL_CanBuyScenarioNativeWeapon(player.m_iTeam, weaponId)) return false;
+    const auto* info = GetWeaponInfo(weaponId);
+    const auto* item = CSOL_ItemInfo(weaponId);
+    return info && info->entityName && item && item->pszName && !Q_strcmp(item->pszName, info->entityName);
+}
+}
+bool CSOL_CanDeliverScenarioStockGun(CBasePlayer& player, int weaponId) noexcept
+{
+    return ScenarioStockGunRegistered(player, weaponId) &&
+        !player.HasRestrictItem(static_cast<ItemID>(weaponId), ITEM_TYPE_BUYING);
+}
+bool CSOL_DeliverScenarioStockGun(CBasePlayer& player, int weaponId)
+{
+    const auto* info = GetWeaponInfo(weaponId);
+    if (!info || !info->entityName) return false;
+    const CSOLGunPurchaseAdapter adapter{
+        weaponId, IsPrimaryWeapon(weaponId) ? PRIMARY_WEAPON_SLOT : PISTOL_SLOT,
+        info->entityName, ScenarioStockGunRegistered,
+        [](const CBasePlayerWeapon& weapon, int id) noexcept {
+            const auto* expected = GetWeaponInfo(id);
+            return weapon.m_iId == id && expected && expected->entityName && FClassnameIs(weapon.pev, expected->entityName);
+        },
+        [](const CBasePlayerWeapon& weapon, int) noexcept {
+            return weapon.m_pPlayer && !FStringNull(weapon.m_pPlayer->pev->viewmodel);
+        }
+    };
+    return DeliverGun(player, weaponId, &adapter);
 }

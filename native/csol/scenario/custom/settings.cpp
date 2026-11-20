@@ -14,10 +14,20 @@ namespace csol::scenario::custom
 {
 namespace
 {
+constexpr std::array<BlindBoxDescriptor, BlindBoxCount> BoxRows{{
+    {BlindBox::Cof, Setting::BlindBoxPrice1, "cof", "CoF武器盲盒；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。"},
+    {BlindBox::CounterStrike, Setting::BlindBoxPrice2, "cs16", "CS1.6武器盲盒；同类有效武器按权重抽取，无可领取武器时不扣钱。"},
+    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；只发放已接入且本图真实就绪的武器。自定义等权默认，非原CSOL机制。"}
+}};
+constexpr std::string_view CofDefaults[]{"cof_glock", "cof_p345", "cof_revolver", "cof_vp70", "cof_tmp", "cof_mp5", "cof_m16", "cof_g43", "cof_shotgun"};
+constexpr std::string_view CsDefaults[]{"p228", "elites", "fn57", "usp", "glock", "deagle", "xm1014", "m3",
+    "mac10", "ump45", "mp5", "tmp", "p90", "scout", "aug", "sg550", "galil", "famas", "awp", "m4a1", "g3sg1", "sg552", "ak47", "m249", "knife"};
+constexpr std::string_view CsolDefaults[]{"tknifeex2", "skull1", "skull2", "skull3", "skull5", "balrog11", "k3", "m249ex",
+    "cannon", "beamgun", "beamgunle", "dragonsword", "skullaxe"};
 constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::Kick, "kick", "csol_custom_kick", "F范围踢击开关；关闭不删除配置，可再次开启。", true, Scope::Immediate},
     {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "即时开关时间阶段；开启从正午开始，关闭恢复地图环境；配套资源须已预载。", false, Scope::Immediate},
-    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "三档盲盒使用本局CS金钱；奖池和真实发奖能力另验。", false, Scope::Immediate},
+    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL三档盲盒使用CS金钱；pools设置每把武器的相对权重，0停用。", false, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
     {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "下次载入地图启用体力。正午为灾变原有移速，黄昏和永夜解锁疾跑，站姿疾跑地速为300。", false, Scope::NextMapSession},
     {Feature::Blood, "blood", "csol_custom_blood", "血迹效果；最大数量与寿命有界，关闭只清理本功能拥有的实例。", false, Scope::Immediate},
@@ -38,7 +48,7 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::DuskSeconds, Feature::TimeCycle, "dusk_seconds", "csol_custom_dusk_seconds", "黄昏持续秒数；即时调整当前黄昏剩余时间，阶段不倒退。", ValueType::Integer, 1, 86400, 120, Scope::Immediate},
     {Setting::BlindBoxPrice1, Feature::BlindBox, "blind_box_price_1", "csol_custom_blind_box_price_1", "第一档CS金钱价格，三档严格递增。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 3000, Scope::Immediate},
     {Setting::BlindBoxPrice2, Feature::BlindBox, "blind_box_price_2", "csol_custom_blind_box_price_2", "第二档CS金钱价格，不用仓库币。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 6000, Scope::Immediate},
-    {Setting::BlindBoxPrice3, Feature::BlindBox, "blind_box_price_3", "csol_custom_blind_box_price_3", "第三档CS金钱价格，真实发奖另验。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 9000, Scope::Immediate},
+    {Setting::BlindBoxPrice3, Feature::BlindBox, "blind_box_price_3", "csol_custom_blind_box_price_3", "第三档CS金钱价格。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 9000, Scope::Immediate},
     {Setting::MasteryThreshold1, Feature::Mastery, "mastery_threshold_1", "csol_custom_mastery_threshold_1", "本图累计熟练度第一档阈值。", ValueType::Integer, 1, 1000000000, 100, Scope::NextMapSession},
     {Setting::MasteryThreshold2, Feature::Mastery, "mastery_threshold_2", "csol_custom_mastery_threshold_2", "本图累计熟练度第二档阈值，严格大于第一档。", ValueType::Integer, 1, 1000000000, 200, Scope::NextMapSession},
     {Setting::MasteryThreshold3, Feature::Mastery, "mastery_threshold_3", "csol_custom_mastery_threshold_3", "本图累计熟练度第三档阈值，严格大于第二档。", ValueType::Integer, 1, 1000000000, 300, Scope::NextMapSession},
@@ -170,6 +180,38 @@ bool ReadEntries(const rapidjson::Value& object, Draft& draft, bool comments, Er
     }
     return true;
 }
+bool ReadPools(const rapidjson::Value& object, Draft& draft, Error& error)
+{
+    if (!object.IsObject()) return Fail(error, "pools", "expected an object");
+    std::array<bool, BlindBoxCount> seen{};
+    for (const auto& member : object.GetObject())
+    {
+        const std::string_view key(member.name.GetString(), member.name.GetStringLength());
+        const auto box = FindBlindBox(key);
+        if (!box) return Fail(error, key, "unknown blind box identity");
+        const auto index = static_cast<std::size_t>(*box);
+        if (seen[index]) return Fail(error, key, "duplicate blind box identity");
+        seen[index] = true;
+        const auto& pool = member.value;
+        if (!Fields(pool, std::array<std::string_view, 2>{"comment", "weapons"}, key, error)) return false;
+        if (!pool["comment"].IsString()) return Fail(error, key, "explanation must be a string");
+        const auto& weapons = pool["weapons"];
+        if (!weapons.IsArray() || weapons.Size() > MaximumBlindBoxEntries)
+            return Fail(error, key, "pool requires an array of at most64 weapons");
+        std::vector<BlindBoxEntry> entries;
+        entries.reserve(weapons.Size());
+        for (const auto& entry : weapons.GetArray())
+        {
+            if (!Fields(entry, std::array<std::string_view, 2>{"weapon", "weight"}, key, error)) return false;
+            if (!entry["weapon"].IsString() || !entry["weight"].IsUint())
+                return Fail(error, key, "weapon requires a catalog alias and weight requires a nonnegative integer");
+            entries.push_back({std::string(entry["weapon"].GetString(), entry["weapon"].GetStringLength()), entry["weight"].GetUint()});
+        }
+        if (!draft.SetPool(*box, entries, error) ||
+            !draft.SetComment(*box, {pool["comment"].GetString(), pool["comment"].GetStringLength()}, error)) return false;
+    }
+    return true;
+}
 bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
 {
     if (!object.IsObject()) return Fail(error, "features", "expected an object");
@@ -183,7 +225,9 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
         if (seen[index]) return Fail(error, key, "duplicate feature identity");
         seen[index] = true;
         const auto& group = member.value;
-        if (!Fields(group, std::array<std::string_view, 3>{"enabled", "comment", "values"}, key, error)) return false;
+        const bool pools = *feature == Feature::BlindBox && group.IsObject() && group.HasMember("pools");
+        if (pools ? !Fields(group, std::array<std::string_view, 4>{"enabled", "comment", "values", "pools"}, key, error) :
+                    !Fields(group, std::array<std::string_view, 3>{"enabled", "comment", "values"}, key, error)) return false;
         if (!group["enabled"].IsBool()) return Fail(error, key, "enabled must be a JSON boolean");
         if (!group["comment"].IsString()) return Fail(error, key, "explanation must be a string");
         if (!draft.Set(*feature, group["enabled"].GetBool(), error) ||
@@ -218,6 +262,7 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
             }
             if (!draft.SetComment(*setting, {leaf["comment"].GetString(), leaf["comment"].GetStringLength()}, error)) return false;
         }
+        if (pools && !ReadPools(group["pools"], draft, error)) return false;
     }
     return true;
 }
@@ -225,6 +270,12 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
 
 std::span<const FeatureDescriptor, FeatureCount> Features() noexcept { return FeatureRows; }
 std::span<const SettingDescriptor, SettingCount> Settings() noexcept { return SettingRows; }
+std::span<const BlindBoxDescriptor, BlindBoxCount> BlindBoxes() noexcept { return BoxRows; }
+std::optional<BlindBox> FindBlindBox(std::string_view key) noexcept
+{
+    for (const auto& descriptor : BoxRows) if (descriptor.key == key) return descriptor.id;
+    return {};
+}
 std::optional<Feature> FindFeature(std::string_view key) noexcept
 {
     for (const auto& descriptor : FeatureRows) if (descriptor.key == key) return descriptor.id;
@@ -249,6 +300,10 @@ std::string_view Snapshot::Comment(Feature feature) const noexcept
 { const auto index = static_cast<std::size_t>(feature); return index < featureComments_.size() ? featureComments_[index] : std::string_view{}; }
 std::string_view Snapshot::Comment(Setting setting) const noexcept
 { const auto index = static_cast<std::size_t>(setting); return index < valueComments_.size() ? valueComments_[index] : std::string_view{}; }
+std::span<const BlindBoxEntry> Snapshot::Pool(BlindBox box) const noexcept
+{ const auto index = static_cast<std::size_t>(box); return index < pools_.size() ? std::span<const BlindBoxEntry>(pools_[index]) : std::span<const BlindBoxEntry>{}; }
+std::string_view Snapshot::Comment(BlindBox box) const noexcept
+{ const auto index = static_cast<std::size_t>(box); return index < poolComments_.size() ? poolComments_[index] : std::string_view{}; }
 
 Draft::Draft()
 {
@@ -263,6 +318,13 @@ Draft::Draft()
         const auto index = static_cast<std::size_t>(descriptor.id);
         value_.values_[index] = descriptor.defaultValue;
         value_.valueComments_[index] = descriptor.comment;
+    }
+    const std::array<std::span<const std::string_view>, BlindBoxCount> defaults{CofDefaults, CsDefaults, CsolDefaults};
+    for (std::size_t i = 0; i < defaults.size(); ++i)
+    {
+        value_.poolComments_[i] = BoxRows[i].comment;
+        value_.pools_[i].reserve(defaults[i].size());
+        for (const auto alias : defaults[i]) value_.pools_[i].push_back({std::string(alias), 1});
     }
 }
 Draft::Draft(const Snapshot& snapshot) : value_(snapshot) {}
@@ -295,6 +357,30 @@ bool Draft::SetComment(Setting setting, std::string_view text, Error& error)
     if (!TextValid(text)) return Fail(error, SettingRows[index].key, "explanation must be valid UTF8, at most512 bytes, without NUL/control bytes");
     value_.valueComments_[index] = text; error = {}; return true;
 }
+bool Draft::SetPool(BlindBox box, std::span<const BlindBoxEntry> entries, Error& error)
+{
+    const auto index = static_cast<std::size_t>(box);
+    if (index >= BlindBoxCount) return Fail(error, "pools", "invalid blind box identity");
+    if (entries.size() > MaximumBlindBoxEntries) return Fail(error, BoxRows[index].key, "pool exceeds64 weapons");
+    for (std::size_t i = 0; i < entries.size(); ++i)
+    {
+        const auto& entry = entries[i];
+        if (entry.weapon.empty() || entry.weapon.size() > 63 || entry.weight > MaximumBlindBoxWeight ||
+            !std::all_of(entry.weapon.begin(), entry.weapon.end(), [](char c) { return
+                (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; }))
+            return Fail(error, BoxRows[index].key, "invalid catalog alias or weight outside0..1000000");
+        for (std::size_t j = 0; j < i; ++j)
+            if (entries[j].weapon == entry.weapon) return Fail(error, BoxRows[index].key, "duplicate weapon alias");
+    }
+    value_.pools_[index].assign(entries.begin(), entries.end()); error = {}; return true;
+}
+bool Draft::SetComment(BlindBox box, std::string_view text, Error& error)
+{
+    const auto index = static_cast<std::size_t>(box);
+    if (index >= BlindBoxCount) return Fail(error, "pools", "invalid blind box identity");
+    if (!TextValid(text)) return Fail(error, BoxRows[index].key, "invalid pool explanation");
+    value_.poolComments_[index] = text; error = {}; return true;
+}
 bool Draft::Finish(SnapshotPtr& output, Error& error) const
 {
     for (const auto& descriptor : SettingRows)
@@ -323,7 +409,7 @@ bool Draft::Finish(SnapshotPtr& output, Error& error) const
 bool Parse(std::string_view json, SnapshotPtr& output, Error& error)
 {
     if (json.empty() || json.size() > MaximumBytes || json.find('\0') != json.npos)
-        return Fail(error, "root", "configuration must contain1..65536 UTF8 bytes without NUL");
+        return Fail(error, "root", "configuration must contain1..98304 UTF8 bytes without NUL");
     rapidjson::Document document;
     document.Parse<rapidjson::kParseValidateEncodingFlag | rapidjson::kParseCommentsFlag |
         rapidjson::kParseIterativeFlag | rapidjson::kParseFullPrecisionFlag>(json.data(), json.size());
@@ -374,7 +460,25 @@ std::string Serialize(const Snapshot& snapshot)
             else writer.Null();
             key("comment"); text(snapshot.Comment(descriptor.id)); writer.EndObject();
         }
-        writer.EndObject(); writer.EndObject();
+        writer.EndObject();
+        if (feature.id == Feature::BlindBox)
+        {
+            key("pools"); writer.StartObject();
+            for (const auto& box : BoxRows)
+            {
+                key(box.key); writer.StartObject();
+                key("comment"); text(snapshot.Comment(box.id));
+                key("weapons"); writer.StartArray();
+                for (const auto& entry : snapshot.Pool(box.id))
+                {
+                    writer.StartObject(); key("weapon"); text(entry.weapon);
+                    key("weight"); writer.Uint(entry.weight); writer.EndObject();
+                }
+                writer.EndArray(); writer.EndObject();
+            }
+            writer.EndObject();
+        }
+        writer.EndObject();
     }
     writer.EndObject(); writer.EndObject();
     return std::string(buffer.GetString(), buffer.GetSize()) + '\n';

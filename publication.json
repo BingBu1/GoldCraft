@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-20_实现-大灾变三类武器盲盒-report.md",
     "docs/2026-11-20_实现-灾变阶段普通怪与尸潮-report.md",
     "native/csol/scenario/custom/monster_buff.hpp",
     "native/csol/scenario/custom/monster_population.hpp",

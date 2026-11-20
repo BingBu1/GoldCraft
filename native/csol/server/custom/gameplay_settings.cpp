@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "gameplay_settings.h"
 #include "settings_store.hpp"
+#include "../buy_menu.h"
 #include "../game_mode.h"
 #include "../scenario/core/human_kick.h"
 #include "../scenario/core/game_rules_gate.h"
@@ -31,7 +32,7 @@ bool Available(custom::Feature feature)
 {
     // Consumers register their capability as they are integrated. Publishing
     // a configuration flag alone cannot claim an unimplemented gameplay path.
-    return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::DamageRefundCap ||
+    return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::BlindBox || feature == custom::Feature::DamageRefundCap ||
         feature == custom::Feature::NightPlayerLights || feature == custom::Feature::CofSprint ||
         feature == custom::Feature::DuskBuff || feature == custom::Feature::NightBuff ||
         feature == custom::Feature::ZombiePopulation || feature == custom::Feature::RandomHorde;
@@ -76,6 +77,7 @@ void Publish(const custom::SnapshotPtr& snapshot)
         const auto text = value ? Number(*value) : std::string("-1");
         CVAR_SET_STRING(names[index].c_str(), text.c_str());
     }
+    CSOL_PrepareBlindBoxPools(*snapshot);
     current = snapshot;
     CSOL_SetHumanKickPolicy(snapshot->Enabled(custom::Feature::Kick));
     publishing = false;
@@ -209,6 +211,7 @@ void CSOL_InitGameplaySettings()
         return;
     }
     current = store->Snapshot();
+    CSOL_PrepareBlindBoxPools(*current);
     for (const auto& descriptor : custom::Features())
     {
         const auto index = static_cast<std::size_t>(descriptor.id);
@@ -249,6 +252,24 @@ bool CSOL_CustomFeatureEnabled(custom::Feature feature)
     const auto index = static_cast<std::size_t>(feature);
     return registered && current && index < custom::FeatureCount && Available(feature) &&
         (publishing ? current->Enabled(feature) : variables[index].value == 1);
+}
+std::optional<std::array<int, custom::BlindBoxCount>> CSOL_ReadBlindBoxPrices()
+{
+    if (!CSOL_CustomFeatureEnabled(custom::Feature::BlindBox)) return {};
+    std::array<int, custom::BlindBoxCount> prices{};
+    int previous = -1;
+    for (const auto& box : custom::BlindBoxes())
+    {
+        const auto index = static_cast<std::size_t>(box.price);
+        const auto& setting = custom::Settings()[index];
+        const double value = publishing ? current->Number(box.price).value_or(-1) :
+            variables[custom::FeatureCount + index].value;
+        if (!(value >= setting.minimum && value <= setting.maximum) || std::trunc(value) != value || value <= previous)
+            return {};
+        previous = static_cast<int>(value);
+        prices[static_cast<std::size_t>(box.id)] = previous;
+    }
+    return prices;
 }
 bool CSOL_ReadTimeCycleControls(custom::TimeCycleControls& output)
 {

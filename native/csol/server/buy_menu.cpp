@@ -2,7 +2,9 @@
 #include "precompiled.h"
 #include "buy_menu.h"
 #include "custom/damage_refund_account.h"
+#include "custom/gameplay_settings.h"
 #include "scenario/core/game_rules_gate.h"
+#include "weapons/primary_purchase.h"
 #include "weapons/guest_cof_light_equipment.hpp"
 #include "weapons/weapon_service.h"
 #include "weapons/weapon_slots.h"
@@ -12,6 +14,7 @@
 #include "../weapons/melee_identity.hpp"
 #include "../weapons/skull3.hpp"
 #include "../buy_menu.hpp"
+#include "../../guest/cof/catalog.hpp"
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -23,6 +26,18 @@ void EXT_FUNC InternalCommand(edict_t*,const char*,const char*);
 namespace {
 using namespace csol::buy;
 namespace custom = csol::scenario::custom;
+struct BlindBoxReward {
+    const Item* item;
+    std::uint32_t weight;
+};
+struct BlindBoxPool {
+    std::array<BlindBoxReward, custom::MaximumBlindBoxEntries> rewards{};
+    std::size_t count{};
+};
+using BlindBoxPools = std::array<BlindBoxPool, custom::BlindBoxCount>;
+std::shared_ptr<const BlindBoxPools> blindBoxPools;
+static_assert(custom::MaximumBlindBoxEntries * custom::MaximumBlindBoxWeight <= std::numeric_limits<int>::max());
+
 struct Client {
     int userid{};
     EHANDLE player;
@@ -69,11 +84,11 @@ bool Available(CBasePlayer* player,const Item& item)
     auto* info=GetWeaponInfo(item.id);
     return info&&info->entityName&&CanBuyWeaponByMaptype(player->m_iTeam,static_cast<WeaponIdType>(item.id),CSGameRules()->m_bMapHasVIPSafetyZone==TRUE);
 }
-bool Number(const char* text,std::uint16_t& n)
+bool Number(const char* text,std::uint16_t& n,bool allowZero=false)
 {
     if(!text||!*text)return false;unsigned value=0;
     for(;*text;++text){if(*text<'0'||*text>'9')return false;value=value*10+unsigned(*text-'0');if(value>65535)return false;}
-    if(!value)return false;n=std::uint16_t(value);return true;
+    if(!value&&!allowZero)return false;n=std::uint16_t(value);return true;
 }
 Client* State(CBasePlayer& player)
 {
@@ -134,6 +149,142 @@ void NativeCommand(CBasePlayer& player,const char* command)
     g_ReGameHookchains.m_InternalCommand.callChain(InternalCommand,player.edict(),command,"");
 }
 
+struct FinishDelivery {
+    Client& state;
+    std::uint64_t stamp, generation;
+    ~FinishDelivery() { if (epoch == stamp && state.generation == generation) state.delivering = false; }
+};
+
+bool BlindBoxStockGun(const Item& item)
+{
+    return item.id != WEAPON_KNIFE && !CSOL_ExtendedWeapon(item.id);
+}
+
+bool BlindBoxRewardAvailable(CBasePlayer& player, const Item& item)
+{
+    if (item.id == WEAPON_KNIFE || csol::melee::IsWeapon(item.id))
+    {
+        const auto* held = Held(player, KNIFE_SLOT);
+        if (held && held->m_iId == item.id) return false;
+        if (item.id == WEAPON_KNIFE && player.HasRestrictItem(ITEM_KNIFE, ITEM_TYPE_BUYING)) return false;
+    }
+    else if (OwnsGun(player, item.id)) return false;
+    return BlindBoxStockGun(item) ? CSOL_CanDeliverScenarioStockGun(player, item.id) :
+        CSOL_CanDeliverScenarioWeapon(&player, item.id);
+}
+
+template<class Current, class SameBuyer>
+void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int quotedPrice,
+    const Current& current, const SameBuyer& sameBuyer)
+{
+    const auto prices = CSOL_ReadBlindBoxPrices();
+    const auto pools = blindBoxPools;
+    const auto index = static_cast<std::size_t>(box);
+    if (!prices || !pools || !g_engfuncs.pfnRandomLong)
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "武器盲盒当前不可购买。\n");
+        return;
+    }
+    const auto offerCurrent = [&] {
+        return blindBoxPools == pools && CSOL_ReadBlindBoxPrices() == prices;
+    };
+    const int price = (*prices)[index];
+    if (price != quotedPrice)
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒价格已变化，请重新打开购买系统。\n");
+        return;
+    }
+    if (player.m_iAccount < price)
+    {
+        ClientPrint(player.pev, HUD_PRINTCENTER, "#Not_Enough_Money");
+        return;
+    }
+
+    // Retain only currently available rewards. The prefix sum fits in a
+    // GoldSrc RandomLong argument even at the configured maximum weights.
+    const auto& pool = (*pools)[index];
+    std::array<BlindBoxReward, custom::MaximumBlindBoxEntries> eligible;
+    std::size_t count{};
+    std::uint32_t total{};
+    for (std::size_t i = 0; i < pool.count; ++i)
+    {
+        const auto reward = pool.rewards[i];
+        const bool available = BlindBoxRewardAvailable(player, *reward.item);
+        if (!current()) return;
+        if (available)
+        {
+            total += reward.weight;
+            eligible[count++] = {reward.item, total};
+        }
+    }
+    if (!total)
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "该盲盒当前没有可领取的武器。\n");
+        return;
+    }
+    const auto roll = RANDOM_LONG(1, static_cast<int>(total));
+    if (!current() || roll < 1 || roll > static_cast<int>(total)) return;
+    if (!offerCurrent())
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒设置已变化，请重新打开购买系统。\n");
+        return;
+    }
+    if (player.m_iAccount < price)
+    {
+        ClientPrint(player.pev, HUD_PRINTCENTER, "#Not_Enough_Money");
+        return;
+    }
+    const auto* begin = eligible.data();
+    const auto* selected = std::lower_bound(begin, begin + count, std::uint32_t(roll),
+        [](const BlindBoxReward& reward, std::uint32_t value) { return reward.weight < value; });
+    const auto& item = *selected->item;
+
+    bool granted = false;
+    {
+        state.delivering = true;
+        const FinishDelivery delivery{state, epoch, state.generation};
+        const int before = player.m_iAccount;
+        if (price)
+        {
+            custom::RefundAwardScope purchase(nullptr, {}, nullptr, nullptr, nullptr);
+            player.AddAccount(-price, RT_PLAYER_BOUGHT_SOMETHING, true);
+        }
+        if (!sameBuyer()) return;
+        const int debit = before - player.m_iAccount;
+        if (debit == price && current() && Eligible(&player) && current() && player.CanPlayerBuy(false) && current() && offerCurrent())
+        {
+            const bool available = BlindBoxRewardAvailable(player, item);
+            if (available && current() && offerCurrent())
+                granted = BlindBoxStockGun(item) ? CSOL_DeliverScenarioStockGun(player, item.id) :
+                    CSOL_DeliverScenarioWeapon(&player, item.id);
+        }
+        if (!granted && debit > 0 && sameBuyer())
+        {
+            // Compensate this transaction through the native account writer.
+            // Purchase hooks can decline a debit. They do not own its refund.
+            custom::RefundAwardScope purchase(nullptr, {}, nullptr, nullptr, nullptr);
+#ifdef REGAMEDLL_API
+            custom::RefundAccountScope account(&player);
+            player.AddAccount_OrigFunc(debit, RT_NONE, false);
+#else
+            player.AddAccount(debit, RT_NONE, false);
+#endif
+        }
+    }
+    if (!current()) return;
+    if (!granted)
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, offerCurrent() ? "盲盒购买失败。\n" :
+            "盲盒设置已变化，请重新打开购买系统。\n");
+        return;
+    }
+    player.BuildRebuyStruct();
+    if (!current()) return;
+    char notice[128];
+    Q_snprintf(notice, sizeof(notice), "盲盒获得 %s\n", item.name);
+    ClientPrint(player.pev, HUD_PRINTTALK, notice);
+}
+
 template<class Current>
 Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current& current)
 {
@@ -151,12 +302,8 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
     if(!IsAmmunition(item.id)&&player.m_iAccount<price)return Result::Insufficient;
     // MP+192C is independent from the replay guard. Internal delivery must
     // not let a hook snapshot the temporary inventory before the common tail.
-    const auto stamp=epoch;
     state.delivering=true;
-    struct FinishDelivery {
-        Client& state;std::uint64_t stamp,generation;
-        ~FinishDelivery(){if(epoch==stamp&&state.generation==generation)state.delivering=false;}
-    }finishDelivery{state,stamp,state.generation};
+    const FinishDelivery finishDelivery{state,epoch,state.generation};
     bool success=false;
     if(IsAmmunition(item.id)){
         const int slot=item.id==2001?PRIMARY_WEAPON_SLOT:PISTOL_SLOT;
@@ -378,18 +525,41 @@ bool CSOL_PrecacheBuyMenu()
     ready=message>=64&&message<=255&&hintMessage>=64&&hintMessage<=255;
     if(ready)Send({Kind::Capability,0,std::uint16_t(equipmentCatalog?EquipmentPresentationRevision:0)});return ready;
 }
+void CSOL_PrepareBlindBoxPools(const custom::Snapshot& settings)
+{
+    auto prepared = std::make_shared<BlindBoxPools>();
+    for (const auto& box : custom::BlindBoxes())
+    {
+        auto& pool = (*prepared)[static_cast<std::size_t>(box.id)];
+        for (const auto& entry : settings.Pool(box.id))
+        {
+            if (!entry.weight) continue;
+            const auto* item = Find(entry.weapon);
+            if (!item || !IsWeapon(*item)) continue;
+            const auto source = guest::cof::FindFirearm(item->id) ? custom::BlindBox::Cof :
+                CSOL_ExtendedWeapon(item->id) ? custom::BlindBox::Csol : custom::BlindBox::CounterStrike;
+            if (source == box.id) pool.rewards[pool.count++] = {item, entry.weight};
+        }
+    }
+    blindBoxPools = std::move(prepared);
+}
+
 bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
 {
     if(!command)return false;
     const bool replay=!Q_strcmp(command,"cl_rebuy")||!Q_strcmp(command,"rebuy_in");
-    if(!replay&&Q_strcmp(command,"csol_buy_menu")&&Q_strcmp(command,"csol_buy"))return false;
+    const bool blind=!Q_strcmp(command,"csol_blindbox");
+    if(!replay&&!blind&&Q_strcmp(command,"csol_buy_menu")&&Q_strcmp(command,"csol_buy"))return false;
     CSOLScenarioSdkScope scope;
     if(!scope.Scenario())return !replay;
     if(!scope.Current()||!entity||entity->free)return true;
     auto* player=dynamic_cast<CBasePlayer*>(CBaseEntity::Instance(entity));if(!player)return true;
     const int index=player->entindex();if(index<1||index>=int(clients.size()))return true;
     const bool catalog=!Q_strcmp(command,"csol_buy_menu");std::uint16_t request{},id{};
-    if(!replay&&(CMD_ARGC()!=(catalog?2:3)||!Number(CMD_ARGV(1),request)||(!catalog&&!Number(CMD_ARGV(2),id))))return true;
+    std::optional<custom::BlindBox> box;
+    if(blind){
+        if(CMD_ARGC()!=3 || !(box=custom::FindBlindBox(CMD_ARGV(1))) || !Number(CMD_ARGV(2),id,true))return true;
+    }else if(!replay&&(CMD_ARGC()!=(catalog?2:3)||!Number(CMD_ARGV(1),request)||(!catalog&&!Number(CMD_ARGV(2),id))))return true;
     auto* found=State(*player);if(!scope.Current()||!found)return true;
     auto& state=*found;const int userid=state.userid;const auto stamp=epoch;const auto client=state.generation;
     if(state.busy)return true;state.busy=true;
@@ -400,17 +570,22 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     const auto life=authority?authority->Find(handle):nullptr;
     if(!scope.Current() || !life)return true;
     const auto generation=life->generation;
-    const auto current=[&](){
+    const auto nativeSpawn=life->nativeSpawnSerial;
+    const auto sameBuyer=[&](){
         if(epoch!=stamp||state.generation!=client||!scope.Current() || state.userid!=userid || state.player.Get<CBaseEntity>()!=player || handle.Get<CBaseEntity>()!=player)return false;
         const int now=GETPLAYERUSERID(handle.Get());
         return epoch==stamp&&state.generation==client&&scope.Current() && state.userid==userid && state.player.Get<CBaseEntity>()==player && handle.Get<CBaseEntity>()==player &&
-            now==userid && !player->has_disconnected && !(player->pev->flags&FL_KILLME) && player->IsAlive() &&
+            now==userid && !player->has_disconnected && !(player->pev->flags&FL_KILLME) &&
             player->m_iNumSpawns==spawns && authority->Active() && authority->Find(handle)==life &&
-            life->generation==generation;
+            life->generation==generation && life->nativeSpawnSerial==nativeSpawn;
     };
+    const auto current=[&](){return sameBuyer() && player->IsAlive();};
     if(!Eligible(player)||!current()||!player->CanPlayerBuy(false)||!current()){
-        if(!replay&&current())Send({Kind::Result,request,id,0,std::max(0,player->m_iAccount),Result::Unavailable,2},player);return true;
+        if(blind&&current())ClientPrint(player->pev,HUD_PRINTCENTER,"盲盒当前不可购买，请在购买区使用。\n");
+        else if(!replay&&!blind&&current())Send({Kind::Result,request,id,0,std::max(0,player->m_iAccount),Result::Unavailable,2},player);
+        return true;
     }
+    if(box){BuyBlindBox(*player,state,*box,id,current,sameBuyer);return true;}
     if(replay){Replay(*player,state,current);return true;}
     if(catalog){
         state.request=request;state.purchased=false;

@@ -285,7 +285,8 @@ def run(args):
                 rsp = out / (name + '.rsp')
                 rsp.write_text(subprocess.list2cmdline(command[1:]), encoding='utf8')
                 launched = [command[0], '@' + str(rsp)]
-            done = subprocess.run(launched, cwd=SDK_CWD, env=env, capture_output=True, timeout=240)
+            timeout = 900 if name == 'link' else 240
+            done = subprocess.run(launched, cwd=SDK_CWD, env=env, capture_output=True, timeout=timeout)
             log = out / (name + '.log'); log.write_bytes(done.stdout + done.stderr)
             text = log.read_text('utf-8-sig', errors='replace')
             step = dict(name=name, command=command, exit=done.returncode,

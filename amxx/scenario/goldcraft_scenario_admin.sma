@@ -9,6 +9,13 @@
 
 new g_FinishAction;
 new g_NextMap;
+new g_BlindBoxEnabled;
+new g_BlindBoxPrices[3];
+new const g_BlindBoxKeys[][] = { "cof", "cs16", "csol" };
+new const g_BlindBoxNames[][] = { "CoF 武器盲盒", "CS1.6 武器盲盒", "CSOL 武器盲盒" };
+new const g_BlindBoxPriceCvars[][] = {
+    "csol_custom_blind_box_price_1", "csol_custom_blind_box_price_2", "csol_custom_blind_box_price_3"
+};
 new g_Menu[33];
 new g_MenuMap[33];
 new g_MenuUserid[33];
@@ -153,7 +160,7 @@ new const g_DifficultyNames[][] = { "", "入门", "普通", "困难", "噩梦", 
 public plugin_init()
 {
     for (new id; id < sizeof g_Menu; id++) g_Menu[id] = -1;
-    register_plugin(PLUGIN_NAME, "0.6.1", "GoldCraft contributors");
+    register_plugin(PLUGIN_NAME, "0.7.0", "GoldCraft contributors");
     register_clcmd("chooseteam", "CommandChooseTeam", -1, "", 0);
     register_concmd("amx_scenario_menu", "CommandMenu", ADMIN_CFG, "打开大灾变管理", 0);
     register_concmd("amx_scenario_difficulty", "CommandDifficulty", ADMIN_CFG, "[1..7] 设置下次重玩难度", 0);
@@ -164,6 +171,9 @@ public plugin_init()
     register_clcmd("csol_custom_value", "CommandCustomValue", -1, "", 0);
     g_FinishAction = get_cvar_pointer("csol_scenario_finish_action");
     g_NextMap = get_cvar_pointer("csol_scenario_nextmap");
+    g_BlindBoxEnabled = get_cvar_pointer("csol_custom_blind_box");
+    for (new i; i < sizeof g_BlindBoxPrices; i++)
+        g_BlindBoxPrices[i] = get_cvar_pointer(g_BlindBoxPriceCvars[i]);
     if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1 ||
         csol_scenario_replay_api_version() != 1 || csol_scenario_map_vote_api_version() != 1 ||
         csol_custom_api_version() != 1)
@@ -256,7 +266,60 @@ public PlayerMenuHandler(id, menu, item)
         if (Administrator(id, userid)) ShowFinishMenu(id);
         return PLUGIN_HANDLED;
     }
-    if (equal(value, "0")) engclient_cmd(id, "buy");
+    if (equal(value, "0")) ShowPurchaseMenu(id);
+    return PLUGIN_HANDLED;
+}
+
+bool:ReadBlindBoxPrices(prices[3])
+{
+    if (!g_BlindBoxEnabled || get_pcvar_float(g_BlindBoxEnabled) != 1.0) return false;
+    new previous = -1;
+    for (new i; i < sizeof g_BlindBoxPrices; i++)
+    {
+        if (!g_BlindBoxPrices[i]) return false;
+        new Float:value = get_pcvar_float(g_BlindBoxPrices[i]);
+        if (!(0.0 <= value <= 32000.0)) return false;
+        new price = floatround(value);
+        if (float(price) != value || price <= previous) return false;
+        prices[i] = price;
+        previous = price;
+    }
+    return true;
+}
+
+ShowPurchaseMenu(id)
+{
+    new prices[3];
+    if (!ReadBlindBoxPrices(prices))
+    {
+        engclient_cmd(id, "buy");
+        return;
+    }
+    new menu = menu_create("大灾变^n购买系统", "PurchaseMenuHandler");
+    g_Menu[id] = menu;
+    g_MenuUserid[id] = get_user_userid(id);
+    menu_additem(menu, "普通武器购买");
+    for (new i; i < sizeof g_BlindBoxKeys; i++)
+    {
+        new label[80], quote[8];
+        formatex(label, charsmax(label), "%s  $%d", g_BlindBoxNames[i], prices[i]);
+        num_to_str(prices[i], quote, charsmax(quote));
+        menu_additem(menu, label, quote);
+    }
+    menu_setprop(menu, MPROP_EXITNAME, "关闭");
+    menu_display(id, menu);
+}
+
+public PurchaseMenuHandler(id, menu, item)
+{
+    if (id < 1 || id > 32 || g_Menu[id] != menu) return PLUGIN_HANDLED;
+    new userid = g_MenuUserid[id], quote[8], access, callback;
+    new bool:hasItem = item >= 0 && menu_item_getinfo(menu, item, access, quote, charsmax(quote), _, _, callback);
+    g_Menu[id] = -1;
+    menu_destroy(menu);
+    if (!hasItem || !ScenarioJoined(id) || get_user_userid(id) != userid) return PLUGIN_HANDLED;
+    if (!item) engclient_cmd(id, "buy");
+    else if (item <= sizeof g_BlindBoxKeys) engclient_cmd(id, "csol_blindbox", g_BlindBoxKeys[item - 1], quote);
     return PLUGIN_HANDLED;
 }
 
@@ -588,8 +651,17 @@ bool:CustomInfo(&revision, &count, &busy, &result, error[], length)
 CustomName(index, const key[], output[], length)
 {
     if (index >= 0 && index < sizeof g_CustomKeys && equal(key, g_CustomKeys[index]))
+    {
         copy(output, length, g_CustomNames[index]);
-    else copy(output, min(length, 24), key);
+        return;
+    }
+    for (new i; i < sizeof g_CustomKeys; i++)
+    {
+        if (!equal(key, g_CustomKeys[i])) continue;
+        copy(output, length, g_CustomNames[i]);
+        return;
+    }
+    copy(output, min(length, 24), key);
 }
 
 CustomExplain(id, const key[], const comment[])

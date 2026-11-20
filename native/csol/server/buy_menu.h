@@ -2,6 +2,8 @@
 #pragma once
 struct edict_s;
 class CBasePlayer;
+namespace csol::scenario::custom { class Snapshot; }
+void CSOL_PrepareBlindBoxPools(const csol::scenario::custom::Snapshot& settings);
 // Call during scenario precache; sends capability in the sign-on stream only
 // after the original presentation resources are present and precached.
 bool CSOL_PrecacheBuyMenu();

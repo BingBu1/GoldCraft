@@ -22,7 +22,7 @@
         },
         "blind_box": {
             "enabled": false,
-            "comment": "三档盲盒使用本局CS金钱；奖池和真实发奖能力另验。",
+            "comment": "CoF/CS1.6/CSOL三档盲盒使用CS金钱；pools设置每把武器的相对权重，0停用。",
             "values": {
                 "blind_box_price_1": {
                     "value": 3000,
@@ -34,7 +34,212 @@
                 },
                 "blind_box_price_3": {
                     "value": 9000,
-                    "comment": "第三档CS金钱价格，真实发奖另验。GoldCraft自定义默认，非CSOL原值。"
+                    "comment": "第三档CS金钱价格。GoldCraft自定义默认，非CSOL原值。"
+                }
+            },
+            "pools": {
+                "cof": {
+                    "comment": "CoF武器盲盒；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。",
+                    "weapons": [
+                        {
+                            "weapon": "cof_glock",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_p345",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_revolver",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_vp70",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_tmp",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_mp5",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_m16",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_g43",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cof_shotgun",
+                            "weight": 1
+                        }
+                    ]
+                },
+                "cs16": {
+                    "comment": "CS1.6武器盲盒；同类有效武器按权重抽取，无可领取武器时不扣钱。",
+                    "weapons": [
+                        {
+                            "weapon": "p228",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "elites",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "fn57",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "usp",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "glock",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "deagle",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "xm1014",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "m3",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "mac10",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "ump45",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "mp5",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "tmp",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "p90",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "scout",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "aug",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "sg550",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "galil",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "famas",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "awp",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "m4a1",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "g3sg1",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "sg552",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "ak47",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "m249",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "knife",
+                            "weight": 1
+                        }
+                    ]
+                },
+                "csol": {
+                    "comment": "CSOL武器盲盒；只发放已接入且本图真实就绪的武器。自定义等权默认，非原CSOL机制。",
+                    "weapons": [
+                        {
+                            "weapon": "tknifeex2",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "skull1",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "skull2",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "skull3",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "skull5",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "balrog11",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "k3",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "m249ex",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "cannon",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "beamgun",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "beamgunle",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "dragonsword",
+                            "weight": 1
+                        },
+                        {
+                            "weapon": "skullaxe",
+                            "weight": 1
+                        }
+                    ]
                 }
             }
         },

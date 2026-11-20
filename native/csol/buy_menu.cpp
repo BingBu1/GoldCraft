@@ -67,6 +67,7 @@ template<class T,std::size_t N,class F>void Array(const Value& v,std::array<T,N>
 }
 std::span<const Item> Catalog(){return items;}
 const Item* Find(int id){for(const auto& i:items)if(i.id==id)return &i;return nullptr;}
+const Item* Find(std::string_view alias){for(const auto& i:items)if(i.alias==alias)return &i;return nullptr;}
 Favorites ParseFavorites(std::string_view text){
     Favorites result{};std::size_t index=0;
     while(!text.empty()&&index<result.size()){
