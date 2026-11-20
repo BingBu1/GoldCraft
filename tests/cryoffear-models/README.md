@@ -10,7 +10,7 @@ Generation requires a calibration JSON containing:
 | `status` | `candidate` or `verified`; review is the caller's responsibility |
 | `evidence` | Existing evidence file `path` and full `sha256` |
 | `source` | Full model `sha256`, explicit anchor `bone`, and `sequence` with integer `index`, matching `label`, integer `frame` and `blend` |
-| `target` | Full original P-template `sha256`, `handBone` = `Bip01 R Hand`, `bone` = its direct child `SHOTGUN`, and explicit sampled `sequence` |
+| `target` | Original P-template SHA-256, `Bip01 R Hand`, its direct child `SHOTGUN` or `p_famas`, and the explicitly sampled sequence |
 | `sourceAnchorToTargetBone` | Reviewed rigid 3×4 transform from the sampled source-anchor coordinates into the sampled target-bone coordinates; no default is provided |
 | `textures` | Explicit list of material `name` and indexed-image-plus-palette `sha256` pairs |
 | `sourceVertexBones` | Explicit list of bones allowed to contribute triangle vertices |
@@ -27,6 +27,7 @@ The private assets and their calibration evidence are not committed. From Git Ba
 ```bash
 COF_PLAYER_INVENTORY=<private-original-P-inventory.json> python -B tests/cryoffear-models/test_prepare_player_models.py
 COF_MODEL_INVENTORY=<private-model-inventory.json> COF_PLAYER_INVENTORY=<private-original-P-inventory.json> python -B tests/cryoffear-models/test_generate_player_model.py
+COF_MODEL_INVENTORY=<private-model-inventory.json> COF_CS_PLAYER_MODEL=<stock-p_famas.mdl> python -B tests/cryoffear-models/test_famas_player.py
 ```
 
 Missing inventories fail. The generation tests replay axe/FAMAS/MP5 assets, verify every retained triangle corner, normal, UV, image/palette and attachment, exercise a nonzero FAMAS reload frame, and run the actual CLI plus rejection paths. Their explicitly declared identity-wrist fixture is **not a reviewed CS grip**. Test candidates remain in a unique build subdirectory and must never be deployed.

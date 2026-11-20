@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-20_制作-CoF-FAMAS第三人称模型-report.md",
+    "tools/Author-CryOfFearFamasPlayer.py",
+    "tests/cryoffear-models/test_famas_player.py",
     "tools/nightfall-hotfix/cumulative.py",
     "tests/current-server-update/test_cumulative.py",
     "docs/2026-11-19_优化-换图人物语音资源探测-report.md",
