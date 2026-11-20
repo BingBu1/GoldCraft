@@ -21,7 +21,7 @@ model_t model{};
 model_t heldModel{};
 cl_entity_t heldView{};
 bool handheldModels{};
-unsigned modelQueries{}, flashlightCommands{};
+unsigned modelQueries{}, viewModelQueries{}, flashlightCommands{};
 void Check(bool value, const char* why)
 { ++checks; if (!value) { std::printf("FAIL %s\n", why); std::exit(1); } }
 class Scene final : public IMetaRendererScene
@@ -103,7 +103,7 @@ int main()
         return test::handheldModels ? 101 : 0;
     };
     engine.pEventAPI = &events;
-    engine.GetViewModel = [] { return &test::heldView; };
+    engine.GetViewModel = [] { ++test::viewModelQueries; return &test::heldView; };
     engine.pfnServerCmd = [](const char* command) {
         Check(!std::strcmp(command, custom::NightFlashlightSelect), "send the night equipment command");
         ++test::flashlightCommands;
@@ -184,25 +184,15 @@ int main()
     Check(TrySelectNightFlashlight() && test::flashlightCommands == 1 && test::modelQueries == 4,
         "an already-held flashlight consumes slot 5 without a new command or model lookup");
     std::strcpy(test::heldModel.name, "models/v_test_rifle.mdl");
-    params.viewentity=1; params.forward[0]=1; params.up[2]=1;
-    test::entities[0].curstate.effects=EF_DIMLIGHT;
+    params.viewentity = 1;
+    test::entities[0].curstate.effects = EF_DIMLIGHT;
+    const auto queries = test::viewModelQueries;
     NightPlayerLightsView(params);
+    Check(test::viewModelQueries == queries, "night light frame leaves the first-person model to Renderer");
     Check(!NightFlashlightHeld(), "lit flashlight stowed behind a rifle does not own F");
-    float direction[3]{0,0,-1}; alight_t sample{}; sample.plightvec=direction;
-    NightFlashlightStudioLight(&test::entities[1],&sample);
-    Check(!sample.ambientlight && !sample.shadelight, "viewmodel spill leaves other Studio entities alone");
-    NightFlashlightStudioLight(&test::heldView,&sample);
-    Check(sample.ambientlight>0 && sample.shadelight>0 && sample.color[0]==sample.color[1] &&
-        sample.color[1]==sample.color[2] && direction[0]>0 && direction[2]<0,
-        "local rifle gets neutral, directional material light in the original Studio buffer");
-    const auto lit=sample;
-    NightFlashlightStudioLight(&test::heldView,&sample);
-    Check(sample.ambientlight==lit.ambientlight && sample.shadelight==lit.shadelight,
-        "repeated Studio calls do not accumulate near light");
-    test::entities[0].curstate.effects=0; NightPlayerLightsView(params);
-    sample={}; sample.plightvec=direction; NightFlashlightStudioLight(&test::heldView,&sample);
-    Check(!NightFlashlightHeld() && !sample.ambientlight && !sample.shadelight,
-        "switching off removes the rifle spill");
+    test::entities[0].curstate.effects = 0;
+    NightPlayerLightsView(params);
+    Check(!NightFlashlightHeld(), "rifle keeps its ordinary input when the light is off");
     for(int vehicle: {0,1})
         for(bool held: {false,true})
             for(bool on: {false,true}){
