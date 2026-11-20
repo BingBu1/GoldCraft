@@ -258,8 +258,49 @@ void NativePenetrationChecks()
     }
 }
 
+// Compare an external weapon's measured cones against exact original trace
+// endpoints. Exercise both production backends for every supplied seed.
+int CheckRays(std::istream& input)
+{
+    using namespace guest::cof;
+    Initialize();
+    finalTarget=2;
+    nativeAllowed=true;
+    const BallisticsCall call{Current,nullptr};
+    const BallisticsEffects effects{77,13};
+    std::uint32_t cone, aim, seed;
+    std::array<std::uint32_t,3> endpoint;
+    unsigned rows=0;
+    while (input >> std::ws && !input.eof())
+    {
+        if (!(input >> cone >> aim >> seed >> endpoint[0] >> endpoint[1] >> endpoint[2]) || aim>1) return 3;
+        const float width=Float(cone);
+        PistolBallistics shot{{0,0,0},{1,0,0},{width,width,width},{0,1,0},{0,0,1},
+            seed,15,aim!=0,PistolPlayerHits::OriginalCooperativeSkipPlayers,PistolSource::NormalMuzzle};
+        events.clear();
+        traces=0;
+        Check(FirePistolBallistics(targets[1],shot,effects,call).status==BallisticsStatus::Fired);
+        Check(traces==1 && events.size()>=11 && events[2]==2 && events[3]==7);
+        const auto before=nativeShot.calls;
+        Check(FireCSRifleBallistics(targets[1],shot,effects,call,3,CSRifleMaterial::Rifle556).status
+            ==BallisticsStatus::Fired);
+        Check(nativeShot.calls==before+1 && nativeShot.spread==0 && nativeShot.distance==8192 &&
+            nativeShot.bullet==BULLET_PLAYER_556MM && nativeShot.source==shot.source);
+        for (int axis=0;axis<3;++axis)
+        {
+            Check(events[8+axis]==endpoint[axis]);
+            Check(Bits(nativeShot.source[axis]+nativeShot.direction[axis]*nativeShot.distance)==endpoint[axis]);
+        }
+        ++rows;
+    }
+    if (!rows || !input.eof()) return 3;
+    std::cout << rows << " original and CS rifle SDK ray pairs matched\n";
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
+    if (argc==2 && std::string_view(argv[1])=="--rays") return CheckRays(std::cin);
     if (argc != 3) return 1;
     NativePenetrationChecks();
     Initialize();

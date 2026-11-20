@@ -36,9 +36,25 @@ original CoF decal/bubble IDs it does not consume. The separate
 `cryoffear-ballistics` suite compiles that real adapter and verifies original
 ray math, native-call arguments, cancellation and invalid-input rejection.
 
-Engine networking, actual ballistic damage, first-draw ledger, shove targets,
-audio/effects transport and world insertion are controlled boundaries here.
-Factory/production Host, authored P model, client effects, HUD/shop resources,
-DLL deployment, real rounds, multiplayer and live CPU sampling remain separate
-acceptance. Original special1/2 and the global hold-release producer are not
-inferred by this ordinary class.
+The SDK runner also records `shots.csv` for both ray backends. It exercises five
+postures, hip fire and iron sights, the normal held-attack dispatcher, and a
+full magazine at 100 Hz. Each shot checks its cone, view impulse, seed, ammo
+and damage. The last shot also checks both sides of the recovery deadline.
+
+Build the existing `cryoffear-ballistics` target and compare the sampled cones
+with the original MP and the original cooperative client view spring.
+
+```bash
+python -B tests/cryoffear-famas-weapon/measure_handling.py \
+  --samples build/cof-famas-sdk-reproduce/shots.csv \
+  --mp "$COF_MP_SAMPLE" --client "$COF_CLIENT_SAMPLE" \
+  --ballistics-runner "$COF_BALLISTICS_EXE" \
+  --output build/cof-famas-sdk-reproduce/handling.json
+```
+
+The report gives 90th-percentile impact radii at 1024 units for single shots,
+three-shot bursts and full magazines over all 256 starting seed indices. Both
+SDK ray backends must match each original endpoint bit for bit. Camera peaks
+use the recorded impulse sequence and include the spring's motion after firing.
+The first-draw ledger, networking, actual targets and gameplay remain separate
+acceptance items. The factory and authored player model have their own tests.

@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-20_优化-CoF-FAMAS弹道与控枪-report.md",
     "docs/2026-11-20_制作-CoF-FAMAS第三人称模型-report.md",
     "tools/Author-CryOfFearFamasPlayer.py",
     "tests/cryoffear-models/test_famas_player.py",

@@ -790,6 +790,7 @@ void FamasWeapon::PrimaryAttack()
     struct Bridge
     {
         FamasWeapon& item; FamasShotState& state; Lease lease; PistolBallistics shot;
+        float coneScale;
         void Sync() noexcept
         {
             item.action_ = state.action;
@@ -799,7 +800,7 @@ void FamasWeapon::PrimaryAttack()
         }
         static Vector V(const FamasVector& v) noexcept { return {v[0],v[1],v[2]}; }
         static FamasVector A(const Vector& v) noexcept { return {v.x,v.y,v.z}; }
-    } bridge{*this,state,lease,shot};
+    } bridge{*this,state,lease,shot,(frame.originalFlags & FL_ONGROUND) ? .75F : 1.F};
     FamasShotFrame request{};
     request.damage=float(frame.bulletDamage);request.waterLevel=m_pPlayer->pev->waterlevel;
     request.shellModel=prepared_.shellModel;request.weaponEntity=g_engfuncs.pfnIndexOfEdict?g_engfuncs.pfnIndexOfEdict(lease.weapon):0;
@@ -858,7 +859,12 @@ void FamasWeapon::PrimaryAttack()
             auto& b=*static_cast<Bridge*>(p); b.Sync();
             const auto consumer=b.item.backends_.recoil;
             if (!consumer) return false;
-            const bool applied=consumer(b.item.backends_.context,*b.item.m_pPlayer,Bridge::V(recoil));
+            // FAMAS handling in CS. The cooperative client integrates each
+            // impulse, so repeated yaw and roll accumulate even on a short burst.
+            const float viewScale = b.shot.aiming ? .5F : 1.F;
+            const Vector impulse{recoil[0] * viewScale, recoil[1] * (.5F * viewScale),
+                recoil[2] * (.25F * viewScale)};
+            const bool applied=consumer(b.item.backends_.context,*b.item.m_pPlayer,impulse);
             return Current(&b.lease) && applied;
         },
         [](void* p,FamasVector& out) noexcept
@@ -877,7 +883,10 @@ void FamasWeapon::PrimaryAttack()
         [](void* p,const FamasBullet& bullet) noexcept
         {
             auto& b=*static_cast<Bridge*>(p);b.Sync();auto& shot=b.shot;
-            shot.source=Bridge::V(bullet.source);shot.direction=Bridge::V(bullet.direction);shot.spread=Bridge::V(bullet.spread);
+            shot.source=Bridge::V(bullet.source);shot.direction=Bridge::V(bullet.direction);
+            // Keep the original movement/decay state. Both ray consumers
+            // apply the original ADS multiplier after this FAMAS-only adjustment.
+            shot.spread=Bridge::V(bullet.spread) * b.coneScale;
             shot.right=gpGlobals->v_right;shot.up=gpGlobals->v_up;shot.seed=bullet.seed;shot.damage=bullet.damage;
             const auto result=b.item.prepared_.csPenetration?
                 FireCSRifleBallistics(*b.item.m_pPlayer,shot,b.item.prepared_.ballistics,{Current,&b.lease},

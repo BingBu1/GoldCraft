@@ -230,6 +230,7 @@ BallisticsStatus CheckPistolBallistics(const PistolBallistics& shot,const Ballis
 BallisticsResult FirePistolBallistics(CBaseEntity& owner,const PistolBallistics& shot,const BallisticsEffects& fx,const BallisticsCall& call) noexcept
 {
     Check(&owner==&player&&CheckPistolBallistics(shot,fx,call)==BallisticsStatus::Ready);
+    Check(shot.aiming==weapon.ActionState().aiming);
     Event(31,Bits(shot.source.x),Bits(shot.source.y),Bits(shot.source.z),Bits(shot.direction.x),Bits(shot.direction.y),Bits(shot.direction.z),
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
     return {BallisticsStatus::Fired,{}};
@@ -240,6 +241,7 @@ BallisticsResult FireCSRifleBallistics(CBaseEntity& owner,const PistolBallistics
     static_cast<void>(fx);
     Check(material==CSRifleMaterial::Rifle556&&penetration==riflePenetration);
     Check(&owner==&player&&CheckCSRifleBallistics(shot,call,penetration,material)==BallisticsStatus::Ready);
+    Check(shot.aiming==weapon.ActionState().aiming);
     ++rifleShots;
     Event(31,Bits(shot.source.x),Bits(shot.source.y),Bits(shot.source.z),Bits(shot.direction.x),Bits(shot.direction.y),Bits(shot.direction.z),
           Bits(shot.spread.x),Bits(shot.spread.y),Bits(shot.spread.z),Bits(8192),shot.damage,shot.seed);
@@ -303,6 +305,86 @@ bool SawView(int sequence)
     return false;
 }
 
+// Sample the native owner frame and held-attack dispatcher. The two bullet
+// consumers above expose the exact cone passed to the seeded ray calculation.
+void WriteHandlingSamples(std::ostream& out)
+{
+    struct Pose { const char* name; unsigned flags; float speed; };
+    constexpr Pose poses[]{{"standing",0x200,0}, {"walking",0x200,180},
+        {"crouching",0x4200,0}, {"crouch-walk",0x4200,75}, {"airborne",0,180}};
+    out << "pose,aim,material,shot,tick,cone,raw,pitch,yaw,roll,seed,clip,damage\n";
+    for (auto pose : poses) for (bool aim : {false,true}) for (int material : {0,3})
+    {
+        Initialize();
+        riflePenetration=prepared.csPenetration=material;
+        backends.recoil=[](void*,CBasePlayer&,const Vector& impulse) noexcept {
+            Event(8,Bits(impulse.x),Bits(impulse.y),Bits(impulse.z));return true;
+        };
+        Check(weapon.Bind(player,prepared,backends)==FamasStatus::Ready && weapon.Deploy());
+        Ready(8);
+        player.pev->velocity={pose.speed,0,0};
+        frame.originalFlags=pose.flags;
+        frame.toggleAim=true;
+        if (aim)
+        {
+            player.pev->button=frame.pressed=0x40;
+            weapon.ItemPostFrame();
+            Check(weapon.ActionState().aiming);
+        }
+        frame.pressed=0;
+        g_engfuncs.pfnRandomLong=[](int low,int high) {
+            return low==-2 && high==2 ? int(frame.randomSeed%5)-2 : low;
+        };
+        int shots=0;
+        for (int tick=-100; tick<=300 && shots<30; ++tick)
+        {
+            globals.time=10.F+float(tick)*.01F;
+            player.pev->button=tick>=0 ? IN_ATTACK : 0;
+            frame.randomSeed=53+37*shots;
+            events.clear();
+            weapon.AdvanceOwnerFrame();
+            weapon.ItemPostFrame();
+            std::array<float,3> impulse{};
+            bool recoilSeen=false;
+            for (std::size_t at=0; at<events.size(); at+=events[at+1]+2)
+            {
+                if (events[at]==8 && events[at+1]==3)
+                {
+                    for (unsigned i=0;i<3;++i) impulse[i]=Float(events[at+2+i]);
+                    recoilSeen=true;
+                }
+                if (events[at]!=31) continue;
+                Check(events[at+1]==12 && recoilSeen && weapon.ActionState().aiming==aim);
+                const auto* ray=events.data()+at+2;
+                Check(ray[6]==ray[7] && ray[6]==ray[8] && ray[11]==frame.randomSeed);
+                Check(++shots==30-weapon.m_iClip && ray[10]==unsigned(frame.bulletDamage));
+                const float rawCone=weapon.Spread().vector[0];
+                Check(ray[6]==Bits((pose.flags & FL_ONGROUND) ? rawCone*.75F : rawCone));
+                const float viewScale=aim ? .5F : 1.F;
+                Check(impulse[0]==float(int(frame.randomSeed%5)-2)*viewScale &&
+                    impulse[1]==.5F*viewScale && impulse[2]==.25F*viewScale);
+                out << pose.name << ',' << aim << ',' << material << ',' << shots << ',' << tick
+                    << ',' << ray[6] << ',' << Bits(weapon.Spread().vector[0])
+                    << ',' << impulse[0] << ',' << impulse[1] << ',' << impulse[2]
+                    << ',' << ray[11] << ',' << weapon.m_iClip << ',' << ray[10] << '\n';
+            }
+        }
+        Check(shots==30);
+        // Recovery is strict at the original deadline, with one decay step
+        // even after a long pause. The cone is selected before that decay.
+        player.pev->button=0;
+        const auto fired=weapon.Spread();
+        Check(fired.recoveryDeadline==float(double(globals.time)+.25));
+        globals.time=fired.recoveryDeadline;
+        weapon.AdvanceOwnerFrame();
+        const auto atDeadline=weapon.Spread();
+        globals.time=std::nextafter(globals.time,INFINITY);
+        weapon.AdvanceOwnerFrame();
+        Check(weapon.Spread().recoveryDeadline==float(double(globals.time)+.1));
+        Check(weapon.Spread().vector==atDeadline.vector && weapon.Spread().scalar==atDeadline.scalar-1.F);
+    }
+}
+
 }
 
 
@@ -324,6 +406,13 @@ int main(int argc,char** argv)
     {
         if(sequence[i].fps<=0||sequence[i].numframes<1)return 1;
         viewTimes.duration[i]=float(sequence[i].numframes-1)/sequence[i].fps;
+    }
+    if (!std::strcmp(argv[3],"--handling"))
+    {
+        std::ofstream out(argv[4]);
+        if (!out) return 1;
+        WriteHandlingSamples(out);
+        return out.flush() ? 0 : 1;
     }
     {
         FamasWeapon fresh;ItemInfo info{};
@@ -366,11 +455,11 @@ int main(int argc,char** argv)
     // Required recoil is applied before fetching the actual shot angle.
     Initialize();Ready();player.pev->v_angle={1,2,3};player.pev->punchangle={0,0,0};
     events.clear();weapon.PrimaryAttack();
-    Check(player.pev->punchangle==Vector(2,1,1)&&weapon.m_iClip==29);
+    Check(player.pev->punchangle==Vector(2,.5F,.25F)&&weapon.m_iClip==29);
     bool postRecoil=false;
     for(std::size_t at=0;at<events.size();at+=events[at+1]+2)
         if(events[at]==30&&events[at+1]==3&&events[at+2]==Bits(3)&&
-            events[at+3]==Bits(3)&&events[at+4]==Bits(4))postRecoil=true;
+            events[at+3]==Bits(2.5F)&&events[at+4]==Bits(3.25F))postRecoil=true;
     Check(postRecoil);
     // ID23 refills without reserve consumption or the ordinary observer.
     for(int reserve:{0,150,32000})for(int clip:{0,5})

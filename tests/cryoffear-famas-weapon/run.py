@@ -173,7 +173,14 @@ def main(factory=False):
         tested=subprocess.run(testArgs,cwd=output,capture_output=True,text=True,timeout=30)
         (output/'test.log').write_text(tested.stdout+tested.stderr,'utf-8')
     negative=[]
+    handling=None
     if tested is not None and not tested.returncode:
+        if not factory:
+            samples=output/'shots.csv'
+            run=subprocess.run([str(exe),str(model),str(a.view_model),'--handling',str(samples)],
+                               cwd=output,capture_output=True,text=True,timeout=30)
+            (output/'handling.log').write_text(run.stdout+run.stderr,'utf-8')
+            handling=dict(exit=run.returncode,samplesSha256=sha(samples) if samples.is_file() else None)
         text=(output/'expected.txt').read_text();lines=text.splitlines(keepends=True)
         wrong=lines.copy();parts=wrong[0].split();parts[0]=format(int(parts[0],16)^1,'x');wrong[0]=' '.join(parts)+chr(10)
         for name,value in (('empty',''),('truncated',''.join(lines[:-1])),('extra',text+'0'+chr(10)),('wrong',''.join(wrong))):
@@ -182,11 +189,12 @@ def main(factory=False):
             (output/('bad-'+name+'.log')).write_text(run.stdout+run.stderr,'utf-8')
             negative.append(dict(name=name,exit=run.returncode,passed=run.returncode==2))
     after={str(v):sha(v) for v in sorted(deps)}
-    success=not compiled.returncode and tested is not None and not tested.returncode and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
+    handlingPassed=factory or (handling is not None and handling['exit']==0)
+    success=not compiled.returncode and tested is not None and not tested.returncode and handlingPassed and before==after and compilerBefore==sha(a.compiler) and all(v['passed'] for v in negative)
     gitAfter=subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip()
     receipt=dict(success=success,gitBefore=gitBefore,gitAfter=gitAfter,command=command,dependencyCommands=commands,dependencyBefore=before,dependencyAfter=after,
                  compilerSha256=compilerBefore,original=original,compiled=compiled.returncode,tested=tested.returncode if tested else None,
-                 negative=negative,fidget=fidget,scheduler=scheduler,actionOwnership=actionOwnership,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled engine stage/ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
+                 negative=negative,handling=handling,fidget=fidget,scheduler=scheduler,actionOwnership=actionOwnership,sourceCopies=0,boundary='Actual SDK lifecycle composition with controlled engine stage/ballistics/pushback/audio/transport; no registry wiring, deployment, gameplay or live performance acceptance')
     (output/'receipt.json').write_text(json.dumps(receipt,indent=2),'utf-8')
     print((tested.stdout+tested.stderr) if tested else compiled.stdout+compiled.stderr)
     raise SystemExit(0 if success else 1)
