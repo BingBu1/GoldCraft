@@ -182,6 +182,11 @@ int main()
     Check(NightFlashlightHeld(), "the actual held model owns the flashlight control");
     Check(TrySelectNightFlashlight() && test::flashlightCommands == 1 && test::modelQueries == 4,
         "an already-held flashlight consumes slot 5 without a new command or model lookup");
+    std::strcpy(test::heldModel.name, "models/v_test_rifle.mdl");
+    test::entities[0].curstate.effects = EF_DIMLIGHT;
+    Check(!NightFlashlightHeld(), "lit flashlight stowed behind a rifle does not own F");
+    test::entities[0].curstate.effects = 0;
+    std::strcpy(test::heldModel.name, custom::NightFlashlightView);
     ResetNightPlayerLights(); NightPlayerLightsView(params); Check(!test::count, "map/connection reset clears state");
     Check(!NightFlashlightHeld(), "a lingering view model after a reset owns no input");
     Check(!TrySelectNightFlashlight(), "map reset retires slot 5 before the next authoritative snapshot");

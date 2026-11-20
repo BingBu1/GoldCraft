@@ -9,13 +9,14 @@
 #include <thread>
 namespace test_phase
 {
-bool buy{},characters{},vote{};
+bool buy{},characters{},vote{},flashlightAvailable{},flashlightHeld{};
 unsigned reads{};
 std::vector<std::byte> fontBytes;
 std::vector<std::byte> atlasBytes;
 struct Surface final:fixture::Surface
 {
     int nextTexture{10};unsigned uploads{},createdFonts{},configuredFonts{},filled{},texts{};
+    unsigned flashlightSelectHints{}, flashlightToggleHints{};
     std::map<vgui::HFont,int> heights;
     std::vector<std::array<int,4>> rectangles;
     vgui::VPANEL GetEmbeddedPanel()override{return 1;}
@@ -37,7 +38,13 @@ struct Surface final:fixture::Surface
         fixture::Check(count==4,"animation uses one textured quad");
         rectangles.push_back({vertices[0].GetX(),vertices[0].GetY(),vertices[2].GetX(),vertices[2].GetY()});
     }
-    void DrawPrintText(const wchar_t*,int)override{++texts;}
+    void DrawPrintText(const wchar_t* text,int length)override
+    {
+        ++texts;
+        const std::wstring_view label(text, length);
+        flashlightSelectHints += label == L"[5] 手电筒";
+        flashlightToggleHints += label == L"[F] 开关";
+    }
 };
 }
 namespace csol::client
@@ -45,8 +52,9 @@ namespace csol::client
 bool BuyMenuVisible(){return test_phase::buy;}
 bool CharacterMenuVisible(){return test_phase::characters;}
 bool ScenarioMapVoteVisible(){return test_phase::vote;}
-bool NightFlashlightSlotAvailable() noexcept { return false; }
-bool NightFlashlightHeld() noexcept { return false; }
+bool NightFlashlightSlotAvailable() noexcept { return test_phase::flashlightAvailable; }
+bool NightFlashlightHeld() noexcept { return test_phase::flashlightHeld; }
+bool OwnsLantern() { return false; }
 std::vector<std::byte> ReadResource(const char* path)
 {
     ++test_phase::reads;
@@ -93,6 +101,14 @@ int main(int argc,char** argv)
     for(unsigned i=0;i<100;++i){ChallengePhaseFrame();DrawChallengePhase(0);Paint();}
     allocation_probe::active=false;
     Check(allocation_probe::calls==0&&fake.uploads==6&&test_phase::reads==3,"100 actual animated night frames perform no new allocations, file reads or texture uploads");
+    view.health = 100;
+    test_phase::flashlightAvailable = true;
+    test_phase::flashlightHeld = true;
+    DrawChallengePhase(0); Paint();
+    Check(fake.flashlightToggleHints == 1 && !fake.flashlightSelectHints, "holding the flashlight shows the F toggle hint");
+    test_phase::flashlightHeld = false;
+    DrawChallengePhase(0); Paint();
+    Check(fake.flashlightToggleHints == 1 && fake.flashlightSelectHints == 1, "after switching weapons the phase HUD shows slot 5 again");
     const auto ended=custom::EncodePhase({custom::Phase::Ended,false,3,1,0});
     Receive(custom::PhaseMessage,int(ended->size()),const_cast<std::byte*>(ended->data()));ChallengePhaseFrame();const auto last=fake.filled;DrawChallengePhase(0);Paint();Check(fake.filled==last,"ended server phase hides display");
     Init("InitHUD",0,nullptr);Check(!state.Sample(Now())&&!known,"new connection InitHUD clears old map ownership");

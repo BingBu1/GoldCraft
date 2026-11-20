@@ -138,6 +138,7 @@ bool NightFlashlightSlotAvailable() noexcept
 bool NightFlashlightHeld() noexcept
 {
     if (!NightFlashlightSlotAvailable()) return false;
+    // EF_DIMLIGHT can stay set after holstering. Only the held model owns impulse 100.
     const auto* model = engine.GetViewModel ? engine.GetViewModel() : nullptr;
     return model && model->model && !std::strcmp(model->model->name, night::NightFlashlightView);
 }
