@@ -28,6 +28,7 @@ constexpr Item items[]{
     {901,3,"cof_mp5","客串武器·MP5A3","cof_mp5",2400},
     {902,4,"cof_m16","客串武器·M16","cof_m16",3100},
     {903,4,"cof_g43","客串武器·G43","cof_g43",3500},
+    {905,4,"cof_famas","客串武器·FAMAS G2","cof_famas",3200},
     {142,3,"skull3","喋血SKULL-3","skull3",4000},
     {19,3,"mp5","MP5","mp5",0},{23,3,"tmp","TMP","tmp",0},{30,3,"p90","P90","p90",0},
     {3,4,"scout","Scout","scout",0},{8,4,"aug","AUG","aug",0},{13,4,"sg550","SG550","sg550",0},

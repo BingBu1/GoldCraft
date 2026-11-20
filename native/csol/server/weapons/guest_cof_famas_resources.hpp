@@ -33,5 +33,6 @@ struct FamasResources
 // Valid V/W and inventory identity are the mechanical closure. Optional
 // presentation is reported per part; only a complete current generation is
 // committed. Client effect/HUD preparation is a separate cold stage.
+ResourceResult PrepareFamasClientAudio(const ResourceAuthority&, bool m16AudioPrepared) noexcept;
 ResourceResult PrepareFamasResources(const ResourceAuthority&, FamasResources&) noexcept;
 }

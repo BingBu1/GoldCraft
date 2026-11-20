@@ -27,7 +27,7 @@ std::string Changed(std::string value, const std::string& from, const std::strin
 int main(int argc, char** argv)
 {
     using namespace guest::cof;
-    if (argc != 7) return 2;
+    if (argc != 8) return 2;
     std::ifstream file(argv[1], std::ios::binary);
     if (!file) return 3;
     const std::string json{std::istreambuf_iterator<char>(file), {}};
@@ -118,10 +118,18 @@ int main(int argc, char** argv)
         tmp->price==2000&&tmp->ammunitionPrice==30&&tmp->ammunitionCount==30&&
         tmp->displayName=="客串武器·MP9"&&!FindPistol(900)&&!OriginalPistolId(14),
         "TMP was misplaced in pistol family or lost authored metadata");
-    Check(!FindFirearm(-1)&&!FindFirearm(895)&&!FindFirearm(905)&&!FindFirearm(Firearm::Count)&&
+    Check(!FindFirearm(-1)&&!FindFirearm(895)&&!FindFirearm(906)&&!FindFirearm(Firearm::Count)&&
         !FindOriginalFirearm(0)&&!config.Find(Firearm::Count),"Invalid firearm identity accepted");
     for(unsigned bits=0;bits<=511;++bits)
         Check(ParseFirearmAdmission("1",std::to_string(bits)).weapons==bits,"Valid explicit firearm mask rejected");
+    for (unsigned mask=0; mask<=LegacyFirearmMask; ++mask)
+    {
+        const auto legacy=std::to_string(mask);
+        Check(ParseFirearmAdmission("1",legacy,"1").weapons==(mask|FirearmCapability(Firearm::Famas)),
+            "FAMAS extension changed a legacy capability");
+        Check(ParseFirearmAdmission("1",legacy,"512").weapons==mask,
+            "Malformed FAMAS extension disabled a legacy gun");
+    }
     for(const char* bad:{"-1","+1"," 1","1 ","512","16x","4294967296","2147483648"})
         Check(ParseFirearmAdmission("1",bad).weapons==0,"Malformed firearm mask accepted");
     Check(ParseFirearmAdmission("1","").weapons==1&&ParseFirearmAdmission("0","31").weapons==0&&
@@ -223,9 +231,27 @@ int main(int argc, char** argv)
     for(const auto& bad:badV6)
     {
         Check(!config.Parse(bad,error),"Malformed nine-gun balance accepted");
-        for(const auto& definition:Firearms)Check(config.Find(definition.identity)!=nullptr,"Failed v6 lost existing permissions");
+        for(const auto& definition:Firearms)Check((config.Find(definition.identity)!=nullptr)==(definition.identity!=Firearm::Famas),"Failed v6 changed active permissions");
         Check(*config.Find(Firearm::Shotgun)==ScenarioDamage{35,25},"Failed v6 changed accepted shotgun damage");
     }
+    Check(!config.Find(Firearm::Famas), "Nine-gun profile enabled FAMAS");
+    std::ifstream shippedV7(argv[7],std::ios::binary);
+    if (!shippedV7) return 3;
+    const std::string v7Json{std::istreambuf_iterator<char>(shippedV7),{}};
+    Check(config.Parse(v7Json,error) && config.Find(Firearm::Famas) &&
+        *config.Find(Firearm::Famas)==ScenarioDamage{70,120,3}, "Shipped ten-gun balance rejected");
+    const auto* famas=FindFirearm(Firearm::Famas);
+    Check(famas && famas->hostId==905 && famas->originalId==23 && famas->clip==30 &&
+        famas->reserve==150 && famas->price==3200 && famas->ammunitionPrice==60 && famas->ammunitionCount==30,
+        "FAMAS metadata or ammunition purchase changed");
+    for (const auto& bad : {Changed(v7Json,"\"famas\"","\"m16\""), Changed(v7Json,"\"shot\": 70","\"shot\": -1")})
+    {
+        Check(!config.Parse(bad,error),"Malformed ten-gun balance accepted");
+        for (const auto& firearm : Firearms)
+            Check(config.Find(firearm.identity)!=nullptr,"Failed v7 reload changed active permissions");
+    }
+    Check(config.Parse(v6Json,error) && !config.Find(Firearm::Famas) && config.Find(Firearm::Shotgun),
+        "Retracting v7 left stale FAMAS permission or removed the 870");
     Check(config.Parse(v5Json,error)&&!config.Find(Firearm::Shotgun)&&config.Find(Firearm::G43),
         "Returning to v5 left stale shotgun data or changed eight-gun compatibility");
     Check(config.Parse(v4Json,error)&&!config.Find(Firearm::G43)&&config.Find(Firearm::M16)&&

@@ -26,7 +26,7 @@ def main():
               ROOT / 'native/guest/cof/catalog.hpp',ROOT / 'native/guest/cof/admission.hpp',
               ROOT / 'native/guest/cof/scenario_damage.v2.json',ROOT/'native/guest/cof/scenario_damage.v3.json',
               ROOT / 'native/guest/cof/scenario_damage.v4.json',ROOT / 'native/guest/cof/scenario_damage.v5.json',
-              ROOT / 'native/guest/cof/scenario_damage.v6.json']
+              ROOT / 'native/guest/cof/scenario_damage.v6.json', ROOT / 'native/guest/cof/scenario_damage.v7.json']
 
     def identities():
         return [dict(path=p.relative_to(ROOT).as_posix(), sha256=hashlib.sha256(p.read_bytes()).hexdigest())
@@ -46,7 +46,7 @@ def main():
     (output / 'compile.log').write_text(compiled.stdout + compiled.stderr, 'utf-8')
     tested = None
     if compiled.returncode == 0:
-        tested = subprocess.run([str(executable), str(inputs[4]), *map(str,inputs[-5:])], cwd=output, capture_output=True,
+        tested = subprocess.run([str(executable), str(inputs[4]), *map(str,inputs[-6:])], cwd=output, capture_output=True,
                                 text=True, encoding='utf-8', errors='replace', timeout=30)
         (output / 'test.log').write_text(tested.stdout + tested.stderr, 'utf-8')
     after = identities()

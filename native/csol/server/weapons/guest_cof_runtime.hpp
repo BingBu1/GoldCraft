@@ -11,6 +11,8 @@
 #include "guest_cof_m16_owner.hpp"
 #include "guest_cof_g43_owner.hpp"
 #include "guest_cof_shotgun_owner.hpp"
+#include "guest_cof_famas_resources.hpp"
+#include "native/guest/cof/server/famas_weapon.hpp"
 #include "native/guest/cof/server/sound_dispatch.hpp"
 #include <memory>
 #include <optional>
@@ -82,6 +84,16 @@ struct G43RuntimeHost
     guest::cof::PlaySfxRules soundRules{guest::cof::PlaySfxRules::Unsupported};
 };
 
+struct FamasRuntimeHost
+{
+    bool (*prepare)(void*, const FamasResources&, guest::cof::server::FamasPrepared&) noexcept {};
+    bool (*effect)(void*, const FamasResources&, const OwnerBinding&,
+        CBasePlayer&, CBasePlayerWeapon&, const guest::cof::server::FamasEvent&) noexcept {};
+    bool (*firstEquip)(void*, CBasePlayer&, bool& first) noexcept {};
+    bool (*actions)(void*, CBasePlayer&, std::uint64_t, std::uint64_t,
+        guest::cof::server::PlayerActionBinding&) noexcept {};
+};
+
 struct ShotgunRuntimeHost
 {
     bool (*prepare)(void*, const ShotgunResources&, guest::cof::server::ShotgunPrepared&) noexcept {};
@@ -119,6 +131,7 @@ struct GlockRuntimeHost
     M16RuntimeHost m16{};
     G43RuntimeHost g43{};
     ShotgunRuntimeHost shotgun{};
+    FamasRuntimeHost famas{};
 };
 
 struct GlockPlayerPreparation
@@ -142,6 +155,7 @@ struct GlockPlayerPreparation
     std::optional<NativeOwnerRules> g43Rules;
     struct ShotgunPreparation { NativeOwnerRules rules; ShotgunOwnerState state; };
     std::optional<ShotgunPreparation> shotgun;
+    std::optional<NativeOwnerRules> famasRules;
 };
 
 class GlockRuntime final
@@ -176,6 +190,7 @@ public:
     const M16Resources* PreparedM16Resources() const noexcept;
     const G43Resources* PreparedG43Resources() const noexcept;
     const ShotgunResources* PreparedShotgunResources() const noexcept;
+    const FamasResources* PreparedFamasResources() const noexcept;
 
     // Spawn means successful real native initialization, including final model.
     // Model change preserves explicit owner state but revokes old weapon leases.
@@ -193,6 +208,7 @@ public:
     bool Backend(CBasePlayer&, guest::cof::server::M16Backends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::G43Backends&) noexcept;
     bool Backend(CBasePlayer&, guest::cof::server::ShotgunBackends&) noexcept;
+    bool Backend(CBasePlayer&, guest::cof::server::FamasBackends&) noexcept;
     bool FirstDraw(const OwnerBinding&, bool) noexcept;
     bool Light(const OwnerBinding&, bool) noexcept;
     bool PersistentState(CBasePlayer&, NativeOwnerPersistentState&) noexcept;

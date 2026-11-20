@@ -10,6 +10,7 @@ public plugin_init()
     register_plugin("CoF local purchase checks", "0.1.0", "GoldCraft contributors");
     register_srvcmd("cof_live_status", "Status");
     register_srvcmd("cof_live_purchase", "Purchase");
+    register_srvcmd("cof_live_famas_rays", "ArmFamasRays");
     register_srvcmd("cof_live_clear_batch", "ClearBatch");
     register_srvcmd("cof_live_round_protect", "RoundProtect");
     register_srvcmd("cof_live_test_funds", "TestFunds");
@@ -19,6 +20,71 @@ public plugin_init()
     register_srvcmd("cof_live_burn_wave", "BurnWave");
     register_srvcmd("cof_live_burn_teammate", "BurnTeammate");
     RegisterHookChain(RG_CBasePlayer_Spawn, "TeammateSpawned", true);
+}
+
+// Enable this observer only on request. Keep the first actual engine trace of
+// each shot, before material penetration traces start at a different surface.
+new rayPlayer, rayUserid, raysLeft, raySequence, tracingShot;
+new Float:raySource[3];
+new bool:rayHooksInstalled;
+
+public ArmFamasRays()
+{
+    new slot[12], user[12], address[32];
+    read_argv(1, slot, charsmax(slot));
+    read_argv(2, user, charsmax(user));
+    new id = str_to_num(slot), userid = str_to_num(user);
+    if (read_argc() != 3 || !Human(id, userid) || !is_user_alive(id)) return PLUGIN_HANDLED;
+    get_user_ip(id, address, charsmax(address), 1);
+    if (!equal(address, "127.0.0.1")) return PLUGIN_HANDLED;
+    new weapon = get_member(id, m_pActiveItem);
+    if (is_nullent(weapon) || get_member(weapon, m_iId) != 905) return PLUGIN_HANDLED;
+    if (!rayHooksInstalled)
+    {
+        RegisterHookChain(RG_CBaseEntity_FireBullets3, "FamasShotBegin");
+        RegisterHookChain(RG_CBaseEntity_FireBullets3, "FamasShotEnd", true);
+        register_forward(FM_TraceLine, "FamasFirstTrace", 1);
+        rayHooksInstalled = true;
+    }
+    rayPlayer = id;
+    rayUserid = userid;
+    raysLeft = 64;
+    server_print("[cof-rays] armed player=%d userid=%d", id, userid);
+    return PLUGIN_HANDLED;
+}
+
+public FamasShotBegin(id, Float:source[3], Float:dir[3], Float:spread, Float:distance,
+    penetration, bulletType, damage, Float:modifier, attacker, bool:pistol, seed)
+{
+    if (!raysLeft || id != rayPlayer || attacker != id || !Human(id, rayUserid)) return HC_CONTINUE;
+    new weapon = get_member(id, m_pActiveItem);
+    if (is_nullent(weapon) || get_member(weapon, m_iId) != 905) return HC_CONTINUE;
+    --raysLeft;
+    tracingShot = ++raySequence;
+    raySource = source;
+    new Float:fov = get_entvar(id, var_fov);
+    server_print("[cof-rays] shot=%d t=%.4f seed=%d clip=%d fov=%.1f damage=%d src=%.4f,%.4f,%.4f dir=%.7f,%.7f,%.7f",
+        tracingShot, get_gametime(), seed, get_member(weapon, m_Weapon_iClip), fov, damage,
+        source[0], source[1], source[2], dir[0], dir[1], dir[2]);
+    return HC_CONTINUE;
+}
+
+public FamasFirstTrace(const Float:start[3], const Float:end[3], flags, skip, trace)
+{
+    if (!tracingShot || skip != rayPlayer || get_distance_f(start, raySource) > 0.01) return FMRES_IGNORED;
+    new Float:point[3], Float:fraction;
+    get_tr2(trace, TR_vecEndPos, point);
+    get_tr2(trace, TR_flFraction, fraction);
+    server_print("[cof-rays] trace=%d hit=%d fraction=%.6f end=%.4f,%.4f,%.4f",
+        tracingShot, get_tr2(trace, TR_pHit), fraction, point[0], point[1], point[2]);
+    tracingShot = 0;
+    return FMRES_IGNORED;
+}
+
+public FamasShotEnd()
+{
+    tracingShot = 0;
+    return HC_CONTINUE;
 }
 
 // The flare and monsters come from normal play. The map BSP blocks target 1.
@@ -349,7 +415,7 @@ public Purchase()
     new item[12]="896", address[32];
     if(read_argc()==5)read_argv(4,item,charsmax(item));
     new itemid=str_to_num(item);
-    if((itemid<896 || itemid>904) && itemid!=976 && itemid!=977)return PLUGIN_HANDLED;
+    if((itemid<896 || itemid>905) && itemid!=976 && itemid!=977)return PLUGIN_HANDLED;
     get_user_ip(id,address,charsmax(address),1);
     if(!equal(address,"127.0.0.1"))return PLUGIN_HANDLED;
     new before=get_member(id,m_iAccount);

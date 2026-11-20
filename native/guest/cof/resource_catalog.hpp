@@ -2,6 +2,7 @@
 #pragma once
 
 #include "studio_sound.hpp"
+#include "famas_resources.hpp"
 #include <array>
 #include <cstddef>
 #include <string_view>
@@ -10,7 +11,6 @@
 // server precache, client cold admission and resource candidate tooling.
 namespace guest::cof::resources
 {
-struct ResourcePath { const char* original; const char* host; };
 // Original1006DE40 server precache only. Client sounds, effects and HUD form a
 // separate closure; these core resources never grant firearm admission.
 enum class ShotgunCoreModel : unsigned { View, World, Player, Null, Shell, Count };
@@ -587,6 +587,8 @@ constexpr StudioSoundDependency StudioLocalSoundDependency(std::string_view mode
         }
         return {};
     };
+    if (model == FamasModels[static_cast<unsigned>(FamasModel::View)].host)
+        return suffix == "m16/m16_switch.wav" ? find(M16LocalWaves) : find(FamasLocalWaves);
     if (model == GlockModels[static_cast<unsigned>(GlockModel::View)].host) return find(GlockLocalWaves);
     if (model == P345Models[static_cast<unsigned>(P345Model::View)].host) return find(P345LocalWaves);
     if (model == RevolverModels[static_cast<unsigned>(RevolverModel::View)].host) return find(RevolverLocalWaves);
@@ -648,6 +650,9 @@ inline constexpr auto VP70AudioResources = AudioResources(VP70LocalWaves, VP70So
 inline constexpr auto TMPAudioResources = AudioResources(TMPLocalWaves, TMPSounds);
 inline constexpr auto MP5AudioResources = AudioResources(MP5LocalWaves, MP5Sounds);
 inline constexpr auto M16AudioResources = AudioResources(M16LocalWaves, M16Sounds);
+inline constexpr auto FamasAudioResources = AudioResources(FamasLocalWaves, std::array{
+    FamasSounds[static_cast<unsigned>(FamasSound::LegacyFire)],
+    FamasReloadSounds[0], FamasReloadSounds[1], FamasReloadSounds[2]});
 inline constexpr auto G43AudioResources = AudioResources(G43LocalWaves, G43Sounds);
 inline constexpr auto ShotgunAudioResources = AudioResources(ShotgunLocalWaves, ShotgunSounds);
 // Actual engine resource_t/PF_precache_generic ABI includes the terminating NUL.

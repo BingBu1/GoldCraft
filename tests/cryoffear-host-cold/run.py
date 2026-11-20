@@ -85,6 +85,8 @@ def main():
                         help='Require all eight firearms, including G43 with the shared player-task service')
     parser.add_argument('--include-shotgun', action='store_true',
                         help='Require all nine firearms, including the 870 and its shared player-task service')
+    parser.add_argument('--include-famas', action='store_true',
+                        help='Require all ten guest firearms, including the FAMAS on the stock 5.56 ammunition slot')
     parser.add_argument('--light-equipment', action='store_true',
                         help='Check the lantern and flare together with all nine existing firearms')
     parser.add_argument('--debugger', type=Path, help='Optional existing x86 CDB for cold-start crash capture')
@@ -123,6 +125,8 @@ def main():
         parser.error('--include-g43 requires --include-m16 for the eight-firearm profile')
     if args.include_shotgun and not args.include_g43:
         parser.error('--include-shotgun requires --include-g43 for the nine-firearm profile')
+    if args.include_famas and not args.include_shotgun:
+        parser.error('--include-famas requires --include-shotgun for the ten-firearm profile')
     if args.light_equipment and not args.include_shotgun:
         parser.error('The combined equipment regression requires the nine-firearm profile')
     out = checked(args.output)
@@ -162,7 +166,7 @@ def main():
     if len(damage) != 1:
         raise ValueError('Expected one explicit damage profile in the cold resource set')
     profile = json.loads(checked(damage[0]['source']).read_text('utf-8-sig'))
-    expected_version = 6 if args.include_shotgun else 5 if args.include_g43 else 4 if args.include_m16 else 3 if args.include_mp5 else 2 if args.include_tmp else 1
+    expected_version = 7 if args.include_famas else 6 if args.include_shotgun else 5 if args.include_g43 else 4 if args.include_m16 else 3 if args.include_mp5 else 2 if args.include_tmp else 1
     if profile.get('version') != expected_version:
         raise ValueError('Cold-test expectations do not match the supplied damage profile version')
     out.mkdir()
@@ -335,6 +339,8 @@ def main():
                 expected.append((903, 'g43', 10))
             if args.include_shotgun:
                 expected.append((904, 'shotgun', 5))
+            if args.include_famas:
+                expected.append((905, 'famas', 30))
             if args.light_equipment:
                 if result['menu']['menu'] != pair.EQUIPMENT_MENU:
                     raise ValueError('The equipment regression requires the active equipment catalogue')
@@ -360,7 +366,7 @@ def main():
             result['checks']['actualItemDefinitions'] = len(result['registration']) == len(expected)
             for ident, enabled, label in ((900, args.include_tmp, 'TMP'), (901, args.include_mp5, 'MP5'),
                                            (902, args.include_m16, 'M16'), (903, args.include_g43, 'G43'),
-                                           (904, args.include_shotgun, 'Shotgun')):
+                                           (904, args.include_shotgun, 'Shotgun'), (905, args.include_famas, 'Famas')):
                 if enabled:
                     continue
                 raw = process.read(table + (ident - 32) * layout['size'], layout['size'])

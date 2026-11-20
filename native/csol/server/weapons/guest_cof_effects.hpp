@@ -36,6 +36,9 @@ public:
     std::uint32_t G43Capabilities() const noexcept;
     std::uint32_t ShotgunCapabilities() const noexcept;
     std::uint32_t RevolverCapabilities(const RevolverResources&) const noexcept;
+    bool FillPrepared(const FamasResources&, guest::cof::server::FamasPrepared&) noexcept;
+    bool Dispatch(const FamasResources&,const OwnerBinding&,CBasePlayer&,
+        CBasePlayerWeapon&,const guest::cof::server::FamasEvent&) noexcept;
     bool FillPrepared(const GlockResources&, guest::cof::server::GlockPrepared&) noexcept;
     bool FillPrepared(const P345Resources&, guest::cof::server::P345Prepared&) noexcept;
     bool FillPrepared(const VP70Resources&, guest::cof::server::VP70Prepared&) noexcept;

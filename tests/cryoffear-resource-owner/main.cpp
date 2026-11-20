@@ -34,6 +34,9 @@ std::array<unsigned,4> mp5Registrations{};
 std::array<unsigned,7> m16Registrations{};
 std::array<unsigned,4> g43Registrations{};
 std::array<unsigned,5> shotgunRegistrations{};
+std::array<unsigned,FamasAudioResources.size()> famasRegistrations{};
+bool famasModelPresent{},missingFamasWave{},invalidFamasWave{};
+model_t famasModel{};
 std::array<pfnUserMsgHook, 4> messages{};
 GoldCraftPrecacheReadyCallback ready{}, retired{};
 void* listener{};
@@ -117,6 +120,8 @@ std::uint32_t Inspect(std::uint64_t expected, const char* name, std::uint32_t si
         if(M16AudioResources[i].remoteAsset==std::string_view(name,size))return m16Registrations[i];
     for(unsigned i=0;i<G43AudioResources.size();++i)
         if(G43AudioResources[i].remoteAsset==std::string_view(name,size))return g43Registrations[i];
+    for(unsigned i=0;i<FamasAudioResources.size();++i)
+        if(FamasAudioResources[i].remoteAsset==std::string_view(name,size))return famasRegistrations[i];
     for(unsigned i=0;i<ShotgunAudioResources.size();++i)
         if(ShotgunAudioResources[i].remoteAsset==std::string_view(name,size))return shotgunRegistrations[i];
     for(const auto& group:{std::span<const LocalSoundResource>(RevolverAudioResources),std::span<const LocalSoundResource>(VP70AudioResources)})
@@ -202,6 +207,7 @@ int ModelIndex(const char* path)
     if(!std::strcmp(path,MP5Models[0].host))return mp5Registrations[0]?23:0;
     if(!std::strcmp(path,M16Models[0].host))return m16Registrations[0]?25:0;
     if(!std::strcmp(path,G43Models[0].host))return g43Registrations[0]?26:0;
+    if(!std::strcmp(path,FamasModels[0].host))return famasModelPresent?28:0;
     if(!std::strcmp(path,ShotgunModels[0].host))return shotgunRegistrations[0]?27:0;
     if(!std::strcmp(path,MP5ClientModels[0].host))return missingMP5Flash?0:24;
     if(!std::strcmp(path,VP70Models[0].host)||!std::strcmp(path,RevolverModels[0].host))return 0;
@@ -211,7 +217,7 @@ int ModelIndex(const char* path)
     if(!std::strcmp(path,GlockModels[unsigned(GlockModel::CheapSmoke)].host))return 21;
     CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Shell)].host));return 19;
 }
-model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:index==22?&tmpModel:index==23?&mp5Model:index==24?&mp5FlashModel:index==25?&m16Model:index==26?&g43Model:index==27?&shotgunModel:nullptr;}
+model_t* Model(int index){return index==17?&glockModel:index==18?&p345Model:index==19?&shellModel:index==20?&flashModel:index==21?&cheapSmokeModel:index==22?&tmpModel:index==23?&mp5Model:index==24?&mp5FlashModel:index==25?&m16Model:index==26?&g43Model:index==27?&shotgunModel:index==28?&famasModel:nullptr;}
 TEMPENTITY* Shell(float*,float*,float*,float,int index,int sound)
 {
     CHECK(index==19 && sound==1);++effectShells;static TEMPENTITY result;return &result;
@@ -222,6 +228,7 @@ void Begin()
     Disconnect();
     failRead = badWave = badScript = failLoad = failSprite = missingEffectModel = missingMP5Flash = false;
     cancelAt = replaceAt = Edge::None; edgeSkip = 0; nestedReady = false;
+    famasModelPresent=missingFamasWave=invalidFamasWave=false; famasRegistrations.fill(0);
     registrations.fill(3);tmpRegistrations.fill(0);mp5Registrations.fill(0);m16Registrations.fill(0);g43Registrations.fill(0);shotgunRegistrations.fill(0);
     limits = {4, 8u * 1024u * 1024u};
 #if CSOL_RESOURCE_REFRESH
@@ -285,6 +292,13 @@ std::vector<std::byte> ReadResource(const char* name)
         if(asset.localFile==name)file=original/"sound"/asset.localKey;
     for(const auto& asset:ShotgunAudioResources)
         if(asset.localFile==name)file=original/"sound"/asset.localKey;
+    for(const auto& asset:FamasAudioResources)
+        if(asset.localFile==name)
+        {
+            if(missingFamasWave)throw std::runtime_error("missing FAMAS wave");
+            if(invalidFamasWave)return {std::byte{0}};
+            file=original/"sound"/asset.localKey;
+        }
     CHECK(!file.empty());
     std::ifstream input(file, std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(input)), {});
@@ -530,6 +544,30 @@ int main(int argc, char** argv)
     // These real groups share one bounded decoded-PCM owner. The controlled
     // revolver/VP70 event adapters remain absent; this is not whole-gun admission.
     Disconnect();CHECK(!GuestCofAudioReady()&&!GuestCofEffectsReady());
+    famasModel.type=mod_studio;std::strcpy(famasModel.name,FamasModels[0].host);
+    for(int mode=0;mode<5;++mode)
+    {
+        Begin();famasModelPresent=true;famasRegistrations.fill(3);
+        if(mode==0)m16Registrations.fill(3);
+        else if(mode==1)m16Registrations.back()=3;
+        else if(mode==2)famasRegistrations[2]=0;
+        else if(mode==3)missingFamasWave=true;
+        else invalidFamasWave=true;
+        Complete();Prepared(mode==0?25:mode==1?19:14);
+        CHECK(GuestCofFamasViewReady() && GuestCofResourcesState().weapons==(mode==0?579u:515u));
+        SetGuestCofEffectsWeapon(guest::cof::client::Weapon::Famas);viewModel.model=&famasModel;
+        CHECK(GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon::Famas));
+        if(mode<2)
+        {
+            for(const auto& sound:FamasAudioResources)
+            {
+                std::strcpy(studioEvent.options,"weapons/");std::strcat(studioEvent.options,sound.localKey.data()+12);
+                CHECK(GuestCofStudioEvent(&studioEvent,&viewModel) && GuestCofLastStudioEffect()==guest::cof::client::EffectResult::Dispatched);
+            }
+            std::strcpy(studioEvent.options,"weapons/m16/m16_switch.wav");
+            CHECK(GuestCofStudioEvent(&studioEvent,&viewModel) && GuestCofLastStudioEffect()==guest::cof::client::EffectResult::Dispatched);
+        }
+    }
     ShutdownGuestCofResources();ShutdownGuestCofAudio();ShutdownGuestCofParticles();ShutdownGuestCofEffects();
     std::printf("checks=%u failures=%u realWaves=39 realXAudio2=yes actualSdk=yes live=no performance=no\n", checks, failures);
     return failures ? 1 : 0;

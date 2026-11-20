@@ -185,7 +185,7 @@ bool PrepareGuestCofEffects() noexcept
     int flash2{};model_t* secondMuzzle{};
     if(cached[static_cast<unsigned>(guest::cof::Firearm::MP5)]||
        cached[static_cast<unsigned>(guest::cof::Firearm::M16)]||
-       cached[static_cast<unsigned>(guest::cof::Firearm::G43)])
+       cached[static_cast<unsigned>(guest::cof::Firearm::G43)]||cached[static_cast<unsigned>(guest::cof::Firearm::Famas)])
         secondMuzzle=Model(MP5ClientModels[0].host,current,resources,mod_studio,&flash2);
     auto* cheap=Model(GlockModels[unsigned(GlockModel::CheapSmoke)].host,current,resources,mod_sprite,&smoke);
     int shell{};
@@ -208,6 +208,10 @@ bool GuestCofEffectsReady() noexcept
     return punchHook && eventRegistered && Synchronize() && prepared &&
         resourceSerial&&generation==preparedGeneration && GuestCofAudioReady();
 }
+bool GuestCofFamasViewReady() noexcept
+{
+    return GuestCofEffectsReady() && viewModels[static_cast<unsigned>(guest::cof::Firearm::Famas)];
+}
 bool GuestCofEffectsOwnsWeapon(Weapon value) noexcept
 {return GuestCofEffectsReady()&&weapon==value&&weaponViewIndex<viewModels.size()&&viewModels[weaponViewIndex];}
 bool GuestCofMuzzleModelsReady(unsigned originalWeapon) noexcept
@@ -215,7 +219,7 @@ bool GuestCofMuzzleModelsReady(unsigned originalWeapon) noexcept
     const auto* definition=guest::cof::FindOriginalFirearm(int(originalWeapon));
     return definition&&GuestCofEffectsReady()&&flashModel&&
         ((definition->identity!=guest::cof::Firearm::MP5&&definition->identity!=guest::cof::Firearm::M16&&
-          definition->identity!=guest::cof::Firearm::G43)||
+          definition->identity!=guest::cof::Firearm::G43&&definition->identity!=guest::cof::Firearm::Famas)||
          (flash2Model&&flash2Index>0));
 }
 std::uint64_t GuestCofEffectsResourceSerial() noexcept {return GuestCofEffectsReady()?resourceSerial:0;}

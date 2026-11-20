@@ -16,6 +16,8 @@
 #include "guest_cof_m16_factory.hpp"
 #include "guest_cof_m16_native_effects.hpp"
 #include "guest_cof_g43_factory.hpp"
+#include "guest_cof_famas_factory.hpp"
+#include "guest_cof_magazine_native_effects_impl.hpp"
 #include "guest_cof_g43_native_effects.hpp"
 #include "guest_cof_shotgun_factory.hpp"
 #include "guest_cof_shotgun_native_effects.hpp"
@@ -32,6 +34,13 @@ using namespace guest::cof::server;
 struct GlockRuntime::State
 {
     struct Map;
+    struct FamasPlayer
+    {
+        NativeOwnerRules rules{};
+        PlayerAnimationAdapter animation;
+        PlayerActionBinding actions;
+        bool animationReady{};
+    };
     struct Owner
     {
         Map* map{};
@@ -53,6 +62,7 @@ struct GlockRuntime::State
         G43OwnerBackendView g43View{};
         std::unique_ptr<ShotgunOwnerView> shotgun;
         ShotgunOwnerBackendView shotgunView{};
+        std::optional<FamasPlayer> famas;
     };
     struct Player
     {
@@ -80,6 +90,8 @@ struct GlockRuntime::State
         int g43SoundMessage{};
         ShotgunResources shotgunResources{};
         int shotgunSoundMessage{};
+        FamasResources famasResources{};
+        bool famasPrepared{};
         GlockOwnerRuntime owners;
         std::array<Player, GlockOwnerRuntime::SlotCount> players{};
         std::vector<std::unique_ptr<Owner>> bindings;
@@ -184,6 +196,43 @@ struct GlockRuntime::State
     }
     static bool TMPCurrent(void* opaque) noexcept { return AutomaticCurrent<LongGun::TMP>(opaque); }
     static bool MP5Current(void* opaque) noexcept { return AutomaticCurrent<LongGun::MP5>(opaque); }
+    static bool FamasCurrent(void* opaque) noexcept
+    {
+        auto& owner = *static_cast<Owner*>(opaque);
+        return owner.famas && WeaponCurrent(owner, FamasHostId);
+    }
+    static bool FamasFrame(void* opaque, FamasOwnerFrame& output) noexcept
+    {
+        auto& owner = *static_cast<Owner*>(opaque);
+        Call call(*owner.map);
+        GlockOwnerFrame shared{};
+        if (!FamasCurrent(&owner) || !owner.map->owners.Read(owner.view.binding, shared)) return false;
+        const auto& famas = *owner.famas;
+        FamasOwnerFrame frame{};
+        frame.activityBlock = shared.activityBlock;
+        frame.pendingGateTime = shared.pendingGateTime;
+        frame.condition3AA = shared.condition3AA;
+        frame.pendingGate = shared.pendingGate;
+        frame.toggleAim = famas.rules.toggleAim;
+        frame.infiniteAmmo = shared.infiniteAmmo;
+        frame.quietAudio = shared.quietAudio;
+        frame.eventOwner2814 = shared.eventOwner2814;
+        frame.originalFlags = shared.originalFlags;
+        frame.pressed = shared.pressed; frame.released = shared.released;
+        frame.randomSeed = shared.randomSeed; frame.sourceMode = shared.sourceMode;
+        frame.bulletDamage = famas.rules.bulletDamage; frame.reserveLimit = famas.rules.reserveLimit;
+        float stamina{}; bool infinite{};
+        if (famas.actions.ReadStamina(stamina, infinite)) frame.stamina = stamina;
+        if (!FamasCurrent(&owner)) return false;
+        output = frame;
+        return true;
+    }
+    static bool FamasFirstEquip(void* opaque, bool& first) noexcept
+    {
+        auto& owner = *static_cast<Owner*>(opaque); auto& map = *owner.map; Call call(map);
+        return FamasCurrent(&owner) && map.host.famas.firstEquip &&
+            map.host.famas.firstEquip(map.host.context, *owner.player, first) && FamasCurrent(&owner);
+    }
     static bool M16Current(void* opaque) noexcept
     {
         auto& owner = *static_cast<Owner*>(opaque); Call call(*owner.map);
@@ -250,7 +299,7 @@ struct GlockRuntime::State
         auto& owner=*static_cast<Owner*>(opaque);Call call(*owner.map);
         return RevolverCurrent(&owner)&&owner.revolver->Read(owner.revolverView.binding,output)&&RevolverCurrent(&owner);
     }
-    enum class EffectWeapon : unsigned char { Glock, P345, Revolver, VP70, TMP, MP5, M16, G43, Shotgun };
+    enum class EffectWeapon : unsigned char { Glock, P345, Revolver, VP70, TMP, MP5, M16, G43, Shotgun, Famas };
     struct EffectLease
     {
         Owner& owner;
@@ -270,6 +319,7 @@ struct GlockRuntime::State
             lease.kind==EffectWeapon::M16?M16Current(&lease.owner):
             lease.kind==EffectWeapon::G43?G43Current(&lease.owner):
             lease.kind==EffectWeapon::Shotgun?ShotgunCurrent(&lease.owner):
+            lease.kind==EffectWeapon::Famas?FamasCurrent(&lease.owner):
             lease.kind==EffectWeapon::Glock&&GlockCurrent(&lease.owner);
         return current && lease.entity && !lease.entity->free &&
             lease.entity->serialnumber == lease.serial && lease.entity->pvPrivateData == &lease.weapon &&
@@ -293,6 +343,33 @@ struct GlockRuntime::State
         }
         return map.host.p345.effect&&(bit&map.host.p345.effects)&&map.host.p345.effect(map.host.context,
             map.p345Resources,owner.view.binding,player,weapon,event)&&EffectCurrent(&lease);
+    }
+    static bool FamasEffectBoundary(void* opaque, CBasePlayer& player, CBasePlayerWeapon& weapon,
+        const FamasEvent& event) noexcept
+    {
+        auto& owner = *static_cast<Owner*>(opaque); auto& map = *owner.map; Call call(map);
+        if (owner.player != &player || !weapon.pev || !weapon.edict() || weapon.m_iId != FamasHostId) return false;
+        EffectLease lease{owner, weapon, weapon.edict(), weapon.edict()->serialnumber, EffectWeapon::Famas};
+        if (!EffectCurrent(&lease)) return false;
+        constexpr auto native = (1u << unsigned(FamasEffect::EmptyClick)) | (1u << unsigned(FamasEffect::Sleeve)) |
+            (1u << unsigned(FamasEffect::PickupSound)) | (1u << unsigned(FamasEffect::AmmoPickupSound));
+        if (unsigned(event.kind) <= unsigned(FamasEffect::AmmoPickupSound) && (native & (1u << unsigned(event.kind))))
+        {
+            GlockOwnerFrame frame{};
+            if (!map.owners.Read(owner.view.binding, frame)) return false;
+            const NativeSoundAuthority authority{&lease, EffectCurrent, map.epoch, frame.quietAudio, map.host.pickupSuppressed};
+            return NativeSoundSucceeded(EmitMagazineNativeSound<GlockSound, GlockSounds, native>(
+                authority, map.resources, player, weapon, event)) && EffectCurrent(&lease);
+        }
+        return map.host.famas.effect && map.host.famas.effect(map.host.context, map.famasResources,
+            owner.view.binding, player, weapon, event) && EffectCurrent(&lease);
+    }
+    static bool FamasRecoil(void* opaque, CBasePlayer& player, const Vector& impulse) noexcept
+    {
+        auto* weapon = dynamic_cast<FamasWeapon*>(player.m_pActiveItem);
+        if (!weapon) return false;
+        FamasEvent event{FamasEffect::Recoil}; event.first = impulse;
+        return FamasEffectBoundary(opaque, player, *weapon, event);
     }
     static constexpr auto M16SoundEffects = M16NativeSoundEffects | (1u << unsigned(M16Effect::FireSound));
     static bool M16EffectBoundary(void* opaque, CBasePlayer& player, CBasePlayerWeapon& weapon,
@@ -624,6 +701,42 @@ struct GlockRuntime::State
             M16BackendsFor(&map, player, backend) && Current(&map);
     }
 
+    static bool PrepareFamas(void* opaque, FamasWeapon&, FamasPrepared& output) noexcept
+    {
+        auto& map = *static_cast<Map*>(opaque); Call call(map);
+        if (!Current(&map) || !map.famasPrepared) return false;
+        const auto& r = map.famasResources;
+        FamasPrepared prepared{};
+        if (!map.host.famas.prepare(map.host.context, r, prepared) || !Current(&map)) return false;
+        prepared.sequences = r.sequences; prepared.aimOffset = r.aimOffset; prepared.aimZoom = r.aimZoom;
+        prepared.viewModelString = r.viewModelString; prepared.playerModelString = r.playerModelString;
+        prepared.worldModelString = r.worldModelString; prepared.inventoryItemString = r.inventoryItemString;
+        prepared.shellModel = r.models[unsigned(guest::cof::resources::FamasModel::Shell)];
+        prepared.ballistics.bubbleModel = map.resources.models[unsigned(GlockModel::Bubble)];
+        prepared.aimMetadataReady = r.Ready(FamasResourcePart::Aim);
+        prepared.modelsReady = prepared.inventoryReady = true;
+        prepared.hostSlot = FamasHudSlot; prepared.hostPosition = FamasHudPosition;
+        output = prepared; return true;
+    }
+    static bool FamasBackendsFor(void* opaque, CBasePlayer& player, FamasBackends& output) noexcept
+    {
+        auto& map = *static_cast<Map*>(opaque); Call call(map);
+        const auto index = Slot(player);
+        if (!index || !Current(&map) || !map.famasPrepared) return false;
+        auto* owner = map.players[index].backend;
+        if (!owner || owner->player != &player || !FamasCurrent(owner)) return false;
+        const auto& famas = *owner->famas;
+        output = {owner, FamasCurrent, FamasFrame, FamasEffectBoundary, FamasRecoil, FamasFirstEquip,
+            famas.animationReady ? &famas.animation : nullptr, owner->view.animationGeneration,
+            owner->view.binding.life, famas.actions.Think()};
+        return FamasCurrent(owner);
+    }
+    static bool FamasInventoryPickup(void* opaque, CBasePlayer& player, FamasWeapon& weapon, int itemString) noexcept
+    {
+        auto& map = *static_cast<Map*>(opaque); Call call(map); FamasBackends backend{};
+        return itemString > 0 && itemString == map.famasResources.inventoryItemString && weapon.ResourcesReady() &&
+            FamasBackendsFor(&map, player, backend) && Current(&map);
+    }
     static bool PrepareG43(void* opaque, G43Weapon&, G43Prepared& output) noexcept
     {
         auto& map = *static_cast<Map*>(opaque); Call call(map);
@@ -881,10 +994,14 @@ struct GlockRuntime::State
             }
             return true;
         };
-        PlayerActionBinding m16Actions, g43Actions, shotgunActions;
+        const bool famasRequested = request.famasRules && map->famasPrepared &&
+            request.famasRules->bulletDamage >= 0 &&
+            (request.famasRules->reserveLimit == 90 || request.famasRules->reserveLimit == 150);
+        PlayerActionBinding m16Actions, g43Actions, shotgunActions, famasActions;
         if (!bindPushback(bool(request.m16Rules), map->host.m16.actions, m16Actions) ||
             !bindPushback(bool(request.g43Rules), map->host.g43.actions, g43Actions) ||
-            !bindPushback(bool(request.shotgun), map->host.shotgun.actions, shotgunActions))
+            !bindPushback(bool(request.shotgun), map->host.shotgun.actions, shotgunActions) ||
+            !bindPushback(famasRequested, map->host.famas.actions, famasActions))
         { error = "Player ownership changed during preparation"; return false; }
         // Same-life renewal can arrive through userinfo without a model prehook.
         // Retain authenticated inventory tasks before replacing their authority.
@@ -965,6 +1082,17 @@ struct GlockRuntime::State
                 if (!owner->shotgun->Prepare(player, view, request.shotgun->rules, shotgunActions, request.shotgun->state,
                     request.rig, request.validatedModel, request.compare, owner->shotgunView, error, request.extent) || !Current(map))
                 { p.ready = false; map->owners.Invalidate(index, &player); return false; }
+            }
+            if (famasRequested)
+            {
+                auto& famas = owner->famas.emplace();
+                famas.rules = *request.famasRules;
+                famas.actions = famasActions;
+                const auto plan = RecommendedLongGunAnimationPlan(LongGun::Rifle, request.rig);
+                std::string poseError;
+                famas.animationReady = plan && famas.animation.Prepare(player, request.validatedModel,
+                    view.animationGeneration, LongGun::Rifle, *plan, request.compare, poseError, request.extent);
+                if (!map->owners.Current(view.binding)) return false;
             }
             p.backend = owner.get();
             map->bindings.push_back(std::move(owner));
@@ -1119,6 +1247,13 @@ ResourceResult GlockRuntime::BeginMap(const GlockRuntimeHost& host) noexcept
             if(!InstallRevolverFactory({&current,State::Current,State::PrepareRevolver,State::RevolverBackendsFor,State::RevolverInventoryPickup}))
             {EndMap();return {ResourceStatus::InvalidAuthority};}
         }
+        if (host.famas.prepare && host.famas.effect)
+        {
+            const auto resources = PrepareFamasResources({&current, State::Current, current.epoch}, current.famasResources);
+            if (!State::Current(&current)) return {ResourceStatus::Cancelled};
+            current.famasPrepared = resources && InstallFamasFactory({&current, State::Current, State::PrepareFamas,
+                State::FamasBackendsFor, State::FamasInventoryPickup});
+        }
         return result;
     }
     catch (...) { EndMap(); return {ResourceStatus::EngineRejected}; }
@@ -1139,6 +1274,7 @@ void GlockRuntime::EndMap() noexcept
     ResetM16Factory();
     ResetG43Factory();
     ResetShotgunFactory();
+    ResetFamasFactory();
     for(auto& owner:map->bindings)
     {
         if(owner->p345)owner->p345->Invalidate();
@@ -1186,6 +1322,8 @@ const G43Resources* GlockRuntime::PreparedG43Resources() const noexcept
 const ShotgunResources* GlockRuntime::PreparedShotgunResources() const noexcept
 {return state_->active&&state_->active->shotgunPrepared?&state_->active->shotgunResources:nullptr;}
 
+const FamasResources* GlockRuntime::PreparedFamasResources() const noexcept
+{ return state_->active && state_->active->famasPrepared ? &state_->active->famasResources : nullptr; }
 const RevolverResources* GlockRuntime::PreparedRevolverResources() const noexcept
 {return state_->active&&state_->active->revolverPrepared?&state_->active->revolverResources:nullptr;}
 bool GlockRuntime::PlayerSpawned(CBasePlayer& player, const GlockPlayerPreparation& request, std::string& error)
@@ -1204,6 +1342,8 @@ bool GlockRuntime::Backend(CBasePlayer& player,VP70Backends& output) noexcept
 bool GlockRuntime::Backend(CBasePlayer& player,TMPBackends& output) noexcept
 {return state_->active&&State::AutomaticBackendsFor<LongGun::TMP>(state_->active,player,output);}
 
+bool GlockRuntime::Backend(CBasePlayer& player, FamasBackends& output) noexcept
+{ return state_->active && State::FamasBackendsFor(state_->active, player, output); }
 bool GlockRuntime::MP5Backend(CBasePlayer& player,TMPBackends& output) noexcept
 {return state_->active&&State::AutomaticBackendsFor<LongGun::MP5>(state_->active,player,output);}
 bool GlockRuntime::Backend(CBasePlayer& player,M16Backends& output) noexcept

@@ -10,7 +10,7 @@ namespace
 {
 constexpr bool AttachmentOne(unsigned weapon) noexcept
 {
-    return weapon == unsigned(OriginalWeaponId::G43) || weapon == unsigned(OriginalWeaponId::Shotgun);
+    return weapon == unsigned(OriginalWeaponId::Famas) || weapon == unsigned(OriginalWeaponId::G43) || weapon == unsigned(OriginalWeaponId::Shotgun);
 }
 bool Valid(const ParticleMessageData& value) noexcept
 {

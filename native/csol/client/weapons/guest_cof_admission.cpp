@@ -25,7 +25,7 @@ namespace csol::client
 namespace
 {
 const GoldCraftConnectionAPI* connection{};
-cvar_t *protocol{},*weaponMask{};
+cvar_t *protocol{},*weaponMask{},*extendedMask{};
 DWORD ownerThread{};
 std::uint64_t generation{}, resources{};
 std::uint32_t admittedWeapons{};
@@ -34,9 +34,13 @@ bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(
 void Publish(std::uint32_t weapons) noexcept
 {
     if (weapons == admittedWeapons) return;
+    const auto changed = weapons ^ admittedWeapons;
     admittedWeapons = weapons;
     // Host compatibility only. Server validates entities, damage and ownership.
-    if (weaponMask && engine.Cvar_SetValue) engine.Cvar_SetValue("cof_weapons",float(weapons));
+    if (weaponMask && (changed & guest::cof::LegacyFirearmMask))
+        engine.Cvar_SetValue("cof_weapons", float(weapons & guest::cof::LegacyFirearmMask));
+    if (extendedMask && (changed & guest::cof::FirearmCapability(guest::cof::Firearm::Famas)))
+        engine.Cvar_SetValue("cof_w2", (weapons & guest::cof::FirearmCapability(guest::cof::Firearm::Famas)) ? 1.F : 0.F);
     if (protocol && engine.Cvar_SetValue) engine.Cvar_SetValue("cof_protocol",weapons?1.F:0.F);
 }
 }
@@ -44,7 +48,7 @@ void InitializeGuestCofAdmission() { InitializeGuestCofAdmission(GoldCraftConnec
 void InitializeGuestCofAdmission(const GoldCraftConnectionAPI* provider)
 {
     if (ownerThread && !Owner()) return;
-    ownerThread = GetCurrentThreadId(); connection = nullptr; protocol = weaponMask = nullptr;
+    ownerThread = GetCurrentThreadId(); connection = nullptr; protocol = weaponMask = extendedMask = nullptr;
     generation = resources = 0; admittedWeapons=0;menuAttempted=menuPrepared={};
     if (!provider || provider->size < sizeof(*provider) || provider->version != 1 || !provider->generation ||
         !engine.pfnGetCvarPointer || !engine.pfnRegisterVariable || !engine.Cvar_SetValue) return;
@@ -54,6 +58,10 @@ void InitializeGuestCofAdmission(const GoldCraftConnectionAPI* provider)
     weaponMask=engine.pfnGetCvarPointer("cof_weapons");
     if(!weaponMask)weaponMask=engine.pfnRegisterVariable("cof_weapons","0",FCVAR_USERINFO);
     if(!weaponMask||!(weaponMask->flags&FCVAR_USERINFO)){protocol=weaponMask=nullptr;return;}
+    extendedMask=engine.pfnGetCvarPointer("cof_w2");
+    if (!extendedMask) extendedMask=engine.pfnRegisterVariable("cof_w2","0",FCVAR_USERINFO);
+    if (extendedMask && !(extendedMask->flags & FCVAR_USERINFO)) extendedMask=nullptr;
+    if (extendedMask) engine.Cvar_SetValue("cof_w2",0);
     connection = provider;
     engine.Cvar_SetValue("cof_protocol", 0);
     engine.Cvar_SetValue("cof_weapons",0);
@@ -67,7 +75,7 @@ void InvalidateGuestCofAdmission() noexcept
 void ShutdownGuestCofAdmission() noexcept
 {
     if (!Owner()) return;
-    InvalidateGuestCofAdmission(); connection = nullptr; protocol = weaponMask = nullptr; ownerThread = 0;
+    InvalidateGuestCofAdmission(); connection = nullptr; protocol = weaponMask = extendedMask = nullptr; ownerThread = 0;
 }
 void GuestCofAdmissionFrame() noexcept
 {
@@ -92,7 +100,8 @@ void GuestCofAdmissionFrame() noexcept
     {
         const auto& weapon=guest::cof::Firearms[i];
         const auto bit=guest::cof::FirearmCapability(weapon.identity);
-        if(!(state.weapons&bit)||!GuestCofMuzzleReady(unsigned(weapon.originalId))||
+        if((weapon.identity==guest::cof::Firearm::Famas && !extendedMask) || !(state.weapons&bit)||
+            (weapon.identity != guest::cof::Firearm::Famas && !GuestCofMuzzleReady(unsigned(weapon.originalId)))||
             !HudStyleWeaponResourcesReady(weapon.hostId,guest::cof::FirearmHudAmmoFrames(weapon.identity)))continue;
         if(!menuAttempted[i])
         {menuAttempted[i]=true;menuPrepared[i]=PrepareBuyMenuItem(weapon.hostId);}

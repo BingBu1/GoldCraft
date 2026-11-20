@@ -33,7 +33,8 @@ bool& allowReads=resource_refresh_detail::readsAllowed;
 bool audio{true}, particles{true}, effects{true}, muzzle{true}, points{true}, mouse{true}, crosshair{true},
      control{true}, ironsight{true}, viewmodel{true}, hud{true}, menu{true}, retireInMenu{};
 cvar_t protocol{};
-cvar_t weaponMask{};
+cvar_t weaponMask{}, extensionMask{};
+bool famasHud{};
 bool p345Hud{true},p345Muzzle{true},revolverHud{true},revolverMuzzle{true};
 bool vp70Hud{true},vp70Muzzle{true},tmpHud{true},tmpMuzzle{true};
 bool mp5Hud{},m16Hud{},m16Muzzle{true},g43Hud{},g43Muzzle{true};
@@ -45,9 +46,10 @@ const char* commandKey="1";
 void Check(bool okay,int line){++checks;if(!okay){++failures;std::printf("FAIL %d\n",line);}}
 #define CHECK(...) Check((__VA_ARGS__),__LINE__)
 std::uint64_t Generation(){return generation;}
-cvar_t* Lookup(const char* name){if(!std::strcmp(name,"cof_weapons"))return &weaponMask;CHECK(!std::strcmp(name,"cof_protocol"));return &protocol;}
+cvar_t* Lookup(const char* name){if(!std::strcmp(name,"cof_w2"))return &extensionMask;if(!std::strcmp(name,"cof_weapons"))return &weaponMask;CHECK(!std::strcmp(name,"cof_protocol"));return &protocol;}
 cvar_t* Register(const char*,const char*,int){CHECK(false);return nullptr;}
 void Publish(const char* name,float value){if(!std::strcmp(name,"cof_weapons"))weaponMask.value=value;
+    else if(!std::strcmp(name,"cof_w2"))extensionMask.value=value;
     else{CHECK(!std::strcmp(name,"cof_protocol"));protocol.value=value;}++publications;}
 cmd_function_t* Find(const char* name){auto it=commands.find(name);return it==commands.end()?nullptr:&it->second;}
 int Add(const char* name,xcommand_t callback){commands[name].function=callback;return 1;}
@@ -77,6 +79,10 @@ void WeaponInventoryCreateMove(float,usercmd_t* cmd,int)
     if(cmd){*cmd={};cmd->buttons=IN_USE|IN_ATTACK2|IN_FORWARD;}
 }
 bool CharacterMenuVisible(){return visible;}
+bool BuyMenuVisible(){return buyVisible;}
+bool ScenarioMapVoteVisible(){return voteVisible;}
+// This fixture supplies no standalone sprint or recovery input.
+void ReleaseStandaloneMovementInput(){}
 void BossImpactCreateMove(int){}
 // This suite has no mounted seat. The unrelated transform is an observed
 // orchestration boundary, with the exact current mount_weapon.hpp signature.
@@ -100,8 +106,8 @@ void GuestCofMouseFrame() noexcept{}
 const char* GuestCofMouseInitialization() noexcept{return "controlled";}
 bool GuestCofCrosshairReady() noexcept{return crosshair;}
 void GuestCofCrosshairFrame() noexcept{}
-bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900||id==901||id==903||id==904)&&frames==1)||(id==898&&frames==6)||(id==902&&frames==2));return hud&&(id!=904||shotgunHud)&&(id!=903||g43Hud)&&(id!=902||m16Hud)&&(id!=901||mp5Hud)&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
-bool PrepareBuyMenuItem(int id){CHECK(id>=896&&id<=904);++menuLoads;if(retireInMenu)++generation;return menu;}
+bool HudStyleWeaponResourcesReady(int id,unsigned frames) noexcept{CHECK(((id==896||id==897||id==899||id==900||id==901||id==903||id==904||id==905)&&frames==1)||(id==898&&frames==6)||(id==902&&frames==2));return hud&&(id!=905||famasHud)&&(id!=904||shotgunHud)&&(id!=903||g43Hud)&&(id!=902||m16Hud)&&(id!=901||mp5Hud)&&(id!=897||p345Hud)&&(id!=898||revolverHud)&&(id!=899||vp70Hud)&&(id!=900||tmpHud);}
+bool PrepareBuyMenuItem(int id){CHECK(id>=896&&id<=905);++menuLoads;if(retireInMenu)++generation;return menu;}
 const WeaponCurrent& CurrentExtendedWeapon(){return current;}
 }
 int main(int argc,char** argv)
@@ -139,7 +145,7 @@ int main(int argc,char** argv)
     metahook_api_t table{};api=&table;table.FindCmd=Find;
     engine.pfnGetCvarPointer=Lookup;engine.pfnRegisterVariable=Register;engine.Cvar_SetValue=Publish;
     engine.Cmd_Argv=Arg;engine.pfnAddCommand=Add;
-    protocol.flags=weaponMask.flags=FCVAR_USERINFO;view.health=100;current.id=896;current.state=1;
+    protocol.flags=weaponMask.flags=extensionMask.flags=FCVAR_USERINFO;view.health=100;current.id=896;current.state=1;
     CHECK(InitializeGuestCofInput()&&GuestCofInputReady());
     CHECK(!(Input().buttons&IN_CANCEL));
     Press();CHECK(Input().buttons&IN_CANCEL);CHECK(Input().buttons&IN_CANCEL);
@@ -307,7 +313,28 @@ int main(int argc,char** argv)
         resources.weapons&=~guest::cof::FirearmCapability(guest::cof::Firearm::Shotgun);GuestCofAdmissionFrame();
         CHECK(!GuestCofAdmitted(904)&&GuestCofAdmitted(901));
     }
-    generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0);
+    if(catalog.weapons.contains("weapon_cof_famas"))
+    {
+        const auto& famas=catalog.weapons.at("weapon_cof_famas");
+        CHECK(famas.title=="客串武器·FAMAS G2" && !famas.ammo.empty() && famas.ammoFrames[0].empty());
+        const auto* item=csol::buy::Find(905);
+        CHECK(item && item->category==4 && item->extendedPrice==3200 && buy.images.at(905).width==170);
+        mp5Hud=m16Hud=g43Hud=shotgunHud=famasHud=true;
+        resources.weapons=guest::cof::FirearmCapabilityMask;
+        GuestCofAdmissionFrame();
+        CHECK(weaponMask.value==511 && extensionMask.value==1 && GuestCofAdmitted(905));
+        for(int id=896;id<=905;++id)CHECK(GuestCofAdmitted(id));
+        CHECK(guest::cof::ParseFirearmAdmission("1","511","1").weapons==1023);
+        CHECK(guest::cof::ParseFirearmAdmission("1","511").weapons==511);
+        CHECK(guest::cof::ParseFirearmAdmission("1","511","bad").weapons==511);
+        CHECK(guest::cof::ParseFirearmAdmission("1","1023","1").weapons==0);
+        CHECK(guest::cof::ParseFirearmAdmission("0","511","1").weapons==0);
+        current.id=905;Press();CreateMove(.01F,&chain,1);CHECK(chain.buttons&IN_CANCEL);Release();
+        famasHud=false;GuestCofAdmissionFrame();
+        CHECK(!GuestCofAdmitted(905) && weaponMask.value==511 && extensionMask.value==0);
+        for(int id=896;id<=904;++id)CHECK(GuestCofAdmitted(id));
+    }
+    generation=0;CHECK(!GuestCofAdmitted());GuestCofAdmissionFrame();CHECK(protocol.value==0&&weaponMask.value==0&&extensionMask.value==0);
     ShutdownGuestCofAdmission();ShutdownGuestCofInput();
     CHECK(mountMoves>0);
     std::printf("host presentation/input/admission checks=%u failures=%u; controlled services; live=no performance=no\n",checks,failures);

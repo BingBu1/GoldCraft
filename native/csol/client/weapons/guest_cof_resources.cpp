@@ -19,7 +19,7 @@ namespace
 using namespace guest::cof::resources;
 using guest::cof::client::AudioResult;
 using guest::cof::client::AuroraResult;
-constexpr auto maxSamples=guest::cof::client::FirearmLocalSampleCount;
+constexpr auto maxSamples=guest::cof::client::FirearmLocalSampleCount + 1; // shared M16 switch when FAMAS is the only owner
 constexpr auto fog = P345Models[static_cast<unsigned>(P345Model::Fog)].host;
 const GoldCraftConnectionAPI* connection{};
 const GoldCraftSoundPrecacheAPI* sounds{};
@@ -105,8 +105,12 @@ void Ready(void*, std::uint64_t generation) noexcept
     // Registration discovery is a no-I/O query. Ordinary servers must never
     // open a CoF file, create an audio device, or load the guest sprite.
     std::array<const LocalSoundResource*, maxSamples> selected{};
+    unsigned legacySamples{};
+    constexpr auto famasBit = guest::cof::FirearmCapability(guest::cof::Firearm::Famas);
     for (const auto& definition : guest::cof::client::FirearmResourceGroups)
     {
+        const bool famas = definition.identity == guest::cof::Firearm::Famas;
+        if (famas) legacySamples = candidate.samples;
         const auto group=definition.localSounds;
         unsigned registered{};
         for (const auto& asset : group)
@@ -119,6 +123,10 @@ void Ready(void*, std::uint64_t generation) noexcept
         if (!registered) continue;
         if (registered != group.size())
         {
+            if (famas) continue;
+            // The FAMAS draw sequence can advertise just M16's switch sound.
+            if (definition.identity == guest::cof::Firearm::M16 && registered == 1 &&
+                NativeSound(&lease, M16AudioResources.back().remoteAsset)) continue;
             candidate.status = GuestCofResourceStatus::NativeSoundUnavailable;
             candidate.resource = group.front().remoteAsset.data();
             Failed(lease, candidate);
@@ -132,6 +140,10 @@ void Ready(void*, std::uint64_t generation) noexcept
         }
         candidate.weapons|=guest::cof::FirearmCapability(definition.identity);
         for (const auto& asset : group) selected[candidate.samples++] = &asset;
+        if (famas && !(candidate.weapons & guest::cof::FirearmCapability(guest::cof::Firearm::M16)) &&
+            NativeSound(&lease, M16AudioResources.back().remoteAsset))
+            selected[candidate.samples++] = &M16AudioResources.back();
+        if (!lease.Current()) return;
     }
     if (!candidate.samples)
     {
@@ -140,6 +152,12 @@ void Ready(void*, std::uint64_t generation) noexcept
         return;
     }
     const auto coldBudget = budget;
+    const auto omitFamasAudio = [&] {
+        candidate.samples = legacySamples;
+        candidate.weapons &= ~famasBit;
+    };
+    if (legacySamples && (candidate.weapons & famasBit) && coldBudget.voicesPerSample > 2048 / candidate.samples)
+        omitFamasAudio();
     if (!coldBudget.voicesPerSample || coldBudget.voicesPerSample > 2048 / candidate.samples ||
         !coldBudget.pcmBytes || coldBudget.pcmBytes > 256u * 1024u * 1024u)
     {
@@ -159,12 +177,21 @@ void Ready(void*, std::uint64_t generation) noexcept
         std::array<GuestCofSoundAsset, maxSamples> assets;
         // Host memory policy also bounds retained cold file bytes. The real
         // audio decoder independently enforces its decoded PCM limit.
-        std::size_t fileBytes{};
+        std::size_t fileBytes{}, legacyBytes{};
         for (unsigned i = 0; i < candidate.samples; ++i)
         {
             const auto& asset = *selected[i];
             candidate.resource = asset.localFile.data();
-            waves[i] = ReadResource(asset.localFile.data());
+            if (i < legacySamples) waves[i] = ReadResource(asset.localFile.data());
+            else
+            {
+                try { waves[i] = ReadResource(asset.localFile.data()); }
+                catch (const std::exception&) { waves[i].clear(); }
+                if (!lease.Current()) return;
+                if (legacySamples && ResourceReadsAllowed() &&
+                    (waves[i].empty() || waves[i].size() > coldBudget.pcmBytes - fileBytes))
+                { omitFamasAudio(); fileBytes = legacyBytes; break; }
+            }
             if (!lease.Current()) return;
             if (!ResourceReadsAllowed() || waves[i].size() > coldBudget.pcmBytes - fileBytes)
             {
@@ -173,11 +200,14 @@ void Ready(void*, std::uint64_t generation) noexcept
                 return;
             }
             fileBytes += waves[i].size();
+            if (i + 1 == legacySamples) legacyBytes = fileBytes;
             assets[i] = {asset.localKey, asset.remoteKey, asset.remoteAsset, waves[i], coldBudget.voicesPerSample};
         }
         candidate.resource = P345Particle.host;
         auto script = ReadResource(P345Particle.host);
         if (!lease.Current()) return;
+        if (legacySamples && (candidate.weapons & famasBit) && script.size() > coldBudget.pcmBytes - fileBytes)
+        { omitFamasAudio(); fileBytes = legacyBytes; }
         if (!ResourceReadsAllowed() || script.size() > coldBudget.pcmBytes - fileBytes || !engine.pfnSPR_Load)
         {
             candidate.status = GuestCofResourceStatus::ResourceFailed;
@@ -193,9 +223,17 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
-        const GuestCofAudioPlan audioPlan{{candidate.samples, candidate.samples * coldBudget.voicesPerSample,
-            coldBudget.pcmBytes}, {assets.data(), candidate.samples}, &lease, NativeSound};
-        candidate.audio = PrepareGuestCofAudio(audioPlan);
+        const auto prepareAudio = [&] {
+            return PrepareGuestCofAudio({{candidate.samples, candidate.samples * coldBudget.voicesPerSample,
+                coldBudget.pcmBytes}, {assets.data(), candidate.samples}, &lease, NativeSound});
+        };
+        candidate.audio = prepareAudio();
+        if (lease.Current() && candidate.audio != AudioResult::Applied && legacySamples &&
+            (candidate.weapons & famasBit))
+        {
+            omitFamasAudio();
+            candidate.audio = prepareAudio();
+        }
         if (!lease.Current()) return;
         if (candidate.audio != AudioResult::Applied)
         {
@@ -214,6 +252,8 @@ void Ready(void*, std::uint64_t generation) noexcept
         }
         particleScript = std::move(script);
         candidate.studioAndRecoilPrepared = PrepareGuestCofEffects();
+        if (candidate.studioAndRecoilPrepared && GuestCofFamasViewReady()) candidate.weapons |= famasBit;
+        else candidate.weapons &= ~famasBit;
         if (!lease.Current()) return;
         if (candidate.weapons)
         {

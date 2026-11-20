@@ -63,6 +63,11 @@ G43_PINS={
     'gfx/vgui/weapons/g43/640_g43_slot.tga':'7bd266be0de601f8f45c33e92744603938ff8921cd64dc5cb107c240c0b4a912',
     'sprites/cof_g43_mag_icon.spr':'995542ce7b3656e035aec52cff9c1d4b2a7a96022c397e081a40782915090498',
 }
+FAMAS_PINS={
+    'inventoryitems/weapons/weapon_famas.txt':'3a45ed5c0471b6c6579321b073f2c86d4475081cfecd4f5c224a50dc0bf7b0ee',
+    'gfx/vgui/weapons/famas/640_famas_slot.tga':'c154735f0dab7744ef996e6acb897fbd9aa8288c00a0c1217bf982b1e0eb1b42',
+    'sprites/cof_famas_mag_icon.spr':'27b4082cbbf04812bc28f73906879c8a72e5839448c052797adbecca2d92ff2b',
+}
 SHOTGUN_PINS={
     'inventoryitems/weapons/weapon_shotgun.txt':'83e6a516976eb93890bd29f1e83135df896ef2dc4884f53ff68a1b9c2d143441',
     'gfx/vgui/weapons/shotgun/640_shotgun_slot.tga':'2de8399077ee3a8c606eac13f5c5dd62fcb62ccd65271d4ca52fbb7b76eddc19',
@@ -167,10 +172,10 @@ def commit_output(stage, output):
 
 
 def prepare(original_root, baseline_root, output, weapon='glock'):
-    if weapon not in ('glock','p345','revolver','vp70','tmp','mp5','m16','g43','shotgun'):raise ValueError('Unreviewed guest presentation weapon')
+    if weapon not in ('glock','p345','revolver','vp70','tmp','mp5','m16','g43','shotgun','famas'):raise ValueError('Unreviewed guest presentation weapon')
     p345=weapon=='p345';revolver=weapon=='revolver';vp70=weapon=='vp70';tmp=weapon=='tmp';mp5=weapon=='mp5'
-    m16=weapon=='m16';g43=weapon=='g43';shotgun=weapon=='shotgun';long_gun=tmp or mp5 or m16 or g43 or shotgun
-    kind={'glock':'Glock','p345':'P345','revolver':'Revolver','vp70':'VP70','tmp':'TMP','mp5':'MP5','m16':'M16','g43':'G43','shotgun':'Shotgun'}[weapon];key='cof_'+weapon
+    famas=weapon=='famas';m16=weapon=='m16';g43=weapon=='g43';shotgun=weapon=='shotgun';long_gun=tmp or mp5 or m16 or g43 or shotgun or famas
+    kind={'glock':'Glock','p345':'P345','revolver':'Revolver','vp70':'VP70','tmp':'TMP','mp5':'MP5','m16':'M16','g43':'G43','shotgun':'Shotgun','famas':'Famas'}[weapon];key='cof_'+weapon
     original_root, baseline_root, output = map(Path, (original_root, baseline_root, output))
     for path in (original_root, baseline_root, output):
         hud.no_reparse(path.absolute())
@@ -195,14 +200,14 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         return data
 
     definition = read(ROOT/'native/guest/cof/catalog.hpp').decode('utf8')
-    category=2 if shotgun else 4 if m16 or g43 else 3 if long_gun else 1
+    category=2 if shotgun else 4 if m16 or g43 or famas else 3 if long_gun else 1
     pattern=(r'result(?:\.back\(\)|\[[^\]]+\])=\{Firearm::' if long_gun else r'PistolDefinition\{Pistol::')
     match = re.search(pattern+kind+r',\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*(\d+),\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"', definition)
     if not match:
         raise ValueError('Guest author definition is missing or unsupported')
     ident, original_id, clip, reserve, price, ammo_price, ammo_count = map(int, match.groups()[:7])
     classname, ammunition, title = match.groups()[7:]
-    expected=(904,4,'weapon_cof_shotgun','cof_shotgun',5) if shotgun else (903,26,'weapon_cof_g43','cof_g43',10) if g43 else (902,9,'weapon_cof_m16','cof_m16',20) if m16 else (901,27,'weapon_cof_mp5','cof_mp5',30) if mp5 else (900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
+    expected=(905,23,'weapon_cof_famas','556Nato',30) if famas else (904,4,'weapon_cof_shotgun','buckshot',5) if shotgun else (903,26,'weapon_cof_g43','762Nato',10) if g43 else (902,9,'weapon_cof_m16','556Nato',20) if m16 else (901,27,'weapon_cof_mp5','cof_mp5',30) if mp5 else (900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
     if (ident, original_id, classname, ammunition, clip) != expected:
         raise ValueError('Unreviewed host/original guest identity')
     shop = read(ROOT/'native/csol/buy_menu.cpp').decode('utf8')
@@ -223,7 +228,7 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
     info = result_menu['weaponInfo']['items']
     if any(r['name'] == classname for r in rows) or any(r['id'] == ident for r in images+info):
         raise ValueError('Guest presentation already exists; supply the unmodified baseline')
-    assets = {name: read(original_root/name, pin) for name, pin in (SHOTGUN_PINS if shotgun else G43_PINS if g43 else M16_PINS if m16 else MP5_PINS if mp5 else TMP_PINS if tmp else VP70_PINS if vp70 else REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
+    assets = {name: read(original_root/name, pin) for name, pin in (FAMAS_PINS if famas else SHOTGUN_PINS if shotgun else G43_PINS if g43 else M16_PINS if m16 else MP5_PINS if mp5 else TMP_PINS if tmp else VP70_PINS if vp70 else REVOLVER_PINS if revolver else P345_PINS if p345 else PINS).items()}
     if p345 or revolver or vp70 or long_gun:
         text=assets['inventoryitems/weapons/weapon_'+weapon+'.txt'].decode('utf8')
         art='mp9' if tmp else weapon
@@ -280,7 +285,7 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         description=f'Cry of Fear 客串手枪。{clip} 发弹匣，支持机瞄与枪托推击。',
         table=False, values=['']*10, grade=[-1]*3))
     if tmp or mp5:info[-1]['description']=f'Cry of Fear 客串冲锋枪。{clip} 发弹匣，全自动，支持机瞄与枪托推击。'
-    if m16:info[-1]['description']=f'Cry of Fear 客串突击步枪。{clip} 发弹匣，支持机瞄与枪托推击。'
+    if m16 or famas:info[-1]['description']=f'Cry of Fear 客串突击步枪。{clip} 发弹匣，支持机瞄与枪托推击。'
     if g43:info[-1]['description']=f'Cry of Fear 客串半自动步枪。{clip} 发弹匣，支持机瞄与枪托推击。'
     if shotgun:info[-1]['description']=f'Cry of Fear 客串泵动霰弹枪。{clip} 发管仓，逐发装填，支持机瞄与枪托推击。'
     if vp70:info[-1]['description']=f'Cry of Fear 客串手枪。{clip} 发弹匣，三连发，支持机瞄与枪托推击。'
@@ -300,6 +305,14 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         'sprites/guest/cof/'+weapon+'_ammo.spr': ammo_asset,
         'sprites/weapon_cof_'+weapon+'.txt': native_list,
     }
+    equipment_contract = re.search(r'\bEquipmentPresentationResource\[\]="(models/csol/buymenu_v\d+\.json)";', contract)
+    if equipment_contract and (baseline_root/equipment_contract[1]).is_file():
+        equipment = json.loads(read(baseline_root/equipment_contract[1]))
+        for target, addition in ((equipment['images'], images[-1]), (equipment['weaponInfo']['items'], info[-1])):
+            if any(row['id'] == ident for row in target):
+                raise ValueError('Guest presentation already exists in equipment shop')
+            target.append(addition)
+        generated[equipment_contract[1]] = json.dumps(equipment, ensure_ascii=False, separators=(',', ':')).encode('utf8')
     if ammo_frames:
         generated.update(zip(frame_paths,ammo_frames))
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -331,7 +344,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ('original-game-root', 'baseline', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
-    parser.add_argument('--weapon',choices=('glock','p345','revolver','vp70','tmp','mp5','m16','g43','shotgun'),default='glock')
+    parser.add_argument('--weapon',choices=('glock','p345','revolver','vp70','tmp','mp5','m16','g43','shotgun','famas'),default='glock')
     args = parser.parse_args()
     receipt = prepare(args.original_game_root, args.baseline, args.output,args.weapon)
     print(json.dumps(dict(success=True, files=len(receipt['files']), bytes=sum(r['bytes'] for r in receipt['files']))))

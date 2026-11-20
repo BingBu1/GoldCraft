@@ -474,6 +474,13 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'ReGameDLL'">
+    <ClCompile Include="$(GoldCraftRoot)\native\guest\cof\famas_control.cpp;$(GoldCraftRoot)\native\guest\cof\famas_aim.cpp;$(GoldCraftRoot)\native\guest\cof\famas_frame.cpp;$(GoldCraftRoot)\native\guest\cof\famas_shot.cpp;$(GoldCraftRoot)\native\guest\cof\famas_reload.cpp;$(GoldCraftRoot)\native\guest\cof\server\famas_weapon.cpp;$(GoldCraftRoot)\native\csol\server\weapons\guest_cof_famas_factory.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ObjectFileName>$(IntDir)guest_cof_%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(GoldCraftRoot);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>/utf-8 /Zc:strictStrings- /clang:-ffp-contract=off %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="$(GoldCraftRoot)\native\guest\cof\shotgun_control.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <LanguageStandard>stdcpp20</LanguageStandard>

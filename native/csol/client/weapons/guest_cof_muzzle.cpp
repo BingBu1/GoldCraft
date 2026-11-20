@@ -142,9 +142,10 @@ bool PrepareGuestCofMuzzle() noexcept {
     {
         const auto* definition=guest::cof::FindFirearm(group.identity);
         auto& slot=cached[static_cast<unsigned>(group.identity)];
-        if(!PrepareWeapon(slot,definition->viewModel.data(),definition->playerModel.data(),revision,
-            group.identity==guest::cof::Firearm::Glock?2u:1u)||
-            !Current()||generation!=active||serial!=revision||resources!=GuestCofEffectsResourceSerial())return false;
+        const bool valid = PrepareWeapon(slot,definition->viewModel.data(),definition->playerModel.data(),revision,
+            group.identity==guest::cof::Firearm::Glock?2u:1u);
+        if(!Current()||generation!=active||serial!=revision||resources!=GuestCofEffectsResourceSerial())return false;
+        if(!valid) continue;
         anyWeapon|=slot.view!=nullptr;
     }
     if(!anyWeapon)return false;
@@ -187,6 +188,8 @@ bool GuestCofMuzzleStudioEvent(const mstudioevent_s* event,const cl_entity_s* en
         MP5Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else if(definition->identity==guest::cof::Firearm::M16)
         M16Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
+    else if(definition->identity==guest::cof::Firearm::Famas)
+        FamasMuzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else if(definition->identity==guest::cof::Firearm::G43)
         G43Muzzle(host).Local(*entity,0,1.0F,cheapSmoke->value);
     else if(definition->identity==guest::cof::Firearm::Shotgun)
@@ -221,6 +224,6 @@ void GuestCofMuzzleWorldPoints(const cl_entity_s* entity,const model_s* model,co
     else if(type==9)M16Muzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==26)G43Muzzle(Host(lifetime)).World(world[0],1.0F);
     else if(type==4)ShotgunMuzzle(Host(lifetime)).World(world[0],1.0F);
-    else if(type==7||type==19)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
+    else if(type==7||type==19||type==23)P345Muzzle(Host(lifetime)).World(world[0],1.0F);
 }
 }

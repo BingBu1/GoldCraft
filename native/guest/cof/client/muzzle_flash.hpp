@@ -77,6 +77,7 @@ private:
     friend class MP5Muzzle;
     friend class M16Muzzle;
     friend class G43Muzzle;
+    friend class FamasMuzzle;
     friend class ShotgunMuzzle;
     MuzzleResult LocalWithSize(const cl_entity_s&,unsigned,float,float,float baseSize,
         const char* secondFlashModel = nullptr) const noexcept;
@@ -129,6 +130,16 @@ public:
     explicit M16Muzzle(MuzzleHost host) noexcept : base_(host) {}
     MuzzleResult Local(const cl_entity_s&, unsigned attachment, float scale, float cheapSmoke) const noexcept;
     MuzzleResult World(const std::array<float,3>& attachment, float scale) const noexcept;
+private:
+    P345Muzzle base_;
+};
+// Original23 selects flash2 with base size 9 in the local emitter.
+class FamasMuzzle
+{
+public:
+    explicit FamasMuzzle(MuzzleHost host) noexcept : base_(host) {}
+    MuzzleResult Local(const cl_entity_s& view, unsigned attachment, float scale, float cheapSmoke) const noexcept
+    { return base_.LocalWithSize(view, attachment, scale, cheapSmoke, 9.F, "models/flash2.mdl"); }
 private:
     P345Muzzle base_;
 };

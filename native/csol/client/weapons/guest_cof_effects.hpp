@@ -24,6 +24,7 @@ void InvalidateGuestCofEffects() noexcept;
 // Prepared model/audio adapters plus installed hook/completed event registration.
 // This does not prove rendering, event delivery or server zoominmdl acceptance.
 bool GuestCofEffectsReady() noexcept;
+bool GuestCofFamasViewReady() noexcept;
 bool GuestCofMuzzleModelsReady(unsigned originalWeapon) noexcept;
 bool GuestCofEffectsOwnsWeapon(guest::cof::client::Weapon) noexcept;
 std::uint64_t GuestCofEffectsResourceSerial() noexcept;

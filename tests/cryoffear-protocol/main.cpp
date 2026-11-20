@@ -91,6 +91,11 @@ void TmpTransport()
     Check(EncodeState(mp5,packet)&&DecodeState(packet,output)&&output==mp5,"MP5 preserves the common signed wire fields");
     Check(presentation.Receive({value.key,client::Weapon::Mp5,true,50,350})==client::Result::Applied,"MP5 presentation is a distinct supported original identity");
     Check(presentation.UpdateClientData({90,13,350,3,1.2f,1},fov)&&fov.wholeFov==50,"MP5 aim reaches original common FOV consumer");
+    auto famas=value;famas.originalWeapon=23;
+    Check(EncodeState(famas,packet)&&DecodeState(packet,output)&&output==famas,
+        "FAMAS transport lost original ID or authoritative state");
+    Check(presentation.Receive({value.key,client::Weapon::Famas,true,50,350})==client::Result::Applied,
+        "FAMAS transport failed to reach the local presentation");
     auto g43=value;g43.originalWeapon=26;
     Check(EncodeState(g43,packet)&&DecodeState(packet,output)&&output==g43&&packet[0]==std::byte{1},
         "G43 keeps original26 with the ordinary authenticated presentation wire");

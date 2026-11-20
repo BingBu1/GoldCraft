@@ -30,7 +30,7 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
     document.Parse<rapidjson::kParseValidateEncodingFlag | rapidjson::kParseIterativeFlag>(json.data(), json.size());
     if (document.HasParseError() || !document.IsObject() || document.MemberCount() != 2 ||
         !document.HasMember("version") || !document["version"].IsInt() ||
-        document["version"].GetInt() < 1 || document["version"].GetInt() > 6)
+        document["version"].GetInt() < 1 || document["version"].GetInt() > 7)
         return reject("Invalid CoF scenario damage envelope");
 
     const bool legacy=document["version"].GetInt()==1;
@@ -42,7 +42,8 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
         static_cast<unsigned>(Firearm::MP5):document["version"].GetInt()==3?
         static_cast<unsigned>(Firearm::M16):document["version"].GetInt()==4?
         static_cast<unsigned>(Firearm::G43):document["version"].GetInt()==5?
-        static_cast<unsigned>(Firearm::Shotgun):FirearmKeys.size();
+        static_cast<unsigned>(Firearm::Shotgun):document["version"].GetInt()==6?
+        static_cast<unsigned>(Firearm::Famas):FirearmKeys.size();
     if(entries.MemberCount()!=required)
         return reject("CoF damage requires every declared weapon exactly once");
     std::array<ScenarioDamage,FirearmKeys.size()> prepared{};
@@ -55,7 +56,7 @@ bool ScenarioDamageConfig::Parse(std::string_view json, std::string& error)
         if(found==end)return reject("Unknown CoF firearm damage identity");
         const auto index=static_cast<std::size_t>(found-FirearmKeys.begin());
         const bool rifle=index==static_cast<std::size_t>(Firearm::M16)||
-            index==static_cast<std::size_t>(Firearm::G43);
+            index==static_cast<std::size_t>(Firearm::G43)||index==static_cast<std::size_t>(Firearm::Famas);
         const auto bit=1u<<index;
         if(available&bit)return reject("Duplicate CoF firearm damage identity");
         available|=bit;

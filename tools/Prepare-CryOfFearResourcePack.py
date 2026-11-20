@@ -2056,7 +2056,76 @@ SHOTGUN_PINS = [
     }
 ]
 
+# FAMAS has no original player model. Its W is the authoring input to the
+# calibrated host P. Shared resources keep the same addressable paths as the
+# other firearms, including the M16 switch sample used by sequence 7.
+FAMAS_PLAYER_MODEL = dict(bytes=607608, sha256="a113f1531c331790ce9e0860013f57ba9f9cfe3d46e025138f1c83a840342635")
+FAMAS_FILES = {
+    "models/weapons/famas/v_famas.mdl": (1439456, "175cb022365adf25dc333b14b63dc7c1d6119817ea65f43f817acc6a7c631e54"),
+    "models/weapons/famas/w_famas.mdl": (606156, "dd9ce3c9127d9d3aedb8c282c1154cf92a3eba28f66728fa8694250e6edcdfeb"),
+    "inventoryitems/weapons/weapon_famas.txt": (468, "3a45ed5c0471b6c6579321b073f2c86d4475081cfecd4f5c224a50dc0bf7b0ee"),
+    "sound/subtitles/french4.wav": (203624, "fa525fe40af3034f4f1e659ad362afa995b13121648f89dcec97662bd116ff3b"),
+    "sound/weapons/famas/famas_shoot.wav": (52136, "a2c53749ec864401c56a95d4f9b21aae242f87994c3b170605b5546f4e9278a0"),
+    "sound/weapons_new/famas/famas_shoot.wav": (684782, "6ba484bb230990a16804fcc259ea9f7eb0a7a9002c534c8ebd3b87fd1ad5b392"),
+    "sound/weapons/famas/famas_magout.wav": (45364, "fba676565d8b32745e2ec9fe92c01754011131c7e3cc2fbe2304b19d94cd294f"),
+    "sound/weapons_new/famas/famas_magout.wav": (300354, "2ce9760527873c98eaec6ed249c33255ad691c18c883a562f29fcf0b36e16389"),
+    "sound/weapons/famas/famas_magin.wav": (28886, "4344d16f100a882aa61116168576afe6c528850435b4fcf89f348e1e57196906"),
+    "sound/weapons_new/famas/famas_magin.wav": (192742, "e2ca684d2f6eb1668f288339e484290006c0a04a98ddba5c04edb84a34bc6892"),
+    "sound/weapons/famas/famas_cock.wav": (27734, "5211b97fbd14bb68c9e1b775996be66aa889c96686629c61cc10a3a4c2b7d7c8"),
+    "sound/weapons_new/famas/famas_cock.wav": (366480, "b1834985d99a56e29c5af56d8462e7403b828596a34ab3832af2fa870ed41e63"),
+}
+FAMAS_HEADER = ROOT / "native/guest/cof/famas_resources.hpp"
+
+
+def famas_pins():
+    header = FAMAS_HEADER.read_text("utf8")
+    sources = {**FAMAS_FILES}
+    for pin in G43_PINS + M16_PINS:
+        name = pin["original"]
+        if pin["group"].endswith(("Sounds", "LocalWaves")):
+            name = "sound/" + name
+        sources.setdefault(name, (pin["bytes"], pin["sha256"]))
+    result = []
+
+    def add(group, original, host):
+        key = "sound/" + original if group in ("Sounds", "LocalWaves") else original
+        size, checksum = sources[key]
+        result.append(dict(group="Famas" + group, original=original, host=host, bytes=size, sha256=checksum))
+
+    for group in ("Models", "Sounds", "ReloadSounds", "LocalWaves"):
+        table = re.search(r"\bFamas" + group + r"\{\{(.*?)\}\};", header, re.S)
+        if not table:
+            raise ValueError("Missing FAMAS resource table: " + group)
+        for original, host in re.findall(r'\{(nullptr|"[^"]+"),\s*"([^"]+)"\}', table[1]):
+            name = "models/weapons/famas/w_famas.mdl" if original == "nullptr" else original[1:-1]
+            if group == "Sounds" and name == "weapons_new/famas/famas_shoot.wav":
+                # Both original consumers address the same physical WAV.
+                if "sound/" + host != "sound/guest/cof/weapons_new/famas/famas_shoot.wav":
+                    raise ValueError("FAMAS local fire and precache paths differ")
+                continue
+            add("Sounds" if group == "ReloadSounds" else group, name, host)
+    inventory = re.search(r'FamasInventory\s*\{\s*"([^"]+)",\s*"([^"]+)"\s*\}', header)
+    if not inventory:
+        raise ValueError("Missing FAMAS inventory resource")
+    add("Inventory", *inventory.groups())
+    for row in G43_PINS:
+        suffix = row["group"][3:]
+        if (suffix in ("ClientModels", "Events", "Particle") or
+                suffix == "Models" and row["original"] in ("sprites/bubble.spr", "sprites/fog2.spr",
+                    "models/flash1.mdl", "sprites/gunsmoke.spr") or
+                suffix == "Sounds" and row["original"] != "weapons/item_get.wav" and
+                    not row["original"].startswith("weapons/g43/")):
+            add(suffix, row["original"], row["host"])
+    for row in M16_PINS:
+        if row["original"].endswith("/m16_switch.wav"):
+            add(row["group"][3:], row["original"], row["host"])
+    return result
+
+
 def current_manifest(weapon='P345'):
+    if weapon == 'Famas':
+        famas_pins()
+        return digest(FAMAS_HEADER.read_bytes() + HEADER.read_bytes())
     if weapon not in ('P345', 'Glock', 'Revolver', 'VP70', 'TMP', 'MP5', 'M16', 'G43', 'Shotgun'):
         raise ValueError('Unreviewed weapon resource manifest')
     text = HEADER.read_text('utf-8')
@@ -2182,18 +2251,18 @@ def plan(args):
         raise ValueError('Candidate must be fresh and must not contain its dry-run plan')
     weapon = {'p345-and-shot-decals': 'P345', 'glock-and-shot-decals': 'Glock',
               'revolver-and-shot-decals': 'Revolver', 'vp70-and-shot-decals': 'VP70',
-              'tmp-and-shot-decals': 'TMP', 'mp5-and-shot-decals': 'MP5', 'm16-and-shot-decals': 'M16', 'g43-and-shot-decals': 'G43', 'shotgun-and-shot-decals': 'Shotgun', 'shot-decals': 'shot-decals'}[args.component]
+              'tmp-and-shot-decals': 'TMP', 'mp5-and-shot-decals': 'MP5', 'm16-and-shot-decals': 'M16', 'g43-and-shot-decals': 'G43', 'shotgun-and-shot-decals': 'Shotgun', 'famas-and-shot-decals': 'Famas', 'shot-decals': 'shot-decals'}[args.component]
     family = 'P345' if weapon == 'shot-decals' else weapon
     player_model = getattr(args, 'authored_player_model', None)
-    if family == 'MP5':
+    if family in ('MP5', 'Famas'):
         if player_model is None:
-            raise ValueError('MP5 requires --authored-player-model; original W is an authoring input, not a P substitute')
+            raise ValueError(f'{family} requires --authored-player-model; original W is an authoring input, not a P substitute')
         player_model = workspace_target(player_model)
     elif player_model is not None:
-        raise ValueError('An authored player model is only reviewed for MP5')
+        raise ValueError('An authored player model is only reviewed for MP5 and FAMAS')
     table_hash = current_manifest(family)
     assets, studio = [], []
-    weapon_pins = {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
+    weapon_pins = famas_pins() if family == 'Famas' else {'P345': PINS, 'Glock': GLOCK_PINS, 'Revolver': REVOLVER_PINS,
                    'VP70': VP70_PINS, 'TMP': TMP_PINS, 'MP5': MP5_PINS, 'M16': M16_PINS, 'G43': G43_PINS, 'Shotgun': SHOTGUN_PINS}[family]
     pins = SHOT_DECAL_PINS if weapon == 'shot-decals' else weapon_pins + SHOT_DECAL_PINS
     if family=='Shotgun' and (original/'sound/weapons_new/syringe/syringe_sleeve.wav').exists():
@@ -2233,13 +2302,14 @@ def plan(args):
                 studio = [event for event in events if event['event'] == 5004]
             elif any(event['event'] == 5004 for event in events):
                 raise ValueError('Additional model has unreviewed Studio5004 audio')
-        if family == 'MP5' and pin['host'] == 'models/guest/cof/mp5/p_mp5.mdl':
+        if player_model is not None and pin['host'] == f'models/guest/cof/{family.lower()}/p_{family.lower()}.mdl':
             original_input = dict(source=str(source), bytes=len(data), sha256=pin['sha256'], sourceIdentity=identity)
-            authored, authored_identity = checked_bytes(player_model, MP5_PLAYER_MODEL)
+            model_pin = FAMAS_PLAYER_MODEL if family == 'Famas' else MP5_PLAYER_MODEL
+            authored, authored_identity = checked_bytes(player_model, model_pin)
             model_events(authored)
             row.update(source=str(player_model), sourceRoot=str(BUILD),
                 sourceKind='explicit-host-authored-player-model', bytes=len(authored),
-                sha256=MP5_PLAYER_MODEL['sha256'], sourceIdentity=authored_identity,
+                sha256=model_pin['sha256'], sourceIdentity=authored_identity,
                 originalBytesPreserved=False, originalInput=original_input)
         assets.append(row)
         if source_name == 'models/w_9mmclip.mdl' and integer(data, 184) == 0:
@@ -2284,7 +2354,13 @@ def plan(args):
         (16,17,'weapons/shotgun/pump_forward.wav')]
     if family=='Shotgun' and [(e['sequence'],e['frame'],e['options']) for e in studio]!=shotgun_events:
         raise ValueError('Original shotgun Studio5004 events differ')
-    if family!='Shotgun' and args.component != 'shot-decals' and [(e['sequence'], e['frame'], e['options']) for e in studio] != [
+    if family == 'Famas':
+        expected_famas = [(5, 17, 'famas_magout'), (5, 58, 'famas_magin'), (6, 17, 'famas_magout'),
+            (6, 58, 'famas_magin'), (6, 86, 'famas_cock'), (7, 12, 'm16_switch')]
+        if [(e['sequence'], e['frame'], e['options']) for e in studio] != [
+                (s, f, 'weapons/' + name.split('_')[0] + '/' + name + '.wav') for s, f, name in expected_famas]:
+            raise ValueError('Original FAMAS Studio5004 event identity differs')
+    if family not in ('Shotgun', 'Famas') and args.component != 'shot-decals' and [(e['sequence'], e['frame'], e['options']) for e in studio] != [
             (s, f, f'weapons/{family.lower()}/{family.lower()}_'+name+'.wav') for s, f, name in expected]:
         raise ValueError('Original '+family+' Studio5004 event identity differs')
     for event in studio:
@@ -2398,10 +2474,10 @@ def write_candidate(value):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--original-game-root', type=Path, required=True)
-    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'mp5-and-shot-decals', 'm16-and-shot-decals', 'g43-and-shot-decals', 'shotgun-and-shot-decals', 'shot-decals'),
+    parser.add_argument('--component', choices=('p345-and-shot-decals', 'glock-and-shot-decals', 'revolver-and-shot-decals', 'vp70-and-shot-decals', 'tmp-and-shot-decals', 'mp5-and-shot-decals', 'm16-and-shot-decals', 'g43-and-shot-decals', 'shotgun-and-shot-decals', 'famas-and-shot-decals', 'shot-decals'),
                         default='p345-and-shot-decals')
     parser.add_argument('--authored-player-model', type=Path,
-        help='Explicit pinned host-authored MP5 P model, inside workspace build; never an original W copy')
+        help='Explicit pinned host-authored MP5 or FAMAS P model, inside workspace build; never an original W copy')
     parser.add_argument('--inherited-game-root', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--plan', type=Path, required=True)

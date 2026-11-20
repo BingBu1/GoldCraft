@@ -401,6 +401,38 @@ ResourceResult PrepareG43Resources(const ResourceAuthority& authority, G43Resour
     return PrepareResources(authority, output, G43Models, G43Sounds, G43LocalWaves, G43Events,
         G43Inventory, G43Particle, G43ClipTexture, 38, "weapon_g43", G43ClientModels);
 }
+ResourceResult PrepareFamasClientAudio(const ResourceAuthority& authority, bool m16AudioPrepared) noexcept
+{
+    using namespace guest::cof::resources;
+    if (!authority.current || !authority.generation) return {ResourceStatus::InvalidAuthority};
+    const auto current=[&] {return authority.current(authority.context);};
+    if (!current()) return {ResourceStatus::Cancelled};
+    if (!g_engfuncs.pfnGetFileSize || !g_engfuncs.pfnPrecacheSound || !g_engfuncs.pfnPrecacheGeneric)
+        return {ResourceStatus::MissingEngine};
+    const auto add=[&](const LocalSoundResource& sound) -> ResourceResult {
+        char nativePath[128]{};
+        if (sound.remoteAsset.size()+7 > sizeof(nativePath)) return {ResourceStatus::InvalidMetadata};
+        std::memcpy(nativePath,"sound/",6);
+        std::memcpy(nativePath+6,sound.remoteAsset.data(),sound.remoteAsset.size());
+        for (const char* path : {static_cast<const char*>(nativePath),sound.localFile.data()})
+        {
+            const auto length=g_engfuncs.pfnGetFileSize(path);
+            if (!current()) return {ResourceStatus::Cancelled,sound.localFile.data()};
+            if (length<=0) return {ResourceStatus::MissingFile,sound.localFile.data()};
+        }
+        const auto native=g_engfuncs.pfnPrecacheSound(sound.remoteAsset.data());
+        if (!current()) return {ResourceStatus::Cancelled,sound.remoteAsset.data()};
+        if (native<=0) return {ResourceStatus::EngineRejected,sound.remoteAsset.data()};
+        const auto local=g_engfuncs.pfnPrecacheGeneric(sound.localFile.data());
+        if (!current()) return {ResourceStatus::Cancelled,sound.localFile.data()};
+        return {local<0?ResourceStatus::EngineRejected:ResourceStatus::Prepared,sound.localFile.data()};
+    };
+    for (const auto& sound:FamasAudioResources)
+        if (const auto result=add(sound); !result) return result;
+    if (!m16AudioPrepared) return add(M16AudioResources.back());
+    return {ResourceStatus::Prepared};
+}
+
 ResourceResult PrepareFamasResources(const ResourceAuthority& authority, FamasResources& output) noexcept
 {
     using namespace guest::cof::resources;

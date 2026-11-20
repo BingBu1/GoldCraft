@@ -28,7 +28,7 @@ bool LocalWeaponSound(Weapon weapon) noexcept
 {
     return weapon == Weapon::Glock || weapon == Weapon::P345 ||
            weapon == Weapon::Vp70 || weapon == Weapon::Revolver || weapon == Weapon::Tmp ||
-           weapon == Weapon::Mp5 || weapon == Weapon::M16 || weapon == Weapon::G43 || weapon == Weapon::Shotgun;
+           weapon == Weapon::Mp5 || weapon == Weapon::M16 || weapon == Weapon::G43 || weapon == Weapon::Shotgun || weapon == Weapon::Famas;
 }
 }
 
