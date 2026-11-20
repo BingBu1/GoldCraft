@@ -11,6 +11,7 @@ public plugin_init()
     register_srvcmd("cof_live_status", "Status");
     register_srvcmd("cof_live_purchase", "Purchase");
     register_srvcmd("cof_live_famas_rays", "ArmFamasRays");
+    register_srvcmd("cof_live_glock", "GlockActionState");
     register_srvcmd("cof_live_clear_batch", "ClearBatch");
     register_srvcmd("cof_live_round_protect", "RoundProtect");
     register_srvcmd("cof_live_test_funds", "TestFunds");
@@ -87,6 +88,128 @@ public FamasShotEnd()
 {
     tracingShot = 0;
     return HC_CONTINUE;
+}
+
+// The observer only runs in the isolated fixture with a real Glock owner.
+new glockOwner, glockUserid, glockItem, glockItemSerial, glockTarget, glockTargetSerial;
+new glockShots, glockSounds, glockHits, glockButtons;
+new bool:glockObserved;
+new HamHook:glockDamageHook;
+
+bool:ObservedGlock(id)
+{
+    return id == glockOwner && Human(id, glockUserid) && is_user_alive(id) &&
+        get_member(id, m_pActiveItem) == glockItem && pev_valid(glockItem) == 2 &&
+        pev_serial(glockItem) == glockItemSerial;
+}
+
+public GlockInput(id, cmd, seed)
+{
+    if (!ObservedGlock(id)) return FMRES_IGNORED;
+    new buttons = get_uc(cmd, UC_Buttons) & (IN_ATTACK | IN_ATTACK2 | 0x40);
+    if (buttons != glockButtons)
+    {
+        glockButtons = buttons;
+        server_print("[cof-glock] input t=%.3f bits=%d", get_gametime(), buttons);
+    }
+    return FMRES_IGNORED;
+}
+
+public GlockPlayback(flags, id, event, Float:delay, const Float:origin[3], const Float:angles[3],
+    Float:f1, Float:f2, originalWeapon, item, b1, b2)
+{
+    if (originalWeapon == 3 && item == glockItem && ObservedGlock(id))
+        server_print("[cof-glock] muzzle t=%.3f shot=%d owner=%d item=%d event=%d flags=%d",
+            get_gametime(), ++glockShots, id, item, event, flags);
+    return FMRES_IGNORED;
+}
+
+public GlockLocalSound(id)
+{
+    // read_datanum includes the AMXX destination at slot zero.
+    if (!ObservedGlock(id) || read_datanum() != 10 || read_data(1) != 1 ||
+        read_data(4) || read_data(8) != id) return;
+    new sample[96];
+    read_data(9, sample, charsmax(sample));
+    if (!equal(sample, "weapons_new/glock/glock_fire.wav")) return;
+    server_print("[cof-glock] local-sound t=%.3f packet=%d owner=%d sample=%s",
+        get_gametime(), ++glockSounds, id, sample);
+}
+
+public GlockNativeSound(id, channel, const sample[], Float:volume, Float:attenuation, flags, pitch)
+{
+    if (ObservedGlock(id) && contain(sample, "guest/cof/") == 0)
+        server_print("[cof-glock] native-sound t=%.3f channel=%d sample=%s",
+            get_gametime(), channel, sample);
+    return FMRES_IGNORED;
+}
+
+public GlockTargetDamaged(victim, inflictor, attacker, Float:amount, bits)
+{
+    if (victim == glockTarget && pev_valid(victim) == 2 && pev_serial(victim) == glockTargetSerial &&
+        ObservedGlock(attacker))
+        server_print("[cof-glock] hit t=%.3f count=%d victim=%d serial=%d attacker=%d inflictor=%d amount=%.3f bits=%d hp=%.3f",
+            get_gametime(), ++glockHits, victim, glockTargetSerial, attacker, inflictor, amount, bits,
+            Float:get_entvar(victim, var_health));
+    return HAM_IGNORED;
+}
+
+public GlockActionState()
+{
+    if (read_argc() != 4 || !IsolatedCoFMap()) return PLUGIN_HANDLED;
+    new id = read_argv_int(1), userid = read_argv_int(2), action[12], address[32];
+    if (!Human(id, userid) || !is_user_alive(id)) return PLUGIN_HANDLED;
+    get_user_ip(id, address, charsmax(address), 1);
+    if (!equal(address, "127.0.0.1")) return PLUGIN_HANDLED;
+    new item = get_member(id, m_pActiveItem);
+    if (is_nullent(item) || get_member(item, m_iId) != 896) return PLUGIN_HANDLED;
+    read_argv(3, action, charsmax(action));
+    if (equal(action, "arm"))
+    {
+        if (!glockObserved)
+        {
+            if (!get_user_msgid("CoFSFX")) return PLUGIN_HANDLED;
+            register_forward(FM_CmdStart, "GlockInput");
+            register_forward(FM_PlaybackEvent, "GlockPlayback", 1);
+            register_forward(FM_EmitSound, "GlockNativeSound", 1);
+            register_event_ex("CoFSFX", "GlockLocalSound", RegisterEvent_Single);
+            glockObserved = true;
+        }
+        glockOwner = id; glockUserid = userid; glockItem = item; glockItemSerial = pev_serial(item);
+        glockShots = glockSounds = glockHits = glockButtons = 0;
+        glockTarget = glockTargetSerial = 0;
+    }
+    else if (!ObservedGlock(id)) return PLUGIN_HANDLED;
+    else if (equal(action, "target"))
+    {
+        new entity;
+        while ((entity = rg_find_ent_by_class(entity, "monster_entity")) > 0)
+            if (get_entvar(entity, var_deadflag) == DEAD_NO && Float:get_entvar(entity, var_health) > 0.0 &&
+                Float:get_entvar(entity, var_takedamage) != DAMAGE_NO && !(get_entvar(entity, var_effects) & EF_NODRAW)) break;
+        if (entity <= 0 || glockTarget || !PlaceStandingPlayer(id, Float:{-2000.0, 1256.0, 36.03125})) return PLUGIN_HANDLED;
+        new Float:eye[3], Float:offset[3], Float:lo[3], Float:hi[3], Float:at[3];
+        get_entvar(id, var_origin, eye); get_entvar(id, var_view_ofs, offset);
+        for (new i; i < 3; ++i) eye[i] += offset[i];
+        // Place the near face of the real monster inside the 32-unit trace.
+        get_entvar(entity, var_mins, lo); get_entvar(entity, var_maxs, hi);
+        at[0] = eye[0] + 24.0 - lo[0];
+        at[1] = eye[1] - (lo[1] + hi[1]) * 0.5;
+        at[2] = eye[2] - (lo[2] + hi[2]) * 0.5;
+        set_entvar(entity, var_nextthink, 0.0);
+        set_entvar(entity, var_movetype, MOVETYPE_NONE);
+        set_entvar(entity, var_velocity, Float:{0.0, 0.0, 0.0});
+        engfunc(EngFunc_SetOrigin, entity, at);
+        glockTarget = entity; glockTargetSerial = pev_serial(entity);
+        if (!glockDamageHook) glockDamageHook = RegisterHamFromEntity(Ham_TakeDamage, entity, "GlockTargetDamaged", 1);
+    }
+    else if (!equal(action, "state")) return PLUGIN_HANDLED;
+    new Float:health = -1.0;
+    if (glockTarget && pev_valid(glockTarget) == 2 && pev_serial(glockTarget) == glockTargetSerial)
+        health = get_entvar(glockTarget, var_health);
+    server_print("[cof-glock] t=%.3f owner=%d uid=%d item=%d clip=%d fov=%.1f anim=%d shots=%d sounds=%d hits=%d target=%d serial=%d hp=%.3f",
+        get_gametime(), id, userid, item, get_member(item, m_Weapon_iClip), Float:get_entvar(id, var_fov),
+        get_entvar(id, var_weaponanim), glockShots, glockSounds, glockHits, glockTarget, glockTargetSerial, health);
+    return PLUGIN_HANDLED;
 }
 
 // The flare and monsters come from normal play. The map BSP blocks target 1.
@@ -327,6 +450,21 @@ public FlashlightScene()
             server_print("[lamp-scene] occupied near camera");
             return PLUGIN_HANDLED;
         }
+    }
+    else if (equal(action, "lightleft") || equal(action, "lightright"))
+    {
+        // Keep the receiver and camera fixed. Aim both lamp positions at the
+        // same point so the wall can be compared against its own clear frame.
+        new Float:source[3] = {-2060.0, 1300.0, 36.03125};
+        if (equal(action, "lightright")) source[0] = -1980.0;
+        if (!PlaceStandingPlayer(lamp, source)) return PLUGIN_HANDLED;
+        new Float:direction[3], Float:angles[3];
+        direction[0] = -2030.0 - source[0];
+        direction[1] = -100.0;
+        engfunc(EngFunc_VecToAngles, direction, angles);
+        set_entvar(lamp, var_fixangle, 0);
+        set_entvar(lamp, var_v_angle, angles);
+        engfunc(EngFunc_RunPlayerMove, lamp, angles, 0.0, 0.0, 0.0, 0, 0, 100);
     }
     else if (equal(action, "select")) engclient_cmd(lamp, "goldcraft_night_flashlight");
     else if (equal(action, "toggle"))

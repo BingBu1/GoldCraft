@@ -41,3 +41,11 @@ E-05：继续核对同一原client SHA，1006D759以cl_lw调用引擎GetCvarPoin
 后续原调用扫描确认MP1004742E也会调用1011CF70，但1004727D..10047292在规则为空或rules+20返回非零时跳过；已核原多人虚表对应100C90B0返回1。这个服务器TE抛壳属于单人分支，不能直接塞进当前多人路径。原HUD_PostRunCmd只做状态／视角更新，没有预测发射；HW01D22CEA仅在缺少TxferPredictionData回调时清cl_lw，也不支持强制关预测的猜测。原IDA字节／分支及完整调用扫描保留在私有own-player-next-exclusions.json、player-shell-all-calls.json；自身P绘制问题仍未据此关闭。
 
 后续匹配原HW9dd34e53的接口取证已定位：VA01D23C94..01D23CA0把引擎StudioAPI和输出指针01EC5BFC传给原客户端接口获取函数；01D68B77..01D68B7C、01DC47AD..01DC47B3通过该接口的+8调用人物绘制，参数含flags3。它证明这些世界人物绘制入口带RENDER／EVENTS，不证明第一人称自身实体必定进入可见表。客户端已确认的GetLocalPlayer槽定位出pfnPlaybackEvent／PrecacheEvent两个enginefunc槽，原PE没有这两个槽地址的直接引用；另217个EventAPI取指针的局部窗口也未见调用PlaybackEvent槽。后者是有界扫描，不能替代完整跨函数／运行证明，仍不据此宣称“原版没有弹壳”或编造本地发射路径。私有证据hw-studio-interface-capstone.json、hw-player-draw-gates-capstone.json、client-event-api-refs.json及client-alternate-playback-scan.json。
+
+## 2026-11-20 单 B 第一人称实测
+
+在永夜《穷途末路》第 31 场，B 通过实际购买入口花费 650，拿到第 2 栏 Glock。中键开、关机瞄的服务端视野依次为 90°、50°、90°。同一把枪连续点射三次，弹匣从 15 发减至 12 发。三发各产生一个原武器类型 3 的枪口事件和一个本地枪声消息，逐发在同一服务端时刻出现。
+
+按已载入的客户端及 Renderer 符号核对了 667 次只读观察。三个对应发射窗口中，第一人称 `flash1.mdl` 均进入实际可见实体表，Glock 枪声依次使用三个独立的本地播放声部。记录覆盖 3.80 秒、89 次临时实体池抽查，没有采到第一人称弹壳。本地声部记录可核实播放调度，扬声器输出和远端听感仍待单独核验。
+
+同一把 Glock 背对怪物右键时，专服记录挥动声，怪物维持 10 生命。转向后再次右键，专服记录命中声及一次 120 点伤害，怪物生命变为 0。两次动作后弹匣都为 12 发。测试专服与客户端已恢复。专服日志、原始画面、枪口及声音时间线位于 `build/cof-equipment-live-20261119/burn-live-famas-31/`。
