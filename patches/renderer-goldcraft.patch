@@ -285,10 +285,19 @@ index d9bb651..e7815d2 100644
  #else
  
 diff --git a/assets/svencoop/renderer/shader/studio_shader.frag.glsl b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
-index 2fb67ac..a4e811b 100644
+index 2fb67ac..4151ffb 100644
 --- a/assets/svencoop/renderer/shader/studio_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
-@@ -358,9 +358,9 @@ vec3 R_StudioDynamicLight_PhongSpecular(int i, vec3 vElightDirection, vec3 vWorl
+@@ -37,6 +37,8 @@ uniform vec4 r_hair_specular_noise2;
+ uniform vec2 r_hair_specular_smooth;
+ uniform float r_outline_dark;
+ uniform vec2 r_uvscale;
++layout(binding = 15) uniform sampler2D studioStainTex;
++uniform vec4 r_surface_stain_uv;
+ uniform float r_packed_stride;
+ uniform vec4 r_packed_index;
+ uniform vec2 r_framerate_numframes;
+@@ -358,9 +360,9 @@ vec3 R_StudioDynamicLight_PhongSpecular(int i, vec3 vElightDirection, vec3 vWorl
  	flSpecularFactor = clamp(flSpecularFactor, 0.0, 1.0);
  	flSpecularFactor = pow(flSpecularFactor, r_base_specular.y) * r_base_specular.x;
  
@@ -301,7 +310,7 @@ index 2fb67ac..a4e811b 100644
  
  	return color;
  }
-@@ -369,13 +369,13 @@ vec3 R_StudioDynamicLight_FlatShading(int i, vec3 vWorldPos, vec3 vNormal, float
+@@ -369,13 +371,13 @@ vec3 R_StudioDynamicLight_FlatShading(int i, vec3 vWorldPos, vec3 vNormal, float
  {
  	vec3 color = vec3(0.0, 0.0, 0.0);
  	
@@ -317,7 +326,7 @@ index 2fb67ac..a4e811b 100644
  
  	float DlightCosine = 0.8;
  
-@@ -383,9 +383,9 @@ vec3 R_StudioDynamicLight_FlatShading(int i, vec3 vWorldPos, vec3 vNormal, float
+@@ -383,9 +385,9 @@ vec3 R_StudioDynamicLight_FlatShading(int i, vec3 vWorldPos, vec3 vNormal, float
  	{
  		float DlightAttenuation = clamp(((r - DlightDistance) / r), 0.0, 1.0) * DlightCosine;
  
@@ -330,7 +339,7 @@ index 2fb67ac..a4e811b 100644
  
  		#if defined(SPECULARTEXTURE_ENABLED) || defined(PACKED_SPECULARTEXTURE_ENABLED)
  
-@@ -401,11 +401,11 @@ vec3 R_StudioDynamicLight_PhongShading(int i, vec3 vWorldPos, vec3 vNormal, floa
+@@ -401,11 +403,11 @@ vec3 R_StudioDynamicLight_PhongShading(int i, vec3 vWorldPos, vec3 vNormal, floa
  {
  	vec3 color = vec3(0.0, 0.0, 0.0);
  
@@ -344,7 +353,7 @@ index 2fb67ac..a4e811b 100644
  
  	float DlightCosine = dot(vNormal, normalize(DlightDirection));
  	
-@@ -413,9 +413,9 @@ vec3 R_StudioDynamicLight_PhongShading(int i, vec3 vWorldPos, vec3 vNormal, floa
+@@ -413,9 +415,9 @@ vec3 R_StudioDynamicLight_PhongShading(int i, vec3 vWorldPos, vec3 vNormal, floa
  	{
  		float DlightAttenuation = clamp(((r - DlightDistance) / r), 0.0, 1.0) * DlightCosine;
  
@@ -357,7 +366,26 @@ index 2fb67ac..a4e811b 100644
  
  		#if defined(SPECULARTEXTURE_ENABLED) || defined(PACKED_SPECULARTEXTURE_ENABLED)
  
-@@ -932,10 +932,16 @@ void main(void)
+@@ -875,6 +877,18 @@ void main(void)
+ 
+ 	#endif
+ 
++	if (r_surface_stain_uv.x != 0.0)
++	{
++		vec2 stainUV = v_texcoord * r_surface_stain_uv.xy + r_surface_stain_uv.zw;
++		vec2 dx = dFdx(stainUV), dy = dFdy(stainUV);
++		if (all(greaterThanEqual(stainUV, vec2(0.0))) && all(lessThanEqual(stainUV, vec2(1.0))))
++		{
++			vec4 stain = textureGrad(studioStainTex, stainUV, dx, dy);
++			diffuseColor.rgb = mix(diffuseColor.rgb,
++				stain.rgb * mix(vec3(0.65), vec3(1.0), diffuseColor.rgb), 0.85 * stain.a);
++		}
++	}
++
+ 	diffuseColor = ProcessDiffuseColor(diffuseColor);
+ 
+ 	vec3 vNormal = R_GenerateAdjustedNormal(vWorldPos, flNormalAdjustment);
+@@ -932,10 +946,16 @@ void main(void)
  		out_Diffuse = diffuseColor;
  		out_Lightmap = lightmapColor;
  		out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, 0.0);
@@ -814,6 +842,42 @@ index 6ce4285..698841f 100644
      "${PROJECT_SOURCE_DIR}/src/gl_water.cpp"
      "${PROJECT_SOURCE_DIR}/src/gl_wsurf.cpp"
      "${PROJECT_SOURCE_DIR}/src/LambdaThreadedTask.cpp"
+diff --git a/include/Interface/IMetaRendererStudioStain.h b/include/Interface/IMetaRendererStudioStain.h
+new file mode 100644
+index 0000000..32062b2
+--- /dev/null
++++ b/include/Interface/IMetaRendererStudioStain.h
+@@ -0,0 +1,30 @@
++#pragma once
++#include <interface.h>
++
++struct cl_entity_s;
++struct model_s;
++
++// Shared by the host Studio and CSOL material programs. Keep clear outside their stained draws.
++inline constexpr int MetaRendererStudioStainTextureUnit = 15;
++
++struct MetaRendererStudioStain
++{
++    unsigned texture;
++    float scale[2];
++    float offset[2];
++};
++
++using MetaRendererStudioStainQuery = bool (*)(
++    const cl_entity_s*, const model_s*, int, const char*, MetaRendererStudioStain&) noexcept;
++
++class IMetaRendererStudioStain : public IBaseInterface
++{
++public:
++    // Calls belong to the client renderer thread. Clear the callback before
++    // its owner shuts down. Borrowed GL names retire with the map or GL context.
++    virtual void SetQuery(MetaRendererStudioStainQuery query) noexcept = 0;
++    virtual int DecalGeneration() const noexcept = 0;
++    virtual unsigned DecalTexture(const char* name) noexcept = 0;
++};
++
++#define METARENDERER_STUDIO_STAIN_INTERFACE_VERSION "MetaRendererStudioStain_API_001"
 diff --git a/scripts/manifests/renderer.json b/scripts/manifests/renderer.json
 index 63c012a..6debb2d 100644
 --- a/scripts/manifests/renderer.json
@@ -2984,7 +3048,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..99ad554 100644
+index fa85f25..53601f4 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,7 @@
@@ -2995,7 +3059,7 @@ index fa85f25..99ad554 100644
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +11,37 @@
+@@ -9,33 +11,79 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -3004,52 +3068,94 @@ index fa85f25..99ad554 100644
 +#include <deque>
 +#include "post_scene.h"
 +#include <IMetaRendererStudioOutline.h>
++#include <IMetaRendererStudioStain.h>
 +
++namespace {
++MetaRendererStudioStainQuery studioStainQuery{};
++int studioStainMap{};
++
++int CurrentDecalGeneration() noexcept
++{
++    return gHostSpawnCount ? *gHostSpawnCount : 0;
++}
+ 
+-static GLuint g_hStudioUBO{};
++class CMetaRendererStudioStain final : public IMetaRendererStudioStain
++{
++public:
++    void SetQuery(MetaRendererStudioStainQuery query) noexcept override
++    {
++        studioStainQuery = query;
++        studioStainMap = CurrentDecalGeneration();
++    }
+ 
+-static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
++    int DecalGeneration() const noexcept override { return CurrentDecalGeneration(); }
+ 
+-static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
++    unsigned DecalTexture(const char* name) noexcept override
++    {
++        const auto* effects = gEngfuncs.pEfxAPI;
++        if (!name || !effects || !effects->Draw_DecalIndexFromName ||
++            !effects->Draw_DecalIndex || !gPrivateFuncs.Draw_DecalTexture || !wglGetCurrentContext())
++            return 0;
++        char decal[16]{};
++        const auto length = std::strlen(name);
++        if (!length || length >= sizeof(decal)) return 0;
++        std::memcpy(decal, name, length);
++        const int id = effects->Draw_DecalIndexFromName(decal);
++        if (id <= 0) return 0;
++        const int index = effects->Draw_DecalIndex(id);
++        if (index < 0) return 0;
++        const auto* texture = Draw_DecalTexture(index);
++        return texture ? texture->gl_texturenum : 0;
++    }
++};
++}
++EXPOSE_SINGLE_INTERFACE(CMetaRendererStudioStain, IMetaRendererStudioStain, METARENDERER_STUDIO_STAIN_INTERFACE_VERSION);
+ 
+-static std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> g_StudioBoneCacheManager;
 +static bool g_StudioOutlineMask{}, g_StudioOutlineFailed{};
 +static uint32_t g_StudioOutlineColor{};
 +bool R_IsDrawingStudioOutline() { return g_StudioOutlineMask; }
 +static void R_ShutdownStudioOutline();
  
- static GLuint g_hStudioUBO{};
+-static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
++static GLuint g_hStudioUBO{};
 +static CStudioBonePaletteStorage<> g_StudioBonePalettes;
 +static cvar_t* r_studio_bone_palette_cache{};
 +static cvar_t* r_studio_shadow_face_cull{};
 +static cvar_t* r_studio_shadow_depth_executor{};
 +static cvar_t* r_studio_shadow_plan{};
 +static StudioShadowPlanStats g_StudioShadowPlanStats{};
-+
-+StudioShadowPlanStats R_StudioShadowPlanStats() { return g_StudioShadowPlanStats; }
- 
- static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
- 
- static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
- 
--static std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> g_StudioBoneCacheManager;
--
- static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
  
 -static CStudioBoneCache g_StudioBoneCaches[MAX_STUDIO_BONE_CACHES];
--
++StudioShadowPlanStats R_StudioShadowPlanStats() { return g_StudioShadowPlanStats; }
+ 
 -static CStudioBoneCache* g_pStudioBoneFreeCaches{};
--
- static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
++static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
+ 
+-static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
++static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
  
 -static cache_user_t model_texture_cache[MAX_KNOWN_MODELS_SVENGINE][MAX_SKINS];
--
++static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
+ 
 -class CEnginePlayerInfoStorage
 -{
 -public:
 -    struct player_info_s SavedPlayerInfo{};
 -    bool                 Filled{};
 -};
--
++static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
+ 
 -static CEnginePlayerInfoStorage g_PlayerInfoStorage[MAX_CLIENTS]{};
 +// Cache_Alloc retains the cache_user_t address. deque preserves it on growth.
 +static std::deque<std::array<cache_user_t, MAX_SKINS>> model_texture_cache;
  
  //Engine private vars
  
-@@ -154,83 +160,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +202,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -3133,7 +3239,12 @@ index fa85f25..99ad554 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1423,6 +1352,7 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1419,10 +1390,12 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+             SHADER_UNIFORM(prog, r_hair_shadow_offset, "r_hair_shadow_offset");
+             SHADER_UNIFORM(prog, r_outline_dark, "r_outline_dark");
+             SHADER_UNIFORM(prog, r_uvscale, "r_uvscale");
++            SHADER_UNIFORM(prog, r_surface_stain_uv, "r_surface_stain_uv");
+             SHADER_UNIFORM(prog, r_packed_stride, "r_packed_stride");
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
              SHADER_UNIFORM(prog, r_nearplaneclip, "r_nearplaneclip");
@@ -3141,7 +3252,7 @@ index fa85f25..99ad554 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1366,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1409,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -3159,7 +3270,7 @@ index fa85f25..99ad554 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1458,15 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1501,15 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -3175,7 +3286,7 @@ index fa85f25..99ad554 100644
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1481,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1524,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -3183,7 +3294,7 @@ index fa85f25..99ad554 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1532,12 @@ void R_InitStudio(void)
+@@ -1583,6 +1575,12 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -3196,7 +3307,7 @@ index fa85f25..99ad554 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1843,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1886,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -3213,7 +3324,7 @@ index fa85f25..99ad554 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,11 +2098,25 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,11 +2141,25 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
@@ -3239,7 +3350,7 @@ index fa85f25..99ad554 100644
  
      StudioUBO.r_origin[0] = r_origin[0];
      StudioUBO.r_origin[1] = r_origin[1];
-@@ -2310,8 +2283,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2310,8 +2326,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -3248,7 +3359,7 @@ index fa85f25..99ad554 100644
      if (R_IsRenderingClippedLowerBody())
      {
          auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
-@@ -2327,9 +2298,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2341,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -3263,7 +3374,7 @@ index fa85f25..99ad554 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2360,164 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2403,164 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
@@ -3428,7 +3539,7 @@ index fa85f25..99ad554 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2528,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2571,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -3436,7 +3547,7 @@ index fa85f25..99ad554 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2676,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2719,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -3449,7 +3560,7 @@ index fa85f25..99ad554 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2917,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2960,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -3475,7 +3586,7 @@ index fa85f25..99ad554 100644
          }
          else
          {
-@@ -2878,10 +2999,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +3042,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -3487,7 +3598,7 @@ index fa85f25..99ad554 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3222,8 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3265,34 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -3531,13 +3642,36 @@ index fa85f25..99ad554 100644
 -    {
 -        //Texture unit 3 = Parallax texture
 -        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_PARALLAX, GL_TEXTURE_2D, 0);
--    }
--
++    constexpr auto stainExcluded = STUDIO_SHADOW_CASTER_ENABLED | STUDIO_GLOW_COLOR_ENABLED |
++        STUDIO_GLOW_SHELL_ENABLED | STUDIO_OUTLINE_ENABLED | STUDIO_LINEAR_DEPTH_ENABLED |
++        STUDIO_HAIR_SHADOW_ENABLED | STUDIO_HAIR_FACE_COLOR_MIX_ENABLED | STUDIO_NF_CHROME |
++        STUDIO_ADDITIVE_BLEND_ENABLED | STUDIO_NF_FULLBRIGHT;
++    MetaRendererStudioStain stain{};
++    if (studioStainQuery && studioStainMap == CurrentDecalGeneration() && prog.r_surface_stain_uv >= 0 &&
++        r_fullbright->value < 2 &&
++        !(StudioProgramState & stainExcluded))
++    {
++        const int material = pskinref[pmesh->skinref];
++        const auto& texture = ptexture[material];
++        const float u = Context.s * Context.scaleX * texture.width;
++        const float v = Context.t * Context.scaleY * texture.height;
++        if (u > 0 && v > 0 && studioStainQuery(*currententity, pRenderData->BodyModel, material, texture.name, stain))
++        {
++            GL_BindTextureUnit(MetaRendererStudioStainTextureUnit, GL_TEXTURE_2D, stain.texture);
++            glUniform4f(prog.r_surface_stain_uv, stain.scale[0] / u, stain.scale[1] / v,
++                stain.offset[0], stain.offset[1]);
++        }
+     }
+ 
 -    if (StudioProgramState & STUDIO_NORMALTEXTURE_ENABLED)
--    {
++    R_StudioSubmitMesh(pRenderMesh, false);
++    if (stain.texture)
+     {
 -        //Texture unit 2 = Normal texture
 -        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_NORMAL, GL_TEXTURE_2D, 0);
--    }
++        glUniform4f(prog.r_surface_stain_uv, 0, 0, 0, 0);
++        GL_BindTextureUnit(MetaRendererStudioStainTextureUnit, GL_TEXTURE_2D, 0);
+     }
 -
 -    GL_BindTextureUnit(STUDIO_BIND_TEXTURE_DIFFUSE, GL_TEXTURE_2D, 0);
 -
@@ -3549,29 +3683,28 @@ index fa85f25..99ad554 100644
 -    glDepthFunc(GL_LEQUAL);
 -
 -    GL_EndStencil();
-+    R_StudioSubmitMesh(pRenderMesh, false);
 +    R_StudioEndMeshDraw(StudioProgramState);
  }
  
  void R_StudioDrawMesh(
-@@ -3178,7 +3240,16 @@ void R_StudioDrawMesh(
+@@ -3178,7 +3309,16 @@ void R_StudioDrawMesh(
          StudioResolveTextureIndex(pskinref, ptexturehdr->numskinref, ptexturehdr->numtextures, pmesh->skinref) :
          -1;
      if (uskinref < 0 || ptexture[uskinref].width <= 0 || ptexture[uskinref].height <= 0)
 +    {
 +        if (g_StudioOutlineMask) g_StudioOutlineFailed = true;
-         return;
++        return;
 +    }
 +
 +    if (g_StudioOutlineMask)
 +    {
 +        R_StudioOutlineMesh(pRenderData, pRenderMesh, ptexturehdr, ptexture, uskinref);
-+        return;
+         return;
 +    }
  
      program_state_t StudioProgramState = (program_state_t)(ptexture[uskinref].flags & 0x00000000FFFFFFFFull);
  
-@@ -3259,6 +3330,173 @@ void R_StudioDrawMesh(
+@@ -3259,6 +3399,173 @@ void R_StudioDrawMesh(
      }
  }
  
@@ -3745,7 +3878,7 @@ index fa85f25..99ad554 100644
  void R_StudioDrawSubmodel(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* VBOSubmodel,
-@@ -3266,11 +3504,19 @@ void R_StudioDrawSubmodel(
+@@ -3266,11 +3573,19 @@ void R_StudioDrawSubmodel(
      mstudiotexture_t*           ptexture,
      short*                      pskinref)
  {
@@ -3766,7 +3899,7 @@ index fa85f25..99ad554 100644
      }
  }
  
-@@ -3317,12 +3563,14 @@ void R_GLStudioDrawPoints(void)
+@@ -3317,12 +3632,14 @@ void R_GLStudioDrawPoints(void)
      if (!pRenderData)
      {
          //Sys_Error("R_GLStudioDrawPoints: no available pRenderData for \"%s\"!", (*pstudiohdr)->name);
@@ -3781,7 +3914,7 @@ index fa85f25..99ad554 100644
          return;
      }
  
-@@ -3364,11 +3612,13 @@ void studioapi_GL_SetRenderMode(int rendermode)
+@@ -3364,11 +3681,13 @@ void studioapi_GL_SetRenderMode(int rendermode)
  
  void studioapi_SetupRenderer(int rendermode)
  {
@@ -3795,7 +3928,7 @@ index fa85f25..99ad554 100644
      glDepthMask(GL_TRUE);
      glDisable(GL_BLEND);
  }
-@@ -3377,7 +3627,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3696,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -3807,7 +3940,7 @@ index fa85f25..99ad554 100644
      }
  
      mplane_t plane;
-@@ -3546,6 +3799,12 @@ __forceinline void StudioRenderFinal_Template(CallType pfnRenderFinal, void* pth
+@@ -3546,6 +3868,12 @@ __forceinline void StudioRenderFinal_Template(CallType pfnRenderFinal, void* pth
  template <typename CallType>
  __forceinline void StudioRenderModel_Template(CallType pfnRenderModel, CallType pfnRenderFinal, void* pthis = nullptr, int dummy = 0)
  {
@@ -3820,7 +3953,7 @@ index fa85f25..99ad554 100644
      if (R_IsRenderingShadowView())
      {
          pfnRenderModel(pthis, dummy);
-@@ -3861,15 +4120,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +4189,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -3836,7 +3969,7 @@ index fa85f25..99ad554 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +4130,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +4199,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -3999,7 +4132,7 @@ index fa85f25..99ad554 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +4147,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +4216,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -4027,7 +4160,7 @@ index fa85f25..99ad554 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +4159,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +4228,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -4035,7 +4168,7 @@ index fa85f25..99ad554 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,30 +4175,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +4244,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -4072,7 +4205,7 @@ index fa85f25..99ad554 100644
          pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
-@@ -4117,27 +4195,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4117,27 +4264,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
      //Never cache bones for viewmodel !
      if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
      {
@@ -4110,7 +4243,7 @@ index fa85f25..99ad554 100644
      pfnMergeBones(pthis, dummy, pSubModel);
  }
  
-@@ -4959,6 +5033,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -4959,6 +5102,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
          gEngfuncs.Con_DPrintf("R_CreateStudioRenderData: Found modelindex[%d] modname[%s].\n", EngineGetModelIndex(mod), mod->name);
  
          //Always reload
@@ -4118,7 +4251,7 @@ index fa85f25..99ad554 100644
          pRenderData->mStudioMaterials.clear();
  
          R_StudioLoadTextureModel(mod, studiohdr, pRenderData.get());
-@@ -5021,18 +5096,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +5165,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -4139,14 +4272,14 @@ index fa85f25..99ad554 100644
  }
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
-@@ -5040,3 +5111,5 @@ void UpdatePlayerPitch(cl_entity_t* ent, float a2)
+@@ -5040,3 +5180,5 @@ void UpdatePlayerPitch(cl_entity_t* ent, float a2)
      //Sniber NMSL
      return;
  }
 +
 +#include "resource_refresh.inc"
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..7455f59 100644
+index eeb137d..98f6c8e 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
 @@ -9,9 +9,14 @@
@@ -4164,7 +4297,12 @@ index eeb137d..7455f59 100644
  #    define STUDIO_DIFFUSE_TEXTURE  0
  #    define STUDIO_NORMAL_TEXTURE   1
  #    define STUDIO_PARALLAX_TEXTURE 2
-@@ -50,6 +55,8 @@ typedef struct studio_program_s
+@@ -46,10 +51,13 @@ typedef struct studio_program_s
+     int r_hair_specular_smooth{-1};
+     int r_hair_shadow_offset{-1};
+     int r_uvscale{-1};
++    int r_surface_stain_uv{-1};
+     int r_packed_stride{-1};
      int r_packed_index{-1};
      int r_framerate_numframes{-1};
      int r_nearplaneclip{-1};
@@ -4173,7 +4311,7 @@ index eeb137d..7455f59 100644
  } studio_program_t;
  
  class studiovertexbase_t
-@@ -87,6 +94,53 @@ public:
+@@ -87,6 +95,53 @@ public:
      size_t nMeshOffset{0};
  };
  
@@ -4227,7 +4365,7 @@ index eeb137d..7455f59 100644
  class CStudioModelRenderSubModel
  {
  public:
-@@ -96,6 +150,7 @@ public:
+@@ -96,6 +151,7 @@ public:
  
      size_t                              m_SubmodelOffset{};
      std::vector<CStudioModelRenderMesh> vMesh;
@@ -4235,7 +4373,7 @@ index eeb137d..7455f59 100644
  };
  
  class CStudioModelRenderMaterial
-@@ -225,8 +280,8 @@ public:
+@@ -225,8 +281,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -4246,7 +4384,7 @@ index eeb137d..7455f59 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +297,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +298,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -4279,7 +4417,7 @@ index eeb137d..7455f59 100644
          return base;
      }
  };
-@@ -347,6 +404,7 @@ void     R_StudioFlushAllSkins();
+@@ -347,6 +405,7 @@ void     R_StudioFlushAllSkins();
  void     R_ShutdownStudio(void);
  void     R_InitStudio(void);
  void     R_StudioStartFrame(void);
@@ -4287,7 +4425,7 @@ index eeb137d..7455f59 100644
  void     R_StudioEndFrame(void);
  void     R_SaveStudioProgramStates(void);
  void     R_LoadStudioProgramStates(void);
-@@ -356,20 +414,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +415,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);

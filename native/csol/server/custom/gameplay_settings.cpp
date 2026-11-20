@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "gameplay_settings.h"
 #include "settings_store.hpp"
+#include "body_stains.h"
 #include "../buy_menu.h"
 #include "../game_mode.h"
 #include "../scenario/core/human_kick.h"
@@ -30,6 +31,7 @@ csol::GameplayEditResult lastResult{csol::GameplayEditResult::Unavailable};
 std::string failure;
 bool Available(custom::Feature feature)
 {
+    if (feature == custom::Feature::Blood) return CSOL_BodyStainDeltaReady();
     // Consumers register their capability as they are integrated. Publishing
     // a configuration flag alone cannot claim an unimplemented gameplay path.
     return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::BlindBox || feature == custom::Feature::DamageRefundCap ||
@@ -239,6 +241,13 @@ void CSOL_PollGameplaySettings()
     Poll();
     if (registered) CSOL_SetHumanKickPolicy(CSOL_CustomFeatureEnabled(custom::Feature::Kick));
 }
+void CSOL_UpdateGameplayBodyStains() noexcept
+{
+    const bool enabled = CSOL_CustomFeatureEnabled(custom::Feature::Blood);
+    CSOL_SetBodyStainPolicy(enabled, enabled ?
+        static_cast<float>(LiveNumber(custom::Setting::BloodSplashRadius).value_or(0)) : 0.0f);
+}
+
 void CSOL_ShutdownGameplaySettings()
 {
     // Process shutdown is a cold boundary; drain an authorized file write

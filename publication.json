@@ -2876,7 +2876,8 @@
     "native/csol/server/weapons/guest_cof_light_equipment.hpp",
     "native/guest/cof/light_equipment.hpp",
     "native/include/goldcraft/opaque_surface_mesh.hpp",
-    "tools/Prepare-CryOfFearLightEquipment.py"
+    "tools/Prepare-CryOfFearLightEquipment.py",
+    "docs/2026-11-20_实现-大灾变永久模型血迹-report.md"
   ],
   "trees": {
     "native": [

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "game_rules_gate.h"
+#include "../../custom/body_stains.h"
 #include "human_kick.h"
 #include "../../custom/gameplay_settings.h"
 #include "../../custom/action_stamina.h"
@@ -613,6 +614,7 @@ public:
     void ScenarioThink()
     {
         if (!SelectionReady() || m_completing || m_restarting || m_applyingFinish) return;
+        CSOL_UpdateGameplayBodyStains();
         if (m_replaySettings && Ready() && !m_runtime->gameplay->Busy())
         {
             m_adminMapVote = AdminMapVote::Idle;
@@ -1023,6 +1025,7 @@ public:
                 m_phase == Phase::Completing)) || m_runtime->gameplay->Busy()) return;
         struct RestartScope { bool& flag; ~RestartScope() { flag = false; } } scope{m_restarting};
         m_restarting = true;
+        CSOL_ClearBodyStainSplash();
         if (!m_replaySettings && m_phase == Phase::Advancing && !m_pendingRound)
         {
             CSOL_RejectGameRules("Scenario next stage has no committed completion.");
@@ -2547,9 +2550,14 @@ bool CSOL_RetireScenarioRules(CGameRules** rules)
     if (!record) return false;
     // All slots are detached before the first callback. Never keep a pointer
     // to a caller's stack variable, and never publish retired rules again.
+    const bool published = g_pGameRules == record->rules;
     *rules = nullptr;
-    if (g_pGameRules == record->rules) entityRules = record;
-    if (g_pGameRules == record->rules) g_pGameRules = nullptr;
+    if (published)
+    {
+        CSOL_ResetBodyStains();
+        entityRules = record;
+        g_pGameRules = nullptr;
+    }
     record->retired = true;
     record->runtime->RequestClose();
     return true;
@@ -3473,6 +3481,7 @@ void CSOL_ScenarioPlayerDisconnected(CBasePlayer& player)
     CSOLScenarioSdkScope sdkScope;
     if (sdkScope.Scenario() && !sdkScope.Current()) return;
     CSOL_ResetHumanKick(player, false);
+    CSOL_ClearBodyStain(player);
     if (auto* scenario = dynamic_cast<CCSOLScenarioRules*>(g_pGameRules)) scenario->RemovePlayer(player);
 }
 

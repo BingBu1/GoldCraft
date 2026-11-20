@@ -262,11 +262,22 @@ void FeatureRequirements()
 {
     for (const auto& descriptor : Features())
     {
-        if (descriptor.id != Feature::Blood &&
-            descriptor.id != Feature::ZombiePopulation && descriptor.id != Feature::RandomHorde) continue;
+        if (descriptor.id != Feature::ZombiePopulation && descriptor.id != Feature::RandomHorde) continue;
         const std::string enabled = "\"" + std::string(descriptor.key) + "\":true";
         Reject(Document(enabled), "enabling feature with unknown required parameters is explicit failure");
     }
+    const auto blood = Read(R"({"version":2,"features":{"blood":{"enabled":true,"comment":"legacy blood","values":{"blood_lifetime_seconds":{"value":null,"comment":"old"},"blood_maximum":{"value":null,"comment":"old"}}}}})");
+    Check(blood->Enabled(Feature::Blood) && blood->Number(Setting::BloodSplashRadius) == 128,
+        "legacy null blood limits do not affect permanent stains");
+    Check(Read(Document(R"("blood":true)", R"("blood_lifetime_seconds":5,"blood_maximum":32)"))->Enabled(Feature::Blood),
+        "legacy flat configurations also load without the retired limits");
+    const auto serialized = Serialize(*blood);
+    Check(serialized.find("blood_lifetime_seconds") == std::string::npos &&
+        serialized.find("blood_maximum") == std::string::npos &&
+        Read(serialized)->Comment(Feature::Blood) == "legacy blood",
+        "saving omits retired limits and preserves the feature explanation");
+    Check(Read(Document(R"("blood":true)", R"("blood_splash_radius":0)"))->Number(Setting::BloodSplashRadius) == 0,
+        "zero radius leaves only the zombie body stain");
     Check(Read(Document(R"("cof_sprint":true)"))->Enabled(Feature::CofSprint),
         "StandAlone omitted parameters retain recovered consumer defaults; legacy fields remain rejected separately");
     Reject(Document(R"("blind_box":true)", R"("blind_box_price_1":30,"blind_box_price_2":20,"blind_box_price_3":40)"),

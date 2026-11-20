@@ -43,8 +43,9 @@ for job in prepared['jobs']:
         print('\n'.join(text.splitlines()[-35:]), unknown, changed)
         sys.exit(1)
 if compile_only: sys.exit(0)
-groups = sys.argv[2:] or ['positive', 'excluded', 'reentry']
-assert all(x in ['positive', 'excluded', 'reentry'] for x in groups)
+available_groups = ['positive', 'excluded', 'reentry', 'stains']
+groups = sys.argv[2:] or available_groups
+assert all(group in available_groups for group in groups)
 for group in groups:
     start = time.monotonic()
     q = subprocess.run([str(out / 'hits.exe'), group], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=120)

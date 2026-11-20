@@ -57,7 +57,7 @@ target_sources(CSOLSupport PRIVATE client/weapons/guest_cof_crosshair.cpp
     client/weapons/guest_cof_hud.cpp ../guest/cof/crosshair_protocol.cpp
     ../guest/cof/client/crosshair.cpp)
 target_sources(CSOLSupport PRIVATE client/model_crc.cpp)
-target_sources(CSOLSupport PRIVATE client/scenario/core/night_player_lights.cpp)
+target_sources(CSOLSupport PRIVATE client/scenario/core/night_player_lights.cpp client/scenario/core/body_stains.cpp)
 target_sources(CSOLSupport PRIVATE client/scenario/core/particle_effects.cpp)
 target_sources(CSOLSupport PRIVATE client/resource_font_memory.cpp)
 option(CSOL_OPTIMIZE_HOST_CRC "Use equivalent IEEE CRC computation in the verified host" ON)

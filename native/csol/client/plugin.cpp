@@ -63,6 +63,7 @@
 #include "scenario/core/human_kick.hpp"
 #include "scenario/core/challenge_phase.hpp"
 #include "scenario/core/challenge_environment.hpp"
+#include "scenario/core/body_stains.hpp"
 #include "scenario/core/night_player_lights.hpp"
 #include "scenario/core/cof_movement_input.hpp"
 #include "scenario/core/standalone_movement_input.hpp"
@@ -405,6 +406,7 @@ static void Init()
     InitializeHumanKick();
     InitializeChallengePhase();
     InitializeChallengeEnvironment();
+    InitializeBodyStains();
     InitializeCofMovementInput();
     InitializeStandaloneMovementInput();
     InitializeStaminaAudio();
@@ -417,6 +419,7 @@ static void Init()
 }
 static int VidInit()
 {
+    ResetBodyStains();
     InvalidateGuestCofAdmission();
     GuestCofEffectsVideoInit();
     InvalidateGuestCofMuzzle();
@@ -472,6 +475,7 @@ static void HudShutdown()
     ShutdownHumanKick();
     ShutdownChallengePhase();
     ShutdownChallengeEnvironment();
+    ShutdownBodyStains();
     ShutdownCofMovementInput();ShutdownStandaloneMovementInput();
     ShutdownStaminaHud();
     ResetParticleEffects();
@@ -491,6 +495,7 @@ static void HudShutdown()
 static void Frame(double time)
 {
     SynchronizeFrameSession();
+    BodyStainsFrame();
     PrepareCofLightEquipment();
     GuestCofAudioFrame();
     ScenarioEffectsFrame();
@@ -547,6 +552,12 @@ static int Redraw(float time, int intermission)
     DrawScenarioRespawnUi(time, intermission);
     return result;
 }
+static void TxferLocalOverrides(entity_state_s* state, const clientdata_s* data)
+{
+    ReadLocalBodyStain(state, data);
+    if (downstream.HUD_TxferLocalOverrides) downstream.HUD_TxferLocalOverrides(state, data);
+}
+
 static int UpdateClientData(client_data_s* data, float time)
 {
     // Keep the existing session/FOV wrapper. Original CSOL schedules emitter
@@ -645,6 +656,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->HUD_StudioEvent=StudioEvent;
     functions->V_CalcRefdef=CalcRefdef;
     functions->HUD_UpdateClientData=UpdateClientData;
+    functions->HUD_TxferLocalOverrides=TxferLocalOverrides;
     functions->HUD_DrawTransparentTriangles=Transparent;
     functions->HUD_DrawNormalTriangles=Normal;
     functions->HUD_Redraw=Redraw;
@@ -654,7 +666,7 @@ void IPluginsV4::LoadClient(cl_exportfuncs_t* functions)
     functions->CL_IsThirdPerson=CameraIsThirdPerson;
     functions->CL_CameraOffset=CameraOffsets;
 }
-void IPluginsV4::Shutdown(){csol::client::ShutdownCofMovementInput();csol::client::ShutdownStandaloneMovementInput();csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownScenarioMusic();csol::client::ShutdownStaminaHud();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
-void IPluginsV4::ExitGame(int){csol::client::ShutdownCofMovementInput();csol::client::ShutdownStandaloneMovementInput();csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownHumanKick();csol::client::ShutdownStaminaHud();csol::client::ShutdownChallengePhase();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
+void IPluginsV4::Shutdown(){csol::client::ShutdownCofMovementInput();csol::client::ShutdownStandaloneMovementInput();csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownBodyStains();csol::client::ShutdownScenarioMusic();csol::client::ShutdownStaminaHud();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownSpray();csol::client::RemoveCrashRecorder();}
+void IPluginsV4::ExitGame(int){csol::client::ShutdownCofMovementInput();csol::client::ShutdownStandaloneMovementInput();csol::client::ShutdownChallengeEnvironment();csol::client::ShutdownBodyStains();csol::client::ShutdownHumanKick();csol::client::ShutdownStaminaHud();csol::client::ShutdownChallengePhase();csol::client::ShutdownGuestCofAdmission();csol::client::ShutdownGuestCofInput();csol::client::ShutdownGuestCofViewmodel();csol::client::ShutdownGuestCofMuzzle();csol::client::ShutdownGuestCofDecals();csol::client::ShutdownGuestCofResources();csol::client::ShutdownGuestCofEffects();csol::client::ShutdownGuestCofControl();csol::client::ShutdownGuestCofParticles();csol::client::ShutdownGuestCofAudio();csol::client::ShutdownGuestCof();csol::client::ShutdownParticleEffects();csol::client::ShutdownWeapons();csol::client::ShutdownSharedRandom();csol::client::ShutdownScenarioMapVote();csol::client::ShutdownHudStyle();csol::client::ShutdownEliteVisuals();csol::client::ShutdownScenarioRoundHud();csol::client::ShutdownScenarioRespawnUi();csol::client::ShutdownScenarioAbilities();csol::client::ShutdownScenarioUpgrades();csol::client::ShutdownScenarioSmoke();csol::client::ShutdownScenarioEffects();csol::client::ShutdownCharacterSkillEffects();csol::client::ShutdownScenarioKill();csol::client::ShutdownScenarioMusic();csol::client::ShutdownBuyMenu();csol::client::ShutdownDamageDisplay();csol::client::ShutdownWallStatus();csol::client::ShutdownStatusIcons();csol::client::ShutdownCharacters();csol::client::ShutdownOverlayCompositor();csol::client::ClearScene();csol::client::RemoveSequenceClientGuards();csol::client::RemoveHooks();csol::client::ResetSequenceOwners();}
 const char* IPluginsV4::GetVersion(){return "CSOLSupport 0.1 / 2026-10-21";}
 EXPOSE_SINGLE_INTERFACE(IPluginsV4,IPluginsV4,METAHOOK_PLUGIN_API_VERSION_V4);

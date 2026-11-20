@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "../../../csol/server/custom/body_stains.h"
 #include "ballistics.hpp"
 
 #include <cmath>
@@ -149,6 +150,7 @@ BallisticsResult FireOriginalBallistics(CBaseEntity& shooter, const PistolBallis
         spread.y *= 0.5f;
         spread.z *= 0.5f;
     }
+    const CSOLBodyStainShot stainShot(&shooter, shot.source);
     DamageRegister transaction;
     ClearMultiDamage();
     if (!Current(call, owner)) return {BallisticsStatus::Cancelled, {0, 0, 0}};
@@ -222,7 +224,7 @@ BallisticsResult FireOriginalBallistics(CBaseEntity& shooter, const PistolBallis
             const EntityHandle<CBaseEntity> targetHandle(target);
             if (target && shot.damage != 0)
             {
-                target->TraceAttack(inflictor, static_cast<float>(shot.damage), direction, &trace, PistolDamageBits);
+                stainShot.TraceAttack(target, inflictor, static_cast<float>(shot.damage), direction, &trace, PistolDamageBits);
                 if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
             }
             if (target && targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};

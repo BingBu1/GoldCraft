@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include "precompiled.h"
+#include "../../native/csol/server/custom/body_stains.h"
 
 enginefuncs_t g_engfuncs{};
 globalvars_t* gpGlobals{};
@@ -18,6 +19,12 @@ namespace
     std::cerr << "UNEXPECTED ENGINE STUB: " << method << '\n'; std::abort();
 }
 }
+// The small entity fixtures do not enable the optional blood renderer.
+bool CSOL_BodyStainsActive() noexcept { return false; }
+void CSOL_ClearBodyStain(CBaseEntity&) noexcept {}
+void CSOL_RecordBodyStains(CCSOLScenarioMonster&, entvars_t*, const TraceResult*, const Vector&) noexcept
+{ Unused("RecordBodyStains"); }
+
 // These two methods are empty in the actual current cbase.cpp as well.
 void CBaseEntity::OnCreate() {}
 void CBaseEntity::OnDestroy() {}

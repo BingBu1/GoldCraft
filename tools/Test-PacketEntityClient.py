@@ -220,6 +220,60 @@ def delta(count,previous,changes=()):
     return struct.pack("<hB",count,previous & 255)+bits.bytes()
 
 
+
+def body_stain_snapshots(path):
+    engine = Engine(path)
+    offset = 268
+    width = 28
+    engine.schema({name: [dict(fieldType=8, fieldName="modelindex", fieldOffset=40, fieldSize=1,
+                               significant_bits=16, premultiply=1, postmultiply=1),
+                          dict(fieldType=8, fieldName="goldcraft_body_stain", fieldOffset=offset, fieldSize=1,
+                               significant_bits=width, premultiply=1, postmultiply=1)]
+                   for name in ("entity_state_t", "entity_state_player_t", "custom_entity_state_t", "event_t")})
+    cases = ((8, 307, 0x6dfc3e3), (33, 518, 0x6d0023e))
+    bits = Bits()
+    for slot, model, stain in cases:
+        bits.put(0, 1)
+        bits.put(1, 1)
+        bits.put(slot, 11)
+        bits.put(0, 1)
+        bits.put(0, 1)
+        bits.put(1, 3)
+        bits.put(3, 8)
+        bits.put(model, 16)
+        bits.put(stain, width)
+    bits.put(0, 16)
+    count, _, states, _ = engine.parse(struct.pack("<h", len(cases)) + bits.bytes(), 65)
+    def matches(states, expected):
+        def fields(state):
+            return tuple(struct.unpack_from("<I", state, field)[0] for field in (4, 40, offset))
+        return len(states) == len(expected) * 340 and all(
+            fields(states[i * 340:(i + 1) * 340]) == row ==
+            fields(engine.mu.mem_read(engine.entities + row[0] * 3000 + 688, 340))
+            for i, row in enumerate(expected))
+    checks = {"stainsFullPlayerAndMonster": count == len(cases) and matches(states, cases)}
+    count, _, states, _ = engine.parse(delta(len(cases), 65), 66, True)
+    checks["stainsUnchangedDelta"] = count == len(cases) and matches(states, cases)
+    bits = Bits()
+    last = 0
+    clear = ((8, 311, 0x6d003e3), (33, 518, 0))
+    for (slot, old_model, _), (_, model, stain) in zip(cases, clear):
+        bits.put(0, 1)
+        bits.put(0, 1)
+        bits.put(slot - last, 6)
+        bits.put(0, 1)
+        bits.put(1, 3)
+        bits.put(3 if old_model != model else 2, 8)
+        if old_model != model:
+            bits.put(model, 16)
+        bits.put(stain, width)
+        last = slot
+    bits.put(0, 16)
+    count, _, states, _ = engine.parse(struct.pack("<hB", len(cases), 66) + bits.bytes(), 67, True)
+    checks["stainsSwitchPreservesArmsAndRetiresMonster"] = count == len(cases) and matches(states, clear)
+    checks["stainsAllocationCanaries"] = engine.canaries()
+    return checks
+
 def run(args):
     path = args.engine.resolve(strict=True)
     if not path.is_relative_to(ROOT): raise ValueError("Use the workspace copy")
@@ -254,6 +308,7 @@ def run(args):
     except EngineError:checks["full1025RejectsBeforeOverflow"] = "MAX_PACKET_ENTITIES" in engine.rejections[-1]
     else:checks["full1025RejectsBeforeOverflow"] = False
     checks["allocationCanaries"] = engine.canaries()
+    checks.update(body_stain_snapshots(path))
     result = dict(engineSha256=EXPECTED,scope="Actual x86 bitread/delta/full/history/publication; no live rendering/network/gameplay",checks=checks,frames=frames,passed=all(checks.values()))
     if args.server_fixture:
         directory = args.server_fixture if args.server_fixture.is_dir() else args.server_fixture.parent

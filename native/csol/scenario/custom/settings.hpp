@@ -25,7 +25,6 @@ enum class Setting : std::uint8_t
     MasteryReload1, MasteryReload2, MasteryDamage2, MasteryDamage3, MasteryFireRate3,
     SprintMaximum, SprintDrainPerSecond, SprintRecoveryPerSecond, SprintSpeed,
     WalkSpeed, JumpCost, KickCost, DuskMaximumMultiplier, DuskRecoveryMultiplier,
-    BloodLifetimeSeconds, BloodMaximum,
     DuskSpeedMultiplier, DuskRegenPerSecond,
     NightDamageMultiplier, NightSpeedMultiplier, NightRegenPerSecond,
     MiddayZombieBase, DuskZombieBase, NightZombieBase, ZombiesPerPlayer,
@@ -34,7 +33,7 @@ enum class Setting : std::uint8_t
     DuskLightLevel, NightLightLevel, LightStepSeconds, NightFogDensity,
     NightFogColor, NightFogStart, NightFogEnd, NightFogSkybox,
     SprintCostPerUnit, NightPlayerLightRadius, NightPlayerLightBrightness, NightPlayerLightColor,
-    HordeExtraZombies, Count
+    HordeExtraZombies, BloodSplashRadius, Count
 };
 enum class ValueType : std::uint8_t { Boolean, Integer, Real };
 enum class Scope : std::uint8_t { Immediate, NextMapSession };
@@ -118,9 +117,9 @@ private:
 // Canonical version2 is one grouped document:
 // {version:2, features:{feature:{enabled:bool,comment:string,
 // values:{setting:{value:number|null,comment:string}}}}}.
-// Settings must belong to their descriptor's feature. Null is permitted only
-// for absent optional settings without a default. Omitted feature/setting
-// objects retain defaults; present objects require every declared field.
+// Settings must belong to their descriptor's feature. Null represents an
+// absent optional setting or resets the two legacy blood parameters. Omitted
+// feature/setting objects retain defaults; present objects require every declared field.
 // Published version1's exact four-root features/values/comments envelope is
 // still accepted. Serialize always emits version2 with prose adjacent to the
 // setting it explains, including null optional entries so prose is preserved.

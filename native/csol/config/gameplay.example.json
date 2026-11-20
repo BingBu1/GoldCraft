@@ -329,15 +329,11 @@
         },
         "blood": {
             "enabled": false,
-            "comment": "血迹效果；最大数量与寿命有界，关闭只清理本功能拥有的实例。",
+            "comment": "僵尸受击后保留随机模型血迹，近距离枪击将血溅到射手手臂及手持枪械。血迹持续到对应实体离开本图，关闭时隐藏。",
             "values": {
-                "blood_lifetime_seconds": {
-                    "value": null,
-                    "comment": "本功能血迹寿命秒数，上限600秒避免无界留存。"
-                },
-                "blood_maximum": {
-                    "value": null,
-                    "comment": "本功能同时存活血迹硬上限，最多4096。"
+                "blood_splash_radius": {
+                    "value": 128,
+                    "comment": "血迹溅到射手的最大距离，单位为GoldSrc长度单位。0只在僵尸模型上显示。"
                 }
             }
         },

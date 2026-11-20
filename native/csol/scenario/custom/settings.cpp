@@ -30,7 +30,7 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL三档盲盒使用CS金钱；pools设置每把武器的相对权重，0停用。", false, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
     {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "下次载入地图启用体力。正午为灾变原有移速，黄昏和永夜解锁疾跑，站姿疾跑地速为300。", false, Scope::NextMapSession},
-    {Feature::Blood, "blood", "csol_custom_blood", "血迹效果；最大数量与寿命有界，关闭只清理本功能拥有的实例。", false, Scope::Immediate},
+    {Feature::Blood, "blood", "csol_custom_blood", "僵尸受击后保留随机模型血迹，近距离枪击将血溅到射手手臂及手持枪械。血迹持续到对应实体离开本图，关闭时隐藏。", false, Scope::Immediate},
     {Feature::DuskBuff, "dusk_buff", "csol_custom_dusk_buff", "黄昏普通怪的基础移速和回血；开关和数值在本图即时生效。", false, Scope::Immediate},
     {Feature::NightBuff, "night_buff", "csol_custom_night_buff", "永夜普通怪的基础伤害、移速和回血；开关和数值在本图即时生效。", false, Scope::Immediate},
     {Feature::ZombiePopulation, "zombie_population", "csol_custom_zombie_population", "阶段普通怪上限为基础值加每位真人增量；下一次刷怪时生效。", false, Scope::Immediate},
@@ -66,8 +66,6 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::KickCost, Feature::CofSprint, "kick_cost", "csol_custom_kick_cost", "踢击单次体力消耗，接受动作后由权威消费者记账。", ValueType::Real, 0, 1000000, {}, Scope::NextMapSession},
     {Setting::DuskMaximumMultiplier, Feature::CofSprint, "dusk_maximum_multiplier", "csol_custom_dusk_maximum_multiplier", "黄昏体力上限倍率。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, .001, 1000, 1.5, Scope::NextMapSession},
     {Setting::DuskRecoveryMultiplier, Feature::CofSprint, "dusk_recovery_multiplier", "csol_custom_dusk_recovery_multiplier", "黄昏体力恢复倍率。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, 0, 1000, 1.25, Scope::NextMapSession},
-    {Setting::BloodLifetimeSeconds, Feature::Blood, "blood_lifetime_seconds", "csol_custom_blood_lifetime_seconds", "本功能血迹寿命秒数，上限600秒避免无界留存。", ValueType::Real, .001, 600, {}, Scope::Immediate},
-    {Setting::BloodMaximum, Feature::Blood, "blood_maximum", "csol_custom_blood_maximum", "本功能同时存活血迹硬上限，最多4096。", ValueType::Integer, 1, 4096, {}, Scope::Immediate},
     {Setting::DuskSpeedMultiplier, Feature::DuskBuff, "dusk_speed_multiplier", "csol_custom_dusk_speed_multiplier", "黄昏基础移速倍率，1不变。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, .001, 1000, 1.05, Scope::Immediate},
     {Setting::DuskRegenPerSecond, Feature::DuskBuff, "dusk_regen_per_second", "csol_custom_dusk_regen_per_second", "黄昏每秒回血，0为无额外回血。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, 0, 1000000, 0, Scope::Immediate},
     {Setting::NightDamageMultiplier, Feature::NightBuff, "night_damage_multiplier", "csol_custom_night_damage_multiplier", "永夜基础伤害倍率。GoldCraft自定义默认，非CSOL原值。", ValueType::Real, 0, 1000, 1.20, Scope::Immediate},
@@ -93,7 +91,8 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::NightPlayerLightRadius, Feature::NightPlayerLights, "night_player_light_radius", "csol_custom_night_player_light_radius", "随身光半径，GoldSrc单位16至512；自定义默认128，客户端更新位置。", ValueType::Real, 16, 512, 128, Scope::Immediate},
     {Setting::NightPlayerLightBrightness, Feature::NightPlayerLights, "night_player_light_brightness", "csol_custom_night_player_light_brightness", "随身光亮度0至255，0熄灭；自定义默认48，保留永夜黑暗和雾。", ValueType::Integer, 0, 255, 48, Scope::Immediate},
     {Setting::NightPlayerLightColor, Feature::NightPlayerLights, "night_player_light_color", "csol_custom_night_player_light_color", "随身光RGB颜色十进制0至16777215；自定义默认16777215为白色。", ValueType::Integer, 0, 16777215, 16777215, Scope::Immediate},
-    {Setting::HordeExtraZombies, Feature::RandomHorde, "horde_extra_zombies", "csol_custom_horde_extra_zombies", "尸潮期间增加的普通怪上限，默认8；仍受地图普通怪池限制。", ValueType::Integer, 0, 4096, 8, Scope::Immediate}
+    {Setting::HordeExtraZombies, Feature::RandomHorde, "horde_extra_zombies", "csol_custom_horde_extra_zombies", "尸潮期间增加的普通怪上限，默认8；仍受地图普通怪池限制。", ValueType::Integer, 0, 4096, 8, Scope::Immediate},
+    {Setting::BloodSplashRadius, Feature::Blood, "blood_splash_radius", "csol_custom_blood_splash_radius", "血迹溅到攻击者的最大距离，默认128单位，0只在僵尸模型上显示。", ValueType::Real, 0, 1024, 128, Scope::Immediate}
 }};
 
 constexpr bool DescriptorOrder()
@@ -143,12 +142,30 @@ bool Fields(const rapidjson::Value& object, const std::array<std::string_view, N
     if (object.MemberCount() != N) return Fail(error, field, "required field is missing");
     return true;
 }
+unsigned RetiredBloodSetting(std::string_view key) noexcept
+{
+    if (key == "blood_lifetime_seconds") return 1;
+    if (key == "blood_maximum") return 2;
+    return 0;
+}
+
+bool ReadRetiredBlood(unsigned bit, unsigned& seen, const rapidjson::Value& value,
+    std::string_view key, bool comment, Error& error)
+{
+    if (seen & bit) return Fail(error, key, "duplicate retired setting");
+    seen |= bit;
+    if (comment ? !value.IsString() : !(value.IsNull() || value.IsNumber()))
+        return Fail(error, key, "invalid retired blood setting");
+    return true;
+}
+
 template<bool FeatureKeys>
 bool ReadEntries(const rapidjson::Value& object, Draft& draft, bool comments, Error& error)
 {
     if (!object.IsObject()) return Fail(error, comments ? "comments" : (FeatureKeys ? "features" : "values"), "expected an object");
     constexpr auto count = FeatureKeys ? FeatureCount : SettingCount;
     std::array<bool, count> seen{};
+    unsigned retired{};
     for (const auto& member : object.GetObject())
     {
         const std::string_view key(member.name.GetString(), member.name.GetStringLength());
@@ -157,6 +174,14 @@ bool ReadEntries(const rapidjson::Value& object, Draft& draft, bool comments, Er
             if constexpr (FeatureKeys) return FindFeature(key);
             else return FindSetting(key);
         }();
+        if constexpr (!FeatureKeys)
+        {
+            if (const auto bit = RetiredBloodSetting(key))
+            {
+                if (!ReadRetiredBlood(bit, retired, member.value, key, comments, error)) return false;
+                continue;
+            }
+        }
         if (!id) return Fail(error, key, "unknown setting identity");
         const auto index = static_cast<std::size_t>(*id);
         if (seen[index]) return Fail(error, key, "duplicate setting identity");
@@ -235,9 +260,21 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
         const auto& values = group["values"];
         if (!values.IsObject()) return Fail(error, key, "values must be an object");
         std::array<bool, SettingCount> valueSeen{};
+        unsigned retired{};
         for (const auto& entry : values.GetObject())
         {
             const std::string_view name(entry.name.GetString(), entry.name.GetStringLength());
+            if (*feature == Feature::Blood)
+            {
+                if (const auto bit = RetiredBloodSetting(name))
+                {
+                    const auto& leaf = entry.value;
+                    if (!Fields(leaf, std::array<std::string_view, 2>{"value", "comment"}, name, error)) return false;
+                    if (!leaf["comment"].IsString()) return Fail(error, name, "explanation must be a string");
+                    if (!ReadRetiredBlood(bit, retired, leaf["value"], name, false, error)) return false;
+                    continue;
+                }
+            }
             const auto setting = FindSetting(name);
             if (!setting) return Fail(error, name, "unknown setting identity");
             const auto settingIndex = static_cast<std::size_t>(*setting);

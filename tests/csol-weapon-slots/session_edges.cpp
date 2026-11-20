@@ -15,4 +15,5 @@ void ResetScenarioAbilities(){}
 void ResetBossHealth(){}
 void ResetScenarioRespawnUi(){}
 void ResetPlayerClips(){}
+void ResetBodyStains() noexcept {}
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_monster_pool.h"
+#include "../../custom/body_stains.h"
 #include "scenario_monster_resources.h"
 #include "scenario_monster_effects.h"
 #include "../core/scenario_death_notice.h"
@@ -227,7 +228,15 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
         session->Map().RoundGeneration() != round ||
         self.Get<CBaseEntity>() != this || m_pool != pool || !pool->Borrowed(*this) ||
         pool->Lease(*this) != lease || m_behavior != behavior) return;
+    // Send the original impact first. A callback can retire this hit's
+    // lease before the optional custom material effect records anything.
     messages.SendMonsterHit(position, impact.kind == csol::monster_impact::Kind::Spark, impact.amount);
+    if (impact.kind == csol::monster_impact::Kind::Blood && CSOL_BodyStainsActive() &&
+        scope.Current() && access->Allowed() && !runtime->Closing() && runtime->Generation() == generation &&
+        runtime->session == session && session->Map().RoundGeneration() == round &&
+        self.Get<CBaseEntity>() == this && m_pool == pool && pool->Borrowed(*this) &&
+        pool->Lease(*this) == lease && m_behavior == behavior)
+        CSOL_RecordBodyStains(*this, attacker, trace, position);
 }
 
 BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,
@@ -384,6 +393,7 @@ void CCSOLScenarioMonster::OnDestroy()
     CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
     if (m_destroying) return;
     m_destroying = true;
+    CSOL_ClearBodyStain(*this);
     auto* owner = m_pool;
     m_pool = nullptr; // Destructors may reenter; detach before releasing them.
     m_type = nullptr;
@@ -454,6 +464,7 @@ std::uint64_t CCSOLMonsterPool::Lease(const CCSOLScenarioMonster& monster) const
 
 void CCSOLMonsterPool::Park(CCSOLScenarioMonster& monster, bool clearCallbacks)
 {
+    CSOL_ClearBodyStain(monster);
     monster.pev->effects |= EF_NODRAW;
     monster.pev->solid = SOLID_NOT;
     monster.pev->movetype = MOVETYPE_NONE;

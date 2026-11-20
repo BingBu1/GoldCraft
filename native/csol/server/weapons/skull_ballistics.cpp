@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Trace pipeline adapted from ReGameDLL_CS CBaseEntity::FireBullets3 (GPL-3.0).
 #include "precompiled.h"
+#include "../custom/body_stains.h"
 #include "skull_ballistics.h"
 #include "../../weapons/m249ex.hpp"
 #include "../../weapons/skull_ballistics.hpp"
@@ -21,6 +22,7 @@ Vector CSOL_Fire556AZ(CBasePlayer& player, const Vector& initialSource, const Ve
     const float x = UTIL_SharedRandomFloat(seed, -.5f, .5f) + UTIL_SharedRandomFloat(seed + 1, -.5f, .5f);
     const float y = UTIL_SharedRandomFloat(seed + 2, -.5f, .5f) + UTIL_SharedRandomFloat(seed + 3, -.5f, .5f);
     const Vector direction = forward + gpGlobals->v_right * (x * spread) + gpGlobals->v_up * (y * spread);
+    const CSOLBodyStainShot stainShot(&player, initialSource);
     Vector source = initialSource;
     const int initialPenetration = penetration;
     int power = csol::skull_ballistics::PenetrationPower;
@@ -69,7 +71,7 @@ Vector CSOL_Fire556AZ(CBasePlayer& player, const Vector& initialSource, const Ve
         // decals, while the trace and damage above retain its own contract.
         DecalGunshot(&trace, BULLET_PLAYER_556MM, RANDOM_LONG(0, 3), player.pev, hitMetal);
         target->SetDmgPenetrationLevel(level);
-        target->TraceAttack(player.pev, hitDamage, direction, &trace, DMG_BULLET | DMG_NEVERGIB);
+        stainShot.TraceAttack(target, player.pev, hitDamage, direction, &trace, DMG_BULLET | DMG_NEVERGIB);
         damage = brush ? int(hitDamage * materialDamage) : csol::skull_ballistics::EntityContinuationDamage(hitDamage);
         ApplyMultiDamage(player.pev, player.pev);
         source = trace.vecEndPos + direction * step;

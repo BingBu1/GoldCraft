@@ -9,13 +9,13 @@
 
 先准备已验证的客户端和服务端 SDK 构建目录，它们必须含 `environment.json`、`build-commands.json` 和 `inputs.json`。服务端还需有效的 `source-overlay.json`、`effective-source-manifest.json` 及完整对象/库。路径通过参数传入，每次输出用新的工作区 `build` 子目录：
 
-```powershell
+```bash
 python tests/csol-monster-impact/run_client.py --sdk <client-build> --output <new-client-result>
 python tests/csol-monster-impact/run_bridge.py --client-sdk <client-build> --server-sdk <server-build> --output <new-bridge-result>
 python tests/csol-monster-impact/prepare_server.py --sdk <server-build> --output <new-sdk-result> --edges <generated-sdk-engine-edges>
 python tests/csol-monster-impact/run_server.py <new-sdk-result>
 ```
 
-`--edges` 指向由匹配 SDK 的 enginefuncs 声明生成的 `engine_edge_names.inc` / `engine_edge_defaults.inc`，不使用猜测 ABI。服务端运行组为 `positive`、`excluded` 和 `reentry`。`--compile-only` 只编译测试 TU，便于与完整 DLL 链接错峰。
+`--edges` 指向由匹配 SDK 的 enginefuncs 声明生成的 `engine_edge_names.inc` / `engine_edge_defaults.inc`，不使用猜测 ABI。服务端运行组为 `positive`、`excluded`、`reentry` 和 `stains`。`stains` 检查真实射击、切枪、丢枪及转手，覆盖一小时后的状态、同图重玩和实体槽复用。`--compile-only` 只编译测试 TU，便于与完整 DLL 链接错峰。
 
 宿主适配目前使用原表的未知弹种默认大小 4，并使用 stock CS 红色调色板索引 247；TraceAttack 不携带可靠的原 CSO 客户端弹种，不能用持枪者此时的武器冒充延迟投射物来源。测试不会把该边界标成原版画面完全一致。真实客户端下载、网络传递、GPU 画面及多人玩法仍需独立验证。

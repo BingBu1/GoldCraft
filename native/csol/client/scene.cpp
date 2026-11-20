@@ -20,6 +20,7 @@
 #include "scenario/monsters/elite_visuals.hpp"
 #include "scenario/monsters/frozen_smoke.hpp"
 #include "scenario/core/particle_effects.hpp"
+#include "scenario/core/body_stains.hpp"
 #include "camera.hpp"
 #include "weapons/projectiles.hpp"
 #include "gl_state.hpp"
@@ -31,6 +32,7 @@
 #include "studio_event_context.hpp"
 #include <IMetaRenderer.h>
 #include <IMetaRendererPostScene.h>
+#include <IMetaRendererStudioStain.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -67,7 +69,7 @@ bool opaquePrepass{};std::uint64_t opaquePrepassDraws{};
 HGLRC graphicsContext{};
 cvar_t* colorSettings[6]{};
 GLuint program{},quadVAO{},quadVBO{};
-struct Uniforms { GLint world,projection,bones,uv,color,eye,light,lightColor,ambient,shade,fullbright,masked,environment,environmentAdd,gamma,lighting,flatshade; } uniform{};
+struct Uniforms { GLint world,projection,bones,uv,color,eye,light,lightColor,ambient,shade,fullbright,masked,environment,environmentAdd,gamma,lighting,flatshade,stainUv; } uniform{};
 struct State
 {
     Asset* asset{};model_t* model{};int frame=-1,sequence=-1;double time=-1,start{},reviveTime{},action{};
@@ -131,9 +133,8 @@ bool LitWorldTintMaterial(const Material& material)
     return !(material.flags&(STUDIO_NF_CHROME|STUDIO_NF_FULLBRIGHT|32)) &&
         !material.special && material.fade<0 && !material.commonAlpha && !material.commonAdd && !material.environment;
 }
-std::array<float,3> WorldModelTint(const cl_entity_t* entity)
+std::array<float,3> WorldModelTint(const cl_entity_t* entity,const WorldWeapon* wrapper)
 {
-    const auto* wrapper=WorldWeaponFor(entity);
     if(!wrapper || !NetworkWorldTint(wrapper->source,wrapper->attached))return {1,1,1};
     const auto& color=entity->curstate.rendercolor;
     // client 02ACA637 skips the setter for all-zero RGB. Normal draw cleanup
@@ -283,13 +284,21 @@ uv=texcoord*uvTransform.xy+uvTransform.zw;gl_Position=projection*world*vec4(worl
 )";
     const char* fs=R"(#version 330 core
 in vec3 worldPosition,worldNormal;in vec2 uv;out vec4 outputColor;
-uniform sampler2D diffuse;uniform samplerCube environmentMap;uniform vec4 color;
+uniform sampler2D diffuse,stainTexture;uniform samplerCube environmentMap;uniform vec4 color,stainUvTransform;
 uniform vec3 eye,light,lightColor;uniform float ambient,shade,environmentAdd;
 uniform vec4 gammaSettings; // display gamma, texture gamma, light gamma, gamma blending
 uniform vec2 lightingSettings; // brightness, lambert
 uniform bool fullbright,masked,environment,flatshade;
 void main(){vec4 tex=texture(diffuse,uv);if(masked && tex.a<0.5)discard;
 vec3 rgb=tex.rgb;if(environment){vec3 r=reflect(worldPosition-eye,normalize(worldNormal));r.z=-r.z;rgb=(rgb+environmentAdd)*texture(environmentMap,r).rgb;}
+if(stainUvTransform.x!=0.0){
+    vec2 p=uv*stainUvTransform.xy+stainUvTransform.zw;
+    vec2 dx=dFdx(p),dy=dFdy(p);
+    if(all(greaterThanEqual(p,vec2(0.0))) && all(lessThanEqual(p,vec2(1.0)))){
+        vec4 blood=textureGrad(stainTexture,p,dx,dy);
+        rgb=mix(rgb,blood.rgb*mix(vec3(0.65),vec3(1.0),rgb),0.85*blood.a);
+    }
+}
 float exponent=gammaSettings.w>0.5?1.0/gammaSettings.x:1.0;
 rgb=pow(max(rgb,vec3(0)),vec3(gammaSettings.y*exponent));
 if(!fullbright){float cosine=dot(normalize(worldNormal),light);float illumination=ambient+shade;
@@ -307,8 +316,9 @@ outputColor=vec4(rgb*modulation,tex.a*color.a);}
     program=glCreateProgram();glAttachShader(program,vertex);glAttachShader(program,fragment);glLinkProgram(program);glDeleteShader(vertex);glDeleteShader(fragment);
     GLint ok{};glGetProgramiv(program,GL_LINK_STATUS,&ok);if(!ok){char log[4096]{};glGetProgramInfoLog(program,sizeof(log),nullptr,log);glDeleteProgram(program);program=0;throw std::runtime_error(log);}
     auto location=[](const char* name){return glGetUniformLocation(program,name);};
-    uniform={location("world"),location("projection"),location("bones"),location("uvTransform"),location("color"),location("eye"),location("light"),location("lightColor"),location("ambient"),location("shade"),location("fullbright"),location("masked"),location("environment"),location("environmentAdd"),location("gammaSettings"),location("lightingSettings"),location("flatshade")};
+    uniform={location("world"),location("projection"),location("bones"),location("uvTransform"),location("color"),location("eye"),location("light"),location("lightColor"),location("ambient"),location("shade"),location("fullbright"),location("masked"),location("environment"),location("environmentAdd"),location("gammaSettings"),location("lightingSettings"),location("flatshade"),location("stainUvTransform")};
     glUseProgram(program);glUniform1i(location("diffuse"),0);glUniform1i(location("environmentMap"),1);
+    glUniform1i(location("stainTexture"),MetaRendererStudioStainTextureUnit);
     glGenVertexArrays(1,&quadVAO);glGenBuffers(1,&quadVBO);glBindVertexArray(quadVAO);glBindBuffer(GL_ARRAY_BUFFER,quadVBO);glBufferData(GL_ARRAY_BUFFER,6*sizeof(Vertex),nullptr,GL_STREAM_DRAW);
     for(int i=0;i<3;++i){glEnableVertexAttribArray(i);glVertexAttribPointer(i,i==2?2:3,GL_FLOAT,GL_FALSE,sizeof(Vertex),(void*)(size_t(i)*12));}
     glEnableVertexAttribArray(3);glVertexAttribIPointer(3,2,GL_INT,sizeof(Vertex),(void*)offsetof(Vertex,bone));
@@ -503,7 +513,27 @@ void Blending(Blend blend)
 void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
 {
     const auto& h=asset.Header();Camera();glUniform4fv(uniform.bones,h.numbones*3,(float*)state.bones.data());
-    const auto modelTint=WorldModelTint(ent);
+    const auto* wrapper=WorldWeaponFor(ent);
+    const auto modelTint=WorldModelTint(ent,wrapper);
+    const auto stain=BodyStainForModel(wrapper?wrapper->source:ent,ent->model);
+    struct StainBinding
+    {
+        GLuint texture{};
+        void Apply(const MetaRendererStudioStain& material)
+        {
+            if (material.texture != texture)
+            {
+                glActiveTexture(GL_TEXTURE0+MetaRendererStudioStainTextureUnit);
+                glBindTexture(GL_TEXTURE_2D,material.texture);
+                glActiveTexture(GL_TEXTURE0);
+                texture=material.texture;
+                if (!texture) glUniform4f(uniform.stainUv,0,0,0,0);
+            }
+            if (texture) glUniform4f(uniform.stainUv,material.scale[0],material.scale[1],
+                material.offset[0],material.offset[1]);
+        }
+        ~StainBinding() { if (texture) Apply({}); }
+    } stainBinding;
     if(!postFrame && !opaquePrepass)
     {
         alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(ent,&lighting);studio.StudioEntityLight(&lighting);
@@ -560,6 +590,13 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
         glUniform1i(uniform.fullbright,draw.fullbright);glUniform1i(uniform.masked,draw.masked);
         glUniform1i(uniform.flatshade,(m.flags&STUDIO_NF_FLATSHADE)!=0);
         glUniform1i(uniform.environment,m.environment!=0);glUniform1f(uniform.environmentAdd,m.environmentAdd);
+        if (stain)
+        {
+            MetaRendererStudioStain material{};
+            if (!draw.fullbright && (draw.blend==Blend::Opaque || draw.blend==Blend::Masked) && m.sprite<0)
+                BodyStainMaterial(stain,static_cast<unsigned>(index),m.stainArm,material);
+            stainBinding.Apply(material);
+        }
         glDrawElements(GL_TRIANGLES,batch.count,GL_UNSIGNED_INT,(void*)(size_t(batch.offset)*4));
     }
     if(bodyAlpha)materialAlpha=savedAlpha;bodyAlpha=false;
@@ -772,6 +809,7 @@ bool DrawModel(cl_entity_t* ent,int flags,int (*original)(int))
     const unsigned worldIdentity=isView?0:BeamEffectIdentity(ent);
     if(!isView && !worldIdentity)return false;
     if(!EnsureGL())return false;
+    BodyStainViewScope stainView(isView?ent:nullptr);
     StockHandScope stockHands(isView?ent:nullptr);
     if(!isView)
     {

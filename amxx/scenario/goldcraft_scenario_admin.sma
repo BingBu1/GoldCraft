@@ -60,8 +60,6 @@ new const g_CustomKeys[][] = {
     "kick_cost",
     "dusk_maximum_multiplier",
     "dusk_recovery_multiplier",
-    "blood_lifetime_seconds",
-    "blood_maximum",
     "dusk_speed_multiplier",
     "dusk_regen_per_second",
     "night_damage_multiplier",
@@ -87,7 +85,8 @@ new const g_CustomKeys[][] = {
     "night_player_light_radius",
     "night_player_light_brightness",
     "night_player_light_color",
-    "horde_extra_zombies"
+    "horde_extra_zombies",
+    "blood_splash_radius"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
@@ -95,7 +94,7 @@ new const g_CustomNames[][] = {
     "武器盲盒",
     "武器熟练度",
     "体力与奔跑",
-    "血迹效果",
+    "模型血迹",
     "黄昏强化",
     "永夜强化",
     "僵尸数量",
@@ -124,8 +123,6 @@ new const g_CustomNames[][] = {
     "踢击体力消耗",
     "黄昏体力倍率",
     "黄昏恢复倍率",
-    "血迹保留时长",
-    "血迹数量上限",
     "黄昏移速倍率",
     "黄昏每秒回血",
     "永夜伤害倍率",
@@ -151,7 +148,8 @@ new const g_CustomNames[][] = {
     "随身光半径",
     "随身光亮度",
     "随身光颜色",
-    "尸潮增加怪量"
+    "尸潮增加怪量",
+    "血迹溅射距离"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.

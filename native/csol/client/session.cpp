@@ -26,6 +26,7 @@
 #include "scenario/core/standalone_movement_input.hpp"
 #include "scenario/core/stamina_audio.hpp"
 #include "scenario/core/stamina_hud.hpp"
+#include "scenario/core/body_stains.hpp"
 #include "scenario/bosses/boss_health.hpp"
 #include "scenario/core/scenario_round_hud_client.hpp"
 #include "scenario/core/scenario_respawn_ui.hpp"
@@ -68,6 +69,7 @@ void ResetSession()
     ResetHumanKick();
     ResetChallengePhase();
     ResetChallengeEnvironment();
+    ResetBodyStains();
     ResetCofMovementInput();
     ResetStandaloneMovementInput();
     ResetStaminaAudio();

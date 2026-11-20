@@ -2,6 +2,7 @@
 // Native engine boundary follows ReGameDLL_CS FireBullets3 (GPL-3.0).
 // Original bullet28 evidence: docs/2026-11-05_分析-SKULL3射击弹道原证-report.md.
 #include "precompiled.h"
+#include "../custom/body_stains.h"
 #include "skull3_ballistics.h"
 #include "../scenario/core/game_rules_gate.h"
 #include "../scenario/core/scenario_runtime.h"
@@ -40,6 +41,7 @@ Vector CSOL_Fire45ACPAZ(CBasePlayer& player, const Vector& initialSource, const 
             (!hadWeapon || (activeWeapon.Get<CBaseEntity>() && activeWeapon.Get<CBaseEntity>() == player.m_pActiveItem));
     };
     if (!current()) return result;
+    const CSOLBodyStainShot stainShot(&player, initialSource);
     Vector source = initialSource;
     const int initialPenetration = penetration;
     int power = 35;
@@ -102,7 +104,7 @@ Vector CSOL_Fire45ACPAZ(CBasePlayer& player, const Vector& initialSource, const 
         source = trace.vecEndPos + direction * float(brush ? power : 42);
         distance = float(double(distance - travelled) * (brush ? .5 : .75));
         target->SetDmgPenetrationLevel(level);
-        target->TraceAttack(player.pev, hitDamage, direction, &trace, DMG_BULLET | DMG_NEVERGIB);
+        stainShot.TraceAttack(target, player.pev, hitDamage, direction, &trace, DMG_BULLET | DMG_NEVERGIB);
         if (!current() || targetHandle.Get<CBaseEntity>() != target)
         {
             ClearMultiDamage();

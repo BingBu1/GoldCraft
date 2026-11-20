@@ -11,6 +11,7 @@
 #include "../csol/sequences.hpp"
 #include "../csol/sequence_safety.hpp"
 #include "../csol/sequence_owners.hpp"
+#include "../csol/scenario/custom/body_stains.hpp"
 #include "../csol/material_source.hpp"
 #include "../guest/cof/resource_catalog.hpp"
 #include <chrono>
@@ -177,8 +178,8 @@ void GoldCraftEndCsolResources()
 
 void GoldCraftCsolSequenceDelta(delta_t* delta)
 {
-    // The server transmits this schema to clients. Extend before delta JIT
-    // compilation, otherwise appended player sequences >=256 wrap on the wire.
+    // These descriptions are sent to clients and must be final before JIT.
+    // Keep appended player sequences >=256 from wrapping on the wire.
     for(int i=0;i<delta->fieldCount;++i)
     {
         auto& field=delta->pdd[i];
@@ -189,6 +190,32 @@ void GoldCraftCsolSequenceDelta(delta_t* delta)
             field.premultiply=field.postmultiply=1.0f;
         }
     }
+
+    namespace custom = csol::scenario::custom;
+    if (Q_strcmp(delta->conditionalencodename, "Entity_Encode") &&
+        Q_strcmp(delta->conditionalencodename, "Player_Encode")) return;
+    if (!delta->dynamic || delta->fieldCount >= DELTA_MAX_FIELDS) return;
+
+    // The wire description carries its SDK offset. Use our own field name so
+    // the game DLL can distinguish this capability from an installed delta.lst.
+    constexpr int offset = offsetof(entity_state_t, iuser3);
+    static_assert(offset == 268 && sizeof(entity_state_t) == 340);
+    for (int i = 0; i < delta->fieldCount; ++i)
+        if (delta->pdd[i].fieldOffset == offset) return;
+
+    const auto size = static_cast<std::size_t>(delta->fieldCount);
+    auto* fields = static_cast<delta_description_t*>(Mem_ZeroMalloc(sizeof(delta_description_t) * (size + 1)));
+    Q_memcpy(fields, delta->pdd, sizeof(delta_description_t) * size);
+    auto& stain = fields[size];
+    Q_strlcpy(stain.fieldName, custom::BodyStainDeltaField);
+    stain.fieldType = DT_INTEGER;
+    stain.fieldOffset = offset;
+    stain.fieldSize = 1;
+    stain.significant_bits = custom::BodyStainFieldBits;
+    stain.premultiply = stain.postmultiply = 1.0f;
+    Mem_Free(delta->pdd);
+    delta->pdd = fields;
+    ++delta->fieldCount;
 }
 
 void GoldCraftPrecacheCsolResources(const char* name,studiohdr_t* header)

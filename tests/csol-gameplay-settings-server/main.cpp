@@ -4,6 +4,7 @@
 #include "precompiled.h"
 #include "../../native/csol/server/buy_menu.h"
 #include "../../native/csol/server/custom/gameplay_settings.h"
+#include "../../native/csol/server/custom/body_stains.h"
 #include "goldcraft/csol_gameplay_settings_api.hpp"
 
 #include <chrono>
@@ -29,6 +30,8 @@ namespace custom = csol::scenario::custom;
 namespace fs = std::filesystem;
 int checks{}, failures{}, mode{2}, registrations{}, sets{}, userQueries{}, callbackQueries{};
 bool timeReady{true}; // Explicit current-map resource/engine readiness boundary.
+bool stainDeltaReady{}, stainsActive{};
+float stainRadius{};
 DWORD ownerThread{};
 fs::path root;
 globalvars_t globals{};
@@ -188,6 +191,8 @@ void Negative()
         Check(service->Edit(1, 71, before.revision, 0, value) == Result::Failed, "boolean edit rejects nonfinite and nonboolean inputs");
     Check(service->Edit(1, 71, before.revision, int(custom::Feature::Mastery), 1) == Result::Unavailable,
         "uninstalled feature refuses activation instead of reporting gameplay ready");
+    Check(service->Edit(1, 71, before.revision, int(custom::Feature::Blood), 1) == Result::Unavailable,
+        "missing stain delta keeps the effect unavailable");
     csol::GameplaySetting sprint;
     Check(service->Read(int(custom::Feature::CofSprint), sprint) && sprint.available && sprint.nextMap,
         "admin can configure the installed sprint capability for the next map");
@@ -321,6 +326,29 @@ void Writer()
         CSOL_ReadMonsterPhaseBuff(custom::Phase::Night).damageMultiplier == 1.5f &&
         CSOL_ReadMonsterPhaseBuff(custom::Phase::Dusk).damageMultiplier == 1,
         "saved night settings take effect in the night controls only");
+    using Setting = custom::Setting;
+    const int blood = int(custom::Feature::Blood);
+    const int splash = int(custom::FeatureCount) + int(Setting::BloodSplashRadius);
+    stainDeltaReady = true;
+    csol::GameplaySetting bloodField;
+    Require(service->Read(blood, bloodField) && bloodField.available && !bloodField.nextMap && bloodField.value == 0,
+        "ready blood delta unlocks the current map setting");
+    const auto beforeBlood = Status();
+    Require(service->Edit(1, 71, beforeBlood.revision, blood, 1) == csol::GameplayEditResult::Queued,
+        "administrator enables the blood effect through the existing store");
+    Wait(beforeBlood.revision, true);
+    CSOL_UpdateGameplayBodyStains();
+    Check(stainsActive && stainRadius == 128, "frame consumes the documented splash radius");
+    const auto beforeSplash = Status();
+    Require(service->Edit(1, 71, beforeSplash.revision, splash, 96) == csol::GameplayEditResult::Queued,
+        "administrator edits the splash radius on the current map");
+    Wait(beforeSplash.revision, true);
+    CSOL_UpdateGameplayBodyStains();
+    Check(stainsActive && stainRadius == 96 && Disk()->Number(Setting::BloodSplashRadius) == 96,
+        "persisted radius immediately reaches the frame consumer");
+    Set("csol_custom_blood", "0");
+    CSOL_UpdateGameplayBodyStains();
+    Check(!stainsActive && Disk()->Enabled(custom::Feature::Blood), "temporary CVAR hides active stains without changing disk");
     Check(fs::exists(Target().parent_path() / "gameplay.json.bak1") && fs::exists(Target().parent_path() / "gameplay.json.bak2"), "actual Store creates bounded prior-file backups");
     CSOL_ShutdownGameplaySettings();
     Check(!CSOL_CustomSettings() && !policies.back(), "explicit cold shutdown drains worker and revokes policy");
@@ -345,6 +373,11 @@ void Reader()
         cvars.at("csol_custom_night_damage_multiplier").native->value == 1.5f &&
         CSOL_ReadMonsterPhaseBuff(custom::Phase::Night).damageMultiplier == 1.5f,
         "independent second process restores the saved night buff and damage multiplier");
+    stainDeltaReady = true;
+    CSOL_UpdateGameplayBodyStains();
+    Check(stainsActive && stainRadius == 96 && Disk()->Enabled(custom::Feature::Blood) &&
+        cvars.at("csol_custom_blood_splash_radius").native->value == 96,
+        "fresh process applies the blood configuration after the delta becomes available");
 }
 void Failure()
 {
@@ -370,6 +403,12 @@ void InvalidStartup()
 }
 int CSOL_LockedGameMode() { return test::mode; }
 bool CSOL_ScenarioTimeCycleReady() { return test::timeReady; }
+bool CSOL_BodyStainDeltaReady() noexcept { return test::stainDeltaReady; }
+void CSOL_SetBodyStainPolicy(bool enabled, float radius) noexcept
+{
+    test::stainRadius = radius;
+    test::stainsActive = enabled;
+}
 void CSOL_PrepareBlindBoxPools(const csol::scenario::custom::Snapshot& settings)
 {
     test::EngineThread();
