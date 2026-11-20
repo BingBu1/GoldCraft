@@ -221,3 +221,17 @@ index 69447aa..f1ecb79 100644
 -}
 \ No newline at end of file
 +}
+diff --git a/include/vgui_controls/MessageMap.h b/include/vgui_controls/MessageMap.h
+index 33556a6..0fa1163 100644
+--- a/include/vgui_controls/MessageMap.h
++++ b/include/vgui_controls/MessageMap.h
+@@ -259,7 +259,8 @@ struct PanelMessageMap
+ 		processed = false;
+ 	}
+ 
+-	CUtlVector< MessageMapItem_t > entries;
++	// The legacy member-function layout requires 16-byte storage on Win32.
++	CUtlVector< MessageMapItem_t, CUtlMemoryAligned< MessageMapItem_t, alignof(MessageMapItem_t) > > entries;
+ 	bool processed;
+ 	PanelMessageMap *baseMap;
+ 	char const *(*pfnClassName)( void );
