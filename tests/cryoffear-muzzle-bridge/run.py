@@ -86,8 +86,12 @@ def main():
     spec=importlib.util.spec_from_file_location("cpp_function",helper)
     extractor=importlib.util.module_from_spec(spec);spec.loader.exec_module(extractor)
     plugin=ROOT/"native/csol/client/plugin.cpp"
-    _,_,callback=extractor.function(plugin.read_bytes(),b"static void StudioDrawPoints()")
-    (output/"native-studio-points.inc").write_bytes(callback+b"\n")
+    source = plugin.read_bytes()
+    _,_,callback=extractor.function(source,b"static void StudioDrawPoints()")
+    # The extended attachment observer is present in builds that include its interface.
+    observes_attachments = int(b'#include "studio_attachments.hpp"' in source)
+    expectation = f"constexpr unsigned ExpectedStudioObservers = {observes_attachments};\n"
+    (output/"native-studio-points.inc").write_bytes(expectation.encode("ascii") + callback + b"\n")
     config = json.loads((ROOT/'.tools/clang-toolchain.json').read_text('utf-8-sig'))
     compiler = Path(config['root'])/'bin/clang-cl.exe'
     database = json.loads(args.commands.read_text('utf-8'))

@@ -46,7 +46,7 @@ void SkyFog()
         skyFogOwner.Force(skyFog->value, skyFog->string, value->profile.sky ? 1.0f : 0.0f);
     else skyFogOwner.Release(skyFog->value, skyFog->string);
 }
-void StudioLight(cl_entity_t* entity, alight_t* light)
+void EnvironmentStudioLight(cl_entity_t* entity, alight_t* light)
 {
     if (!previousStudioLight) return;
     if (!Owner()) { previousStudioLight(entity, light); return; }
@@ -81,6 +81,12 @@ void StudioLight(cl_entity_t* entity, alight_t* light)
     // Preserve the native sky trace, map samples, fullbright and subsequent
     // dynamic/entity lights. Only the original sky-color input is adapted.
     previousStudioLight(entity, light);
+}
+
+void StudioLight(cl_entity_t* entity, alight_t* light)
+{
+    EnvironmentStudioLight(entity, light);
+    if (Owner()) NightFlashlightStudioLight(entity, light);
 }
 
 void Apply()

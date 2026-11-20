@@ -28,6 +28,8 @@ DWORD nightThread{};
 pfnUserMsgHook nightPrevious{};
 bool nightEnabled{}, nightPrepared{}, flashlightReady{};
 unsigned nightActive{};
+const cl_entity_s* flashlightView{};
+std::array<float,3> flashlightDirection{};
 std::uint32_t nightColor{};
 std::uint64_t nightAccepted{}, nightRejected{}, nightUpdates{}, nightPlayers{};
 bool NightOwner() noexcept { return nightThread && nightThread == GetCurrentThreadId(); }
@@ -51,7 +53,7 @@ int NightMessage(const char* name, int size, void* data)
             {
                 ++nightAccepted;
                 const auto* next = nightState.View();
-                if (next->phase != night::Phase::Night) flashlightReady = false;
+                if (next->phase != night::Phase::Night) { flashlightReady = false; flashlightView = nullptr; }
                 else if (!wasNight || previousOwner != next->owner)
                 {
                     auto* events = engine.pEventAPI;
@@ -94,12 +96,55 @@ void InitializeNightPlayerLights()
     if (!nightPrepared)
     { nightRenderer->UnregisterSceneCallbacks(&nightScene); nightRenderer = nullptr; nightLights = nullptr; }
 }
+void NightFlashlightStudioLight(const cl_entity_s* entity, alight_s* light)
+{
+    if (!flashlightView || entity != flashlightView || !light || !light->plightvec) return;
+    // A muzzle-mounted cone points away from the gun. Apply its near spill to
+    // this Studio sample only. The world cone and its shadow map stay independent.
+    constexpr int ambient = 48, shade = 80;
+    const int addAmbient = std::max(0, ambient-light->ambientlight);
+    const int addShade = std::max(0, std::min(shade-light->shadelight,
+        192-light->ambientlight-addAmbient-light->shadelight));
+    if (!addAmbient && !addShade) return;
+    const float weight = float(addAmbient+addShade) /
+        float(std::max(0,light->ambientlight)+std::max(0,light->shadelight)+addAmbient+addShade);
+    for (unsigned i=0;i<3;++i) light->color[i] += (1.f-light->color[i])*weight;
+    if (addShade)
+    {
+        std::array<float,3> blendedDirection{};
+        float lengthSq{};
+        for (unsigned i=0;i<3;++i)
+        {
+            blendedDirection[i] = light->plightvec[i]*float(light->shadelight) +
+                flashlightDirection[i]*float(addShade);
+            lengthSq += blendedDirection[i]*blendedDirection[i];
+        }
+        if (lengthSq>0.f)
+        {
+            const float scale=1.f/std::sqrt(lengthSq);
+            for (unsigned i=0;i<3;++i) light->plightvec[i]=blendedDirection[i]*scale;
+        }
+    }
+    light->ambientlight += addAmbient;
+    light->shadelight += addShade;
+}
+
 void NightPlayerLightsView(const ref_params_s& params)
 {
-    if (!NightOwner() || !nightEnabled) return;
-    if (!nightPrepared || !nightState.Active() || !engine.GetLocalPlayer || !engine.GetEntityByIndex)
-    { ClearNight(); return; }
-    const auto* local = engine.GetLocalPlayer();
+    if (!NightOwner() || !nightEnabled || params.nextView) return;
+    const bool moving = nightPrepared && nightState.Active() && engine.GetEntityByIndex;
+    flashlightView = nullptr;
+    if (!flashlightReady && !moving) { ClearNight(); return; }
+    const auto* local = engine.GetLocalPlayer ? engine.GetLocalPlayer() : nullptr;
+    if (flashlightReady && local && (local->curstate.effects & EF_DIMLIGHT) &&
+        !params.spectator && !params.intermission && params.health > 0 && params.viewentity == local->index &&
+        engine.GetViewModel)
+    {
+        flashlightView = engine.GetViewModel();
+        for (unsigned i=0;i<3;++i)
+            flashlightDirection[i]=.8f*params.forward[i]-.6f*params.up[i];
+    }
+    if (!moving) { ClearNight(); return; }
     if (!local || local->index < 1 || local->index > 32 || local->curstate.messagenum <= 0 || params.maxclients < 1)
     { ClearNight(); return; }
     std::array<MetaRendererMovingLight, META_MOVING_LIGHTS_MAX_COUNT> lights;
@@ -154,7 +199,7 @@ bool TrySelectNightFlashlight()
 void ResetNightPlayerLights()
 {
     if (!NightOwner()) return;
-    ClearNight(); nightState.Reset(); nightColor = 0; flashlightReady = false;
+    ClearNight(); nightState.Reset(); nightColor = 0; flashlightReady = false; flashlightView = nullptr;
 }
 void ShutdownNightPlayerLights()
 {

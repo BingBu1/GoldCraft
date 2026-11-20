@@ -220,6 +220,32 @@ bool:PlaceStandingPlayer(id, const Float:position[3])
     return true;
 }
 
+// Observe the actual player delta at the end of AddToFullPack, on request.
+new wireForward, ownerForward, wireActor, wireUserid, wireFrames, wireWeapon, wireBits;
+new ownerFrames, ownerView, ownerBits;
+public ObserveLampOwner(receiver, sendweapons, packet)
+{
+    if (receiver == wireActor && get_user_userid(receiver) == wireUserid)
+    {
+        ownerView = get_cd(packet, CD_ViewModel);
+        ownerBits = get_cd(packet, CD_iUser4);
+        ++ownerFrames;
+    }
+    return FMRES_IGNORED;
+}
+public ObserveLampPack(packet, number, entity, receiver, flags, player, pvs)
+{
+    if (player && entity == wireActor && receiver == wireActor && number == entity &&
+        get_orig_retval() && get_user_userid(entity) == wireUserid)
+    {
+        wireWeapon = get_es(packet, ES_WeaponModel);
+        wireBits = get_es(packet, ES_iUser4);
+        ++wireFrames;
+    }
+    return FMRES_IGNORED;
+}
+
+new lampBuyUserid, Float:lampBuyOrigin[3];
 public FlashlightScene()
 {
     if (!IsolatedCoFMap()) return PLUGIN_HANDLED;
@@ -247,6 +273,34 @@ public FlashlightScene()
             return PLUGIN_HANDLED;
         }
     }
+    if (equal(action, "wire"))
+    {
+        if (!wireForward)
+            wireForward = register_forward(FM_AddToFullPack, "ObserveLampPack", 1);
+        if (!ownerForward)
+            ownerForward = register_forward(FM_UpdateClientData, "ObserveLampOwner", 1);
+        if (wireActor != id || wireUserid != get_user_userid(id))
+        {
+            wireActor = id;
+            wireUserid = get_user_userid(id);
+            wireFrames = wireWeapon = wireBits = 0;
+            ownerFrames = ownerView = ownerBits = 0;
+        }
+        server_print("[lamp-wire] actor=%d receiver=%d userid=%d frames=%d weapon=%d bits=%d",
+            id, id, wireUserid, wireFrames, wireWeapon, wireBits);
+        server_print("[lamp-owner] frames=%d view=%d bits=%d", ownerFrames, ownerView, ownerBits);
+        return PLUGIN_HANDLED;
+    }
+    if (equal(action, "savebuy"))
+    {
+        lampBuyUserid = get_user_userid(id);
+        get_entvar(id, var_origin, lampBuyOrigin);
+    }
+    else if (equal(action, "returnbuy"))
+    {
+        if (get_user_userid(id) != lampBuyUserid || !PlaceStandingPlayer(id, lampBuyOrigin))
+            return PLUGIN_HANDLED;
+    }
     new lamp = actorSlot[Lamp], walker = actorSlot[Walker];
     new const Float:aim[3] = {0.0, -90.0, 0.0};
     if (equal(action, "pose"))
@@ -266,6 +320,14 @@ public FlashlightScene()
         set_entvar(lamp, var_v_angle, aim);
         engfunc(EngFunc_RunPlayerMove, lamp, aim, 0.0, 0.0, 0.0, 0, 0, 100);
     }
+    else if (equal(action, "near"))
+    {
+        if (!PlaceStandingPlayer(id, Float:{-1924.0, 1228.0, 36.03125}))
+        {
+            server_print("[lamp-scene] occupied near camera");
+            return PLUGIN_HANDLED;
+        }
+    }
     else if (equal(action, "select")) engclient_cmd(lamp, "goldcraft_night_flashlight");
     else if (equal(action, "toggle"))
         engfunc(EngFunc_RunPlayerMove, lamp, aim, 0.0, 0.0, 0.0, 0, 100, 100);
@@ -274,7 +336,9 @@ public FlashlightScene()
         walkerDestination = equal(action, "cross") ? -2030.0 : -2144.0;
         walkerMoving = true;
     }
-    else if (!equal(action, "status")) return PLUGIN_HANDLED;
+    else if (!equal(action, "status") && !equal(action, "savebuy") && !equal(action, "returnbuy")) return PLUGIN_HANDLED;
+    server_print("[lamp-scene] observer slot=%d userid=%d flashlight=%d", id, get_user_userid(id),
+        !!(get_entvar(id, var_effects) & EF_DIMLIGHT));
     new Float:pos[3], Float:view[3], model[64];
     for (new which; which < SceneActors; which++)
     {

@@ -118,7 +118,7 @@ void CommonMaterials(Asset& asset,const std::vector<std::string>& names)
                 const std::string path=row["BaseTexture"].GetString();
                 if(!path.empty() && path!="OriginalTexture"){
                     if(!Exists(path.c_str()))throw std::runtime_error("missing material base texture: "+path);
-                    m.texture=LoadImage(path,m.width,m.height);
+                    m.texture=LoadImage(path,m.width,m.height);m.externalTexture=true;
                 }
             }
             if(row.HasMember("BlendMode") && row["BlendMode"].IsString())
@@ -138,6 +138,22 @@ int HandType(std::string_view name)
     if(name.size()>=7 && name.front()=='#')name.remove_prefix(7);
     constexpr const char* names[]{"cso_highq_hand__long_512.bmp","cso_highq_hand_512.bmp","cso_girl_hand_long.bmp","cso_girl_hand.bmp","hand.bmp"};
     for(int i=0;i<5;++i)if(Lower(std::string(name))==names[i])return i;return -1;
+}
+GLuint EmbeddedTexture(Asset& asset, int i, const mstudiotexture_t& src)
+{
+    const auto key=asset.name+"#"+std::to_string(i);
+    if(auto it=images.find(key);it!=images.end())return it->second.texture;
+    const auto pixels=size_t(src.width)*src.height;
+    const auto embedded=asset.Data<uint8_t>(src.index,int(pixels)+768);
+    const auto* palette=embedded.data()+pixels;
+    Image image{unsigned(src.width),unsigned(src.height),std::vector<uint8_t>(pixels*4)};
+    for(size_t p=0;p<pixels;++p){
+        const auto index=embedded[p];memcpy(image.RGBA.data()+p*4,palette+index*3,3);
+        image.RGBA[p*4+3]=(src.flags&0x40) && index==255?0:255;
+    }
+    const auto id=UploadImage(image);
+    images.emplace(key,CachedImage{id,src.width,src.height});
+    return id;
 }
 void Materials(Asset& asset)
 {
@@ -167,14 +183,14 @@ void Materials(Asset& asset)
         // stock unprefixed hand.bmp out of this mapping (different UV layout).
         if(m.hand==4 && m.originalHeight!=252 && !(dimensions && m.width==256 && m.height==256))m.hand=-1;
         asset.special|=m.hand>=0;
-        const auto embedded=asset.Data<uint8_t>(src.index,src.width*src.height+768);const auto* palette=embedded.data()+src.width*src.height;
-        Image image{unsigned(src.width),unsigned(src.height),std::vector<uint8_t>(size_t(src.width)*src.height*4)};
-        for(size_t p=0;p<image.RGBA.size()/4;++p){const auto index=embedded[p];memcpy(image.RGBA.data()+p*4,palette+index*3,3);image.RGBA[p*4+3]=(src.flags&0x40)&&index==255?0:255;}
         const auto& path=source.Resource;
-        if(!path.empty() && Exists(path.c_str()))m.texture=LoadImage(path,m.width,m.height);
-        else {const auto key=asset.name+"#"+std::to_string(i);
-            if(auto found=images.find(key);found!=images.end())m.texture=found->second.texture;
-            else {m.texture=UploadImage(image);images.emplace(key,CachedImage{m.texture,m.width,m.height});}
+        if(!path.empty() && Exists(path.c_str())){
+            m.texture=LoadImage(path,m.width,m.height);m.externalTexture=true;
+        }else{
+            // The engine already owns embedded player textures. Validate the
+            // range now and upload a second copy only if custom geometry uses it.
+            if(asset.nativePlayer)asset.Data<uint8_t>(src.index,src.width*src.height+768);
+            else m.texture=EmbeddedTexture(asset,i,src);
             if(source.External && !source.EmbeddedFallback)engine.Con_Printf("CSOLSupport: missing external texture %s/%s\n",asset.name.c_str(),name.c_str());}
         const auto env=LoadEnvironment(source.Descriptor);m.environment=env.texture;m.environmentAdd=env.add;asset.special|=env.texture!=0;
         asset.materials.push_back(m);
@@ -182,10 +198,25 @@ void Materials(Asset& asset)
     CommonMaterials(asset,names);
     for(const auto& binding:asset.config.Sprites){asset.materials[binding.Texture].sprite=int(asset.sprites.size());asset.sprites.push_back(LoadEngineModel(binding.Sprite.c_str()));}
     for(size_t i=0;i<asset.config.Fades.size();++i)asset.materials[asset.config.Fades[i].Texture].fade=int(i);
+    if(!asset.nativePlayer)return;
+    for(int i=0;i<h.numtextures;++i){
+        const auto& m=asset.materials[i];
+        // Renderer represents $0b with its double-sided, fullbright additive pass.
+        if(m.environment || m.fade>=0 || m.commonAlpha || m.commonAdd ||
+            (m.special && (m.blend!=Blend::Add || m.cull || m.depth))){
+            asset.nativePlayer=false;asset.playerSkinOverrides.clear();return;
+        }
+        if(m.externalTexture || m.sprite>=0 || m.special || m.width!=textures[i].width || m.height!=textures[i].height)
+            asset.playerSkinOverrides.push_back(i);
+    }
 }
 void Geometry(Asset& asset)
 {
-    const auto& h=asset.Header();std::vector<Vertex> vertices;std::vector<uint32_t> indices;
+    const auto& h=asset.Header();
+    const auto textures=asset.Data<mstudiotexture_t>(h.textureindex,h.numtextures);
+    for(int i=0;i<h.numtextures;++i)if(!asset.materials[i].texture)
+        asset.materials[i].texture=EmbeddedTexture(asset,i,textures[i]);
+    std::vector<Vertex> vertices;std::vector<uint32_t> indices;
     auto groups=asset.Data<mstudiobodyparts_t>(h.bodypartindex,h.numbodyparts);
     for(int g=0;g<h.numbodyparts;++g)
     {
@@ -246,7 +277,10 @@ Asset* GetAsset(model_t* model)
     auto asset=std::make_unique<Asset>();asset->name=name;
     asset->source=ResolveModelSource(name,[](const std::string& file){return ReadResource(file.c_str());},[](const std::string& file){return Exists(file.c_str());});
     asset->bytes=ReadResource(asset->source.File.c_str());
-    asset->special=DecodeStudioModel(asset->bytes) || asset->source.Redirected;
+    const bool decoded=DecodeStudioModel(asset->bytes);
+    asset->special=decoded || asset->source.Redirected;
+    asset->nativePlayer=!decoded && name.starts_with("models/player/csol") && asset->source.File==name &&
+        asset->Header().textureindex>0 && asset->Header().numtextures<=MAXSTUDIOSKINS;
     if(asset->Header().textureindex==0){
         auto textureFile=StudioTextureModel(asset->source.File);
         // Prepared aliases store the main bytes at the requested name while
@@ -269,11 +303,14 @@ Asset* GetAsset(model_t* model)
     asset->Data<mstudiobone_t>(h.boneindex,h.numbones);asset->Data<mstudioattachment_t>(h.attachmentindex,h.numattachments);
     const auto skin=asset->Data<int16_t>(h.skinindex,h.numskinref*h.numskinfamilies);for(auto i:skin)if(i<0 || i>=h.numtextures)throw std::runtime_error("invalid skin table");
     const auto sequences=asset->Data<mstudioseqdesc_t>(h.seqindex,h.numseq);
-    for(const auto& seq:sequences)for(const auto& event:asset->Data<mstudioevent_t>(seq.eventindex,seq.numevents))asset->special|=event.options[0]=='#';
+    for(const auto& seq:sequences)for(const auto& event:asset->Data<mstudioevent_t>(seq.eventindex,seq.numevents))asset->spriteEvents|=event.options[0]=='#';
+    asset->special|=asset->spriteEvents;
     asset->profile=FindBodyEffects(name);asset->special|=asset->profile!=BodyEffectProfile::None || !PartsProfile(name).Actions.empty();
     asset->revive=h.numseq==13 && h.numattachments>5 && Name(asset->Data<mstudiobone_t>(h.boneindex)[0].name)=="revivegun_root";
-    asset->special|=asset->revive;Materials(*asset);FindHandModels(*asset);
-    if(asset->special)Geometry(*asset);
+    asset->special|=asset->revive;
+    asset->nativePlayer&=!asset->revive && asset->profile==BodyEffectProfile::None && PartsProfile(name).Actions.empty();
+    Materials(*asset);FindHandModels(*asset);
+    if(asset->special && !asset->nativePlayer)Geometry(*asset);
     auto* result=asset.get();assets.emplace(name,std::move(asset));modelAssets[model]=result;return result;
 }
 Asset* ViewHandAsset(Asset* original)

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../native/csol/client/scenario/core/night_player_lights.cpp"
 #include "../csol-hud-style/allocation_probe.hpp"
+#include "../../native/guest/cof/light_equipment.hpp"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -183,9 +184,32 @@ int main()
     Check(TrySelectNightFlashlight() && test::flashlightCommands == 1 && test::modelQueries == 4,
         "an already-held flashlight consumes slot 5 without a new command or model lookup");
     std::strcpy(test::heldModel.name, "models/v_test_rifle.mdl");
-    test::entities[0].curstate.effects = EF_DIMLIGHT;
+    params.viewentity=1; params.forward[0]=1; params.up[2]=1;
+    test::entities[0].curstate.effects=EF_DIMLIGHT;
+    NightPlayerLightsView(params);
     Check(!NightFlashlightHeld(), "lit flashlight stowed behind a rifle does not own F");
-    test::entities[0].curstate.effects = 0;
+    float direction[3]{0,0,-1}; alight_t sample{}; sample.plightvec=direction;
+    NightFlashlightStudioLight(&test::entities[1],&sample);
+    Check(!sample.ambientlight && !sample.shadelight, "viewmodel spill leaves other Studio entities alone");
+    NightFlashlightStudioLight(&test::heldView,&sample);
+    Check(sample.ambientlight>0 && sample.shadelight>0 && sample.color[0]==sample.color[1] &&
+        sample.color[1]==sample.color[2] && direction[0]>0 && direction[2]<0,
+        "local rifle gets neutral, directional material light in the original Studio buffer");
+    const auto lit=sample;
+    NightFlashlightStudioLight(&test::heldView,&sample);
+    Check(sample.ambientlight==lit.ambientlight && sample.shadelight==lit.shadelight,
+        "repeated Studio calls do not accumulate near light");
+    test::entities[0].curstate.effects=0; NightPlayerLightsView(params);
+    sample={}; sample.plightvec=direction; NightFlashlightStudioLight(&test::heldView,&sample);
+    Check(!NightFlashlightHeld() && !sample.ambientlight && !sample.shadelight,
+        "switching off removes the rifle spill");
+    for(int vehicle: {0,1})
+        for(bool held: {false,true})
+            for(bool on: {false,true}){
+                const int bits=vehicle | (held!=on ? guest::cof::light::LanternStateBit : 0);
+                Check((bits&1)==vehicle && guest::cof::light::LanternLit(held,bits)==on,
+                    "held, stowed, off and on survive both vehicle states");
+            }
     std::strcpy(test::heldModel.name, custom::NightFlashlightView);
     ResetNightPlayerLights(); NightPlayerLightsView(params); Check(!test::count, "map/connection reset clears state");
     Check(!NightFlashlightHeld(), "a lingering view model after a reset owns no input");

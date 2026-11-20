@@ -23,7 +23,7 @@ struct Material : MaterialPolicy
     GLuint texture{}, environment{};
     int width{},height{},flags{},hand=-1,originalHeight{},sprite=-1,fade=-1;
     float environmentAdd{};
-    bool stainArm{};
+    bool stainArm{}, externalTexture{};
 };
 struct Vertex { float position[3],normal[3],uv[2]; int bone,normalBone; };
 struct Batch { unsigned offset{},count{}; int group{},submodel{},skinref{}; };
@@ -39,6 +39,10 @@ struct Asset
     std::vector<HandBodygroup> handBodygroups;
     ModelJSON config;
     BodyEffectProfile profile{};
+    // Prepared player aliases already contain the geometry loaded by Studio.
+    // Only these material slots need different inputs during its draw.
+    std::vector<int> playerSkinOverrides;
+    bool nativePlayer{}, spriteEvents{};
     bool special{},revive{};
     bool handAdaptationChecked{};
     int adaptedMeshes{},adaptedBones{};

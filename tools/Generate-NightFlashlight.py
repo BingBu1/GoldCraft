@@ -54,12 +54,13 @@ def model_source(first_person):
     pose = "0 0 0 0 0 0 0\n"
     y, z = (-5.5, -4.8) if first_person else (0, 0)
     x = 8 if first_person else -2
+    lens_front = 8.29
     parts = []
     for start, end, r0, r1, mat in (
         (0, .5, 1.05, 1.3, 0), (.5, 1.1, 1.3, 1.3, 0),
         (1.1, 5.4, 1.18, 1.18, 1), (5.4, 6, 1.18, 1.29, 0),
         (6, 6.52, 1.29, 1.42, 2), (6.52, 7.5, 1.42, 1.78, 0),
-        (7.5, 8.25, 1.78, 1.78, 3), (8.25, 8.29, 1.54, 1.54, 4),
+        (7.5, 8.25, 1.78, 1.78, 3), (8.25, lens_front, 1.54, 1.54, 4),
     ):
         cylinder(parts, x + start, x + end, r0, r1, y, z, mat)
     box(parts, (x + 4.4, y - .42, z + 1.05), (x + 5.15, y + .42, z + 1.37), 3)
@@ -87,7 +88,9 @@ def model_source(first_person):
             reference.append("0 " + " ".join(f"{component:.6f}" for component in (*point, *normal, *uv)) + "\n")
     reference.append("end\n")
     idle = prefix + "time 0\n" + pose + "time 1\n" + pose + "end\n"
-    return "".join(reference), idle
+    # Renderer reads attachment 0 for the local flashlight's shadow projection.
+    attachment = f'$attachment 0 "{bone}" {x + lens_front:g} {y:g} {z:g}\n' if first_person else ""
+    return "".join(reference), idle, attachment
 
 
 def material_atlas():
@@ -118,12 +121,12 @@ def main():
     files = []
     for prefix in ("v", "p"):
         name = f"{prefix}_night_flashlight"
-        reference, idle = model_source(prefix == "v")
+        reference, idle, attachment = model_source(prefix == "v")
         (scratch / "mesh.smd").write_text(reference, encoding="ascii")
         (scratch / "idle.smd").write_text(idle, encoding="ascii")
         script = scratch / f"{name}.qc"
         script.write_text(f'$modelname "{name}.mdl"\n$cd "."\n$origin 0 0 0 -90\n'
-                          '$body "flashlight" "mesh"\n$sequence "idle" "idle" fps 15 loop\n', encoding="ascii")
+                          f'{attachment}$body "flashlight" "mesh"\n$sequence "idle" "idle" fps 15 loop\n', encoding="ascii")
         build = subprocess.run([str(compiler), script.name], cwd=scratch, capture_output=True, check=False)
         (output / f"{name}.log").write_bytes(build.stdout + build.stderr)
         path = scratch / f"{name}.mdl"

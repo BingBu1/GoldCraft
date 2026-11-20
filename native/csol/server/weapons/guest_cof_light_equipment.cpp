@@ -31,6 +31,7 @@ constexpr const char* Downloads[]{"sprites/weapon_cof_lantern.txt", "sprites/wea
     "sprites/guest/cof/muzzleflash.spr", "resource/csol/hud/v1/cof_lantern_weapon.tga",
     "resource/csol/hud/v1/cof_flare_weapon.tga", "resource/csol/hud/v1/cof_flare_ammo.tga"};
 string_t litPlayerModel{};
+int lanternPlayerIndex{}, lanternViewIndex{};
 struct FlareDraw { EHANDLE player; int spawn{}; };
 std::array<FlareDraw,33> firstDraws;
 
@@ -100,7 +101,32 @@ class Lantern final : public LightItem
 {
 public:
     const light::Equipment& Gear() const override { return light::Lantern; }
-    BOOL Deploy() override { return Draw(0,34.f/30.f,Gear().player,"knife"); }
+    void AttachToPlayer(CBasePlayer* player) override
+    {
+        LightItem::AttachToPlayer(player);
+        life_ = player->m_iNumSpawns;
+        activated_ = lit_ = player->m_pActiveItem == this;
+    }
+    BOOL Deploy() override
+    {
+        if (!Draw(0,34.f/30.f,Gear().player,"knife")) return FALSE;
+        if (!activated_ || life_ != m_pPlayer->m_iNumSpawns)
+        {
+            life_ = m_pPlayer->m_iNumSpawns;
+            activated_ = lit_ = true;
+        }
+        return TRUE;
+    }
+    bool Lit(const CBasePlayer& player) const
+    {
+        return lit_ && life_ == player.m_iNumSpawns;
+    }
+    void Toggle(CBasePlayer& player)
+    {
+        lit_ = !Lit(player);
+        activated_ = true;
+        life_ = player.m_iNumSpawns;
+    }
     void Holster(int skip=0) override
     {
         if(!m_pPlayer)return;
@@ -118,7 +144,23 @@ public:
     }
     // There is no native magazine or primary attack for the lantern.
     void ItemPostFrame() override { WeaponIdle(); }
+private:
+    int life_{};
+    bool activated_{}, lit_{};
 };
+
+// The slot is normally empty or holds one item. Use the native inventory as
+// authority so drops, removal and slot reuse cannot leave a player light behind.
+Lantern* CarriedLantern(CBasePlayer& player)
+{
+    for (auto* item = player.m_rgpPlayerItems[C4_SLOT]; item; item = item->m_pNext)
+    {
+        if (item->m_iId == light::Lantern.id && item->m_pPlayer == &player &&
+            item->pev->owner == player.edict() && !(item->pev->flags & FL_KILLME))
+            return dynamic_cast<Lantern*>(item);
+    }
+    return nullptr;
+}
 
 enum class FlareAction { Idle, Igniting, Throwing, Thrown, Discarding, Redrawing };
 class Flare final : public LightItem
@@ -522,6 +564,27 @@ bool CSOL_SelectOwnedLantern(CBasePlayer& player)
     return true;
 }
 
+bool CSOL_ToggleOwnedLantern(CBasePlayer& player)
+{
+    if (!lanternPlayerIndex || player.has_disconnected || player.m_iTeam != CT || !player.IsAlive()) return false;
+    auto* lantern = CarriedLantern(player);
+    if (!lantern) return false;
+    lantern->Toggle(player);
+    if (player.FlashlightIsOn()) player.FlashlightTurnOff();
+    return true;
+}
+
+int CSOL_LanternPlayerState(const edict_s& actor, int weaponModel, bool firstPerson)
+{
+    const int heldIndex = firstPerson ? lanternViewIndex : lanternPlayerIndex;
+    if (!heldIndex || actor.v.deadflag != DEAD_NO || actor.v.health <= 0 || !actor.pvPrivateData ||
+        (actor.v.flags & (FL_DORMANT | FL_SPECTATOR | FL_KILLME))) return 0;
+    auto& player = *static_cast<CBasePlayer*>(actor.pvPrivateData);
+    const auto* lantern = CarriedLantern(player);
+    if (!lantern || player.has_disconnected || player.m_iTeam != CT) return 0;
+    return lantern->Lit(player) != (weaponModel == heldIndex) ? light::LanternStateBit : 0;
+}
+
 bool CSOL_TryFlareThrowEvent(CBasePlayer& player)
 {
     auto* flare=dynamic_cast<Flare*>(player.m_pActiveItem);
@@ -602,7 +665,7 @@ CSOLBoxPickup CSOL_PickupBoxLight(CWeaponBox& box,CBasePlayer& player,CBasePlaye
 
 void CSOL_PrecacheLightEquipment()
 {
-    firstDraws={};litPlayerModel=0;
+    firstDraws={};litPlayerModel=0;lanternPlayerIndex=lanternViewIndex=0;
     CSOLScenarioSdkScope scope;
     if(!scope.Scenario() || !scope.Current() || !g_engfuncs.pfnGetFileSize ||
        GET_FILE_SIZE(csol::buy::EquipmentPresentationResource)<=0)return;
@@ -622,6 +685,10 @@ void CSOL_PrecacheLightEquipment()
     for(auto path:Downloads){PRECACHE_GENERIC(path);if(!scope.Current())return;}
     litPlayerModel=ALLOC_STRING(light::FlareLitPlayer);
     if(!litPlayerModel || !scope.Current())return;
+    lanternPlayerIndex=MODEL_INDEX(light::Lantern.player);
+    if(!scope.Current())return;
+    lanternViewIndex=MODEL_INDEX(light::Lantern.view);
+    if(!scope.Current())return;
     UTIL_PrecacheOtherWeapon(light::Lantern.classname);
     if(scope.Current())UTIL_PrecacheOtherWeapon(light::Flare.classname);
 }

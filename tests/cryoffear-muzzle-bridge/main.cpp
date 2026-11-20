@@ -2,9 +2,12 @@
 #include "../../native/csol/client/runtime.hpp"
 #include "../../native/csol/client/resource_refresh.hpp"
 #include "../../native/csol/client/weapons/guest_cof_muzzle.hpp"
+#include "../../native/csol/client/weapons/guest_cof_light_equipment.hpp"
 #include "../../native/csol/client/weapons/guest_cof_effects.hpp"
 #include "../../native/csol/client/weapons/guest_cof_scene.hpp"
+#if __has_include("../../native/csol/client/studio_attachments.hpp")
 #include "../../native/csol/client/studio_attachments.hpp"
+#endif
 #include "../../native/guest/cof/client/muzzle_flash.hpp"
 #include "../../native/guest/cof/resource_catalog.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
@@ -20,7 +23,8 @@ using namespace csol::client;
 using namespace guest::cof::client;
 using namespace guest::cof::resources;
 unsigned checks{},failures{},modelQueries{},visible{},shells{},engineLights{},customLights{},randoms{},lightReads{},boneReads{},nativeDraws{};
-unsigned attachmentObservations{};
+unsigned attachmentObservations{}, equipmentPoses{};
+bool drawWrappedSkin{};
 std::uint64_t generation{1};
 std::uint64_t effectResources{1};
 bool effectsReady{true},pointReady{true},mainView{true},retireVisible{},retireEffects{},retireModel{},localOwned{true};
@@ -83,6 +87,9 @@ int Find(const char* path){
  if(!std::strcmp(path,M16Models[unsigned(M16Model::Player)].host))return m16Available?72:0;
  if(!std::strcmp(path,VP70Models[0].host))return vp70Available?41:0;
  if(!std::strcmp(path,VP70Models[unsigned(VP70Model::Player)].host))return vp70Available?42:0;
+ // This fixture exercises maps that advertise the nine earlier firearms.
+ if(!std::strcmp(path,FamasModels[unsigned(FamasModel::View)].host) ||
+    !std::strcmp(path,FamasModels[unsigned(FamasModel::Player)].host))return 0;
  CHECK(!std::strcmp(path,GlockModels[unsigned(GlockModel::Player)].host));return 12;
 }
 model_t* Model(int id){return id==11?&viewModel:id==12?&playerModel:id==21?&p345ViewModel:id==22?&p345PlayerModel:id==31?&revolverViewModel:id==32?&revolverPlayerModel:id==41?&vp70ViewModel:id==42?&vp70PlayerModel:id==51?&tmpViewModel:id==52?&tmpPlayerModel:id==61?&mp5ViewModel:id==62?&mp5PlayerModel:id==71?&m16ViewModel:id==72?&m16PlayerModel:id==81?&g43ViewModel:id==82?&g43PlayerModel:id==91?&shotgunViewModel:id==92?&shotgunPlayerModel:nullptr;}
@@ -113,7 +120,17 @@ PointLight* AllocateGuestCofPointLight(int key) noexcept{++customLights;return &
 void* currentStudioHeader{};model_t* currentStudioModel{};
 static void ObservePlayerPose(){}
 static void ObserveHeldPose(){}
-bool DrawWorldWeaponPoints(){return false;}
+void CofLightEquipmentPose(const cl_entity_s* entity,const model_s* model,const void* header)
+{
+ CHECK(entity==&remote && model==currentStudioModel && header==currentStudioHeader);
+ ++equipmentPoses;
+}
+bool DrawWorldWeaponPoints(void (*drawStudio)())
+{
+ if(!drawWrappedSkin)return false;
+ drawStudio();
+ return true;
+}
 void ObserveStudioAttachments(const cl_entity_s*,const model_s*,const void*,const float (*observed)[3][4]) noexcept
 {CHECK(observed==wrongBones);++attachmentObservations;}
 static void NativePoints(){++nativeDraws;}
@@ -202,9 +219,10 @@ int main(int argc,char** argv)
  for(auto& bone:wrongBones)for(unsigned i=0;i<3;++i){bone[i][i]=1;bone[i][3]=9000.0F+float(i);}
  currentStudioModel=&bodyModel;currentStudioHeader=header;const auto boundaryShells=shells,boundaryVisible=visible;
  eventCallback(&event);StudioDrawPoints();
- CHECK(shells==boundaryShells+1&&visible==boundaryVisible+1&&lightReads==1&&boneReads==attachmentObservations&&attachmentObservations==1&&nativeDraws==1);
+ CHECK(shells==boundaryShells+1&&visible==boundaryVisible+1&&lightReads==1&&boneReads==attachmentObservations&&attachmentObservations==ExpectedStudioObservers&&equipmentPoses==1&&nativeDraws==1);
  CHECK(shellOrigin==Transform(attachment[1]));
- StudioDrawPoints();CHECK(lightReads==1&&nativeDraws==2&&shells==boundaryShells+1);
+ drawWrappedSkin=true;StudioDrawPoints();drawWrappedSkin=false;
+ CHECK(lightReads==1&&nativeDraws==2&&equipmentPoses==2&&shells==boundaryShells+1);
  ShutdownGuestCofMuzzle();
  if(argc>=3)
  {
@@ -258,7 +276,7 @@ int main(int argc,char** argv)
   if(count>1)
   {
    const int bone=ra[1].bone;ra[1].bone=rh->numbones;
-   CHECK(!PrepareGuestCofMuzzle()); // Cold validation still covers unused declared attachments.
+   CHECK(PrepareGuestCofMuzzle() && GuestCofMuzzleReady(3) && !GuestCofMuzzleReady(21));
    rh->numattachments=1;CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(21));
    ra[1].bone=bone;rh->numattachments=count;
   }
@@ -287,7 +305,7 @@ int main(int argc,char** argv)
   if(count>1)
   {
    const int bone=ra[1].bone;ra[1].bone=rh->numbones;
-   CHECK(!PrepareGuestCofMuzzle()); // Cold validation still covers unused declared attachments.
+   CHECK(PrepareGuestCofMuzzle() && GuestCofMuzzleReady(3) && !GuestCofMuzzleReady(19));
    rh->numattachments=1;CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(19));
    ra[1].bone=bone;rh->numattachments=count;
   }
@@ -316,7 +334,7 @@ int main(int argc,char** argv)
   if(count>1)
   {
    const int bone=ra[1].bone;ra[1].bone=rh->numbones;
-   CHECK(!PrepareGuestCofMuzzle()); // Cold validation still covers unused declared attachments.
+   CHECK(PrepareGuestCofMuzzle() && GuestCofMuzzleReady(3) && !GuestCofMuzzleReady(14));
    rh->numattachments=1;CHECK(PrepareGuestCofMuzzle()&&GuestCofMuzzleReady(14));
    ra[1].bone=bone;rh->numattachments=count;
   }

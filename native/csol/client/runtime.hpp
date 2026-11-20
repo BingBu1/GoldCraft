@@ -44,7 +44,7 @@ void InitializeScene();
 void SceneFrame();
 bool EnsureGraphics();
 bool DrawModel(cl_entity_t* entity, int flags, int (*original)(int));
-bool DrawWorldWeaponPoints();
+bool DrawWorldWeaponPoints(void (*drawStudio)() = nullptr);
 void DrawOwnedOpaque();
 extern void* currentStudioHeader;
 extern model_t* currentStudioModel;

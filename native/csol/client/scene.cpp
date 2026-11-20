@@ -59,7 +59,7 @@ struct WorldDraw
     cl_entity_t* entity{};unsigned identity{};int frame{};bool events{};
     FBO_Container_t* target{};
     // Opaque meshes already drawn in the host opaque phase (DrawOwnedOpaque).
-    bool opaqueDrawn{};
+    bool opaqueDrawn{}, effectsOnly{};
     std::array<float,16> world{},projection{};
 };
 std::array<WorldDraw,256> worldDraws;
@@ -397,6 +397,47 @@ State& Capture(cl_entity_t* ent,Asset& asset,State* supplied=nullptr)
     }
     return state;
 }
+GLuint SpriteTexture(const Asset& asset,const Material& material,const State& state,int sequence,GLuint base)
+{
+    if(material.sprite<0)return base;
+    const auto& binding=asset.config.Sprites[material.sprite];
+    auto* sprite=asset.sprites[material.sprite];
+    if(!sprite || sequence<0 || sequence>=binding.Rules.size() || binding.Rules[sequence].Sequence<0)return base;
+    const int index=SpriteFrameIndex(state.sprites[material.sprite],sprite->numframes);
+    auto* frame=SpriteFrameAt(sprite,index,state.time);
+    return frame?frame->texture:base;
+}
+
+bool DrawPlayerSkins(const Asset& asset,int sequence,const State* state,void (*drawStudio)())
+{
+    if(!drawStudio || asset.playerSkinOverrides.empty())return false;
+    auto* header=static_cast<studiohdr_t*>(currentStudioHeader);
+    if(!header || header->numtextures!=asset.materials.size() ||
+        header->textureindex!=asset.Header().textureindex || header->textureindex<int(sizeof(*header)) ||
+        header->textureindex>header->length-int(sizeof(mstudiotexture_t))*header->numtextures)return false;
+    auto* skins=reinterpret_cast<mstudiotexture_t*>(reinterpret_cast<byte*>(header)+header->textureindex);
+    // A shared header may be visited for another character or pass immediately.
+    // Save only touched slots on this call's stack, including on nested draws.
+    struct Saved {mstudiotexture_t* skin;int index,width,height,flags;};
+    struct Restore {
+        std::array<Saved,MAXSTUDIOSKINS> saved;
+        size_t count{};
+        ~Restore(){while(count){const auto& s=saved[--count];
+            s.skin->index=s.index;s.skin->width=s.width;s.skin->height=s.height;s.skin->flags=s.flags;}}
+    } restore;
+    for(int i:asset.playerSkinOverrides){
+        auto& skin=skins[i];const auto& m=asset.materials[i];
+        restore.saved[restore.count++]={&skin,skin.index,skin.width,skin.height,skin.flags};
+        GLuint texture=m.externalTexture?m.texture:skin.index;
+        skin.index=state?SpriteTexture(asset,m,*state,sequence,texture):texture;
+        skin.width=m.width;skin.height=m.height;
+        // Renderer enginedef.h: additive, fullbright and double-sided. Additive
+        // meshes skip the spotlight depth pass and blend GL_ONE/GL_ONE in color.
+        if(m.special)skin.flags|=0x20|STUDIO_NF_FULLBRIGHT|0x10000;
+    }
+    drawStudio();
+    return true;
+}
 void LoadParts(cl_entity_t* entity,Asset& primary)
 {
     if(parts.primary==entity->model)return;
@@ -576,12 +617,7 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
         if(m.fade>=0 && state.results[m.fade].Active)state.fades[m.fade].Observe(state.results[m.fade].MarkCompleted);
         if(materialAlpha<=0)continue;
         GLuint texture=m.texture;float width=float(m.width),height=float(m.height);
-        if(m.sprite>=0)
-        {
-            const auto& binding=asset.config.Sprites[m.sprite];const int sequence=ent->curstate.sequence;
-            if(sequence>=0 && sequence<binding.Rules.size() && binding.Rules[sequence].Sequence>=0 && asset.sprites[m.sprite])
-            {if(auto* frame=SpriteFrameAt(asset.sprites[m.sprite],SpriteFrameIndex(state.sprites[m.sprite],asset.sprites[m.sprite]->numframes),state.time))texture=frame->texture;}
-        }
+        texture=SpriteTexture(asset,m,state,ent->curstate.sequence,texture);
         if(ent==engine.GetViewModel())ApplyHand(m,texture,width,height,scroll.data());
         Blending(draw.blend);glDepthMask(postFrame ? (onlyPass==0 && draw.depth) : draw.depth);GLState::Enable(GL_CULL_FACE,draw.cull);glCullFace(GL_FRONT);
         const auto* right=engine.pfnGetCvarPointer("cl_righthand");if(ent==engine.GetViewModel() && right && right->value>0)glDisable(GL_CULL_FACE);
@@ -693,7 +729,9 @@ void DrawOwnedWorld(const MetaRendererPostSceneFrame& frame) noexcept
                 memcpy(studio.StudioGetBoneTransform(),previousBones.data(),sizeof(Bones));
                 memcpy(studio.StudioGetLightTransform(),previousLights.data(),sizeof(Bones));
             }
-            DrawAsset(entity,*state.asset,state,WorldWeaponFor(entity) || visible[i].opaqueDrawn?1:-1);DrawEffects(entity,state.time);
+            if(!visible[i].effectsOnly)
+                DrawAsset(entity,*state.asset,state,WorldWeaponFor(entity) || visible[i].opaqueDrawn?1:-1);
+            DrawEffects(entity,state.time);
         }
     }
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: world effects: %s\n",e.what());}
@@ -736,7 +774,7 @@ void DrawOwnedOpaque()
     catch(const std::exception& e){engine.Con_Printf("CSOLSupport: opaque world: %s\n",e.what());}
 }
 
-bool DrawWorldWeaponPoints()
+bool DrawWorldWeaponPoints(void (*drawStudio)())
 {
     auto* source=studio.GetCurrentEntity();auto* model=currentStudioModel;
     if(!source || source==engine.GetViewModel() || !model || model->type!=mod_studio || !enabled || !enabled->value)return false;
@@ -766,7 +804,10 @@ bool DrawWorldWeaponPoints()
         auto [cached,asset]=CachedAsset(model);
         if(!cached){GLState save;asset=GetAsset(model);}
         if(!asset)return false;
-        if(!asset->special)
+        const bool nativePlayer=character && asset->nativePlayer;
+        if(nativePlayer && !asset->spriteEvents && asset->sprites.empty())
+            return DrawPlayerSkins(*asset,source->curstate.sequence,nullptr,drawStudio);
+        if(!nativePlayer && !asset->special)
         {
             const auto& color=source->curstate.rendercolor;
             const bool colored=(color.r|color.g|color.b) && (color.r!=255 || color.g!=255 || color.b!=255);
@@ -774,7 +815,9 @@ bool DrawWorldWeaponPoints()
                 asset->materials.empty() ||
                 !std::all_of(asset->materials.begin(),asset->materials.end(),LitWorldTintMaterial))return false;
         }
-        if(!asset->vao || !program){GLState save;EnsureGeometry(*asset);Program();}
+        if((!nativePlayer && !asset->vao) || (!program && (!nativePlayer || asset->spriteEvents))){
+            GLState save;if(!nativePlayer)EnsureGeometry(*asset);Program();
+        }
         int frame;double now,old;studio.GetTimes(&frame,&now,&old);
         auto slot=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& w){return w.source==source && w.weaponModel==model;});
         if(slot==worldWeapons.end())slot=std::find_if(worldWeapons.begin(),worldWeapons.end(),[&](const WorldWeapon& w){return !w.source || w.frame+2<frame;});
@@ -791,13 +834,17 @@ bool DrawWorldWeaponPoints()
         // Its sequence number is not the player's skull8 sequence.
         if(attached){slot->entity.curstate.sequence=0;slot->entity.curstate.frame=0;}
         auto& state=Capture(&slot->entity,*asset);
-        alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(source,&lighting);studio.StudioEntityLight(&lighting);
-        std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
+        if(nativePlayer && !asset->spriteEvents)
+            return DrawPlayerSkins(*asset,source->curstate.sequence,&state,drawStudio);
+        if(!nativePlayer){
+            alight_t lighting{};lighting.plightvec=state.lightDirection.data();studio.StudioDynamicLight(source,&lighting);studio.StudioEntityLight(&lighting);
+            std::copy_n(lighting.color,3,state.lightColor.begin());state.ambient=lighting.ambientlight;state.shade=lighting.shadelight;
+        }
         auto draw=std::find_if(worldDraws.begin(),worldDraws.end(),[&](const WorldDraw& d){return d.entity==&slot->entity || !d.entity;});
         if(draw==worldDraws.end())return false;
-        *draw={&slot->entity,slot->generation,frame,false,renderer->GetCurrentSceneFBO()};
+        *draw={&slot->entity,slot->generation,frame,false,renderer->GetCurrentSceneFBO(),nativePlayer,nativePlayer};
         std::copy_n(renderer->GetWorldMatrix(),16,draw->world.begin());std::copy_n(renderer->GetProjectionMatrix(),16,draw->projection.begin());
-        return true;
+        return !nativePlayer || DrawPlayerSkins(*asset,source->curstate.sequence,&state,drawStudio);
     }
     catch(const std::exception& error){failures.insert(model);engine.Con_Printf("CSOLSupport: world weapon %s: %s\n",model->name,error.what());return false;}
 }

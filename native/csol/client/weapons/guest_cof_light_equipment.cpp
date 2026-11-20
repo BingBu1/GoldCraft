@@ -38,6 +38,11 @@ int lanternWorld{}, flareWorld{};
 bool prepared{};
 unsigned frame{};
 LightPose localPose;
+struct LanternSnapshot
+{
+    int viewModel{}, stateBits{};
+};
+LanternSnapshot localLantern;
 std::array<LightPose,33> playerPoses;
 
 struct EquipmentLight
@@ -157,15 +162,24 @@ void Illuminate(int entity, const Position& origin, bool flare)
     }
 }
 
-void HeldLight(int index, LightPose& pose, const HeldModel& expected, bool flare)
+bool HeldLight(int index, LightPose& pose, const HeldModel& expected, bool flare)
 {
     // Pose matrices belong to the last main Studio pass, after animation and
     // bone merging. Refdef and AddEntity run before this frame's Studio pass.
-    if(!expected.header || pose.source!=&expected || frame-pose.frame>1)return;
-    if(flare){Illuminate(index,pose.first,true);return;}
+    if(!expected.header || pose.source!=&expected || frame-pose.frame>1)return false;
+    if(flare){Illuminate(index,pose.first,true);return true;}
     const auto* hit=engine.PM_TraceLine(pose.first.data(),pose.second.data(),0,1,-1);
-    if(hit)Illuminate(index,{hit->endpos[0],hit->endpos[1],hit->endpos[2]},false);
+    if(!hit)return false;
+    Illuminate(index,{hit->endpos[0],hit->endpos[1],hit->endpos[2]},false);
+    return true;
 }
+}
+
+void ReadLocalCofLightEquipment(const clientdata_s* client) noexcept
+{
+    // Both fields arrive in the same owner snapshot, before prediction.
+    localLantern = client && client->health > 0 && !client->deadflag && !client->iuser1
+        ? LanternSnapshot{client->viewmodel, client->iuser4 & gear::LanternStateBit} : LanternSnapshot{};
 }
 
 void ResetCofLightEquipment()
@@ -174,7 +188,7 @@ void ResetCofLightEquipment()
     shadowScene=nullptr;
     prepared=false; lanternWorld=flareWorld=0;
     lanternView={};lanternPlayer={};flareView={};flarePlayer={};
-    localPose={};playerPoses={};frame=0;
+    localPose={};playerPoses={};localLantern={};frame=0;
 }
 
 void PrepareCofLightEquipment()
@@ -226,17 +240,25 @@ void CofLightEquipmentPose(const cl_entity_s* entity,const model_s* model,const 
 void CofLightEquipmentView(const ref_params_s& params)
 {
     if(!prepared || params.nextView)return;
+    const auto* local=engine.GetLocalPlayer ? engine.GetLocalPlayer() : nullptr;
+    const auto* item=engine.GetViewModel ? engine.GetViewModel() : nullptr;
+    const bool firstPerson=local && item && item->model && !params.spectator && !params.intermission &&
+        params.health>0 && params.viewentity==local->index;
     ++frame;
     for(unsigned i=lightCount;i>0;--i)
         if(frame-equipmentLights[i-1].lastFrame>1)ReleaseEquipmentLight(i-1);
-    const auto* local=engine.GetLocalPlayer();
-    const auto* item=engine.GetViewModel();
-    if(!local || !item || !item->model || params.spectator || params.health<=0 ||
-       params.viewentity!=local->index){localPose={};return;}
-    if(item->model==lanternView.model)HeldLight(local->index,localPose,lanternView,false);
-    else if(item->model==flareView.model && flarePlayer.index>0 && local->curstate.weaponmodel==flarePlayer.index)
-        HeldLight(local->index,localPose,flareView,true);
-    else localPose={};
+    if(!firstPerson){localPose={};return;}
+    if(lanternView.index>0 && gear::LanternLit(localLantern.viewModel==lanternView.index,
+        localLantern.stateBits)){
+        if(item->model!=lanternView.model || !HeldLight(local->index,localPose,lanternView,false)){
+            Position origin;
+            for(unsigned i=0;i<3;++i)origin[i]=params.simorg[i]+.5f*params.viewheight[i];
+            Illuminate(local->index,origin,false);
+        }
+    }
+    if(item->model==flareView.model && flarePlayer.index>0 && local->curstate.weaponmodel==flarePlayer.index)
+        HeldLight(2048+local->index,localPose,flareView,true);
+    if(item->model!=flareView.model && item->model!=lanternView.model)localPose={};
 }
 
 void CofLightEquipmentEntity(const cl_entity_s& entity)
@@ -245,10 +267,16 @@ void CofLightEquipmentEntity(const cl_entity_s& entity)
     if(entity.player){
         if(entity.index>=int(playerPoses.size()) || &entity==engine.GetLocalPlayer() ||
            entity.curstate.spectator || entity.curstate.solid==SOLID_NOT)return;
-        if(lanternPlayer.index>0 && entity.curstate.weaponmodel==lanternPlayer.index)
-            HeldLight(entity.index,playerPoses[entity.index],lanternPlayer,false);
-        else if(flarePlayer.index>0 && entity.curstate.weaponmodel==flarePlayer.index)
-            HeldLight(entity.index,playerPoses[entity.index],flarePlayer,true);
+        const bool held = entity.curstate.weaponmodel==lanternPlayer.index;
+        if(lanternPlayer.index>0 && gear::LanternLit(held,entity.curstate.iuser4) &&
+           (!held || !HeldLight(entity.index,playerPoses[entity.index],lanternPlayer,false))){
+            // GoldSrc standing/duck eye height is 17/12 units above the hull origin.
+            const float halfEyeHeight=entity.curstate.usehull ? 6.f : 8.5f;
+            Illuminate(entity.index,{entity.origin[0],entity.origin[1],entity.origin[2]+halfEyeHeight},false);
+        }
+        // A burning flare and a carried lantern can belong to the same player.
+        if(flarePlayer.index>0 && entity.curstate.weaponmodel==flarePlayer.index)
+            HeldLight(2048+entity.index,playerPoses[entity.index],flarePlayer,true);
         return;
     }
     const int index=entity.curstate.modelindex;

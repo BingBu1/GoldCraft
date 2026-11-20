@@ -27,6 +27,14 @@ inline constexpr Equipment Flare{
     "models/guest/cof/flare/v_flare.mdl", "models/guest/cof/flare/p_flare.mdl",
     "models/guest/cof/flare/w_flare.mdl"
 };
+// The player's two-bit entity_state iuser4 reserves bit 0 for CS vehicles.
+// Bit 1 inverts the held-model default, including for observers entering PVS.
+inline constexpr int LanternStateBit = 2;
+constexpr bool LanternLit(bool heldModel, int playerState) noexcept
+{
+    return heldModel != ((playerState & LanternStateBit) != 0);
+}
+
 inline constexpr int MaximumFlares = 5;
 inline constexpr char ThrowCommand[] = "cof_throwflare";
 // A distinct precache index carries the lit third-person state through GoldSrc's

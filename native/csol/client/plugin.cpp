@@ -260,7 +260,7 @@ static void StudioDrawPoints()
     if(GuestCofMuzzleWorldPending())
         GuestCofMuzzleWorldPoints(studio.GetCurrentEntity(),currentStudioModel,currentStudioHeader,
             reinterpret_cast<const float (*)[3][4]>(studio.StudioGetLightTransform()));
-    if(!DrawWorldWeaponPoints())originalDrawPoints();
+    if(!DrawWorldWeaponPoints(originalDrawPoints))originalDrawPoints();
 }
 
 void* Resolve(const char* name, mh_gamesymbol_kind_t kind)
@@ -554,6 +554,7 @@ static int Redraw(float time, int intermission)
 }
 static void TxferLocalOverrides(entity_state_s* state, const clientdata_s* data)
 {
+    ReadLocalCofLightEquipment(data);
     ReadLocalBodyStain(state, data);
     if (downstream.HUD_TxferLocalOverrides) downstream.HUD_TxferLocalOverrides(state, data);
 }
