@@ -45,6 +45,29 @@ def run(output):
     pe[132:134]=b'd\x86';put(core,pe);reject('64-bit core DLL rejected');pe[132:134]=b'L\x01';put(core,pe)
     unsafe=put('cstrike/metahook/shaders/execute.ps1',b'bad');reject('script in managed tree rejected');unsafe.unlink()
     assert prepare()['release']['schema']==2;checks.append('restored complete runtime passes')
+
+    renderer = 'cstrike/metahook/plugins/Renderer_AVX2.dll'
+    shader = 'cstrike/renderer/shader/dfinal_shader.frag.glsl'
+    legacy = b'void main() {\n    out_FragColor = finalColor;\n}\n'
+    gamma = (b'#ifdef DFINAL_GAMMA_OUTPUT\n'
+             b'    out_FragColor = LinearToGamma(out_FragColor);\n'
+             b'#endif\n')
+    plugins.write_bytes(plugins.read_bytes() + b'Renderer_AVX2.dll\n')
+    put(renderer, pe)
+    put(shader, legacy)
+    prepare();checks.append('legacy Renderer still accepts its composite shader')
+    put(renderer, pe + b'#define DFINAL_GAMMA_OUTPUT\n\0')
+    reject('gamma-capable Renderer rejects stale composite shader')
+    (runtime/shader).unlink()
+    reject('gamma-capable Renderer requires the composite shader')
+    put(shader, legacy[:-2] + b'/*\n' + gamma + b'*/\n}\n')
+    reject('commented out gamma conversion is rejected')
+    fixed = (legacy[:-2] + gamma + b'}\n').replace(b'\n', b'\r\n')
+    put(shader, fixed)
+    signed_shader = next(row for row in prepare()['release']['resources'] if row['path'] == shader)
+    assert signed_shader['sha256'] == sha(fixed)
+    checks.append('compatible composite shader reaches the exact signed payload')
+
     (output/'receipt.json').write_text(json.dumps(dict(passed=True,checks=checks),indent=2)+'\n','utf-8')
     print(len(checks),'publisher checks passed')
 

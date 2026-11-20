@@ -59,7 +59,9 @@ public plugin_precache()
 
 public plugin_init()
 {
-    register_plugin("GoldCraft 地图模式", "0.1.1", "GoldCraft contributors");
+    register_plugin("GoldCraft 地图模式", "0.1.2", "GoldCraft contributors");
+    // ReHLDS includes serverinfo in the sign-on of every joining client.
+    server_cmd("serverinfo gc_sc_keys ^"%s^"", g_Scenario ? "1" : "");
     IsolateScenarioBots();
 }
 
@@ -102,6 +104,7 @@ public ScenarioBotCvarChanged(pcvar, const oldValue[], const newValue[])
 
 public plugin_end()
 {
+    if (g_Scenario) server_cmd("serverinfo gc_sc_keys ^"^"");
     // Restore the previous mode's policy; do not persist scenario-only values
     // to sypb.cfg or change the configured Bot population for native CS/ZP.
     g_RestoringBots = true;

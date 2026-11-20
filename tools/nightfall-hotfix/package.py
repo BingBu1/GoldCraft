@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import re
+import runpy
 from pathlib import Path
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 RELEASE = '20261115-Nightfall-Hotfix1'
 SEQUENCE = 2026111502
 CONFIG = 'cs/cstrike/configs/guest/cof/scenario_damage.json'
+MODE_PLUGIN = 'cs/cstrike/addons/amxmodx/plugins/goldcraft_game_mode.amxx'
 
 
 def digest(path):
@@ -85,7 +87,9 @@ def prepare(args):
         sources.append(dict(row, source=actual['source']))
         audit.append(actual)
     indexed = {row['path']: row for row in release['resources']}
-    catalogs = [('goldcraft-precache', plain(args.gamedata))]
+    catalogs = [('goldcraft-precache', plain(args.gamedata))] if args.gamedata else []
+    if getattr(args, 'client_gamedata', None):
+        catalogs.append(('goldcraft-cs', plain(args.client_gamedata)))
     if getattr(args, 'parallel_gamedata', None):
         catalogs.append(('parallel-download', plain(args.parallel_gamedata)))
     for prefix, directory in catalogs:
@@ -107,19 +111,23 @@ def prepare(args):
                 if (link['size'], link['sha256']) != (target['bytes'], target['sha256']):
                     raise ValueError('Mismatched symbol catalog')
     config = plain(args.config)
-    table = read(config)
-    if table['version'] != 2 or not {'glock', 'p345', 'revolver', 'vp70', 'tmp'} <= table['firearms'].keys():
-        raise ValueError('Missing guest firearm bootstrap config')
-    audit.extend([identity(config), identity(args.csx)])
+    config_input = identity(config)
+    previous_config = next((row for row in prior['files'] + prior['requiredBaseline'] if row['path'] == CONFIG), None)
+    if not previous_config or previous_config['sha256'] != config_input['sha256']:
+        table = read(config)
+        if table['version'] != 2 or not {'glock', 'p345', 'revolver', 'vp70', 'tmp'} <= table['firearms'].keys():
+            raise ValueError('Missing guest firearm bootstrap config')
+    audit.extend([config_input, identity(args.csx)])
     server_dll = identity(args.server_dll) if args.server_dll else None
     if server_dll:
         audit.append(server_dll)
+    mode_plugin = identity(args.mode_plugin) if getattr(args, 'mode_plugin', None) else None
     out.mkdir(parents=True)
     plan = dict(release=release, sources=sources, auditFiles=audit)
     (out/'client-plan.json').write_text(json.dumps(plan, indent=2)+'\n', 'utf-8')
     (out/'inputs.json').write_text(json.dumps(dict(baseline=str(baseline), csx=identity(args.csx),
-        config=identity(config), release=args.release, sequence=args.sequence,
-        serverDll=server_dll,
+        config=config_input, release=args.release, sequence=args.sequence,
+        serverDll=server_dll, modePlugin=mode_plugin,
         revision=subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT,
         text=True).strip()), indent=2)+'\n', 'utf-8')
     print('Prepared reviewed client release and guest bootstrap closure', flush=True)
@@ -143,11 +151,13 @@ def stage(args):
     package.mkdir(parents=True)
     changes = {}
 
-    def add(name, source, prior=None):
+    def add(name, source, expected=None):
         actual = identity(source)
+        if expected and (actual['sha256'], actual['bytes']) != (expected['sha256'], expected['bytes']):
+            raise ValueError('Reviewed payload changed before staging: '+name)
         before = rows.get(name)
         row = dict(path=name, bytes=actual['bytes'], sha256=actual['sha256'],
-                   priorSha256=[before['sha256']] if before else prior or [])
+                   priorSha256=[before['sha256']] if before else [])
         if before and row['sha256'] == before['sha256']:
             return
         dest = package/'payload'/name
@@ -157,18 +167,20 @@ def stage(args):
             raise ValueError('Changed staging source')
         changes[name] = row
 
-    add('cs/cstrike/addons/amxmodx/modules/csx_amxx.dll', inputs['csx']['source'])
+    add('cs/cstrike/addons/amxmodx/modules/csx_amxx.dll', inputs['csx']['source'], inputs['csx'])
+    if plugin := inputs.get('modePlugin'):
+        if MODE_PLUGIN not in rows:
+            raise ValueError('Missing map-mode plugin in server baseline')
+        add(MODE_PLUGIN, plugin['source'], plugin)
     if inputs.get('serverDll'):
-        if identity(inputs['serverDll']['source']) != inputs['serverDll']:
-            raise ValueError('Reviewed server DLL changed after preparation')
-        add('cs/cstrike/dlls/mp.dll', inputs['serverDll']['source'])
-    add(CONFIG, inputs['config']['source'])
+        add('cs/cstrike/dlls/mp.dll', inputs['serverDll']['source'], inputs['serverDll'])
+    add(CONFIG, inputs['config']['source'], inputs['config'])
     release = json.loads(base64.b64decode(read(publication/'manifest.json')['payload']))
     if release['sequence'] != sequence:
         raise ValueError('Wrong signed release sequence')
     for row in release['files']:
         add('cs/launcher-public/blobs/'+row['sha256']+'/'+Path(row['path']).name,
-            publication/'blobs'/row['sha256']/Path(row['path']).name)
+            publication/'blobs'/row['sha256']/Path(row['path']).name, row)
     add('cs/launcher-public/manifest.json', publication/'manifest.json')
     if args.guest_bootstrap:
         guest = plain(args.guest_bootstrap)
@@ -241,7 +253,6 @@ def stage(args):
         readme = plain(args.readme).read_text('utf-8-sig')
     (package/'README.md').write_text(readme, 'utf-8')
     # Share the graceful lifecycle before hashing or sealing new packages.
-    import runpy
     runpy.run_path(str(ROOT/'tools/server-update-lifecycle/package.py'))['enable'](package, refresh_sums=True)
     archive = output/(package.name+'.zip')
     with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as z:
@@ -268,6 +279,9 @@ def sign(args):
     plan = read(evidence/'client-plan.json')
     if read(bundle)['bundleId'] != plan['release']['bundleId']:
         raise ValueError('Signing bundle differs from issued client baseline')
+    validators = runpy.run_path(str(ROOT/'tools/client-launcher/managed_release.py'))
+    validators['verify_renderer_shader'](plan['release'], plan['sources'])
+    validators['verify_catalogs'](plan['release'], plan['sources'])
     for row in plan['auditFiles']:
         if digest(row['source']) != row['sha256']:
             raise ValueError('Prepared publication input changed')
@@ -303,8 +317,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('prepare')
-    for name in ('baseline', 'evidence', 'goldcraft', 'parallel', 'csx', 'gamedata', 'config'):
+    for name in ('baseline', 'evidence', 'goldcraft', 'parallel', 'csx', 'config'):
         p.add_argument('--'+name, type=Path, required=True)
+    p.add_argument('--gamedata', type=Path, help='Replacement GoldCraft precache catalogs')
     p.add_argument('--baseline-release', default='20261115-Nightfall')
     p.add_argument('--core-baseline', type=Path, help='Issued publication containing omitted immutable core blobs')
     p.add_argument('--baseline-sequence', type=int, default=2026111501)
@@ -312,7 +327,9 @@ if __name__ == '__main__':
     p.add_argument('--sequence', type=int, default=SEQUENCE)
     p.add_argument('--version', default='2026.11.15 Nightfall Hotfix 1')
     p.add_argument('--server-dll', type=Path, help='Optional reviewed authoritative snapshot hotfix')
+    p.add_argument('--mode-plugin', type=Path, help='Compiled replacement for the existing map-mode plugin')
     p.add_argument('--parallel-gamedata', type=Path, help='Matching exact-engine downloader catalogs')
+    p.add_argument('--client-gamedata', type=Path, help='Matching CS client symbol catalog and index')
     p = sub.add_parser('stage')
     for name in ('evidence', 'publication', 'output'):
         p.add_argument('--'+name, type=Path, required=True)

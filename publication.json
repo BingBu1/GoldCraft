@@ -1,6 +1,12 @@
 {
   "format": 1,
   "files": [
+    "native/client/scenario_key_defaults.cpp",
+    "native/client/scenario_key_defaults.hpp",
+    "tests/client-launcher-managed/studio_catalog.cpp",
+    "tests/native/scenario_key_defaults_tests.cpp",
+    "tools/nightfall-hotfix/deferred-daylight.md",
+    "tools/nightfall-hotfix/scenario-key-defaults.md",
     "docs/2026-11-20_修复-CoF手电人物投影与提灯切枪-report.md",
     "docs/2026-11-20_修复-CoF提灯照亮人物-report.md",
     "docs/2026-11-20_修复-CoF照明弹地面材质照明-report.md",

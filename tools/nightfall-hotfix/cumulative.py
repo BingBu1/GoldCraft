@@ -72,7 +72,7 @@ def load_issued(stack, sha, path):
     return archive, prefix, manifest, inventory
 
 
-def build(issued, release, output):
+def build(issued, release, output, readme=None):
     if len(issued) < 2 or not re.fullmatch(r"[0-9]{8}-[A-Za-z0-9-]+", release):
         raise ValueError("Supply at least two issued versions and a distinct release ID")
     output = LIFECYCLE["plain"](output)
@@ -144,9 +144,11 @@ def build(issued, release, output):
             "2. 双击 Update-Server.cmd。安装器会逐项校验，并跳过内容已经相同的文件。\n"
             "3. 显示 Already current 表示全套已齐。需要替换文件时，安装器先完成预检，"
             "再保存并停止正在运行的受管服务器，完成后按原脚本恢复启动。"
-            "玩家使用原冰桑启动器启动即可获取配套 DLL。\n\n"
+            "玩家退出 CS 后，通过原冰桑启动器重新启动即可获取配套的插件、符号表和着色器。\n\n"
             "只读预检可运行 Update-Server.cmd -Plan。回滚本次写入可使用同目录的 Restore-Server.cmd。\n"
         )
+        if readme is not None:
+            instructions = LIFECYCLE["plain"](readme).read_text("utf-8-sig")
         (package / "README.md").write_text(instructions, "utf-8-sig", newline="\r\n")
         LIFECYCLE["enable"](package, refresh_sums=True)
         date = archive.getinfo(prefix + MANIFEST).date_time
@@ -179,5 +181,6 @@ if __name__ == "__main__":
                         help="Repeat in release order, ending with the desired target")
     parser.add_argument("--release", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--readme", type=Path, help="Release-specific installation instructions")
     args = parser.parse_args()
-    print(json.dumps(build(args.issued, args.release, args.output), indent=2))
+    print(json.dumps(build(args.issued, args.release, args.output, args.readme), indent=2))

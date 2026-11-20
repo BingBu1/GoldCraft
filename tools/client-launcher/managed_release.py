@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import base64
 import gzip
+import hashlib
 import importlib.util
 import json
 import re
@@ -12,6 +13,116 @@ spec=importlib.util.spec_from_file_location('launcher_package',Path(__file__).wi
 base=importlib.util.module_from_spec(spec);spec.loader.exec_module(base)
 RESOURCE=re.compile(r'cstrike/(?:metahook/gamedata/[A-Za-z0-9_./-]+\.json|(?:metahook/shaders|renderer/shader)/[A-Za-z0-9_./-]+\.(?:glsl|fsh|vsh|h))\Z')
 CORE=re.compile(r'(?:MetaHook\.dll|cstrike/metahook/(?:plugins|dlls)/[A-Za-z0-9_/-]+\.dll)\Z')
+DEFERRED_COMPOSITE = 'cstrike/renderer/shader/dfinal_shader.frag.glsl'
+DEFERRED_GAMMA_DEFINE = b'#define DFINAL_GAMMA_OUTPUT\n\0'
+DEFERRED_GAMMA_EPILOGUE = re.compile(
+    rb'(?m)^[ \t]*#[ \t]*ifdef[ \t]+DFINAL_GAMMA_OUTPUT[ \t]*\r?\n'
+    rb'\s*out_FragColor\s*=\s*LinearToGamma\s*\(\s*out_FragColor\s*\)\s*;\s*'
+    rb'#[ \t]*endif[ \t]*\r?\n\s*}\s*\Z')
+
+
+def verify_renderer_shader(release, sources):
+    """Match Renderer's deferred gamma output variant to the signed shader."""
+    source_paths = {row['path']: row['source'] for row in sources}
+    for row in release['files']:
+        path = row['path']
+        if not path.startswith('cstrike/metahook/plugins/') or not Path(path).name.lower().startswith('renderer'):
+            continue
+        if path not in source_paths:
+            raise ValueError('Missing Renderer publication input: ' + path)
+        dll = base.plain(source_paths[path]).read_bytes()
+        if len(dll) != row['bytes'] or hashlib.sha256(dll).hexdigest() != row['sha256']:
+            raise ValueError('Renderer differs from the release being signed: ' + path)
+        if DEFERRED_GAMMA_DEFINE in dll:
+            break
+    else:
+        return
+
+    shader = next((row for row in release['resources'] if row['path'] == DEFERRED_COMPOSITE), None)
+    if not shader:
+        raise ValueError('Missing deferred composite shader for ' + path)
+    data = gzip.decompress(base64.b64decode(shader['gzip'], validate=True))
+    if len(data) != shader['bytes'] or hashlib.sha256(data).hexdigest() != shader['sha256']:
+        raise ValueError('Deferred composite shader differs from the release being signed')
+    code = re.sub(rb'/\*.*?\*/|//[^\r\n]*', b'', data, flags=re.DOTALL)
+    if not DEFERRED_GAMMA_EPILOGUE.search(code):
+        raise ValueError('Deferred composite shader is missing the DFINAL_GAMMA_OUTPUT conversion for ' + path)
+
+
+# Checked build-10210 producer/consumer pairs in Build-PrecacheGameData.py and
+# Build-ClientGameData.py. Older CSOLSupport releases request a subset.
+STARTUP_SYMBOLS = {
+    'engine': ('6ef7192cd8254e2d', {
+        'CSOL_StudioNativeCall': ('patch', 0x240559),
+        'CSOL_StudioReadCall': ('patch', 0x24038b),
+        'CSOL_StudioRead': ('function', 0x1c80f0),
+    }),
+    'client': ('124d6034a6b28b40', {
+        'GoldCraftSniperScope_Draw': ('function', 0x64f90),
+        'GoldCraftCofInput_CreateMove': ('function', 0x5b320),
+        'GoldCraftCofInput_MaximumSlot': ('global', 0x1179d8),
+    }),
+}
+
+
+def verify_catalogs(release, sources):
+    """Check indexed snapshots and resolve the issued plugin's reviewed dependencies."""
+    needed = {}
+    plugin_path = 'cstrike/metahook/plugins/CSOLSupport.dll'
+    plugin = next((r for r in release['files'] if r['path'] == plugin_path), None)
+    if plugin:
+        source = next((r for r in sources if r['path'] == plugin_path), None)
+        if not source:
+            raise ValueError('Missing CSOLSupport publication input')
+        dll = base.plain(source['source']).read_bytes()
+        if len(dll) != plugin['bytes'] or hashlib.sha256(dll).hexdigest() != plugin['sha256']:
+            raise ValueError('CSOLSupport differs from the release being signed')
+        for module, (crc, symbols) in STARTUP_SYMBOLS.items():
+            for name, (kind, rva) in symbols.items():
+                if name.encode('ascii') + b'\0' in dll:
+                    needed[module, crc, name] = kind, rva
+
+    catalogs = {r['path']: r for r in release['resources'] if r['path'].startswith('cstrike/metahook/gamedata/')}
+    def decode(row):
+        data = gzip.decompress(base64.b64decode(row['gzip'], validate=True))
+        if len(data) != row['bytes'] or hashlib.sha256(data).hexdigest() != row['sha256']:
+            raise ValueError('Corrupt signed catalog: ' + row['path'])
+        return json.loads(data.decode('utf-8-sig'))
+
+    indexed = set()
+    for path, row in catalogs.items():
+        if not path.endswith('/index.json'):
+            continue
+        for entry in decode(row)['versions']:
+            url = entry['url']
+            if not re.fullmatch(r'[A-Za-z0-9_-]+\.json', url):
+                raise ValueError('Invalid catalog reference')
+            linked = catalogs.get(path.rsplit('/', 1)[0] + '/' + url)
+            if not linked or (linked['sha256'], linked['bytes']) != (entry['sha256'], entry['size']):
+                raise ValueError('Symbol index does not match published snapshot: ' + url)
+            indexed.add(linked['path'])
+    found = set()
+    for path, row in catalogs.items():
+        if path.endswith('/index.json'):
+            continue
+        snapshot = decode(row)
+        if path not in indexed or not needed:
+            continue
+        modules = {m: versions.get('windows', {}).get('crc64', '').lower()
+                   for m, versions in snapshot.get('binaries', {}).items()}
+        for record in snapshot.get('records', []):
+            mod, name = record.get('module'), record.get('symbolName')
+            key = mod, modules.get(mod), name
+            if record.get('platform') != 'windows' or key not in needed:
+                continue
+            kind, rva = needed[key]
+            field = {'function': 'func_rva', 'patch': 'patch_rva', 'global': 'gv_rva'}[kind]
+            if record.get('kind') != kind or int(str(record.get('payload', {}).get(field, -1)), 0) != rva:
+                raise ValueError('Incompatible CSOLSupport symbol: ' + name)
+            found.add(key)
+    missing = sorted(name for _, _, name in needed.keys() - found)
+    if missing:
+        raise ValueError('Missing CSOLSupport symbols in the signed catalogs: ' + ', '.join(missing))
 
 
 def prepare(bundle,runtime,sequence,version,address):
@@ -22,7 +133,6 @@ def prepare(bundle,runtime,sequence,version,address):
     audit=[]
     def read(path):
         path=base.plain(path);data=path.read_bytes()
-        import hashlib
         audit.append(dict(source=str(path),bytes=len(data),sha256=hashlib.sha256(data).hexdigest()))
         return data,audit[-1]
     for name,digest in [('hw.dll',cfg['engineSha256']),('cstrike/cl_dlls/client.dll',cfg['clientSha256'])]:
@@ -60,19 +170,10 @@ def prepare(bundle,runtime,sequence,version,address):
             if not 0<len(data)<=4*1024*1024:raise ValueError('Resource size outside bounds')
             resources.append(dict(path=name,bytes=len(data),sha256=actual['sha256'],gzip=base64.b64encode(gzip.compress(data,mtime=0)).decode()))
     if len(resources)>1024 or sum(r['bytes'] for r in resources)>32*1024*1024:raise ValueError('Resource set exceeds bounds')
-    indexed={r['path']:r for r in resources}
-    # Check all symbol indexes against the exact bytes paired with the DLLs.
-    for row in resources:
-        if not row['path'].startswith('cstrike/metahook/gamedata/'):continue
-        data=json.loads(gzip.decompress(base64.b64decode(row['gzip'])).decode('utf-8-sig'))
-        if not row['path'].endswith('/index.json'):continue
-        for entry in data['versions']:
-            url=entry['url']
-            if '/' in url or '\\' in url or not re.fullmatch(r'[A-Za-z0-9_-]+\.json',url):raise ValueError('Invalid catalog reference')
-            linked=indexed.get(str(Path(row['path']).parent/ url).replace('\\','/'))
-            if not linked or (linked['sha256'],linked['bytes'])!=(entry['sha256'],entry['size']):raise ValueError('Symbol index does not match published snapshot')
     release=dict(schema=2,bundleId=cfg['bundleId'],sequence=sequence,version=version,gameAddress=address,
                  files=files,resources=resources,plugins=plugins,engineSha256=cfg['engineSha256'],clientSha256=cfg['clientSha256'])
+    verify_renderer_shader(release, sources)
+    verify_catalogs(release, sources)
     # Allow room for RSA-3072 signature, envelope and base64 wrapping.
     if len(json.dumps(release,separators=(',',':')).encode())*4//3+2048>1024*1024:raise ValueError('Signed resource manifest exceeds existing 1 MiB HTTP limit')
     return dict(release=release,sources=sources,auditFiles=audit)

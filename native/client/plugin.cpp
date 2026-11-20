@@ -3,6 +3,7 @@
 #include "entity_outline.hpp"
 #include "native_outline.hpp"
 #include "host_ui.hpp"
+#include "scenario_key_defaults.hpp"
 #include "host_text.hpp"
 #include "work_history.hpp"
 #include "async_diagnostics.hpp"
@@ -1113,6 +1114,7 @@ void InitHud() {
     });
     previous_reset_hud=api->HookUserMsg("ResetHUD",[](const char* name,int size,void* data)->int {
         form_menu.clear();
+        scenario_keys::apply_on_join(api,gEngfuncs,client_precache::connection_generation());
         return previous_reset_hud?previous_reset_hud(name,size,data):1;
     });
     gEngfuncs.pfnAddCommand("+goldcraft_use",BeginHostUse);
