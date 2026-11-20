@@ -372,7 +372,8 @@ bool CSOL_UseMonsterPierce(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterState&
     target = targetHandle.Get<CBaseEntity>();
     if (!target || !playerTarget) return finish();
     auto* monster = current();
-    const float baseDamage = spawn.attributes.attackDamage + spawn.attributes.attackDamage;
+    const float attackDamage = call.PhaseBuff(*monster).ScaleDamage(spawn.attributes.attackDamage);
+    const float baseDamage = attackDamage + attackDamage;
     constexpr float Range = 157.48f;
     // Owner vF0 11359A70: v84 feet (11399CB0) strictly within 157.48.
     Vector feet = monster->pev->origin;

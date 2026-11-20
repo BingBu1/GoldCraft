@@ -8,6 +8,8 @@
 #include "../../../scenario/core/map_resources.hpp"
 #include "../../../scenario/core/death_rules.hpp"
 #include "../../../scenario/core/trigger_round.hpp"
+#include "../../../scenario/custom/monster_buff.hpp"
+#include "../../../scenario/custom/phase.hpp"
 
 #include <array>
 #include <memory>
@@ -96,6 +98,27 @@ public:
     const std::int8_t& MonsterDrainTeam() const { return m_monsterDrainTeam; }
     std::optional<std::size_t> RoundIndex() const { return m_roundIndex; }
     std::uint64_t RoundGeneration() const { return m_roundGeneration; }
+    // Published by the authority clock before the scenario gameplay frame.
+    void SetMonsterPhaseBuff(csol::scenario::custom::Phase phase,
+        csol::scenario::custom::MonsterPhaseBuff buff, float now) noexcept
+    {
+        if (!buff.Active())
+        {
+            m_monsterBuffRound = 0;
+            return;
+        }
+        buff.regenerationSince = m_monsterBuffRound == m_roundGeneration && m_monsterBuffPhase == phase &&
+            m_monsterPhaseBuff.regenerationPerSecond == buff.regenerationPerSecond ?
+            m_monsterPhaseBuff.regenerationSince : now;
+        m_monsterPhaseBuff = buff;
+        m_monsterBuffPhase = phase;
+        m_monsterBuffRound = m_roundGeneration;
+    }
+    const csol::scenario::custom::MonsterPhaseBuff* ActiveMonsterPhaseBuff() const noexcept
+    {
+        return m_monsterBuffRound && m_monsterBuffRound == m_roundGeneration ?
+            &m_monsterPhaseBuff : nullptr;
+    }
     CCSOLSpawnPointManager& SpawnPoints() { return m_points; }
     const CCSOLSpawnPointManager& SpawnPoints() const { return m_points; }
     const CCSOLTriggerManager& TriggerVolumes() const { return m_volumes; }
@@ -133,6 +156,9 @@ private:
     void Clear();
     void RefreshWaveSummary(csol::scenario::TriggerWaveEvents* events = nullptr);
 
+    csol::scenario::custom::MonsterPhaseBuff m_monsterPhaseBuff;
+    csol::scenario::custom::Phase m_monsterBuffPhase{csol::scenario::custom::Phase::Ended};
+    std::uint64_t m_monsterBuffRound{};
     csol::scenario::MapResources m_resources;
     csol::scenario::MonsterDeathRuleResources m_deathRules;
     CCSOLSpawnPointManager m_points;

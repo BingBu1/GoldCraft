@@ -372,6 +372,7 @@ bool CCSOLOrdinaryMonsterBehavior::ResetForSpawn(CSOLMonsterSpawnCall& input,
     if (!state->spawn || state->spawn.get() != &spawn)
     { error.message = "ordinary behavior needs factory-owned spawn state"; return false; }
     state->lease = spawn.lease;
+    state->phaseRegeneration.Reset(gpGlobals->time);
     state->error = {};
     // Paths contain the previous borrow's checked SpawnCall. Keep behavior
     // history, but never let that route become the new lease's live route.
@@ -753,7 +754,14 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         monster->pev->nextthink = gpGlobals->time + FrameInterval;
         if (!ValidateTarget(call, state, *services)) return;
         monster = CurrentAlive(call, state);
-        if (!monster || (monster->pev->effects & EF_NODRAW)) return;
+        if (!monster) return;
+        const auto& buff = call.PhaseBuff(*monster);
+        auto& vars = *monster->pev;
+        if (buff.regenerationPerSecond > 0)
+            state->phaseRegeneration.Tick(gpGlobals->time, buff,
+                vars.deadflag == DEAD_NO && vars.takedamage != DAMAGE_NO &&
+                    !(vars.effects & EF_NODRAW) && !(vars.flags & FL_KILLME), vars.health, vars.max_health);
+        if (vars.effects & EF_NODRAW) return;
         auto& host = monster->HostState();
         if (host.frozenRemaining > 0)
         {
@@ -894,7 +902,8 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
             other = target.Get<CBaseEntity>();
             if (nowPlayer && enemyPlayer(*other))
             {
-                other->TakeDamage(monster->pev, monster->pev, state->skillCollisionDamage, DMG_BULLET);
+                const float damage = call.PhaseBuff(*monster).ScaleDamage(state->skillCollisionDamage);
+                other->TakeDamage(monster->pev, monster->pev, damage, DMG_BULLET);
                 if (!current()) return;
             }
             const auto& facing = state->position.motion.facingDirection;
@@ -915,7 +924,8 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
         if (!monster || !player) return;
         other = target.Get<CBaseEntity>();
         if (!enemyPlayer(*other)) return;
-        other->TakeDamage(monster->pev, monster->pev, state->skillCollisionDamage, DMG_BULLET);
+        const float damage = call.PhaseBuff(*monster).ScaleDamage(state->skillCollisionDamage);
+        other->TakeDamage(monster->pev, monster->pev, damage, DMG_BULLET);
         if (!current()) return;
         const auto& messages = services->Messages();
         if (!current()) return;
@@ -946,7 +956,8 @@ void CCSOLOrdinaryMonsterBehavior::BeforeFree(CCSOLScenarioMonster& entity)
     csol::scenario::ConfigError error;
     try
     {
-        services->ExplodeOnFree(call, spawn->attributes.attackDamage * 3.0f, error);
+        const float base = call.PhaseBuff(entity).ScaleDamage(spawn->attributes.attackDamage);
+        services->ExplodeOnFree(call, base * 3.0f, error);
     }
     catch (...)
     {

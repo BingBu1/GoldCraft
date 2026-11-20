@@ -68,7 +68,12 @@ CSOLMonsterMotionResult CSOL_CommitMonsterMotion(CSOLMonsterSpawnCall& call,
         else planar = Vector2D(1, 0);
         if (!effects.UpdateMaxSpeed(*monster->pev, now) || !std::isfinite(monster->pev->maxspeed))
             return Result::Failed;
-        const float limited = std::min(monster->pev->maxspeed, speed);
+        float cap = monster->pev->maxspeed;
+        const float multiplier = call.PhaseBuff(*monster).speedMultiplier;
+        if (multiplier != 1.0f && !motion.traversingLadder && !motion.climbSequence &&
+            effects.UsingBaseSpeed(*monster->pev))
+            cap *= multiplier;
+        const float limited = std::min(cap, speed);
         planar.x *= limited;
         planar.y *= limited;
     }

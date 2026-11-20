@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_gameplay.h"
+#include "scenario_entity_lookup.h"
+#include "../../custom/gameplay_settings.h"
 #include "../../../scenario/core/wave_events.hpp"
 #include "../../../scenario/core/map_support.hpp"
 
@@ -65,6 +67,7 @@ bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float 
     struct ResetScope { bool& flag; ~ResetScope() { flag = false; } } scope{m_resetting};
     m_resetting = true;
     ++m_generation;
+    if (replay) SetPopulationPhase(csol::scenario::custom::Phase::Ended);
     const auto generation = m_generation;
     // Death callbacks carry this dispatcher's generation. Cancel them before
     // resetting slots, then release caches which still borrow those slots.
@@ -89,6 +92,70 @@ bool CCSOLScenarioGameplay::BeginRound(std::size_t roundIndex, float now, float 
         return Fail(m_session.Error().detail.message.c_str());
     }
     return Active() && generation == m_generation;
+}
+
+void CCSOLScenarioGameplay::SetPopulationPhase(csol::scenario::custom::Phase phase) noexcept
+{
+    if (m_populationPhase == phase) return;
+    m_populationPhase = phase;
+    m_hordeCooldownFrom.reset();
+    m_hordeStartedAt.reset();
+}
+
+std::optional<std::size_t> CCSOLScenarioGameplay::ReadOrdinaryWaveLimit()
+{
+    const auto phase = m_populationPhase;
+    const auto controls = CSOL_ReadMonsterPopulation(phase);
+    if (!controls || !controls->horde)
+    {
+        m_hordeCooldownFrom.reset();
+        m_hordeStartedAt.reset();
+    }
+    if (!controls) return {};
+    const auto generation = m_generation;
+    const auto stillCurrent = [&]
+    { return generation == m_generation && phase == m_populationPhase && Active(); };
+    int humans{};
+    if (controls->perPlayer > 0)
+    {
+        const auto access = m_session.Map().EntityAccess();
+        const int clients = gpGlobals->maxClients;
+        for (int index = 1; index <= clients; ++index)
+        {
+            const auto* player = dynamic_cast<const CBasePlayer*>(CSOL_ScenarioPlayerEntity(index, access));
+            if (!stillCurrent()) return {};
+            if (player && (player->pev->flags & FL_CLIENT) &&
+                !(player->pev->flags & (FL_FAKECLIENT | FL_PROXY | FL_DORMANT | FL_KILLME)) &&
+                player->m_iTeam == CT && player->m_iJoiningState == JOINED &&
+                !player->m_bJustConnected && !player->has_disconnected && player->m_iMenu != Menu_ChooseAppearance)
+                ++humans;
+        }
+    }
+    int limit = controls->base + humans * controls->perPlayer;
+    if (controls->horde)
+    {
+        const auto& horde = *controls->horde;
+        const double now = gpGlobals->time;
+        if (!m_hordeCooldownFrom) m_hordeCooldownFrom = now;
+        if (m_hordeStartedAt && now >= *m_hordeStartedAt + horde.durationSeconds)
+        {
+            m_hordeCooldownFrom = *m_hordeStartedAt + horde.durationSeconds;
+            m_hordeStartedAt.reset();
+        }
+        // One lottery at a real wave opportunity, even if the server missed
+        // several intervals. A running horde never rolls again or overlaps.
+        if (!m_hordeStartedAt && now >= *m_hordeCooldownFrom + horde.intervalSeconds)
+        {
+            m_hordeCooldownFrom = now;
+            const float roll = horde.probability > 0 && horde.probability < 1 && g_engfuncs.pfnRandomFloat ?
+                RANDOM_FLOAT(0, 1) : 1.0f;
+            if (!stillCurrent()) return {};
+            if (horde.probability == 1 || (roll >= 0 && roll < horde.probability))
+                m_hordeStartedAt = now;
+        }
+        if (m_hordeStartedAt) limit += horde.extraZombies;
+    }
+    return std::min(limit, CCSOLMonsterPool::CategoryLimits[0]);
 }
 
 void CCSOLScenarioGameplay::Dispatch(void* context, const csol::scenario::WaveRow& row,
@@ -118,7 +185,18 @@ void CCSOLScenarioGameplay::Dispatch(void* context, const csol::scenario::WaveRo
     // The row clock has already advanced; pool/quota refusal is not a retry.
     // Mode15's loader initializes runtime row+58 to 1; only mode17 reads
     // the additional CSV column. Do not borrow zombiRatio as this argument.
-    const auto result = self.m_factory.Spawn(TERRORIST, type, row.spawnPoint, 1);
+    std::optional<std::size_t> limit;
+    if (row.interval > 0 && self.m_populationPhase != csol::scenario::custom::Phase::Ended)
+    {
+        if (!self.m_ordinaryWaveLimitRead)
+        {
+            self.m_ordinaryWaveLimitRead = true;
+            self.m_ordinaryWaveLimit = self.ReadOrdinaryWaveLimit();
+            if (self.m_generation != generation || !self.Active()) return;
+        }
+        limit = self.m_ordinaryWaveLimit;
+    }
+    const auto result = self.m_factory.Spawn(TERRORIST, type, row.spawnPoint, 1, limit);
     if (self.m_generation != generation || !self.Active()) return;
     if (result == CSOLMonsterSpawnResult::Failed)
         self.Fail(self.m_factory.Error().message.c_str());
@@ -151,6 +229,7 @@ bool CCSOLScenarioGameplay::Update(CHalfLifeMultiplay& rules, float thinkTime,
     }
     if (!m_spawns.UpdateOccupancy()) return Fail("scenario live occupancy refresh failed");
     if (m_generation != generation || !Active()) return false;
+    m_ordinaryWaveLimitRead = false;
     const auto frame = m_session.Map().UpdateFrame(rules, thinkTime, aliveCtCount, Dispatch, this, events,
         [](void* context, csol::scenario::ConfigError& error)
         {

@@ -138,7 +138,7 @@
         },
         "dusk_buff": {
             "enabled": false,
-            "comment": "黄昏独立移速和回血参数；关闭保留参数。",
+            "comment": "黄昏普通怪的基础移速和回血；开关和数值在本图即时生效。",
             "values": {
                 "dusk_speed_multiplier": {
                     "value": 1.05,
@@ -152,7 +152,7 @@
         },
         "night_buff": {
             "enabled": false,
-            "comment": "永夜独立伤害、移速和回血参数；不开启不要求未定参数。",
+            "comment": "永夜普通怪的基础伤害、移速和回血；开关和数值在本图即时生效。",
             "values": {
                 "night_damage_multiplier": {
                     "value": 1.2,
@@ -170,41 +170,45 @@
         },
         "zombie_population": {
             "enabled": false,
-            "comment": "分阶段基础怪量与每玩家增加量；实际池容量由消费者核验。",
+            "comment": "阶段普通怪上限为基础值加每位真人增量；下一次刷怪时生效。",
             "values": {
                 "midday_zombie_base": {
                     "value": null,
-                    "comment": "正午基础怪物目标数量；实际池容量仍需验证。"
+                    "comment": "正午普通怪基础上限；最终受地图普通怪池限制。"
                 },
                 "dusk_zombie_base": {
                     "value": null,
-                    "comment": "黄昏基础怪物目标数量。"
+                    "comment": "黄昏普通怪基础上限。"
                 },
                 "night_zombie_base": {
                     "value": null,
-                    "comment": "永夜基础怪物目标数量。"
+                    "comment": "永夜普通怪基础上限。"
                 },
                 "zombies_per_player": {
                     "value": null,
-                    "comment": "每位玩家额外目标怪数；加乘须检查实际池上限。"
+                    "comment": "每位已加入战斗队伍的真人增加的普通怪上限。"
                 }
             }
         },
         "random_horde": {
             "enabled": false,
-            "comment": "随机尸潮；间隔、0到1概率和持续时间必须明确。",
+            "comment": "永夜随机尸潮；阶段怪量开启后，尸潮期间放宽普通怪上限。",
             "values": {
                 "horde_interval_seconds": {
                     "value": null,
-                    "comment": "随机尸潮抽样间隔秒数，必须为正。"
+                    "comment": "永夜首次重复刷怪、上次未触发或上次尸潮结束后的抽样间隔，单位秒。"
                 },
                 "horde_probability": {
                     "value": null,
-                    "comment": "每次抽样尸潮概率，0到1而非百分整数。"
+                    "comment": "每次抽样尸潮概率，取值0至1。"
                 },
                 "horde_duration_seconds": {
                     "value": null,
-                    "comment": "单次尸潮持续秒数，必须为正。"
+                    "comment": "单次尸潮放宽普通怪上限的持续秒数。"
+                },
+                "horde_extra_zombies": {
+                    "value": 8,
+                    "comment": "尸潮期间增加的普通怪上限，默认8；仍受地图普通怪池限制。"
                 }
             }
         },

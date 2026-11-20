@@ -79,7 +79,8 @@ new const g_CustomKeys[][] = {
     "sprint_cost_per_unit",
     "night_player_light_radius",
     "night_player_light_brightness",
-    "night_player_light_color"
+    "night_player_light_color",
+    "horde_extra_zombies"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
@@ -142,7 +143,8 @@ new const g_CustomNames[][] = {
     "奔跑每单位耗体力",
     "随身光半径",
     "随身光亮度",
-    "随身光颜色"
+    "随身光颜色",
+    "尸潮增加怪量"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.

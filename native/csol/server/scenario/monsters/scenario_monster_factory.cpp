@@ -243,7 +243,8 @@ const CSOLMonsterSpawnState* CCSOLMonsterFactory::State(const CCSOLScenarioMonst
     return state && state->lease && m_pool.Lease(monster) == state->lease ? state.get() : nullptr;
 }
 
-CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, int point, int rowArgument)
+CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, int point, int rowArgument,
+    std::optional<std::size_t> ordinaryWaveLimit)
 {
     using Result = CSOLMonsterSpawnResult;
     const auto owner = m_owner.lock();
@@ -265,6 +266,11 @@ CSOLMonsterSpawnResult CCSOLMonsterFactory::Spawn(int team, int requestedType, i
     const auto location = selected->point;
     const auto* type = m_map.Tables()->monsterTypes.Find(requestedType);
     if (!type) return Result::Skipped;
+    // An opt-in recurring wave limit is checked before consuming spawn point
+    // quota. Scripted one-shots and dedicated boss/elite rows use native gates.
+    if (ordinaryWaveLimit && type->priority == 0 && CSOL_AppliesOrdinaryMonsterPhaseRules(*type) &&
+        m_pool.CategoryCount(0) >= *ordinaryWaveLimit)
+        return Result::Skipped;
     if (type->priority != 2 && !points.ConsumePointQuota(team, point)) return Result::Skipped;
     if (type->priority == 0 && m_pool.CategoryCount(0) >= CCSOLMonsterPool::CategoryLimits[0])
         return Result::Skipped;

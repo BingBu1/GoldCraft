@@ -122,6 +122,7 @@ protected:
     {
         std::shared_ptr<CSOLMonsterSpawnState> spawn;
         std::uint64_t lease{};
+        csol::scenario::custom::MonsterPhaseRegeneration phaseRegeneration;
         std::shared_ptr<const CCSOLMonsterNavigation> navigation;
         csol::scenario::ConfigError error;
     };

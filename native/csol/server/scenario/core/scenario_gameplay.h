@@ -5,6 +5,7 @@
 #include "../monsters/scenario_monster_factory.h"
 #include "scenario_event_sink.h"
 #include "../../../scenario/core/map_support.hpp"
+#include "../../../scenario/custom/phase.hpp"
 
 // One live composition of the already implemented map, death dispatcher,
 // occupancy grid and factory. Services must be the concrete rules owners;
@@ -28,6 +29,7 @@ public:
         csol::scenario::TriggerWaveEvents& events, CCSOLScenarioReplaySettings* replay = nullptr);
     bool Update(CHalfLifeMultiplay& rules, float thinkTime, int aliveCtCount,
         csol::scenario::TriggerWaveEvents& events);
+    void SetPopulationPhase(csol::scenario::custom::Phase phase) noexcept;
     // Enter through the complete gameplay update so pending end-round deaths
     // run before the native rule checks a restart/final-result deadline.
     bool ScheduleRoundDrain(float now);
@@ -50,6 +52,7 @@ private:
     bool Fail(const char* reason);
     bool OwnerCurrent() const;
 
+    std::optional<std::size_t> ReadOrdinaryWaveLimit();
     // Services and session outlive this composition and every pinned behavior.
     CCSOLScenarioSession& m_session;
     std::weak_ptr<const CCSOLMonsterSpawnOwner> m_owner;
@@ -64,4 +67,8 @@ private:
     std::int32_t m_spawnGroupOffset{};
     std::uint64_t m_generation{};
     bool m_active{}, m_updating{}, m_resetting{}, m_selecting{};
+    csol::scenario::custom::Phase m_populationPhase{csol::scenario::custom::Phase::Ended};
+    std::optional<double> m_hordeCooldownFrom, m_hordeStartedAt;
+    std::optional<std::size_t> m_ordinaryWaveLimit;
+    bool m_ordinaryWaveLimitRead{};
 };

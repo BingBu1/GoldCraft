@@ -114,7 +114,8 @@ bool CCSOLOrdinaryMonsterBehavior::CheckObstacles(CSOLMonsterSpawnCall& call, co
                     {
                         // This branch has no root309 suppression or enhanced
                         // +10 damage. A type with zero melee damage uses99999.
-                        const float damage = originalDamage != 0 ? state->spawn->attributes.attackDamage : 99999.0f;
+                        const float damage = originalDamage != 0 ?
+                            call.PhaseBuff(*monster).ScaleDamage(state->spawn->attributes.attackDamage) : 99999.0f;
                         if (!std::isfinite(damage))
                             return Step(call, state, false, "ordinary obstacle damage is not finite");
                         hit->TakeDamage(monster->pev, monster->pev, damage, DMG_BULLET);

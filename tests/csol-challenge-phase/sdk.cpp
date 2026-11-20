@@ -9,6 +9,7 @@
 #include "../../native/csol/scenario/custom/settings.hpp"
 #include "../../native/csol/server/custom/action_stamina.h"
 #include "../../native/csol/server/custom/gameplay_settings.h"
+#include "../../native/csol/server/scenario/monsters/scenario_monster_motion.h"
 #include "../../native/csol/server/characters.h"
 #include "../../native/csol/scenario/custom/stamina_audio.hpp"
 #include "../../native/csol/scenario/custom/stamina_snapshot.hpp"
@@ -43,14 +44,31 @@ void Playback(int flags,const edict_t* invoker,unsigned short event,float delay,
     Engine::self->Record("phase-playback:"+std::to_string(flags)+":"+std::to_string(event)+":"+
         std::to_string(delay)+":"+std::to_string(invoker?Engine::Index(invoker):0));
 }
-void Settings(bool enabled)
+void Settings(bool enabled, bool monsterBuffs = false, bool population = false)
 {
     if(enabled)environment_test::LoadProvider();
     custom::Draft draft; custom::Error error; custom::SnapshotPtr snapshot;
     Require(draft.Set(custom::Feature::TimeCycle,enabled,error) &&
         draft.Set(custom::Setting::MiddaySeconds,2,error) &&
-        draft.Set(custom::Setting::DuskSeconds,3,error) && draft.Finish(snapshot,error),
+        draft.Set(custom::Setting::DuskSeconds,3,error) &&
+        draft.Set(custom::Feature::DuskBuff,monsterBuffs,error) &&
+        draft.Set(custom::Feature::NightBuff,monsterBuffs,error),
         "actual grouped settings prepare two-second noon and three-second dusk");
+    if (population)
+    {
+        using Setting = custom::Setting;
+        Require(draft.Set(custom::Feature::ZombiePopulation, true, error) &&
+            draft.Set(custom::Feature::RandomHorde, true, error) &&
+            draft.Set(Setting::MiddayZombieBase, 0, error) &&
+            draft.Set(Setting::DuskZombieBase, 1, error) &&
+            draft.Set(Setting::NightZombieBase, 2, error) &&
+            draft.Set(Setting::ZombiesPerPlayer, 1, error) &&
+            draft.Set(Setting::HordeIntervalSeconds, 2, error) &&
+            draft.Set(Setting::HordeProbability, .5, error) &&
+            draft.Set(Setting::HordeDurationSeconds, 2, error) &&
+            draft.Set(Setting::HordeExtraZombies, 2, error), "configure opt-in wave limits and night horde");
+    }
+    Require(draft.Finish(snapshot,error), "finish the persisted gameplay settings");
     const auto path=std::filesystem::current_path()/"cstrike/addons/goldcraft/config/gameplay.json";
     Require(!std::filesystem::exists(path),"fresh SDK game directory");
     std::filesystem::create_directories(path.parent_path());
@@ -533,6 +551,320 @@ void LiveMenu()
     Expect(c.f.session->Map().RoundGeneration() == round && c.f.runtime->Generation() == generation,
         "real menu edits never reload the map or restart its round");
 }
+struct MonsterDamageProbe
+{
+    static inline MonsterDamageProbe* active{};
+    CCSOLScenarioMonster& source;
+    float damage{};
+    int hits{};
+
+    explicit MonsterDamageProbe(CCSOLScenarioMonster& monster) : source(monster)
+    {
+        active = this;
+        g_ReGameHookchains.m_CBasePlayer_TakeDamage.registerHook(Observe, 200);
+    }
+    ~MonsterDamageProbe()
+    {
+        g_ReGameHookchains.m_CBasePlayer_TakeDamage.unregisterHook(Observe);
+        active = nullptr;
+    }
+    static BOOL Observe(IReGameHook_CBasePlayer_TakeDamage* chain, CBasePlayer* player,
+        entvars_t* inflictor, entvars_t* attacker, float& amount, int flags)
+    {
+        if (inflictor != active->source.pev)
+            return chain->callNext(player, inflictor, attacker, amount, flags);
+        Expect(attacker == inflictor && flags == DMG_BULLET, "scaled melee retains the native damage source and flags");
+        active->damage = amount;
+        ++active->hits;
+        return TRUE;
+    }
+};
+
+void MonsterBuffs()
+{
+    Settings(true, true);
+    Case c(MusicResources);
+    NativeActor(c);
+    Restart(c);
+    auto& map = c.f.session->Map();
+    Expect(!map.ActiveMonsterPhaseBuff(), "preparation exposes no monster buff");
+    Tick(c, 120);
+    auto& monster = c.Target(Vector(0, 0, 0));
+    auto& gameplay = *c.f.runtime->gameplay;
+    auto& pool = c.f.session->Monsters();
+    CSOLMonsterSpawnCall call(map, pool, gameplay.Deaths().Requests(), monster);
+    const auto* spawn = gameplay.Factory().State(monster);
+    Require(call.Current() == &monster && spawn && spawn->attributes.attackDamage > 0,
+        "actual monster pool lease carries attack attributes");
+    const auto round = map.RoundGeneration();
+    const float baseSpeed = monster.SpeedState().baseSpeed;
+    const auto approximately = [](float a, float b) { return std::abs(a - b) < .01f; };
+    const auto move = [&](float expected, bool ladder = false)
+    {
+        CSOLMonsterRouteMotion motion;
+        motion.velocity = Vector2D(1000, 0);
+        motion.traversingLadder = ladder;
+        int flags{};
+        const float nativeCap = monster.pev->maxspeed;
+        const auto result = CSOL_CommitMonsterMotion(call, gameplay.Occupancy(),
+            *csol::scenario::FindMonsterAppearance(monster.Type()->appearance),
+            motion, 0, gpGlobals->time, flags);
+        Expect(result == CSOLMonsterMotionResult::Applied && approximately(monster.pev->velocity.x, expected) &&
+            monster.pev->maxspeed == nativeCap, "ordinary motion consumes the desired cap and preserves native AI maxspeed");
+    };
+    MonsterDamageProbe probe(monster);
+    const auto attack = [&](float expected)
+    {
+        monster.pev->angles.y = 0;
+        const auto playerOrigin = c.player.pev->origin;
+        c.player.pev->origin = monster.pev->origin + Vector(.5f, 0, 0);
+        CSOLMonsterMeleeClocks clocks;
+        const float boostedUntil = gpGlobals->time + 5;
+        const auto before = probe.hits;
+        const auto result = CSOL_TryOrdinaryMonsterMelee(call, *spawn, EHANDLE(&c.player),
+            boostedUntil, false, 0, 0, clocks);
+        c.player.pev->origin = playerOrigin;
+        Expect(result == CSOLMonsterMeleeResult::Hit && probe.hits == before + 1 &&
+            approximately(probe.damage, spawn->attributes.attackDamage * expected + 10),
+            "ordinary melee scales only base damage and adds the existing skill bonus once");
+    };
+    // Run the actual ordinary Think with native freeze gating locomotion and
+    // attacks. Healing receives absolute engine time even while frozen.
+    const auto heal = [&](float expected)
+    {
+        monster.HostState().frozenRemaining = 1;
+        monster.Behavior()->Think(monster);
+        Expect(approximately(monster.pev->health, expected), "ordinary Think heals with the current phase's elapsed time");
+    };
+    monster.pev->health = 40;
+    monster.pev->max_health = 100;
+    heal(40);
+    move(baseSpeed);
+    attack(1);
+    c.f.engine.Set("csol_custom_dusk_speed_multiplier", "1.25");
+    c.f.engine.Set("csol_custom_dusk_regen_per_second", "8");
+    Tick(c, 122);
+    Expect(Read(c).time.phase == custom::Phase::Dusk && map.ActiveMonsterPhaseBuff(),
+        "actual phase boundary publishes configured dusk modifiers");
+    heal(40);
+    move(baseSpeed * 1.25f);
+    move(baseSpeed, true);
+    monster.pev->maxspeed = 30;
+    move(30);
+    monster.pev->maxspeed = baseSpeed;
+    c.f.engine.globals.time = 122.25f;
+    heal(42);
+    heal(42);
+    c.f.engine.Set("csol_custom_dusk_regen_per_second", "12");
+    Tick(c, 123);
+    heal(42);
+    c.f.engine.globals.time = 123.5f;
+    heal(48);
+    attack(1);
+
+    c.f.engine.Set("csol_custom_night_speed_multiplier", "1.5");
+    c.f.engine.Set("csol_custom_night_damage_multiplier", "2");
+    c.f.engine.Set("csol_custom_night_regen_per_second", "50");
+    Tick(c, 125);
+    Expect(Read(c).time.phase == custom::Phase::Night, "actual phase clock enters permanent night");
+    heal(48);
+    move(baseSpeed * 1.5f);
+    attack(2);
+    c.f.engine.globals.time = 126.5f;
+    heal(100);
+    monster.pev->health = 50;
+    monster.pev->takedamage = DAMAGE_NO;
+    c.f.engine.globals.time = 127;
+    heal(50);
+    monster.pev->takedamage = DAMAGE_AIM;
+    c.f.engine.globals.time = 127.25f;
+    heal(62.5f);
+    c.f.engine.Set("csol_custom_night_speed_multiplier", "-1");
+    Tick(c, 128);
+    move(baseSpeed * 1.10f);
+    c.f.engine.Set("csol_custom_night_buff", "0");
+    Tick(c, 129);
+    Expect(!map.ActiveMonsterPhaseBuff(), "live night toggle leaves the night clock running without buffs");
+    move(baseSpeed);
+    attack(1);
+    c.f.engine.Set("csol_custom_night_buff", "1");
+    Tick(c, 130);
+    Expect(map.ActiveMonsterPhaseBuff() && Read(c).time.phase == custom::Phase::Night,
+        "live night toggle reenables the buff in the same round");
+    c.f.engine.Set("csol_custom_time_cycle", "0");
+    Tick(c, 131);
+    Expect(!map.ActiveMonsterPhaseBuff() && round == map.RoundGeneration(),
+        "disabling time removes buffs without reloading the map or resetting its round");
+    move(baseSpeed);
+    attack(1);
+}
+
+int hordeDraws{};
+float hordeDraw{.25f};
+void PopulationResources(std::map<std::string, std::string>& files)
+{
+    MusicResources(files);
+    files["maps/zbs_zs_deadend.cso"] = difficulty_test::Encrypt(
+        "metadata,0\r\nunused,0\r\nthreshold,100\r\nmoney,1\r\nexp,1\r\nunused,0\r\n"
+        "round,waveTypes,health,armor,speed,damage,range,interval,money,unused,music,playerSpawn\r\n"
+        "0,1,0,0,0,0,0,0,0,0,0,1\r\n"
+        "1,2,0,0,0,0,0,0,0,0,0,1\r\n");
+    files["maps/ZBS_TRG_zs_deadend.cso"] = difficulty_test::Encrypt(
+        "id,type,map trigger id,wave id,cool time,dest ratio,end wave\r\n"
+        "1,w,1,1,0,0,\r\n"
+        "1,g," + std::to_string(kick_world_test::WorldFixture::GoalTriggerId) + ",,0,100,\r\n"
+        "2,w,2,1,0,0,\r\n");
+    files["maps/zbs_wave_zs_deadend.cso"] = difficulty_test::Encrypt(
+        "waveID,spawnPoint,startTime,endTime,intervalTime,zombi,zombiRatio,eventmessage\r\n"
+        "1,1,0,100,1,1,1,\r\n"
+        "1,1,1,1,0,1,1,\r\n");
+}
+
+void MonsterPopulation()
+{
+    Settings(true, false, true);
+    Case c(PopulationResources);
+    NativeActor(c);
+    Restart(c);
+    auto* extra = c.f.engine.Reserve(2, "player");
+    auto* teammate = GetClassPtr<CCSPlayer>(reinterpret_cast<CBasePlayer*>(&extra->v));
+    extra->v.flags = FL_CLIENT | FL_FAKECLIENT;
+    extra->v.origin = Vector(1100, 1000, 128);
+    extra->v.health = 100;
+    teammate->m_iTeam = CT;
+    teammate->m_iJoiningState = JOINED;
+    teammate->m_bJustConnected = false;
+    teammate->has_disconnected = false;
+    AddEntityHashValue(&extra->v, STRING(extra->v.classname), CLASSNAME);
+    g_engfuncs.pfnRandomFloat = [](float low, float high)
+    {
+        if (low == 0 && high == 1)
+        {
+            ++hordeDraws;
+            return hordeDraw;
+        }
+        return low + (high - low) * .5f;
+    };
+    auto& map = c.f.session->Map();
+    auto& pool = c.f.session->Monsters();
+    auto& points = map.SpawnPoints().Points();
+    const auto expectCount = [&](float now, std::size_t count, unsigned quota, const char* label)
+    {
+        Tick(c, now);
+        const auto* point = points.FindMonsterPoint(TERRORIST, 1);
+        Require(point != nullptr, "actual authored spawn point remains registered");
+        std::cout << "population=" << pool.CategoryCount(0) << " quota=" << point->consumed
+                  << " hordeDraws=" << hordeDraws << '\n';
+        Expect(pool.CategoryCount(0) == count && point->consumed == quota, label);
+        for (std::size_t i = 0; i < CCSOLMonsterPool::Capacity; ++i)
+            if (auto* monster = pool.At(i); monster && pool.Borrowed(*monster))
+                monster->pev->origin = Vector(300.0f + float(i) * 100, 200, 128);
+    };
+    const auto retire = [&](int amount)
+    {
+        for (std::size_t i = 0; i < CCSOLMonsterPool::Capacity && amount; ++i)
+            if (auto* monster = pool.At(i); monster && pool.Borrowed(*monster))
+            {
+                Require(pool.BeginDeath(*monster, gpGlobals->time + 1, points) && pool.Free(*monster),
+                    "release a native pool slot and return its spawn point quota");
+                --amount;
+            }
+        Require(amount == 0, "enough borrowed monsters to retire");
+    };
+    const auto activateWave = [&](float start)
+    {
+        auto& waves = map.Round().Waves();
+        Require(waves.ActiveWaves().empty(), "triggered round has prepared but inactive waves");
+        const Vector outside = c.player.pev->origin;
+        c.player.pev->origin = Vector(4, 0, 0);
+        for (int i = 0; i < c.f.engine.globals.maxClients && waves.ActiveWaves().empty(); ++i)
+            Tick(c, start + float(i + 1) / 1024);
+        c.player.pev->origin = outside;
+        Require(waves.ActiveWaves().size() == 1 && waves.ActiveWaves().front() == 1,
+            "real player scan activates the authored TRG wave");
+    };
+    expectCount(120, 0, 0, "preparation thaw does not dispatch an early wave");
+    activateWave(120);
+    expectCount(120.625f, 1, 1, "noon admits one ordinary monster for one human despite a fake client");
+    // A wave dispatch at .625 schedules its next check for 1.125.
+    expectCount(121.25f, 2, 2, "an ordinary one-shot bypasses the limit and a throttled repeat spends no quota");
+    expectCount(122, 2, 2, "dusk limit is its base plus one real player");
+    extra->v.flags &= ~FL_FAKECLIENT;
+    expectCount(123, 3, 3, "a second real player increases the very next wave allowance");
+    teammate->m_iTeam = SPECTATOR;
+    expectCount(124, 3, 3, "spectating removes the extra allowance without despawning a live monster");
+    expectCount(125, 3, 3, "night starts with its ordinary allowance");
+    expectCount(126, 3, 3, "first night lottery waits for its configured interval");
+    Expect(hordeDraws == 0, "no probability draw exists before the first night deadline");
+    expectCount(127, 4, 4, "a successful night lottery admits an extra native spawn");
+    expectCount(128, 5, 5, "the horde allows native points to refill to the increased cap");
+    Expect(hordeDraws == 1, "a running horde performs no second draw");
+    expectCount(129, 5, 5, "horde expiry leaves the existing monsters alive");
+    retire(2);
+    expectCount(130, 3, 3, "expiry restores the original night cap for future spawns");
+    hordeDraw = .9f;
+    expectCount(131, 3, 3, "a failed roll leaves the night allowance unchanged");
+    Expect(hordeDraws == 2, "the cooldown starts at horde expiry and performs one draw");
+    c.f.engine.Set("csol_custom_horde_probability", "0");
+    c.f.engine.Set("csol_custom_night_zombie_base", "2.5");
+    expectCount(132, 3, 3, "a fractional console cap falls back to the saved whole number");
+    expectCount(133, 3, 3, "zero probability suppresses the next horde");
+    Expect(hordeDraws == 2, "zero probability needs no game RNG call");
+    c.f.engine.Set("csol_custom_horde_probability", "1");
+    expectCount(134, 3, 3, "changing probability preserves the next scheduled lottery");
+    expectCount(135, 4, 4, "probability one enables the horde without waiting for a draw");
+    Expect(hordeDraws == 2, "probability one needs no game RNG call");
+    c.f.engine.Set("csol_custom_horde_duration_seconds", "60");
+    c.f.engine.Set("csol_custom_midday_zombie_base", "0");
+    c.f.engine.Set("csol_custom_dusk_zombie_base", "0");
+    c.f.engine.Set("csol_custom_night_zombie_base", "0");
+    c.f.engine.Set("csol_custom_zombies_per_player", "0");
+    const auto challenge = Read(c).challenge;
+    auto& rules = *static_cast<CHalfLifeMultiplay*>(g_pGameRules);
+    const Vector outside = c.player.pev->origin;
+    c.player.pev->origin = kick_world_test::WorldFixture::GoalTriggerCenter;
+    for (int i = 0; i < gpGlobals->maxClients && !rules.m_bRoundTerminating; ++i)
+        Tick(c, 135 + float(i + 1) / 1024);
+    c.player.pev->origin = outside;
+    Require(rules.m_bRoundTerminating && rules.m_flRestartRoundTime > gpGlobals->time,
+        "the authored goal volume queues the next stage in GameRules");
+    const float nextStage = rules.m_flRestartRoundTime;
+    const auto menu = c.player.m_iMenu;
+    c.player.m_iMenu = Menu_ChooseAppearance;
+    Tick(c, nextStage);
+    c.player.m_iMenu = menu;
+    Require(map.RoundIndex() == 1 && Read(c).challenge == challenge &&
+        Read(c).time.phase == custom::Phase::Night, "ordinary completion carries the same night into stage two");
+    const float nextCombat = nextStage + 20;
+    expectCount(nextCombat, 0, 0, "ordinary stage preparation does not dispatch waves");
+    activateWave(nextCombat);
+    expectCount(nextCombat + .625f, 1, 1, "a running horde survives an ordinary stage change and raises the next cap");
+
+    auto* replay = static_cast<csol::IScenarioReplayService*>(CreateInterface(csol::ScenarioReplayServiceVersion, nullptr));
+    Require(replay && replay->RequestReplay(98), "the actual replay service accepts the current map");
+    const float replayStart = nextCombat + 1;
+    c.player.m_iMenu = Menu_ChooseAppearance;
+    Tick(c, replayStart);
+    c.player.m_iMenu = menu;
+    Require(map.RoundIndex() == 0 && Read(c).preparing && Read(c).challenge == challenge + 1 &&
+        Read(c).time.phase == custom::Phase::Noon, "same-map replay starts a new challenge in noon preparation");
+    Require(c.f.players->Prepare(c.player), "initialize the new challenge's player record after the fixture skipped respawn");
+    const float replayCombat = replayStart + 20;
+    expectCount(replayCombat, 0, 0, "same-map replay starts with an empty native pool");
+    activateWave(replayCombat);
+    expectCount(replayCombat + .625f, 0, 0, "replayed noon uses the configured cap without the previous horde");
+    expectCount(replayCombat + 1.25f, 1, 1, "same-map replay independently dispatches the one-shot");
+    expectCount(replayCombat + 2, 1, 1, "next challenge dusk has no inherited horde");
+    expectCount(replayCombat + 3, 1, 1, "the live zero dusk cap continues to block repeated spawns");
+    expectCount(replayCombat + 4, 1, 1, "dusk does not start a horde lottery");
+    expectCount(replayCombat + 5, 1, 1, "next challenge night does not inherit the still-unexpired horde");
+    expectCount(replayCombat + 6, 1, 1, "next challenge night waits for its own lottery");
+    expectCount(replayCombat + 7, 2, 2, "next challenge starts its own horde on the new deadline");
+    c.f.engine.Set("csol_custom_random_horde", "0");
+    expectCount(replayCombat + 8, 2, 2, "turning the horde off immediately restores the normal night cap");
+    c.f.engine.Set("csol_custom_time_cycle", "0");
+    expectCount(replayCombat + 9, 3, 3, "turning time off returns the same map to its native wave limit");
+}
 }
 namespace phase_sdk
 {
@@ -548,6 +880,8 @@ void Run(std::string_view group)
     else if(group=="hud-cancel")HudCancel();
     else if(group=="live-toggle"||group=="live-expiry"||group=="live-invalid"||group=="live-missing"||group=="live-missing-music"||group=="live-cancel")LiveControls(group);
     else if(group=="live-menu")LiveMenu();
+    else if(group=="monster-buffs")MonsterBuffs();
+    else if(group=="monster-population")MonsterPopulation();
     else sdk_test::Require(false,"known phase SDK group");
 }
 }

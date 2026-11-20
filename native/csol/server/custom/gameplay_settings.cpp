@@ -32,7 +32,20 @@ bool Available(custom::Feature feature)
     // Consumers register their capability as they are integrated. Publishing
     // a configuration flag alone cannot claim an unimplemented gameplay path.
     return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::DamageRefundCap ||
-        feature == custom::Feature::NightPlayerLights || feature == custom::Feature::CofSprint;
+        feature == custom::Feature::NightPlayerLights || feature == custom::Feature::CofSprint ||
+        feature == custom::Feature::DuskBuff || feature == custom::Feature::NightBuff ||
+        feature == custom::Feature::ZombiePopulation || feature == custom::Feature::RandomHorde;
+}
+
+std::optional<double> LiveNumber(custom::Setting id)
+{
+    const auto index = static_cast<std::size_t>(id);
+    const auto& descriptor = custom::Settings()[index];
+    const double value = variables[custom::FeatureCount + index].value;
+    if (!publishing && value >= descriptor.minimum && value <= descriptor.maximum &&
+        (descriptor.type != custom::ValueType::Integer || std::trunc(value) == value))
+        return value;
+    return current->Number(id);
 }
 
 template<std::size_t N> void Copy(char (&output)[N], std::string_view value)
@@ -253,6 +266,41 @@ bool CSOL_ReadTimeCycleControls(custom::TimeCycleControls& output)
         return false;
     output = {enabled == 1, {float(noon), float(dusk)}};
     return true;
+}
+custom::MonsterPhaseBuff CSOL_ReadMonsterPhaseBuff(custom::Phase phase)
+{
+    const bool night = phase == custom::Phase::Night;
+    if ((!night && phase != custom::Phase::Dusk) ||
+        !CSOL_CustomFeatureEnabled(night ? custom::Feature::NightBuff : custom::Feature::DuskBuff))
+        return {};
+
+    const auto number = [](custom::Setting id, float neutral)
+    { return static_cast<float>(LiveNumber(id).value_or(neutral)); };
+    return {number(night ? custom::Setting::NightSpeedMultiplier : custom::Setting::DuskSpeedMultiplier, 1),
+        night ? number(custom::Setting::NightDamageMultiplier, 1) : 1.0f,
+        number(night ? custom::Setting::NightRegenPerSecond : custom::Setting::DuskRegenPerSecond, 0)};
+}
+std::optional<custom::MonsterPopulationControls> CSOL_ReadMonsterPopulation(custom::Phase phase)
+{
+    if (phase == custom::Phase::Ended || !CSOL_CustomFeatureEnabled(custom::Feature::ZombiePopulation))
+        return {};
+    using Setting = custom::Setting;
+    const auto base = LiveNumber(phase == custom::Phase::Noon ? Setting::MiddayZombieBase :
+        phase == custom::Phase::Dusk ? Setting::DuskZombieBase : Setting::NightZombieBase);
+    const auto perPlayer = LiveNumber(Setting::ZombiesPerPlayer);
+    if (!base || !perPlayer) return {};
+
+    custom::MonsterPopulationControls result{static_cast<int>(*base), static_cast<int>(*perPlayer), {}};
+    if (phase == custom::Phase::Night && CSOL_CustomFeatureEnabled(custom::Feature::RandomHorde))
+    {
+        const auto interval = LiveNumber(Setting::HordeIntervalSeconds);
+        const auto probability = LiveNumber(Setting::HordeProbability);
+        const auto duration = LiveNumber(Setting::HordeDurationSeconds);
+        const auto extra = LiveNumber(Setting::HordeExtraZombies);
+        if (interval && probability && duration && extra)
+            result.horde = custom::HordeControls{*interval, *probability, *duration, static_cast<int>(*extra)};
+    }
+    return result;
 }
 bool CSOL_ReadNightLightingControls(custom::NightLightingConfig& output)
 {

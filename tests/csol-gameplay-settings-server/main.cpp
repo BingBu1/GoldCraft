@@ -131,7 +131,7 @@ void Init()
     const auto state = Status();
     Require(state.count == int(custom::FeatureCount + custom::SettingCount) && state.revision == 1 && !state.busy,
         "actual store initialization exposes the complete descriptor count and first revision");
-    Check(registrations == int(custom::FeatureCount + custom::SettingCount), "all11 feature plus37 numeric CVARs register once");
+    Check(registrations == int(custom::FeatureCount + custom::SettingCount), "all feature and numeric CVARs register once");
     const int before = registrations; CSOL_InitGameplaySettings();
     Check(registrations == before, "duplicate initialization does not recreate file owner or CVARs");
     CheckMirrors();
@@ -141,9 +141,16 @@ void Init()
         Check(field.id == id && field.key[0] && field.cvar[0] && field.comment[0], "every service field retains identity and explanation");
         if (id < int(custom::FeatureCount))
             Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::TimeCycle) || id == int(custom::Feature::DamageRefundCap) ||
-                id == int(custom::Feature::NightPlayerLights)), "only integrated feature capability is reported available");
+                id == int(custom::Feature::NightPlayerLights) || id == int(custom::Feature::CofSprint) ||
+                id == int(custom::Feature::DuskBuff) || id == int(custom::Feature::NightBuff) ||
+                id == int(custom::Feature::ZombiePopulation) || id == int(custom::Feature::RandomHorde)),
+                "only integrated feature capability is reported available");
     }
     csol::GameplaySetting field;
+    for (const auto& descriptor : custom::Settings())
+        if (descriptor.feature == custom::Feature::DuskBuff || descriptor.feature == custom::Feature::NightBuff)
+            Check(service->Read(int(custom::FeatureCount) + int(descriptor.id), field) &&
+                field.available && !field.nextMap, "monster buff numbers are editable in the current map");
     Check(!service->Read(-1, field) && !service->Read(state.count, field), "unknown field indices are rejected");
     Check(Disk()->Enabled(custom::Feature::Kick) == CSOL_CustomSettings()->Enabled(custom::Feature::Kick), "sole gameplay file and initial snapshot agree");
 }
@@ -174,8 +181,9 @@ void Negative()
         Check(service->Edit(1, 71, before.revision, 0, value) == Result::Failed, "boolean edit rejects nonfinite and nonboolean inputs");
     Check(service->Edit(1, 71, before.revision, int(custom::Feature::Mastery), 1) == Result::Unavailable,
         "uninstalled feature refuses activation instead of reporting gameplay ready");
-    Check(service->Edit(1, 71, before.revision, int(custom::Feature::CofSprint), 1) == Result::Unavailable,
-        "exposing installed time stages does not activate incomplete standalone movement");
+    csol::GameplaySetting sprint;
+    Check(service->Read(int(custom::Feature::CofSprint), sprint) && sprint.available && sprint.nextMap,
+        "admin can configure the installed sprint capability for the next map");
     timeReady = false;
     Check(service->Edit(1, 71, before.revision, int(custom::Feature::TimeCycle), 1) == Result::Unavailable,
         "missing prepared time resources cannot be activated through the menu");
@@ -279,6 +287,20 @@ void Writer()
     Wait(lights.revision, true);
     Check(Disk()->Enabled(custom::Feature::NightPlayerLights) && Disk()->Number(custom::Setting::NightPlayerLightRadius) == 192,
         "light toggle and radius are durable before process shutdown");
+    const auto beforeBuff = Status();
+    Require(service->Edit(1, 71, beforeBuff.revision, int(custom::Feature::NightBuff), 1) ==
+        csol::GameplayEditResult::Queued, "night buff uses the persistent administrator toggle");
+    Wait(beforeBuff.revision, true);
+    const auto beforeDamage = Status();
+    Require(service->Edit(1, 71, beforeDamage.revision,
+        int(custom::FeatureCount) + int(custom::Setting::NightDamageMultiplier), 1.5) ==
+        csol::GameplayEditResult::Queued, "night damage uses the persistent administrator numeric edit");
+    Wait(beforeDamage.revision, true);
+    Check(Disk()->Enabled(custom::Feature::NightBuff) &&
+        Disk()->Number(custom::Setting::NightDamageMultiplier) == 1.5 &&
+        CSOL_ReadMonsterPhaseBuff(custom::Phase::Night).damageMultiplier == 1.5f &&
+        CSOL_ReadMonsterPhaseBuff(custom::Phase::Dusk).damageMultiplier == 1,
+        "saved night settings take effect in the night controls only");
     Check(fs::exists(Target().parent_path() / "gameplay.json.bak1") && fs::exists(Target().parent_path() / "gameplay.json.bak2"), "actual Store creates bounded prior-file backups");
     CSOL_ShutdownGameplaySettings();
     Check(!CSOL_CustomSettings() && !policies.back(), "explicit cold shutdown drains worker and revokes policy");
@@ -299,6 +321,10 @@ void Reader()
         CSOL_CustomSettings()->Number(custom::Setting::NightPlayerLightRadius) == 192 &&
         cvars.at("csol_custom_night_player_light_radius").native->value == 192,
         "independent second process restores permanent light settings and cvar initialization");
+    Check(CSOL_CustomFeatureEnabled(custom::Feature::NightBuff) &&
+        cvars.at("csol_custom_night_damage_multiplier").native->value == 1.5f &&
+        CSOL_ReadMonsterPhaseBuff(custom::Phase::Night).damageMultiplier == 1.5f,
+        "independent second process restores the saved night buff and damage multiplier");
 }
 void Failure()
 {

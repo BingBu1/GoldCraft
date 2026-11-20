@@ -38,6 +38,11 @@ public:
     virtual bool OwnerCurrent() const = 0; // No engine/plugin callbacks.
 };
 
+inline bool CSOL_AppliesOrdinaryMonsterPhaseRules(const csol::scenario::MonsterType& type) noexcept
+{
+    return type.propensity == 0 && type.skill < 1000 && type.eventClass <= 149 && type.id != 32800;
+}
+
 class CSOLMonsterSpawnCall
 {
 public:
@@ -47,6 +52,17 @@ public:
         std::shared_ptr<const CCSOLMonsterSpawnOwner> owner = {});
     bool SameSession() const;
     bool BelongsTo(const CCSOLScenarioMap& map) const { return &m_map == &map; }
+    // Use only after resolving this call's current lease, with no callbacks in between.
+    const csol::scenario::custom::MonsterPhaseBuff& PhaseBuff(const CCSOLScenarioMonster& current) const noexcept
+    {
+        if (const auto* buff = m_map.ActiveMonsterPhaseBuff(); buff && m_roundGeneration == m_map.RoundGeneration())
+        {
+            const auto* type = current.Type();
+            if (type && CSOL_AppliesOrdinaryMonsterPhaseRules(*type))
+                return *buff;
+        }
+        return csol::scenario::custom::UnmodifiedMonsterBuff;
+    }
     // For cleaning up an entity just returned by an engine allocation after
     // this borrow/round was cancelled. Does not authorize gameplay callbacks.
     bool SameMap() const;
@@ -152,7 +168,8 @@ public:
         : m_map(map), m_pool(pool), m_models(models), m_occupancy(occupancy),
           m_deaths(deaths), m_services(services), m_messages(messages), m_owner(owner), m_hasOwner(owner != nullptr) {}
 
-    CSOLMonsterSpawnResult Spawn(int team, int requestedType, int point, int rowArgument);
+    CSOLMonsterSpawnResult Spawn(int team, int requestedType, int point, int rowArgument,
+        std::optional<std::size_t> ordinaryWaveLimit = {});
     // MP11384CF0: team1/type32800/rowArgument1, with a distinct follower flag.
     // Pin the immutable synthetic record until every pool borrow is reset.
     // Output is empty on every non-Spawned result; no global last-spawn slot.

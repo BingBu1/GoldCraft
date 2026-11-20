@@ -85,6 +85,7 @@ void CCSOLScenarioMap::Clear()
     m_monsterDrainTeam = 0;
     m_error = {};
     m_state = CSOLScenarioMapState::Empty;
+    m_monsterBuffRound = 0;
 }
 
 bool CCSOLScenarioMap::Fail(const char* message)

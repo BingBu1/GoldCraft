@@ -797,14 +797,17 @@ public:
         const auto round = m_runtime->session->Map().RoundGeneration();
         const bool ended = stopped || m_phase == Phase::Failed || m_phase == Phase::Completing ||
             m_phase == Phase::Complete || m_phase == Phase::FreePlay;
-        const auto value = m_timeCycle.Advance({m_runtime->Generation(), round}, gpGlobals->time,
-            m_phase == Phase::Playing && !m_bFreezePeriod && !m_bRoundTerminating, ended);
+        const bool combat = m_phase == Phase::Playing && !m_bFreezePeriod && !m_bRoundTerminating;
+        const auto value = m_timeCycle.Advance({m_runtime->Generation(), round}, gpGlobals->time, combat, ended);
         if (!value)
         {
             CSOL_RejectGameRules("Scenario custom challenge clock lost its current stage.");
             return false;
         }
         const auto runtime = m_runtime;
+        const auto monsterPhase = combat && !ended ? value->time.phase : custom::Phase::Ended;
+        runtime->session->Map().SetMonsterPhaseBuff(monsterPhase, CSOL_ReadMonsterPhaseBuff(monsterPhase), gpGlobals->time);
+        runtime->gameplay->SetPopulationPhase(value->time.phase);
         const auto environment = runtime->environment;
         const bool environmentUpdated = environment && environment->Update(runtime,
             value->challenge, value->time.phase, gpGlobals->time);

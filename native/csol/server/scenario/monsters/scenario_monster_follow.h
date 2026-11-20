@@ -109,4 +109,5 @@ private:
 bool CSOL_TrackMonsterPath(CSOLMonsterSpawnCall& call, const Vector& feet,
     const Vector& goal, float deltaTime, int moveType, bool crouching,
     bool jumping, std::int16_t skill, Vector2D& velocity,
-    float& moveYaw, float& turnSide, Vector& jumpGoal, Vector2D& facingDirection);
+    float& moveYaw, float& turnSide, Vector& jumpGoal, Vector2D& facingDirection,
+    bool traversingLadder = false);

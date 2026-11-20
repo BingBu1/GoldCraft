@@ -560,14 +560,15 @@ CSOLMonsterFollowResult CCSOLMonsterPathFollower::Advance(CSOLMonsterSpawnCall& 
     }
     if (!CSOL_TrackMonsterPath(call, feet, goal, deltaTime, motion.moveType,
         motion.crouching, motion.jumping, skill, motion.velocity,
-        motion.moveYaw, motion.turnSide, motion.jumpGoal, motion.facingDirection)) return Result::Failed;
+        motion.moveYaw, motion.turnSide, motion.jumpGoal, motion.facingDirection,
+        step.result == Result::Ladder || motion.climbSequence)) return Result::Failed;
     return step.result;
 }
 
 bool CSOL_TrackMonsterPath(CSOLMonsterSpawnCall& call, const Vector& feet,
     const Vector& goal, float deltaTime, int moveType, bool crouching,
     bool jumping, std::int16_t skill, Vector2D& velocity,
-    float& moveYaw, float& turnSide, Vector& jumpGoal, Vector2D& facingDirection)
+    float& moveYaw, float& turnSide, Vector& jumpGoal, Vector2D& facingDirection, bool traversingLadder)
 {
     #pragma clang fp contract(off)
     auto* monster = Active(call);
@@ -608,6 +609,9 @@ bool CSOL_TrackMonsterPath(CSOLMonsterSpawnCall& call, const Vector& feet,
         }
         float acceleration = moveType == 0 ? 0.0f : crouching ? 250.0f : moveType == 1 ? 500.0f : 1000.0f;
         if (monster->pev->maxspeed >= 300.0f && skill != 1) acceleration = 1200.0f;
+        const float multiplier = call.PhaseBuff(*monster).speedMultiplier;
+        if (multiplier != 1.0f && !traversingLadder && monster->SpeedState().UsingBaseSpeed(*monster->pev))
+            acceleration *= multiplier;
         const float amount = acceleration * deltaTime;
         accelerated.x += delta.x * amount;
         accelerated.y += delta.y * amount;

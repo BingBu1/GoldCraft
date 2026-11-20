@@ -48,6 +48,9 @@ struct CSOLMonsterSpeedState
         const Vector& currentVelocity, float now);
     void RemoveEffect(int id);
     bool UpdateMaxSpeed(entvars_t& vars, float now);
+    // Fixed skill speeds and original speed/velocity effects keep priority.
+    bool UsingBaseSpeed(const entvars_t& vars) const noexcept
+    { return vars.maxspeed == baseSpeed && boostUntil == 0.0 && limits.empty() && effects.empty(); }
     // Mode15 ordinary-monster branch. The scalar pass and the vector pass
     // deliberately have different equal-priority behavior.
     bool ApplyVelocityEffects(const Vector& input, float maxSpeed, float now, Vector& output);

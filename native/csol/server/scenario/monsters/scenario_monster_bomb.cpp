@@ -93,8 +93,9 @@ bool CSOL_UseMonsterZombieBomb(CSOLMonsterSpawnCall& call, CSOLOrdinaryMonsterSt
     const Vector eye = current()->pev->origin + Vector(0, 0, appearance->eyesZ);
     const Vector origin = eye + direction * 16.0f;
     const Vector launch = direction * std::min(750.0f, distance * 0.7f);
-    if (!CSOL_CreateMonsterZombieBomb(call, runtime, origin, launch,
-        spawn.attributes.attackDamage, error) || !current()) return false;
+    // Capture the launch phase in the projectile's existing damage field.
+    const float damage = call.PhaseBuff(*current()).ScaleDamage(spawn.attributes.attackDamage);
+    if (!CSOL_CreateMonsterZombieBomb(call, runtime, origin, launch, damage, error) || !current()) return false;
     // Unlike skill8, this helper neither stops movement nor resets findPath.
     return finish();
 }

@@ -13,6 +13,8 @@ using namespace sdk_test;
 using csol::scenario::ConfigError;
 struct WorldFixture
 {
+    static constexpr int GoalTriggerId = 30;
+    inline static const Vector GoalTriggerCenter{1200, 1000, 128};
     std::unique_ptr<Engine> storage=std::make_unique<Engine>();
     Engine& e=*storage;
     Engine& engine=e;
@@ -69,14 +71,17 @@ struct WorldFixture
         if(spawnResult!=0||CSOL_RulesRejected())
             std::cerr<<"world rejection: "<<CSOL_RulesRejectionReason()<<'\n';
         Require(spawnResult==0&&!CSOL_RulesRejected(),"actual world installs and precaches Combat rules");
-        for(const char* name:{"playerspawn","zombiespawn","zbstrigger"})for(int id:{1,2,30})
+        for(const char* name:{"playerspawn","zombiespawn","zbstrigger"})for(int id:{1,2,GoalTriggerId})
         {
             if(std::strcmp(name,"zbstrigger")&&id!=1)continue;
             auto* ed=Engine::Create(Engine::String(name));
             if(auto* p=dynamic_cast<CCSOLPlayerSpawn*>(CBaseEntity::Instance(ed))){p->m_iId=id;p->m_iTeam=CT;}
             if(auto* p=dynamic_cast<CCSOLMonsterSpawn*>(CBaseEntity::Instance(ed))){p->m_iId=id;p->m_iTeam=TERRORIST;p->m_iMaxSpawn=5;}
             if(auto* p=dynamic_cast<CCSOLScenarioTrigger*>(CBaseEntity::Instance(ed))){p->m_iId=id;ed->v.model=Engine::String("*1");}
-            Require(e.api.pfnSpawn(ed)==0,"real map marker Spawn");ed->v.mins=Vector(-8,-8,-8);ed->v.maxs=Vector(8,8,8);
+            Require(e.api.pfnSpawn(ed)==0,"real map marker Spawn");
+            const Vector center = id == GoalTriggerId ? GoalTriggerCenter : Vector(0, 0, 0);
+            ed->v.mins = center - Vector(8, 8, 8);
+            ed->v.maxs = center + Vector(8, 8, 8);
         }
         e.api.pfnServerActivate(e.edicts.data(),e.nextEntity,e.globals.maxClients);
         Require(!CSOL_RulesRejected(),"actual ServerActivate enters Ready Combat");

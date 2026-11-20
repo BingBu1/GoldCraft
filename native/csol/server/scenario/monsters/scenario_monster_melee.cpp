@@ -115,7 +115,7 @@ CSOLMonsterMeleeResult CSOL_TryOrdinaryMonsterMelee(CSOLMonsterSpawnCall& call,
     if (damageSuppressed) return Result::Hit;
     victim = target.Get<CBaseEntity>();
     if (!victim) return Result::Miss;
-    float damage = state.attributes.attackDamage;
+    float damage = call.PhaseBuff(*monster).ScaleDamage(state.attributes.attackDamage);
     if (boostUntil > gpGlobals->time) damage += 10.0f;
     if (!std::isfinite(damage)) return Result::Failed;
     // The original default-context wrapper reaches this virtual damage call
