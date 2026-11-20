@@ -2,6 +2,7 @@
 #define FIXTURE_RESOURCE_READER
 #include "native/csol/client/scenario/core/human_kick.cpp"
 #include "native/csol/client/scenario/core/night_player_lights.cpp"
+#include "native/guest/cof/light_equipment.hpp"
 #include "tests/csol-challenge-hud/ui_fixture.hpp"
 #include "native/csol/client/resource_font_memory.hpp"
 #include "tests/csol-hud-style/allocation_probe.hpp"
@@ -10,6 +11,7 @@ namespace test_hint
 {
 std::vector<std::byte> fontBytes;
 unsigned reads{};
+bool lanternOwned{};
 cl_entity_t localPlayer{}, viewModel{};
 pfnUserMsgHook nightMessage{};
 unsigned nativeImpulses{}, kickCommands{};
@@ -30,6 +32,7 @@ namespace csol::client
 bool BuyMenuVisible(){return false;}
 bool CharacterMenuVisible(){return false;}
 bool ScenarioMapVoteVisible(){return false;}
+bool OwnsLantern() { return test_hint::lanternOwned; }
 float HudStyleScale(){return 1;}
 void InitializeHumanKickAnimation(){}
 void ResetHumanKickAnimation(){}
@@ -63,9 +66,10 @@ int main(int argc,char** argv)
     Check(nightPacket && test_hint::nightMessage, "the real hand light receives a night policy");
     test_hint::nightMessage(custom::NightLightingMessage, int(nightPacket->size()), nightPacket->data());
 
-    model_t rifle{}, flashlight{};
+    model_t rifle{}, flashlight{}, lantern{};
     std::strcpy(rifle.name, "models/v_ak47.mdl");
     std::strcpy(flashlight.name, custom::NightFlashlightView);
+    std::strcpy(lantern.name, guest::cof::light::Lantern.view);
     test_hint::viewModel.model = &rifle;
     HumanKickFrame();DrawHumanKick(0,0);Paint();Check(fake.fills==1&&fake.texts==2,"actual Paint renders F key and hint");
     engine.Cmd_Argc = [] { return 2; };
@@ -93,6 +97,19 @@ int main(int argc,char** argv)
     Check(test_hint::nativeImpulses == 1 && test_hint::kickCommands == 2 && fake.fills == 2 &&
         (test_hint::localPlayer.curstate.effects & EF_DIMLIGHT),
         "switching from the lit flashlight to a rifle restores the kick command and hint");
+    test_hint::lanternOwned = true;
+    test_hint::viewModel.model = &lantern;
+    Impulse();
+    DrawHumanKick(0, 0); Paint();
+    Check(test_hint::nativeImpulses == 2 && test_hint::kickCommands == 2 && fake.fills == 2,
+        "the lantern only forwards F while held");
+
+    test_hint::viewModel.model = &rifle;
+    Impulse();
+    DrawHumanKick(0, 0); Paint();
+    Check(test_hint::nativeImpulses == 2 && test_hint::kickCommands == 3 && fake.fills == 3,
+        "the carried lantern cannot steal F after returning to the rifle");
+    test_hint::lanternOwned = false;
     for(auto [w,h]:{std::pair{640,480},{800,600},{1280,720},{1920,1080},{1920,1200},{2560,1080},{3840,2160}})
     {
         fake.width=w;fake.height=h;DrawHumanKick(0,0);Paint();const auto layout=csol::scenario::custom::StaminaLayout(w,h);
