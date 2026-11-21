@@ -15,22 +15,31 @@ struct Session {auto Messages()const->::Messages{return{};}};
 struct Runtime {std::shared_ptr<Session> session=std::make_shared<Session>();struct {int alive{},total{};bool valid{};}ctCounts;};
 struct CBasePlayer {bool spawnable=true;};
 struct Global {float time=100;}globals,*gpGlobals=&globals;
-enum class Phase {Waiting,Starting,Playing,Failed};
+enum class Phase {Waiting,Starting,Playing,Completing};
+constexpr int WINSTATUS_TERRORISTS = 2;
 struct Rules {
     std::shared_ptr<Runtime> m_runtime=std::make_shared<Runtime>();
-    Phase m_phase=Phase::Playing;bool m_completing{},m_applyingFinish{},m_bFreezePeriod{},m_bCompleteReset{},m_bRoundTerminating{};
-    int m_aliveCt{},m_iNumSpawnableCT{},alive{},dead=1;float m_flRestartRoundTime=55;
+    Phase m_phase=Phase::Playing;bool m_completing{},m_applyingFinish{},m_bFreezePeriod{},m_bCompleteReset{},m_bRoundTerminating{},m_completionLocked{};
+    int m_aliveCt{},m_iNumSpawnableCT{},m_iNumTerroristWins{},winStatus{},alive{},dead=1;float m_flRestartRoundTime=55;
     bool ready=true,selected=true,owns=true;std::array<CBasePlayer,1> players{};
     bool SelectionReady()const{return selected;}bool Ready()const{return ready;}bool OwnsRules()const{return owns;}
     void InitializePlayerCounts(int& aliveT,int& aliveCt,int& deadT,int& deadCt){aliveT=deadT=0;aliveCt=alive;deadCt=dead;}
     template<class F>void ForPlayers(F f){for(auto& p:players)f(p);}bool Spawnable(const CBasePlayer& p)const{return p.spawnable;}
+    void TerminateRound(float delay, int status)
+    {
+        winStatus = status;
+        m_flRestartRoundTime = gpGlobals->time + delay;
+        m_bRoundTerminating = true;
+    }
 #include "actual_rules.inc"
 };
 void Reset(){sent=rejects=0;sendResult=true;onSend={};}
 int main(){try{
-    Reset();Rules rules;rules.ScenarioCheckWinConditions();Check(sent==1&&rules.m_phase==Phase::Failed&&rules.m_bRoundTerminating&&rules.m_flRestartRoundTime==0,"all-dead transition sends one failure");
+    Reset();Rules rules;rules.ScenarioCheckWinConditions();Check(sent==1 && rules.m_phase==Phase::Completing && rules.m_bRoundTerminating &&
+        rules.m_completionLocked && rules.m_iNumTerroristWins==1 && rules.winStatus==WINSTATUS_TERRORISTS &&
+        rules.m_flRestartRoundTime==107, "all-dead transition sends one failure and arms the seven-second finish policy");
     for(int i=0;i<100;++i)rules.ScenarioCheckWinConditions();Check(sent==1,"later Think cannot reset failure fade");
-    Reset();Rules reentered;onSend=[&]{Check(reentered.m_phase==Phase::Failed,"phase commits before send callback");reentered.ScenarioCheckWinConditions();};
+    Reset();Rules reentered;onSend=[&]{Check(reentered.m_phase==Phase::Completing && reentered.m_flRestartRoundTime==107,"phase and deadline commit before send callback");reentered.ScenarioCheckWinConditions();};
     reentered.ScenarioCheckWinConditions();Check(sent==1,"send callback reentry cannot duplicate overlay");
     Reset();Rules failed;sendResult=false;failed.ScenarioCheckWinConditions();Check(sent==1&&rejects==1,"current failed send rejects rules accurately");
     for(int invalid=0;invalid<4;++invalid){Reset();Rules changed;sendResult=false;onSend=[&]{

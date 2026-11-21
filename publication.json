@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-21_修复-蝗虫图复活与跨图模型错配-report.md",
     "native/client/scenario_key_defaults.cpp",
     "native/client/scenario_key_defaults.hpp",
     "tests/client-launcher-managed/studio_catalog.cpp",

@@ -951,18 +951,20 @@ public:
         }
         else if (m_phase == Phase::Playing && !m_bFreezePeriod && m_aliveCt == 0)
         {
-            // This is a scenario failure, never a native terrorist victory.
-            // Continuation/final-result policy is owned by the scenario mode.
-            m_phase = Phase::Failed;
-            m_bRoundTerminating = true;
-            m_flRestartRoundTime = 0;
+            // MP 11381350 -> 1138B240 uses a seven-second final loss
+            // when the team has no retry item. Hand the deadline to the
+            // host's finish policy so observers can enter the next game.
+            m_phase = Phase::Completing;
+            m_completionLocked = true;
+            m_iNumTerroristWins = 1;
+            TerminateRound(7.0f, WINSTATUS_TERRORISTS);
             // Publish the original round-fail overlay once, on the phase
             // transition. Repeated Think calls must not restart its fade.
             const auto session = runtime->session;
             const auto messages = session->Messages();
             const bool notified = messages.SendRoundOutcome(false);
             if (Ready() && m_runtime == runtime && runtime->session == session &&
-                m_phase == Phase::Failed && !notified)
+                m_phase == Phase::Completing && !notified)
                 CSOL_RejectGameRules("Scenario failure message failed.");
         }
     }
@@ -1110,13 +1112,14 @@ public:
         m_freezeUntil = now + freeze;
         m_itemsPrepared = false;
         if (!UpdateSpawnCapacity(nextRound) || !oldRoundCurrent()) return;
-        const bool started = gameplay->BeginRound(nextRound, now, freeze, *this, replay.get());
-        if (!ownerCurrent()) return;
-        if (!started)
+        if (!gameplay->BeginRound(nextRound, now, freeze, *this, replay.get()))
         {
-            FailGameplay();
+            // A setup error clears gameplay's Active flag before returning.
+            if (OwnsRules() && m_runtime == runtime && runtime->session == session &&
+                runtime->gameplay == gameplay && !CSOL_RulesRejected()) FailGameplay();
             return;
         }
+        if (!ownerCurrent()) return;
         if (session->Map().RoundGeneration() != previousRound + 1 ||
             session->Map().RoundIndex() != nextRound || m_pendingRound != pending) return;
         const auto elites = runtime->eliteManager;
@@ -1732,6 +1735,11 @@ public:
         const auto events = m_runtime->waveEvents;
         csol::scenario::ConfigError status;
         if (Check(status)) events->BeforeSpatialWaveEnd(id);
+    }
+    bool DrainOrdinaryMonsters(csol::scenario::ConfigError& error) override
+    {
+        const auto events = m_runtime->waveEvents;
+        return Check(error) && events->DrainOrdinaryMonsters(error);
     }
     void WavesChanged(std::span<const std::uint16_t> active) override
     {

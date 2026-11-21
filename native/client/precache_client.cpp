@@ -534,6 +534,10 @@ CRC* model_crc(model_t* model) {
     return index < 1024 ? original_crcs + index : &extra_models[index - 1024]->crc;
 }
 
+bool reusable_model_slot(const model_t& model) noexcept {
+    return model.needload == 2 && model.type != mod_studio && model.type != mod_alias;
+}
+
 model_t* __cdecl find_model(int crc, const char* name) {
     if (!extended) return find_model_original(crc, name);
     if (!name || !*name || std::strlen(name) >= sizeof(model_t::name))
@@ -542,12 +546,17 @@ model_t* __cdecl find_model(int crc, const char* name) {
     for (auto& c : key) c = char(std::tolower(static_cast<unsigned char>(c)));
     const auto known = models_by_name.find(key);
     if (known != models_by_name.end()) return known->second;
+    const int original_count = *original_model_count;
     bool reusable = false;
-    for (int i = 0; i < *original_model_count; ++i) {
-        if (!_stricmp(original_models[i].name, name)) return models_by_name[key] = original_models + i;
-        reusable |= original_models[i].needload == 2;
+    for (int i = 0; i < original_count; ++i) {
+        const auto& model = original_models[i];
+        if (!_stricmp(model.name, name)) return models_by_name[key] = original_models + i;
+        reusable |= reusable_model_slot(model);
     }
-    if (*original_model_count < 1024 || reusable) {
+    // hw 10210 Mod_FindName prefers a non-Studio/alias slot at capacity.
+    // Its fallback renames a Studio/alias slot without releasing its cache.
+    // Keep that owner's name and let the existing extension hold the new one.
+    if (original_count < 1024 || reusable) {
         // Remove the old key if Mod_FindName reuses an original cache object.
         auto* result = find_model_original(crc, name);
         for (auto it = models_by_name.begin(); it != models_by_name.end(); )
@@ -560,7 +569,7 @@ model_t* __cdecl find_model(int crc, const char* name) {
     Model* entry = nullptr;
     while (!reusable_models.empty() && !entry) {
         auto* candidate = reusable_models.back(); reusable_models.pop_back();
-        if (candidate->model.needload == 2) entry = candidate;
+        if (reusable_model_slot(candidate->model)) entry = candidate;
     }
     if (!entry) {
         auto value = std::make_unique<Model>();
@@ -568,8 +577,6 @@ model_t* __cdecl find_model(int crc, const char* name) {
         extra_model_indices.emplace(&entry->model, unsigned(extra_models.size()));
         extra_models.push_back(std::move(value));
     }
-    if (entry->model.cache.data && (entry->model.type == mod_studio || entry->model.type == mod_alias))
-        cache_free(&entry->model.cache);
     std::string old_key(entry->model.name);
     for (auto& c : old_key) c = char(std::tolower(static_cast<unsigned char>(c)));
     models_by_name.erase(old_key);
@@ -652,8 +659,7 @@ void __cdecl clear_models() {
             model.needload = 2;
         }
         if (model.type == mod_sprite) model.cache.data = nullptr;
-        if (model.needload == 2 && model.type != mod_studio && model.type != mod_alias)
-            reusable_models.push_back(entry.get());
+        if (reusable_model_slot(model)) reusable_models.push_back(entry.get());
         std::string key(model.name);
         for (auto& c : key) c = char(std::tolower(static_cast<unsigned char>(c)));
         models_by_name.emplace(std::move(key), &model);
@@ -717,6 +723,14 @@ Sound* __cdecl find_sound(const char* name, int* cached) {
     return sounds_by_name[name] = spare;
 }
 
+model_t* __cdecl bind_lazy_model(int crc, const char* name) {
+    auto* model = find_model(crc, name);
+    // Both precache branches store this pointer in the current network table.
+    // State 1 keeps native first-use loading and prevents recycling the slot.
+    if (extended && model && model->needload == 2) model->needload = 1;
+    return model;
+}
+
 // Host hw.dll 10210 (identity in precache_10210.json), precache loop at RVA
 // 0x1a462b: when fs_lazy_precache is set, a non-map model is only registered
 // with Mod_FindName(1, name) instead of Mod_ForName(name, 0, 1), and
@@ -729,7 +743,7 @@ model_t* __cdecl precache_model(const char* name, int crash, int crc) {
     if (extended && sync_verified && lazy_players && lazy_players->value != 0.f &&
         name && deferred_precache_name(name)) {
         ++deferred_models;
-        return find_model(1, name);
+        return bind_lazy_model(1, name);
     }
     return precache_for_name(name, crash, crc);
 }
@@ -1148,14 +1162,16 @@ bool install(metahook_api_t* value) {
         // push 1; push 0; push esi; call Mod_ForName, fifteen bytes after the
         // sibling lazy branch's call Mod_FindName. Check both before patching.
         auto* precache_call = static_cast<byte*>(resolve("precache_model_call", MH_GAMESYMBOL_KIND_PATCH));
+        auto* lazy_call = precache_call - 15;
         const byte precache_arguments[] = {0x6a, 0x01, 0x6a, 0x00, 0x56};
         if (*precache_call != 0xe8 || std::memcmp(precache_call - 5, precache_arguments, 5) != 0 ||
-            precache_call[-15] != 0xe8 || precache_call - 10 + *reinterpret_cast<int*>(precache_call - 14) !=
+            *lazy_call != 0xe8 || lazy_call + 5 + *reinterpret_cast<int*>(lazy_call + 1) !=
                 resolve("Mod_FindName", MH_GAMESYMBOL_KIND_FUNCTION))
             throw std::runtime_error("changed precache model CALL");
         precache_for_name = reinterpret_cast<decltype(precache_for_name)>(
             precache_call + 5 + *reinterpret_cast<int*>(precache_call + 1));
         wire_calls.emplace_back(precache_call, reinterpret_cast<void*>(precache_model));
+        wire_calls.emplace_back(lazy_call, reinterpret_cast<void*>(bind_lazy_model));
         static_parser_slot = resolve("static_parser_slot", MH_GAMESYMBOL_KIND_PATCH);
         if (*static_cast<void**>(static_parser_slot) != resolve("CL_ParseStatic", MH_GAMESYMBOL_KIND_FUNCTION))
             throw std::runtime_error("changed static entity parser");

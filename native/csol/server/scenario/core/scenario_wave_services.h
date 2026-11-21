@@ -25,6 +25,7 @@ public:
     bool Check(csol::scenario::ConfigError& error) const override;
     void WaveActivated(std::uint16_t id) override;
     void BeforeSpatialWaveEnd(std::uint16_t id) override;
+    bool DrainOrdinaryMonsters(csol::scenario::ConfigError& error) override;
     void WavesChanged(std::span<const std::uint16_t> active) override;
     void GoalReached() override;
     // Trusted registrations. Snapshot/token removal and recursive-dispatch

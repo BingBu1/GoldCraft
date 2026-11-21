@@ -33,6 +33,7 @@ struct Actions : TriggerActions
     std::function<void()> onEnd, onRefresh, onGoal;
     void ActivateWave(std::uint16_t id,float elapsed) override
     {events.push_back({'a',id,elapsed,false});active.push_back(id);if(callback)callback();}
+    void DrainOrdinaryMonsters() override { Check(false, "unexpected trigger monster drain"); }
     bool EndWave(std::uint16_t id,bool spatial) override
     {
         events.push_back({'e',id,0,spatial});auto found=std::find(active.begin(),active.end(),id);
@@ -85,7 +86,7 @@ void Parsing()
         Check(!ReadTriggerRules(bad,table,error)&&!error.message.empty(),"malformed or overflowing rule rejects with diagnostic");
         Check(table.source.sourceBytes==before&&table.rows.size()==4,"failed rule parse preserves previously committed table");
     }
-    TriggerRuleTable unsupported;Check(ReadTriggerRules(Header+"1,k,2,1,0,0,\n",unsupported,error),"unsupported execution command still structurally parsed");
+    TriggerRuleTable unsupported;Check(ReadTriggerRules(Header+"1,x,2,1,0,0,\n",unsupported,error),"unsupported execution command still structurally parsed");
     TriggerProgram program;Check(!program.Install(unsupported,Boxes({2}),1,error)&&!error.message.empty(),"runtime explicitly rejects unsupported group command");
 }
 void WaveExecution()
@@ -137,7 +138,7 @@ void EndOnlyAndOwnedRules()
     table=Table({Rule(1,1,'w',-2,0,{42},{7})});Install(program,table,volumes);
     table.rows[0].waves={99};table.rows[0].endWaves={88};table.rows.clear();table.groups.clear();actions.Clear();
     Check(program.CheckPlayer({0,0,0},0,2,actions).waveCommands==1&&actions.events[0].id==42&&actions.events[1].id==7,"installed runtime owns rule lists after source table mutation/destruction");
-    auto bad=Table({Rule(1,1,'k',-2,0,{90})});ConfigError error;actions.Clear();
+    auto bad=Table({Rule(1,1,'x',-2,0,{90})});ConfigError error;actions.Clear();
     Check(!program.Install(bad,volumes,1,error)&&!error.message.empty(),"unsupported group fails explicitly");
     Check(program.CheckPlayer({0,0,0},0,2,actions).waveCommands==1&&actions.events[0].id==42,"unsupported install keeps previous valid state and spatial order");
 }

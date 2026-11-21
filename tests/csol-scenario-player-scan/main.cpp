@@ -69,6 +69,7 @@ struct Actions:TriggerActions
     bool Current() const override { return observerValid && observerError.message.empty(); }
     int goals{},refresh{};std::vector<std::uint16_t> waves;std::function<void()> callback;
     void ActivateWave(std::uint16_t id,float)override{waves.push_back(id);if(callback)callback();}
+    void DrainOrdinaryMonsters() override { Check(false, "unexpected trigger monster drain"); }
     bool EndWave(std::uint16_t,bool)override{return false;}
     void RefreshWaves()override{++refresh;}
     void GoalReached()override{++goals;if(callback)callback();}

@@ -31,6 +31,11 @@ bool WaveTriggerActions::EndWave(std::uint16_t id, bool spatial)
     return waves_.EndWave(id);
 }
 
+void WaveTriggerActions::DrainOrdinaryMonsters()
+{
+    if (Valid()) current_ = events_.DrainOrdinaryMonsters(error_);
+}
+
 void WaveTriggerActions::RefreshWaves()
 {
     if (Valid()) events_.WavesChanged(waves_.ActiveWaves());

@@ -4,6 +4,7 @@
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_death_services.h"
+#include "scenario_gameplay.h"
 
 #include <algorithm>
 #include <bit>
@@ -102,6 +103,18 @@ void CCSOLScenarioWaveServices::BeforeSpatialWaveEnd(std::uint16_t)
     if (!deaths || !deaths->Golden().EmptyPlan())
         m_error.message = "scenario spatial wave end requires the loaded Golden plan consumer";
     // Empty pending plans have no record to erase or candidate to reschedule.
+}
+
+bool CCSOLScenarioWaveServices::DrainOrdinaryMonsters(csol::scenario::ConfigError& error)
+{
+    const auto runtime = Pin();
+    const auto gameplay = runtime ? runtime->gameplay : nullptr;
+    if (!gameplay || !gameplay->Active()) return false;
+
+    auto result = gameplay->Deaths().Drain(static_cast<std::int32_t>(CCSOLMonsterPool::Capacity), false);
+    if (Pin() != runtime || runtime->gameplay != gameplay || !gameplay->Active()) return false;
+    error = std::move(result.error);
+    return result.valid;
 }
 
 void CCSOLScenarioWaveServices::WavesChanged(std::span<const std::uint16_t>)

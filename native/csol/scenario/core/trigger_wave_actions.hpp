@@ -18,6 +18,11 @@ public:
     virtual bool Check(ConfigError& error) const = 0;
     virtual void WaveActivated(std::uint16_t id) = 0;
     virtual void BeforeSpatialWaveEnd(std::uint16_t id) = 0;
+    virtual bool DrainOrdinaryMonsters(ConfigError& error)
+    {
+        error.message = "scenario trigger has no monster death service";
+        return false;
+    }
     virtual void WavesChanged(std::span<const std::uint16_t> active) = 0;
     virtual void GoalReached() = 0;
 };
@@ -33,6 +38,7 @@ public:
         : waves_(waves), schedule_(schedule), events_(events) {}
     void ActivateWave(std::uint16_t id, float elapsed) override;
     bool EndWave(std::uint16_t id, bool spatial) override;
+    void DrainOrdinaryMonsters() override;
     void RefreshWaves() override;
     void GoalReached() override;
     const ConfigError& Error() const { Current(); return error_; }

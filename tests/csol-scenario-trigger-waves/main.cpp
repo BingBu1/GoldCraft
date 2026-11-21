@@ -41,6 +41,11 @@ struct Events final : TriggerWaveEvents
     { log.push_back({kind, id, Copy(waves.ActiveWaves()), schedule.nextThink}); if (callback) callback(kind); }
     void WaveActivated(std::uint16_t id) override { Add('a', id); }
     void BeforeSpatialWaveEnd(std::uint16_t id) override { Add('e', id); }
+    bool DrainOrdinaryMonsters(ConfigError& error) override
+    {
+        Add('k');
+        return Check(error);
+    }
     void WavesChanged(std::span<const std::uint16_t> active) override
     { ::Check(Copy(active) == Copy(waves.ActiveWaves()), "refresh observer receives current actual controller list"); Add('r'); }
     void GoalReached() override { Add('g'); }
@@ -117,6 +122,50 @@ void EndsAndMissing()
     const auto tick = controller.Tick(10, Noop, nullptr);
     Check(tick.valid && tick.finished && controller.ActiveWaves().empty(), "actual controller removes missing work on next tick");
 }
+void ClearsOrdinaryMonsters()
+{
+    for (const bool spatial : {false, true})
+    {
+        const auto table = Waves();
+        WaveController controller;
+        Initialize(controller, table, {7, 8, 7});
+        WaveSchedule schedule{};
+        Events events(controller, schedule);
+        WaveTriggerActions actions(controller, schedule, events);
+        TriggerProgram program;
+        Install(program, {Rule(1, 'k', 0, {9}, {7, 99})});
+        const auto fire = [&](float elapsed)
+        {
+            return spatial ? program.CheckPlayer({0, 0, 0}, elapsed, 2, actions)
+                           : program.ExecuteTrigger(1, elapsed, 2, actions);
+        };
+        const auto first = fire(0);
+        Check(first.valid && first.waveCommands == 1 && actions.Valid(), "clear command runs through both entry points");
+        Check(events.log.size() == 2 && events.log[0].kind == 'k' && events.log[1].kind == 'r',
+            "clear drains before refresh without activation or Golden wave-end notification");
+        Check(!events.log.empty() && events.log[0].active == std::vector<std::uint16_t>{8, 7},
+            "clear drains after removing the first matching wave");
+        Check(fire(10).waveCommands == 0 && events.log.size() == 2,
+            "one-shot clear cannot run a second time");
+    }
+
+    WaveController controller;
+    Initialize(controller, Waves());
+    WaveSchedule schedule{};
+    Events events(controller, schedule);
+    WaveTriggerActions actions(controller, schedule, events);
+    TriggerProgram program;
+    Install(program, {Rule(2, 'k', 0, {}, {404})});
+    events.callback = [&](char kind)
+    {
+        if (kind == 'k') events.observerError.message = "death service failed";
+    };
+    const auto result = program.ExecuteTrigger(2, 0, 2, actions);
+    Check(!result.valid && program.UsedTriggers().empty() && events.log.size() == 1,
+        "clear still drains with no active match and does not consume a failed one-shot");
+    Check(actions.Error().message == "death service failed", "clear propagates the death service error");
+}
+
 void Goals()
 {
     const auto waves = Waves(); WaveController controller; Prepare(controller, waves, {7});
@@ -365,7 +414,7 @@ int main(int argc, char** argv)
 {
     try
     {
-        if (argc == 1) { RepeatAndOrder(); EndsAndMissing(); Goals(); Failures(); ObserverFailures(); RuntimeAbsentIntegration(); }
+        if (argc == 1) { RepeatAndOrder(); EndsAndMissing(); ClearsOrdinaryMonsters(); Goals(); Failures(); ObserverFailures(); RuntimeAbsentIntegration(); }
         else if (argc == 6 && std::string_view(argv[1]) == "--actual") Actual(argv[2], argv[3], argv[4], argv[5]);
         else throw std::runtime_error("usage: trigger_waves_tests [--actual encryptedTRG decodedTRG independentTRUL encryptedWave]");
     }

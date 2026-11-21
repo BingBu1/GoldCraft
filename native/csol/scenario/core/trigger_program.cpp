@@ -41,7 +41,7 @@ bool TriggerProgram::Install(const TriggerRuleTable& table, const TriggerVolumes
                 return false;
             }
             const auto& rule = table.rows[index];
-            if (rule.command != 'w' && rule.command != 'g')
+            if (rule.command != 'w' && rule.command != 'g' && rule.command != 'k')
             {
                 if (rule.recordIndex < table.source.records.size())
                     error.byteOffset = table.source.records[rule.recordIndex].byteOffset;
@@ -111,15 +111,26 @@ bool TriggerProgram::Execute(State& state, float elapsed, bool spatial,
     if (!actions.Current()) return false;
     if (rule.cooldown == -1 || state.nextTime > elapsed) return false;
     state.nextTime = elapsed + static_cast<float>(rule.cooldown);
-    for (const auto wave : rule.waves)
+    const bool clearMonsters = rule.command == 'k';
+    if (!clearMonsters)
     {
-        actions.ActivateWave(wave, elapsed);
-        if (!actions.Current()) return false;
+        for (const auto wave : rule.waves)
+        {
+            actions.ActivateWave(wave, elapsed);
+            if (!actions.Current()) return false;
+        }
+        changed |= !rule.waves.empty();
     }
-    changed |= !rule.waves.empty();
     for (const auto wave : rule.endWaves)
     {
-        changed |= actions.EndWave(wave, spatial);
+        changed |= actions.EndWave(wave, spatial && !clearMonsters);
+        if (!actions.Current()) return false;
+    }
+    // MP 1139D870 stops the listed waves before draining ordinary monsters,
+    // including when none of those wave IDs is active.
+    if (clearMonsters)
+    {
+        actions.DrainOrdinaryMonsters();
         if (!actions.Current()) return false;
     }
     if (rule.cooldown == 0)
@@ -146,7 +157,7 @@ TriggerResult TriggerProgram::CheckPlayer(const std::array<float, 3>& origin, fl
     {
         if (!actions.Current()) { result.valid = false; return result; }
         auto& state = states_.at(id);
-        if (state.rule.command == 'w')
+        if (state.rule.command == 'w' || state.rule.command == 'k')
         {
             if (Execute(state, elapsed, true, actions, changed)) ++result.waveCommands;
         }
@@ -178,7 +189,8 @@ TriggerResult TriggerProgram::ExecuteTrigger(int id, float elapsed, int aliveCtC
         const bool reached = CountGoal(found->second, aliveCtCount, actions);
         return {actions.Current(), 0, reached};
     }
-    if (found->second.rule.command != 'w') return {true, 0, false};
+    const auto command = found->second.rule.command;
+    if (command != 'w' && command != 'k') return {true, 0, false};
     bool changed = false;
     const bool executed = Execute(found->second, elapsed, false, actions, changed);
     if (!actions.Current()) return {};

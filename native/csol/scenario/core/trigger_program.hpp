@@ -20,6 +20,7 @@ public:
     virtual bool Current() const = 0;
     virtual void ActivateWave(std::uint16_t id, float elapsed) = 0;
     virtual bool EndWave(std::uint16_t id, bool spatial) = 0;
+    virtual void DrainOrdinaryMonsters() = 0;
     virtual void RefreshWaves() = 0;
     virtual void GoalReached() = 0;
 };
@@ -31,7 +32,7 @@ struct TriggerResult
     bool goalReached{};
 };
 
-// Implements the w/g rules used by gametype1. Mode4 target ordering and other
+// Implements the w/g/k rules used by gametype1. Mode4 target ordering and other
 // commands remain separate; Install rejects unsupported commands in its group.
 class TriggerProgram
 {

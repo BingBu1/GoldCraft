@@ -474,6 +474,111 @@ void model_owner_tests() {
     original_models = nullptr; original_model_count = nullptr; enabled = false;
 }
 
+void model_slot_identity_tests() {
+    static std::array<model_t, 1024> originals;
+    static std::array<CRC, 1024> crcs;
+    static int count;
+    static unsigned native_calls;
+    reset_client();
+    valid_manifest();
+    original_models = originals.data();
+    original_crcs = crcs.data();
+    original_model_count = &count;
+    count = int(originals.size());
+    native_calls = 0;
+
+    // hw 10210 Mod_FindName (23E64E..23E709): the first unused slot
+    // is a fallback, and a non-Studio/alias candidate overrides it.
+    // Renaming resets CRC but does not release old Studio cache data.
+    find_model_original = [](int crc, const char* name) -> model_t* {
+        ++native_calls;
+        model_t* reuse = nullptr;
+        for (int i = 0; i < count; ++i) {
+            auto* model = &originals[i];
+            if (!_stricmp(model->name, name)) return model;
+            if (model->needload == 2 &&
+                (!reuse || (model->type != mod_studio && model->type != mod_alias)))
+                reuse = model;
+        }
+        auto* slot = count < int(originals.size()) ? &originals[count++] : reuse;
+        if (!slot) throw std::runtime_error("native model table full");
+        crcs[slot - originals.data()] = {crc, 0, 0};
+        std::strcpy(slot->name, name);
+        slot->needload = 1;
+        return slot;
+    };
+    auto& studio = originals[0];
+    studio.type = mod_studio;
+    std::strcpy(studio.name, "models/old.mdl");
+    studio.needload = 2;
+    studio.cache.data = &studio;
+    crcs[0] = {1, 1, 123};
+    check_sentinel(find_model(1, studio.name) == &studio, "known name retains its original owner");
+    auto* fresh = find_model(1, "models/new.mdl");
+    check_sentinel(fresh != &studio && !fresh->cache.data && native_calls == 0,
+                   "full table cannot give new name an old Studio header");
+    check_sentinel(!std::strcmp(studio.name, "models/old.mdl") && studio.cache.data == &studio &&
+                   crcs[0].initial == 123, "old Studio identity and CRC survive");
+    check_sentinel(find_model(1, "MODELS/NEW.MDL") == fresh, "new owner stays stable");
+
+    auto& sprite = originals[1];
+    sprite.type = mod_sprite;
+    sprite.needload = 2;
+    std::strcpy(sprite.name, "sprites/old.spr");
+    check_sentinel(find_model(0, sprite.name) == &sprite, "original sprite name is indexed");
+    check_sentinel(find_model(1, "sprites/new.spr") == &sprite &&
+                   native_calls == (fresh == &studio ? 2u : 1u), "safe native recycling remains available");
+    check_sentinel(find_model(1, "sprites/old.spr") != &sprite ||
+                   !std::strcmp(sprite.name, "sprites/old.spr"), "recycled name mapping is erased");
+
+    // A never-loaded deferred player has the initial brush type. When the
+    // next map binds it again, a subsequent name must not steal this slot.
+    auto& deferred = originals[2];
+    std::strcpy(deferred.name, "models/player/test/test.mdl");
+    deferred.needload = 2;
+    cvar_t toggle{};
+    toggle.value = 1;
+    lazy_players = &toggle;
+    sync_verified = true;
+    check_sentinel(precache_model(deferred.name, 0, 1) == &deferred && deferred.needload == 1,
+                   "binding the deferred player reserves its native slot");
+    check_sentinel(find_model(1, "models/next.mdl") != &deferred &&
+                   !std::strcmp(deferred.name, "models/player/test/test.mdl"),
+                   "later registration keeps the deferred player's network slot");
+
+    auto* extra = find_model(1, "models/network-lazy.mdl");
+    check_sentinel(model_index(extra) >= 1024, "extended slot was allocated");
+    const auto original_clear = clear_models_original;
+    clear_models_original = [] {};
+    clear_models();
+    clear_models_original = original_clear;
+    check_sentinel(extra->needload == 2 && bind_lazy_model(1, extra->name) == extra && extra->needload == 1,
+                   "native lazy branch reserves a reconnected extension slot");
+    const auto* next = find_model(1, "models/after-binding.mdl");
+    check_sentinel(next != extra && !std::strcmp(extra->name, "models/network-lazy.mdl"),
+                   "extension recycling skips the bound slot");
+    extra->needload = 0;
+    check_sentinel(bind_lazy_model(1, extra->name) == extra && extra->needload == 0,
+                   "lazy registration preserves a loaded model");
+
+    reset_client();
+    sprite.needload = 2;
+    check_sentinel(find_model(1, "sprites/stock.spr") == &sprite,
+                   "ordinary connections use the original allocator");
+    sprite.needload = 2;
+    check_sentinel(bind_lazy_model(1, sprite.name) == &sprite && sprite.needload == 2,
+                   "ordinary connections keep the original lazy registration state");
+    lazy_players = nullptr;
+    find_model_original = nullptr;
+    models_by_name.clear();
+    reusable_models.clear();
+    extra_models.clear();
+    extra_model_indices.clear();
+    original_models = nullptr;
+    original_crcs = nullptr;
+    original_model_count = nullptr;
+}
+
 // The reviewed precache CALL keeps the engine's eager Mod_ForName(name, 0, 1)
 // unless this admission was SHA-verified and the name is a player model; then
 // it takes the engine's own lazy registration, Mod_FindName(1, name).
@@ -789,6 +894,7 @@ int main(int argc, char** argv) {
     model_owner_tests();
     std::cout << "model ownership: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
     native_download_gate_tests();
+    model_slot_identity_tests();
     lazy_precache_tests();
     std::cout << "lazy precache: total " << sentinel_checks << " checks, " << sentinel_failures << " failures\n";
     manifest_ack_tests();

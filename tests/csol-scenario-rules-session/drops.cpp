@@ -596,6 +596,7 @@ struct ScanActions final : csol::scenario::TriggerActions
     bool Current() const override { return observerValid && observerError.message.empty(); }
     int waves{},refreshes{},goals{};std::function<void()> onWave;
     void ActivateWave(std::uint16_t,float) override {++waves;const auto callback=onWave;if(callback)callback();}
+    void DrainOrdinaryMonsters() override { Check(false, "unexpected trigger monster drain"); }
     bool EndWave(std::uint16_t,bool) override {return false;}
     void RefreshWaves() override {++refreshes;}
     void GoalReached() override {++goals;}

@@ -69,6 +69,7 @@ struct Actions : TriggerActions
     int ended{}, refreshed{}, goals{};
     bool Current() const override { return true; }
     void ActivateWave(std::uint16_t id, float) override { activated.push_back(id); }
+    void DrainOrdinaryMonsters() override { Check(false, "unexpected trigger monster drain"); }
     bool EndWave(std::uint16_t, bool) override { ++ended; return false; }
     void RefreshWaves() override { ++refreshed; }
     void GoalReached() override { ++goals; }

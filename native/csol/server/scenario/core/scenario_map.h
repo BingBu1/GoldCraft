@@ -142,6 +142,8 @@ private:
         bool Check(csol::scenario::ConfigError& error) const override;
         void WaveActivated(std::uint16_t id) override { csol::scenario::ConfigError error; if (Check(error)) m_events.WaveActivated(id); }
         void BeforeSpatialWaveEnd(std::uint16_t id) override { csol::scenario::ConfigError error; if (Check(error)) m_events.BeforeSpatialWaveEnd(id); }
+        bool DrainOrdinaryMonsters(csol::scenario::ConfigError& error) override
+        { return Check(error) && m_events.DrainOrdinaryMonsters(error) && Check(error); }
         void WavesChanged(std::span<const std::uint16_t> active) override;
         void GoalReached() override { csol::scenario::ConfigError error; if (Check(error)) m_events.GoalReached(); }
     private:
