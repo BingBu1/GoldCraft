@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "../custom/body_stains.h"
 #include "guest_cof_host.hpp"
 #include "guest_cof_light_equipment.hpp"
 #include "weapons.h"
@@ -561,6 +562,7 @@ void CTKnifeEx2::SecondaryAttack()
     EMIT_SOUND_DYN(m_pPlayer->edict(), CHAN_WEAPON, "weapons/tknifeex2_shoot1.wav", 0.5f, ATTN_NORM, 0, PITCH_NORM);
     UTIL_MakeVectors(m_pPlayer->pev->v_angle);
     const Vector source = m_pPlayer->GetGunPosition();
+    const CSOLBodyStainShot stain(m_pPlayer, source, this);
     const Vector forward = gpGlobals->v_forward;
     CBaseEntity* target = nullptr;
     while ((target = UTIL_FindEntityInSphere(target, source, 85.0f)))
@@ -572,7 +574,7 @@ void CTKnifeEx2::SecondaryAttack()
         UTIL_TraceLine(source, target->BodyTarget(source), dont_ignore_monsters, m_pPlayer->edict(), &trace);
         if (trace.pHit != target->edict()) continue;
         ClearMultiDamage();
-        target->TraceAttack(m_pPlayer->pev, 35.0f, delta.Normalize(), &trace, DMG_BULLET);
+        stain.TraceAttack(target, m_pPlayer->pev, 35.0f, delta.Normalize(), &trace, DMG_BULLET);
         ApplyMultiDamage(m_pPlayer->pev, m_pPlayer->pev);
         FleshSound(m_pPlayer);
     }

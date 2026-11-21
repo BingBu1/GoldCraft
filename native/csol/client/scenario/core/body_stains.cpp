@@ -4,6 +4,7 @@
 #include "../../../scenario/core/human_kick.hpp"
 #include "body_stains.hpp"
 #include "body_stain_atlas.hpp"
+#include "../../../scenario/custom/monster_stains.hpp"
 #include <IMetaRendererStudioStain.h>
 #include <algorithm>
 
@@ -13,6 +14,15 @@ namespace
 {
 namespace custom = scenario::custom;
 IMetaRendererStudioStain* renderer{};
+IMetaRendererStudioContactStain* contactRenderer{};
+struct MonsterMarks
+{
+    unsigned id{}, count{};
+    std::array<custom::MonsterStain, custom::MonsterStainMax> hits;
+};
+std::array<MonsterMarks, custom::BodyStainSlotCount> monsterStains{};
+static_assert(custom::MonsterStainMax == goldcraft::studio_stain::MaxContacts);
+bool contactQueryInstalled{};
 std::array<GLuint, custom::BodyStainLayerCount> textures{};
 const cl_entity_t* viewEntity{};
 const model_t* viewDrawBaseModel{};
@@ -143,12 +153,18 @@ void InitializeBodyStains() noexcept
     if (!module) module = api->GetPluginModuleHandleByBaseFileName("Renderer_AVX2");
     const auto factory = module ? Sys_GetFactory(module) : nullptr;
     if (factory)
+    {
         renderer = static_cast<IMetaRendererStudioStain*>(factory(METARENDERER_STUDIO_STAIN_INTERFACE_VERSION, nullptr));
+        contactRenderer = static_cast<IMetaRendererStudioContactStain*>(
+            factory(METARENDERER_STUDIO_CONTACT_STAIN_INTERFACE_VERSION, nullptr));
+    }
 }
 
 void ResetBodyStains() noexcept
 {
     SetActive(false);
+    if (contactQueryInstalled) contactRenderer->SetContactQuery(nullptr);
+    contactQueryInstalled = false;
     textureMap = 0;
     preparationMap = -1;
     viewEntity = nullptr;
@@ -161,12 +177,14 @@ void ResetBodyStains() noexcept
 void ShutdownBodyStains() noexcept
 {
     ResetBodyStains();
+    ResetMonsterStains();
     if (texturesReady && textureContext == wglGetCurrentContext())
         glDeleteTextures(GLsizei(textures.size()), textures.data());
     textures = {};
     texturesReady = false;
     textureContext = {};
     renderer = nullptr;
+    contactRenderer = nullptr;
 }
 
 void ReadLocalBodyStain(const entity_state_t* state, const clientdata_t* client) noexcept
@@ -184,7 +202,13 @@ void ReadLocalBodyStain(const entity_state_t* state, const clientdata_t* client)
 void BodyStainsFrame() noexcept
 {
     if (!renderer) return;
-    if (!snapshotPolicy || !ResourceReadsAllowed())
+    const bool visible = snapshotPolicy && ResourceReadsAllowed();
+    if (contactRenderer && contactQueryInstalled != visible)
+    {
+        contactRenderer->SetContactQuery(visible ? ProjectMonsterStains : nullptr);
+        contactQueryInstalled = visible;
+    }
+    if (!visible)
     {
         SetActive(false);
         return;
@@ -210,6 +234,7 @@ void BodyStainsFrame() noexcept
     if (textureMap != map)
     {
         SetActive(false);
+        if (contactQueryInstalled) contactRenderer->SetContactQuery(ProjectMonsterStains);
         textureMap = map;
     }
     if (!texturesReady && preparationMap != map)
@@ -226,6 +251,68 @@ void BodyStainsFrame() noexcept
         snapshotViewModel = studio.GetModelByIndex(snapshotViewIndex);
         snapshotDrawsArms = snapshotViewModel && std::strcmp(snapshotViewModel->name, scenario::human_kick::FootModel) != 0;
     }
+}
+
+void ResetMonsterStains() noexcept
+{
+    for (auto& monster : monsterStains) monster.id = monster.count = 0;
+}
+
+bool ConsumeMonsterStains(int size, const void* payload) noexcept
+{
+    if (!payload || size <= 0) return false;
+    const auto* bytes = static_cast<const std::uint8_t*>(payload);
+    if (bytes[0] != custom::MonsterStainSubtype) return false;
+    if (size <= int(custom::MonsterStainHeaderSize) || size > int(custom::MonsterStainPacketMax)) return true;
+    const unsigned slot = unsigned(bytes[1]) | (unsigned(bytes[2]) << 8);
+    const unsigned id = unsigned(bytes[3]) | (unsigned(bytes[4]) << 8) | (unsigned(bytes[5]) << 16);
+    const unsigned begin = bytes[6], dataSize = size - custom::MonsterStainHeaderSize;
+    const unsigned count = dataSize / custom::MonsterStainMarkSize;
+    if (!slot || slot >= monsterStains.size() || !id || id > custom::MonsterStainIdMax ||
+        begin + count > custom::MonsterStainMax || dataSize % custom::MonsterStainMarkSize) return true;
+
+    auto& entry = monsterStains[slot];
+    if (id < entry.id || (id != entry.id ? begin != 0 : begin > entry.count)) return true;
+    if (id != entry.id) { entry.id = id; entry.count = 0; }
+    for (unsigned i = 0; i < count; ++i)
+        entry.hits[begin + i] = custom::ReadMonsterStain(std::span<const std::uint8_t, custom::MonsterStainMarkSize>(
+            bytes + custom::MonsterStainHeaderSize + i * custom::MonsterStainMarkSize, custom::MonsterStainMarkSize));
+    entry.count = std::max(entry.count, begin + count);
+    return true;
+}
+
+unsigned ProjectMonsterStains(const cl_entity_t* entity, const model_t* model, const float (*bones)[3][4],
+    unsigned boneCount, goldcraft::studio_stain::Contact* output) noexcept
+{
+    if (!snapshotPolicy || !entity || entity == viewEntity || entity->player || model != entity->model ||
+        (entity->curstate.effects & EF_NODRAW)) return 0;
+    const auto field = custom::MonsterStainField(entity->curstate.fuser4);
+    const auto slot = static_cast<unsigned>(entity->index);
+    if (!field || !slot || slot >= monsterStains.size() || !engine.GetEntityByIndex ||
+        engine.GetEntityByIndex(entity->index) != entity) return 0;
+    const auto& entry = monsterStains[slot];
+    if (entry.id != custom::MonsterStainId(field)) return 0;
+    const auto count = std::min(entry.count, custom::MonsterStainCount(field));
+    unsigned written{};
+    for (unsigned i = 0; i < count; ++i)
+    {
+        const auto& hit = entry.hits[i];
+        if (hit.bone >= boneCount || !(hit.normal[0] || hit.normal[1] || hit.normal[2])) continue;
+        const auto& bone = bones[hit.bone];
+        auto& projection = output[written++];
+        for (unsigned axis = 0; axis < 3; ++axis)
+        {
+            const auto& row = bone[axis];
+            projection.point[axis] = (row[0] * hit.point[0] + row[1] * hit.point[1] +
+                row[2] * hit.point[2]) * (1.f / custom::MonsterStainPositionScale) + row[3];
+            projection.normal[axis] = (row[0] * hit.normal[0] + row[1] * hit.normal[1] +
+                row[2] * hit.normal[2]) * (1.f / custom::MonsterStainNormalScale);
+        }
+        const auto seed = (entry.id * 0x9e3779b9u + i * 0x85ebca6bu) >> 24;
+        projection.point[3] = 3.5f + float(seed & 15u) * (1.f / 15.f);
+        projection.normal[3] = float(seed) * (1.f / 255.f);
+    }
+    return written;
 }
 
 BodyStainViewScope::BodyStainViewScope(const cl_entity_t* entity) noexcept : previous_(viewDrawBaseModel)
@@ -257,8 +344,7 @@ BodyStainSurface BodyStainForModel(const cl_entity_t* entity, const model_t* mod
     if (!entity->player)
     {
         if (model != entity->model) return {};
-        return stain.body ? BodyStainSurface{stain.body, 0, Surface::Body} :
-            BodyStainSurface{0, stain.weapon, Surface::HeldWeapon};
+        return BodyStainSurface{0, stain.weapon, Surface::HeldWeapon};
     }
 
     const int held = entity->curstate.weaponmodel;

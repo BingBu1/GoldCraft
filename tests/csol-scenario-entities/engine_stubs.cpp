@@ -21,6 +21,7 @@ namespace
 }
 // The small entity fixtures do not enable the optional blood renderer.
 bool CSOL_BodyStainsActive() noexcept { return false; }
+bool CSOL_IsMeleeStainTrace(const CCSOLScenarioMonster&, const TraceResult*) noexcept { return false; }
 void CSOL_ClearBodyStain(CBaseEntity&) noexcept {}
 void CSOL_RecordBodyStains(CCSOLScenarioMonster&, entvars_t*, const TraceResult*, const Vector&) noexcept
 { Unused("RecordBodyStains"); }

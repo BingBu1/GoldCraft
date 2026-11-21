@@ -70,6 +70,7 @@ void ResetSession()
     ResetChallengePhase();
     ResetChallengeEnvironment();
     ResetBodyStains();
+    ResetMonsterStains();
     ResetCofMovementInput();
     ResetStandaloneMovementInput();
     ResetStaminaAudio();

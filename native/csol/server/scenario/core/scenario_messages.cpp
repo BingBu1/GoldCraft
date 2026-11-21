@@ -4,6 +4,7 @@
 #include "../../damage_numbers.h"
 #include "../../../scenario/core/scenario_abilities.hpp"
 #include "../../../scenario/monsters/scenario_monster_effects.hpp"
+#include "../../../scenario/custom/monster_stains.hpp"
 #include "../../../cso_tent.hpp"
 #include "../../../scenario/core/playerclip.hpp"
 #include "../../../scenario/bosses/oberon_hint.hpp"
@@ -112,6 +113,19 @@ bool CCSOLScenarioMessages::SendMonsterHit(const float* origin, bool metal, int 
     WRITE_COORD(position.x);
     WRITE_COORD(position.y);
     WRITE_COORD(position.z);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendMonsterStains(edict_s* recipient, std::span<const std::uint8_t> bytes) const
+{
+    using namespace csol::scenario::custom;
+    if (g_scenarioMessageOpen || !m_monsterEffectId || !recipient ||
+        bytes.size() <= MonsterStainHeaderSize || bytes.size() > MonsterStainPacketMax ||
+        !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ONE, m_monsterEffectId, nullptr, recipient);
+    for (const auto byte : bytes) WRITE_BYTE(byte);
     MESSAGE_END();
     return true;
 }

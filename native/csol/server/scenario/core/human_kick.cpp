@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "human_kick.h"
 #include "human_kick_damage.h"
+#include "../../custom/body_stains.h"
 #include "game_rules_gate.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
@@ -368,6 +369,7 @@ bool Attack(const std::shared_ptr<State>& state, ConfigError& error)
         if (!validBounds || (nearest - origin).LengthSquared() > kick::Reach * kick::Reach) continue;
         targets[count++] = {EHANDLE(target), session->Monsters().Lease(*target), delta};
     }
+    const CSOLBodyStainShot stain(*player, eyes, CSOLBodyStainShot::Contact::Unarmed);
     bool hit{};
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -391,7 +393,7 @@ bool Attack(const std::shared_ptr<State>& state, ConfigError& error)
         if (trace.flFraction < 1.0f && trace.pHit != candidate.entity.Get()) continue;
         const auto result = CSOL_HumanKickMonsterDamage(*target, *player, runtime,
             kick::BaseDamage, candidate.delta, actorVelocity, error,
-            [](const void* value) { return policyEnabled && static_cast<const State*>(value)->Current() != nullptr; }, state.get());
+            [](const void* value) { return policyEnabled && static_cast<const State*>(value)->Current() != nullptr; }, state.get(), &stain, &trace);
         if (!state->Current() || !policyEnabled) return false;
         if (result == CSOLHumanKickDamageResult::Failed) return false;
         hit |= result == CSOLHumanKickDamageResult::Applied || result == CSOLHumanKickDamageResult::Killed;

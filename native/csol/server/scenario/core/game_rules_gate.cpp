@@ -615,6 +615,8 @@ public:
     {
         if (!SelectionReady() || m_completing || m_restarting || m_applyingFinish) return;
         CSOL_UpdateGameplayBodyStains();
+        if (const auto session = m_runtime->session) CSOL_FlushMonsterStains(session->Messages());
+        if (!SelectionReady()) return;
         if (m_replaySettings && Ready() && !m_runtime->gameplay->Busy())
         {
             m_adminMapVote = AdminMapVote::Idle;

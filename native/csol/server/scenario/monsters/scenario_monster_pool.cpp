@@ -215,7 +215,7 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
     const Vector position = trace->vecEndPos;
     csol::monster_impact::Effect impact;
     if (damage > 0 && trace->pHit == edict() &&
-        csol::monster_impact::DirectHit(damageType))
+        (csol::monster_impact::DirectHit(damageType) || CSOL_IsMeleeStainTrace(*this, trace)))
         impact = csol::monster_impact::Classify("monster", STRING(pev->model),
             pev->solid, trace->iHitgroup, csol::monster_impact::UnknownBullet);
     AddMultiDamage(attacker, this, damage, damageType);
@@ -228,15 +228,11 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
         session->Map().RoundGeneration() != round ||
         self.Get<CBaseEntity>() != this || m_pool != pool || !pool->Borrowed(*this) ||
         pool->Lease(*this) != lease || m_behavior != behavior) return;
-    // Send the original impact first. A callback can retire this hit's
-    // lease before the optional custom material effect records anything.
-    messages.SendMonsterHit(position, impact.kind == csol::monster_impact::Kind::Spark, impact.amount);
-    if (impact.kind == csol::monster_impact::Kind::Blood && CSOL_BodyStainsActive() &&
-        scope.Current() && access->Allowed() && !runtime->Closing() && runtime->Generation() == generation &&
-        runtime->session == session && session->Map().RoundGeneration() == round &&
-        self.Get<CBaseEntity>() == this && m_pool == pool && pool->Borrowed(*this) &&
-        pool->Lease(*this) == lease && m_behavior == behavior)
-        CSOL_RecordBodyStains(*this, attacker, trace, position);
+    // Custom blood uses a local Studio mark instead of a second spray sprite.
+    if (impact.kind == csol::monster_impact::Kind::Blood && CSOL_BodyStainsActive())
+        CSOL_RecordBodyStains(*this, attacker, trace, direction);
+    else
+        messages.SendMonsterHit(position, impact.kind == csol::monster_impact::Kind::Spark, impact.amount);
 }
 
 BOOL CCSOLScenarioMonster::TakeDamage(entvars_t* inflictor, entvars_t* attacker,

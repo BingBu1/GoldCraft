@@ -285,7 +285,7 @@ index d9bb651..e7815d2 100644
  #else
  
 diff --git a/assets/svencoop/renderer/shader/studio_shader.frag.glsl b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
-index 2fb67ac..45c6cd1 100644
+index 2fb67ac..b02bc5c 100644
 --- a/assets/svencoop/renderer/shader/studio_shader.frag.glsl
 +++ b/assets/svencoop/renderer/shader/studio_shader.frag.glsl
 @@ -37,6 +37,8 @@ uniform vec4 r_hair_specular_noise2;
@@ -366,7 +366,7 @@ index 2fb67ac..45c6cd1 100644
  
  		#if defined(SPECULARTEXTURE_ENABLED) || defined(PACKED_SPECULARTEXTURE_ENABLED)
  
-@@ -875,6 +877,14 @@ void main(void)
+@@ -875,6 +877,23 @@ void main(void)
  
  	#endif
  
@@ -378,10 +378,19 @@ index 2fb67ac..45c6cd1 100644
 +		specularColor.rg *= 1.0 - 0.78 * stain.a;
 +	}
 +
++#if defined(GOLDCRAFT_STUDIO_CONTACT_STAIN)
++    if (gcContactCount > 0)
++    {
++        float coverage = StudioContactStain(vWorldPos, vSimpleNormal);
++        diffuseColor.rgb = MixStudioContactStain(diffuseColor.rgb, coverage);
++        specularColor.rg *= 1.0 - .78 * coverage;
++    }
++#endif
++
  	diffuseColor = ProcessDiffuseColor(diffuseColor);
  
  	vec3 vNormal = R_GenerateAdjustedNormal(vWorldPos, flNormalAdjustment);
-@@ -932,10 +942,16 @@ void main(void)
+@@ -932,10 +951,16 @@ void main(void)
  		out_Diffuse = diffuseColor;
  		out_Lightmap = lightmapColor;
  		out_WorldNorm = vec4(vOctNormal.x, vOctNormal.y, flDistanceToFragment, 0.0);
@@ -840,12 +849,63 @@ index 6ce4285..698841f 100644
      "${PROJECT_SOURCE_DIR}/src/LambdaThreadedTask.cpp"
 diff --git a/include/Interface/IMetaRendererStudioStain.h b/include/Interface/IMetaRendererStudioStain.h
 new file mode 100644
-index 0000000..32062b2
+index 0000000..1010639
 --- /dev/null
 +++ b/include/Interface/IMetaRendererStudioStain.h
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,89 @@
 +#pragma once
 +#include <interface.h>
++struct cl_entity_s;
++struct model_s;
++
++namespace goldcraft::studio_stain
++{
++inline constexpr unsigned MaxContacts = 63;
++
++// One compact projection per mark. Tail components are stamp radius and
++// variation seed. All coordinates are in the current Studio world pose.
++struct Contact
++{
++    float point[4];
++    float normal[4];
++};
++static_assert(sizeof(Contact) == 8 * sizeof(float));
++
++using Query = unsigned (*)(const cl_entity_s*, const model_s*, const float (*)[3][4],
++    unsigned bones, Contact* output) noexcept;
++
++inline constexpr char Shader[] = R"glsl(
++#define GOLDCRAFT_STUDIO_CONTACT_STAIN 1
++uniform int gcContactCount;
++uniform vec4 gcContactStains[126];
++
++float StudioContactStain(vec3 position, vec3 surfaceNormal)
++{
++    float coverage = 0.0;
++    for (int i = 0; i < gcContactCount; ++i)
++    {
++        vec4 stamp = gcContactStains[i * 2];
++        vec3 delta = position - stamp.xyz;
++        float distanceSquared = dot(delta, delta);
++        if (distanceSquared > 90.0) continue;
++        vec4 face = gcContactStains[i * 2 + 1];
++        float depth = dot(delta, face.xyz);
++        if (abs(depth) >= 7.0 || dot(surfaceNormal, face.xyz) < 0.1) continue;
++        float radial = max(0.0, distanceSquared - depth * depth) / (stamp.w * stamp.w);
++        if (radial >= 1.0) continue;
++        vec3 grainPosition = floor(delta * 4.0 + vec3(face.w * 11.0));
++        float grain = fract(dot(grainPosition, vec3(0.1031, 0.11369, 0.13787)));
++        float edge = smoothstep(0.0, 0.40, 1.0 - radial - .18 * grain);
++        coverage = max(coverage, edge * (0.72 + 0.22 * grain));
++    }
++    return coverage;
++}
++vec3 MixStudioContactStain(vec3 rgb, float coverage)
++{
++    return mix(rgb, vec3(0.40, 0.063, 0.050) * (0.82 + 0.18 * rgb), coverage);
++}
++)glsl";
++}
 +
 +struct cl_entity_s;
 +struct model_s;
@@ -874,6 +934,14 @@ index 0000000..32062b2
 +};
 +
 +#define METARENDERER_STUDIO_STAIN_INTERFACE_VERSION "MetaRendererStudioStain_API_001"
++
++class IMetaRendererStudioContactStain : public IBaseInterface
++{
++public:
++    virtual void SetContactQuery(goldcraft::studio_stain::Query query) noexcept = 0;
++};
++
++#define METARENDERER_STUDIO_CONTACT_STAIN_INTERFACE_VERSION "MetaRendererStudioContactStain_API_001"
 diff --git a/scripts/manifests/renderer.json b/scripts/manifests/renderer.json
 index 63c012a..6debb2d 100644
 --- a/scripts/manifests/renderer.json
@@ -3044,7 +3112,7 @@ index b6681b3..0e402f9 100644
  
      GL_BindVAO(0);
 diff --git a/src/gl_studio.cpp b/src/gl_studio.cpp
-index fa85f25..53601f4 100644
+index fa85f25..27f9a21 100644
 --- a/src/gl_studio.cpp
 +++ b/src/gl_studio.cpp
 @@ -1,5 +1,7 @@
@@ -3055,7 +3123,7 @@ index fa85f25..53601f4 100644
  #include "triangleapi.h"
  #include "mathlib2.h"
  #include "CounterStrike.h"
-@@ -9,33 +11,79 @@
+@@ -9,33 +11,92 @@
  #include "MurmurHash2.h"
  #include <sstream>
  #include <algorithm>
@@ -3068,7 +3136,8 @@ index fa85f25..53601f4 100644
 +
 +namespace {
 +MetaRendererStudioStainQuery studioStainQuery{};
-+int studioStainMap{};
++goldcraft::studio_stain::Query studioContactQuery{};
++int studioStainMap{}, studioContactMap{};
 +
 +int CurrentDecalGeneration() noexcept
 +{
@@ -3107,16 +3176,29 @@ index fa85f25..53601f4 100644
 +        return texture ? texture->gl_texturenum : 0;
 +    }
 +};
-+}
-+EXPOSE_SINGLE_INTERFACE(CMetaRendererStudioStain, IMetaRendererStudioStain, METARENDERER_STUDIO_STAIN_INTERFACE_VERSION);
  
 -static std::unordered_map<CStudioBoneCacheHandle, CStudioBoneCache*, CStudioBoneCacheHasher> g_StudioBoneCacheManager;
++class CMetaRendererStudioContactStain final : public IMetaRendererStudioContactStain
++{
++public:
++    void SetContactQuery(goldcraft::studio_stain::Query query) noexcept override
++    {
++        studioContactQuery = query;
++        studioContactMap = CurrentDecalGeneration();
++    }
++};
++}
++EXPOSE_SINGLE_INTERFACE(CMetaRendererStudioContactStain, IMetaRendererStudioContactStain,
++    METARENDERER_STUDIO_CONTACT_STAIN_INTERFACE_VERSION);
++EXPOSE_SINGLE_INTERFACE(CMetaRendererStudioStain, IMetaRendererStudioStain, METARENDERER_STUDIO_STAIN_INTERFACE_VERSION);
+ 
+-static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
 +static bool g_StudioOutlineMask{}, g_StudioOutlineFailed{};
 +static uint32_t g_StudioOutlineColor{};
 +bool R_IsDrawingStudioOutline() { return g_StudioOutlineMask; }
 +static void R_ShutdownStudioOutline();
  
--static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
+-static CStudioBoneCache g_StudioBoneCaches[MAX_STUDIO_BONE_CACHES];
 +static GLuint g_hStudioUBO{};
 +static CStudioBonePaletteStorage<> g_StudioBonePalettes;
 +static cvar_t* r_studio_bone_palette_cache{};
@@ -3125,17 +3207,14 @@ index fa85f25..53601f4 100644
 +static cvar_t* r_studio_shadow_plan{};
 +static StudioShadowPlanStats g_StudioShadowPlanStats{};
  
--static CStudioBoneCache g_StudioBoneCaches[MAX_STUDIO_BONE_CACHES];
+-static CStudioBoneCache* g_pStudioBoneFreeCaches{};
 +StudioShadowPlanStats R_StudioShadowPlanStats() { return g_StudioShadowPlanStats; }
  
--static CStudioBoneCache* g_pStudioBoneFreeCaches{};
+-static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
 +static std::vector<std::shared_ptr<CStudioModelRenderData>> g_StudioRenderDataCache;
  
--static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
-+static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
- 
 -static cache_user_t model_texture_cache[MAX_KNOWN_MODELS_SVENGINE][MAX_SKINS];
-+static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
++static std::unordered_map<int, CStudioSkinCache*> g_StudioSkinCache;
  
 -class CEnginePlayerInfoStorage
 -{
@@ -3143,15 +3222,17 @@ index fa85f25..53601f4 100644
 -    struct player_info_s SavedPlayerInfo{};
 -    bool                 Filled{};
 -};
-+static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
++static std::unordered_map<program_state_t, studio_program_t> g_StudioProgramTable;
  
 -static CEnginePlayerInfoStorage g_PlayerInfoStorage[MAX_CLIENTS]{};
++static std::shared_ptr<CStudioModelRenderData> g_CurrentRenderData{};
++
 +// Cache_Alloc retains the cache_user_t address. deque preserves it on growth.
 +static std::deque<std::array<cache_user_t, MAX_SKINS>> model_texture_cache;
  
  //Engine private vars
  
-@@ -154,83 +202,6 @@ bool R_StudioHasHairFaceColorMix()
+@@ -154,83 +215,6 @@ bool R_StudioHasHairFaceColorMix()
      return r_draw_hashair && r_draw_hasface && !R_IsRenderingShadowView();
  }
  
@@ -3235,11 +3316,23 @@ index fa85f25..53601f4 100644
  studiohdr_t* R_GetStudioTextureHeader(studiohdr_t* studiohdr, model_t* texturemod)
  {
      if (studiohdr->textureindex == 0 && texturemod)
-@@ -1419,10 +1390,12 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1388,7 +1372,8 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+         args.fsfile   = "renderer\\shader\\studio_shader.frag.glsl";
+         args.vsdefine = def.c_str();
+         args.gsdefine = def.c_str();
+-        args.fsdefine = def.c_str();
++        const auto fragmentDef = def + goldcraft::studio_stain::Shader;
++        args.fsdefine = fragmentDef.c_str();
+ 
+         prog.program = GL_CompileShaderFileEx(&args);
+ 
+@@ -1419,10 +1404,14 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
              SHADER_UNIFORM(prog, r_hair_shadow_offset, "r_hair_shadow_offset");
              SHADER_UNIFORM(prog, r_outline_dark, "r_outline_dark");
              SHADER_UNIFORM(prog, r_uvscale, "r_uvscale");
 +            SHADER_UNIFORM(prog, r_surface_stain_uv, "r_surface_stain_uv");
++            SHADER_UNIFORM(prog, contact_stain_count, "gcContactCount");
++            SHADER_UNIFORM(prog, contact_stains, "gcContactStains");
              SHADER_UNIFORM(prog, r_packed_stride, "r_packed_stride");
              SHADER_UNIFORM(prog, r_packed_index, "r_packed_index");
              SHADER_UNIFORM(prog, r_framerate_numframes, "r_framerate_numframes");
@@ -3248,7 +3341,7 @@ index fa85f25..53601f4 100644
          }
  
          g_StudioProgramTable[state] = prog;
-@@ -1436,6 +1409,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
+@@ -1436,6 +1425,17 @@ void R_UseStudioProgram(program_state_t state, studio_program_t* progOutput)
      {
          GL_UseProgram(prog.program);
  
@@ -3266,7 +3359,7 @@ index fa85f25..53601f4 100644
          if (progOutput)
              *progOutput = prog;
      }
-@@ -1517,8 +1501,15 @@ void R_LoadStudioProgramStates(void)
+@@ -1517,8 +1517,15 @@ void R_LoadStudioProgramStates(void)
      });
  }
  
@@ -3282,7 +3375,7 @@ index fa85f25..53601f4 100644
      g_StudioProgramTable.clear();
  
      R_StudioFlushAllSkins();
-@@ -1533,6 +1524,7 @@ void R_ShutdownStudio(void)
+@@ -1533,6 +1540,7 @@ void R_ShutdownStudio(void)
  
  void R_InitStudio(void)
  {
@@ -3290,7 +3383,7 @@ index fa85f25..53601f4 100644
      g_hStudioUBO = GL_GenBuffer();
      GL_UploadDataToUBODynamicDraw(g_hStudioUBO, sizeof(studio_ubo_t), nullptr);
  
-@@ -1583,6 +1575,12 @@ void R_InitStudio(void)
+@@ -1583,6 +1591,12 @@ void R_InitStudio(void)
  
      //Cache bones to save CPU resources?
      r_studio_bone_caches = gEngfuncs.pfnRegisterVariable("r_studio_bone_caches", "1", FCVAR_ARCHIVE | FCVAR_CLIENTDLL);
@@ -3303,7 +3396,7 @@ index fa85f25..53601f4 100644
  
      r_studio_celshade_debug = gEngfuncs.pfnRegisterVariable("r_studio_celshade_debug", "0", FCVAR_CLIENTDLL);
  
-@@ -1888,11 +1886,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
+@@ -1888,11 +1902,15 @@ byte* R_StudioReloadSkin(model_t* pModel, int index, skin_t* pskin)
      byte* pbase;
      int   size;
  
@@ -3320,7 +3413,7 @@ index fa85f25..53601f4 100644
      pCache = &model_texture_cache[modelindex][index];
  
      if (Cache_Check(pCache))
-@@ -2139,11 +2141,25 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
+@@ -2139,11 +2157,25 @@ void R_StudioSetupSkinEx(const CStudioModelRenderData* pRenderData, studiohdr_t*
      }
  }
  
@@ -3346,7 +3439,7 @@ index fa85f25..53601f4 100644
  
      StudioUBO.r_origin[0] = r_origin[0];
      StudioUBO.r_origin[1] = r_origin[1];
-@@ -2310,8 +2326,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2310,8 +2342,6 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -3355,7 +3448,7 @@ index fa85f25..53601f4 100644
      if (R_IsRenderingClippedLowerBody())
      {
          auto pbones = (mstudiobone_t*)((byte*)(*pstudiohdr) + (*pstudiohdr)->boneindex);
-@@ -2327,9 +2341,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
+@@ -2327,9 +2357,11 @@ void R_StudioDrawRenderDataBegin(const std::shared_ptr<CStudioModelRenderData>&
          }
      }
  
@@ -3370,7 +3463,7 @@ index fa85f25..53601f4 100644
  
      GL_BindVAO(pRenderData->hVAO);
  }
-@@ -2387,6 +2403,164 @@ void R_StudioDrawMesh_AnalysisPass(
+@@ -2387,6 +2419,164 @@ void R_StudioDrawMesh_AnalysisPass(
      }
  }
  
@@ -3535,7 +3628,7 @@ index fa85f25..53601f4 100644
  void R_StudioDrawMesh_DrawPass(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* pRenderSubmodel,
-@@ -2397,6 +2571,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2397,6 +2587,7 @@ void R_StudioDrawMesh_DrawPass(
      short*                      pskinref,
      program_state_t             StudioProgramState)
  {
@@ -3543,7 +3636,7 @@ index fa85f25..53601f4 100644
      if (!pRenderMesh->iIndiceCount)
          return;
  
-@@ -2544,6 +2719,12 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2544,6 +2735,12 @@ void R_StudioDrawMesh_DrawPass(
          return;
      }
  
@@ -3556,7 +3649,7 @@ index fa85f25..53601f4 100644
      if ((int)r_studio_legacy_dlight->value >= 2)
      {
          StudioProgramState |= STUDIO_LEGACY_DLIGHT_ENABLED;
-@@ -2779,24 +2960,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2779,24 +2976,7 @@ void R_StudioDrawMesh_DrawPass(
      {
          if (r_draw_opaque)
          {
@@ -3582,7 +3675,7 @@ index fa85f25..53601f4 100644
          }
          else
          {
-@@ -2878,10 +3042,7 @@ void R_StudioDrawMesh_DrawPass(
+@@ -2878,10 +3058,7 @@ void R_StudioDrawMesh_DrawPass(
      }
      else if (StudioProgramState & STUDIO_SHADOW_CASTER_ENABLED)
      {
@@ -3594,7 +3687,7 @@ index fa85f25..53601f4 100644
      }
      else if (StudioProgramState & STUDIO_HAIR_SHADOW_ENABLED)
      {
-@@ -3104,64 +3265,34 @@ void R_StudioDrawMesh_DrawPass(
+@@ -3104,64 +3281,50 @@ void R_StudioDrawMesh_DrawPass(
          glUniform2f(prog.r_nearplaneclip, r_drawlowerbodyclipnear->value, r_drawlowerbodyclipfar->value);
      }
  
@@ -3632,12 +3725,6 @@ index fa85f25..53601f4 100644
 -    {
 -        //Texture unit 4 = Specular texture
 -        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_SPECULAR, GL_TEXTURE_2D, 0);
--    }
--
--    if (StudioProgramState & STUDIO_PARALLAXTEXTURE_ENABLED)
--    {
--        //Texture unit 3 = Parallax texture
--        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_PARALLAX, GL_TEXTURE_2D, 0);
 +    constexpr auto stainExcluded = STUDIO_SHADOW_CASTER_ENABLED | STUDIO_GLOW_COLOR_ENABLED |
 +        STUDIO_GLOW_SHELL_ENABLED | STUDIO_OUTLINE_ENABLED | STUDIO_LINEAR_DEPTH_ENABLED |
 +        STUDIO_HAIR_SHADOW_ENABLED | STUDIO_HAIR_FACE_COLOR_MIX_ENABLED | STUDIO_NF_CHROME |
@@ -3659,8 +3746,27 @@ index fa85f25..53601f4 100644
 +        }
      }
  
+-    if (StudioProgramState & STUDIO_PARALLAXTEXTURE_ENABLED)
++    unsigned contactCount{};
++    if (studioContactQuery && studioContactMap == CurrentDecalGeneration() &&
++        prog.contact_stain_count >= 0 && !(StudioProgramState & stainExcluded) &&
++        r_fullbright->value < 2 && pbonetransform && *pstudiohdr)
+     {
+-        //Texture unit 3 = Parallax texture
+-        GL_BindTextureUnit(STUDIO_BIND_TEXTURE_PARALLAX, GL_TEXTURE_2D, 0);
++        goldcraft::studio_stain::Contact contacts[goldcraft::studio_stain::MaxContacts];
++        contactCount = studioContactQuery(*currententity, pRenderData->BodyModel, *pbonetransform,
++            (*pstudiohdr)->numbones, contacts);
++        if (contactCount)
++        {
++            glUniform4fv(prog.contact_stains, contactCount * 2, contacts[0].point);
++            glUniform1i(prog.contact_stain_count, contactCount);
++        }
+     }
+ 
 -    if (StudioProgramState & STUDIO_NORMALTEXTURE_ENABLED)
 +    R_StudioSubmitMesh(pRenderMesh, false);
++    if (contactCount) glUniform1i(prog.contact_stain_count, 0);
 +    if (stain.texture)
      {
 -        //Texture unit 2 = Normal texture
@@ -3683,24 +3789,24 @@ index fa85f25..53601f4 100644
  }
  
  void R_StudioDrawMesh(
-@@ -3178,7 +3309,16 @@ void R_StudioDrawMesh(
+@@ -3178,7 +3341,16 @@ void R_StudioDrawMesh(
          StudioResolveTextureIndex(pskinref, ptexturehdr->numskinref, ptexturehdr->numtextures, pmesh->skinref) :
          -1;
      if (uskinref < 0 || ptexture[uskinref].width <= 0 || ptexture[uskinref].height <= 0)
 +    {
 +        if (g_StudioOutlineMask) g_StudioOutlineFailed = true;
-+        return;
+         return;
 +    }
 +
 +    if (g_StudioOutlineMask)
 +    {
 +        R_StudioOutlineMesh(pRenderData, pRenderMesh, ptexturehdr, ptexture, uskinref);
-         return;
++        return;
 +    }
  
      program_state_t StudioProgramState = (program_state_t)(ptexture[uskinref].flags & 0x00000000FFFFFFFFull);
  
-@@ -3259,6 +3399,173 @@ void R_StudioDrawMesh(
+@@ -3259,6 +3431,173 @@ void R_StudioDrawMesh(
      }
  }
  
@@ -3874,7 +3980,7 @@ index fa85f25..53601f4 100644
  void R_StudioDrawSubmodel(
      CStudioModelRenderData*     pRenderData,
      CStudioModelRenderSubModel* VBOSubmodel,
-@@ -3266,11 +3573,19 @@ void R_StudioDrawSubmodel(
+@@ -3266,11 +3605,19 @@ void R_StudioDrawSubmodel(
      mstudiotexture_t*           ptexture,
      short*                      pskinref)
  {
@@ -3895,7 +4001,7 @@ index fa85f25..53601f4 100644
      }
  }
  
-@@ -3317,12 +3632,14 @@ void R_GLStudioDrawPoints(void)
+@@ -3317,12 +3664,14 @@ void R_GLStudioDrawPoints(void)
      if (!pRenderData)
      {
          //Sys_Error("R_GLStudioDrawPoints: no available pRenderData for \"%s\"!", (*pstudiohdr)->name);
@@ -3910,7 +4016,7 @@ index fa85f25..53601f4 100644
          return;
      }
  
-@@ -3364,11 +3681,13 @@ void studioapi_GL_SetRenderMode(int rendermode)
+@@ -3364,11 +3713,13 @@ void studioapi_GL_SetRenderMode(int rendermode)
  
  void studioapi_SetupRenderer(int rendermode)
  {
@@ -3924,7 +4030,7 @@ index fa85f25..53601f4 100644
      glDepthMask(GL_TRUE);
      glDisable(GL_BLEND);
  }
-@@ -3377,7 +3696,10 @@ qboolean studioapi_StudioCheckBBox(void)
+@@ -3377,7 +3728,10 @@ qboolean studioapi_StudioCheckBBox(void)
  {
      if (!g_bIsSvenCoop)
      {
@@ -3936,7 +4042,7 @@ index fa85f25..53601f4 100644
      }
  
      mplane_t plane;
-@@ -3546,6 +3868,12 @@ __forceinline void StudioRenderFinal_Template(CallType pfnRenderFinal, void* pth
+@@ -3546,6 +3900,12 @@ __forceinline void StudioRenderFinal_Template(CallType pfnRenderFinal, void* pth
  template <typename CallType>
  __forceinline void StudioRenderModel_Template(CallType pfnRenderModel, CallType pfnRenderFinal, void* pthis = nullptr, int dummy = 0)
  {
@@ -3949,7 +4055,7 @@ index fa85f25..53601f4 100644
      if (R_IsRenderingShadowView())
      {
          pfnRenderModel(pthis, dummy);
-@@ -3861,15 +4189,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
+@@ -3861,15 +4221,6 @@ void __fastcall GameStudioRenderer_StudioRenderModel(void* pthis, int dummy)
      StudioRenderModel_Template(gPrivateFuncs.GameStudioRenderer_StudioRenderModel, GameStudioRenderer_StudioRenderFinal, pthis, dummy);
  }
  
@@ -3965,7 +4071,7 @@ index fa85f25..53601f4 100644
  int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
  {
      if (!pstudiohdr || sequence < 0 || sequence >= pstudiohdr->numseq)
-@@ -3880,161 +4199,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
+@@ -3880,161 +4231,10 @@ int R_GetStudioSequenceFlags(studiohdr_t* pstudiohdr, int sequence)
      return pseqdesc->flags;
  }
  
@@ -4128,7 +4234,7 @@ index fa85f25..53601f4 100644
      if (!(*pstudiohdr))
      {
          pfnSetupBones(pthis, dummy);
-@@ -4048,22 +4216,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4048,22 +4248,11 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
          return;
      }
  
@@ -4156,7 +4262,7 @@ index fa85f25..53601f4 100644
  
      pfnSetupBones(pthis, dummy);
  }
-@@ -4071,6 +4228,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
+@@ -4071,6 +4260,7 @@ __forceinline void StudioSetupBones_Template(CallType pfnSetupBones, void* pthis
  template <typename CallType>
  __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis = nullptr, int dummy = 0)
  {
@@ -4164,7 +4270,7 @@ index fa85f25..53601f4 100644
      if (!(*pstudiohdr))
      {
          pfnSaveBones(pthis, dummy);
-@@ -4086,30 +4244,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
+@@ -4086,30 +4276,19 @@ __forceinline void StudioSaveBones_Template(CallType pfnSaveBones, void* pthis =
  
      pfnSaveBones(pthis, dummy);
  
@@ -4201,7 +4307,7 @@ index fa85f25..53601f4 100644
          pfnMergeBones(pthis, dummy, pSubModel);
          return;
      }
-@@ -4117,27 +4264,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
+@@ -4117,27 +4296,23 @@ void __fastcall StudioMergeBones_Template(CallType pfnMergeBones, void* pthis, i
      //Never cache bones for viewmodel !
      if (!r_studio_bone_caches->value || R_IsRenderingViewModel() || R_IsRenderingPreViewModel() || R_IsRenderingLowerBody())
      {
@@ -4239,7 +4345,7 @@ index fa85f25..53601f4 100644
      pfnMergeBones(pthis, dummy, pSubModel);
  }
  
-@@ -4959,6 +5102,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -4959,6 +5134,7 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
          gEngfuncs.Con_DPrintf("R_CreateStudioRenderData: Found modelindex[%d] modname[%s].\n", EngineGetModelIndex(mod), mod->name);
  
          //Always reload
@@ -4247,7 +4353,7 @@ index fa85f25..53601f4 100644
          pRenderData->mStudioMaterials.clear();
  
          R_StudioLoadTextureModel(mod, studiohdr, pRenderData.get());
-@@ -5021,18 +5165,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
+@@ -5021,18 +5197,14 @@ std::shared_ptr<CStudioModelRenderData> R_CreateStudioRenderData(model_t* mod, s
  
  void R_StudioStartFrame(void)
  {
@@ -4268,14 +4374,14 @@ index fa85f25..53601f4 100644
  }
  
  void UpdatePlayerPitch(cl_entity_t* ent, float a2)
-@@ -5040,3 +5180,5 @@ void UpdatePlayerPitch(cl_entity_t* ent, float a2)
+@@ -5040,3 +5212,5 @@ void UpdatePlayerPitch(cl_entity_t* ent, float a2)
      //Sniber NMSL
      return;
  }
 +
 +#include "resource_refresh.inc"
 diff --git a/src/gl_studio.h b/src/gl_studio.h
-index eeb137d..98f6c8e 100644
+index eeb137d..373b0bc 100644
 --- a/src/gl_studio.h
 +++ b/src/gl_studio.h
 @@ -9,9 +9,14 @@
@@ -4293,11 +4399,12 @@ index eeb137d..98f6c8e 100644
  #    define STUDIO_DIFFUSE_TEXTURE  0
  #    define STUDIO_NORMAL_TEXTURE   1
  #    define STUDIO_PARALLAX_TEXTURE 2
-@@ -46,10 +51,13 @@ typedef struct studio_program_s
+@@ -46,10 +51,14 @@ typedef struct studio_program_s
      int r_hair_specular_smooth{-1};
      int r_hair_shadow_offset{-1};
      int r_uvscale{-1};
 +    int r_surface_stain_uv{-1};
++    int contact_stain_count{-1}, contact_stains{-1};
      int r_packed_stride{-1};
      int r_packed_index{-1};
      int r_framerate_numframes{-1};
@@ -4307,7 +4414,7 @@ index eeb137d..98f6c8e 100644
  } studio_program_t;
  
  class studiovertexbase_t
-@@ -87,6 +95,53 @@ public:
+@@ -87,6 +96,53 @@ public:
      size_t nMeshOffset{0};
  };
  
@@ -4361,7 +4468,7 @@ index eeb137d..98f6c8e 100644
  class CStudioModelRenderSubModel
  {
  public:
-@@ -96,6 +151,7 @@ public:
+@@ -96,6 +152,7 @@ public:
  
      size_t                              m_SubmodelOffset{};
      std::vector<CStudioModelRenderMesh> vMesh;
@@ -4369,7 +4476,7 @@ index eeb137d..98f6c8e 100644
  };
  
  class CStudioModelRenderMaterial
-@@ -225,8 +281,8 @@ public:
+@@ -225,8 +282,8 @@ public:
              m_sequence == a.m_sequence &&
              m_gaitsequence == a.m_gaitsequence &&
              m_frame == a.m_frame &&
@@ -4380,7 +4487,7 @@ index eeb137d..98f6c8e 100644
      }
  
      int    m_modelindex;
-@@ -242,18 +298,20 @@ class CStudioBoneCacheHasher
+@@ -242,18 +299,20 @@ class CStudioBoneCacheHasher
  public:
      std::size_t operator()(const CStudioBoneCacheHandle& key) const
      {
@@ -4413,7 +4520,7 @@ index eeb137d..98f6c8e 100644
          return base;
      }
  };
-@@ -347,6 +405,7 @@ void     R_StudioFlushAllSkins();
+@@ -347,6 +406,7 @@ void     R_StudioFlushAllSkins();
  void     R_ShutdownStudio(void);
  void     R_InitStudio(void);
  void     R_StudioStartFrame(void);
@@ -4421,7 +4528,7 @@ index eeb137d..98f6c8e 100644
  void     R_StudioEndFrame(void);
  void     R_SaveStudioProgramStates(void);
  void     R_LoadStudioProgramStates(void);
-@@ -356,20 +415,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
+@@ -356,20 +416,23 @@ model_t* R_StudioLoadTextureModel(model_t* mod);
  
  void     studioapi_StudioDynamicLight(cl_entity_t* ent, alight_t* plight);
  qboolean studioapi_StudioCheckBBox(void);

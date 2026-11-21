@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "guest_cof_pushback.hpp"
+#include "../custom/body_stains.h"
+#include <optional>
 #include "native/guest/cof/server/effects_dispatch.hpp"
 #include "../scenario/core/game_rules_gate.h"
 #include "../scenario/core/scenario_runtime.h"
@@ -27,6 +29,7 @@ struct Call
     std::uint64_t round{}, lease{};
     std::size_t slot{};
     int spawn{}, iterations{};
+    std::optional<CSOLBodyStainShot> stain;
 
     static bool Current(void* context) noexcept
     {
@@ -93,7 +96,9 @@ struct Call
         if (!Current(context)) return false;
         const auto value = c.actor.GetGunPosition();
         if (!Current(context)) return false;
-        output = {value.x, value.y, value.z}; return true;
+        c.stain.emplace(&c.actor, value, c.actor.m_pActiveItem);
+        output = {value.x, value.y, value.z};
+        return true;
     }
     static bool Recoil(void* context, const PushbackVector& value) noexcept
     {
@@ -148,7 +153,8 @@ struct Call
         {
             csol::scenario::ConfigError error;
             const auto result = CSOL_GuestCofPushbackMonsterDamage(*static_cast<CCSOLScenarioMonster*>(entity),
-                c.actor, c.runtime, c.host.damage, error, [](const void* p) { return Current(const_cast<void*>(p)); }, &c);
+                c.actor, c.runtime, c.host.damage, error, [](const void* p) { return Current(const_cast<void*>(p)); },
+                &c, c.stain ? &*c.stain : nullptr);
             return Current(context) && (result == CSOLMonsterActionDamageResult::Applied ||
                 result == CSOLMonsterActionDamageResult::Killed || result == CSOLMonsterActionDamageResult::Ignored);
         }

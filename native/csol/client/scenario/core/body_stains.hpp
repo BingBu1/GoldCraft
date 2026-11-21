@@ -7,6 +7,7 @@ struct entity_state_s;
 struct clientdata_s;
 struct model_s;
 struct MetaRendererStudioStain;
+namespace goldcraft::studio_stain { struct Contact; }
 
 namespace csol::client
 {
@@ -29,6 +30,10 @@ private:
 };
 void InitializeBodyStains() noexcept;
 void ResetBodyStains() noexcept;
+void ResetMonsterStains() noexcept;
+bool ConsumeMonsterStains(int size, const void* payload) noexcept;
+unsigned ProjectMonsterStains(const cl_entity_s* entity, const model_s* model, const float (*bones)[3][4],
+    unsigned boneCount, goldcraft::studio_stain::Contact* output) noexcept;
 void ShutdownBodyStains() noexcept;
 void ReadLocalBodyStain(const entity_state_s* state, const clientdata_s* client) noexcept;
 void BodyStainsFrame() noexcept;

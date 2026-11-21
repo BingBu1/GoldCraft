@@ -15,9 +15,9 @@ Result GuardedKick(Function function,Case& c,OwnerGuard& guard,ConfigError& erro
 {
     if constexpr(std::is_invocable_r_v<Result,Function,CCSOLScenarioMonster&,CBasePlayer&,
         const std::shared_ptr<CCSOLScenarioRuntime>&,float,const Vector&,const Vector&,ConfigError&,
-        bool(*)(const void*),const void*>)
+        bool(*)(const void*),const void*,const CSOLBodyStainShot*,const TraceResult*>)
         return function(*c.target,*c.actor,c.runtime,15,Vector(3,4,0),g_vecZero,error,
-            OwnerGuard::Current,&guard);
+            OwnerGuard::Current,&guard,nullptr,nullptr);
     else throw std::runtime_error("human kick damage lacks mandatory synchronous owner guard");
 }
 void OwnerGuardCases()

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "human_kick_damage.h"
+#include "../../custom/body_stains.h"
 #include "scenario_runtime.h"
 #include "scenario_session.h"
 #include "scenario_player_runtime.h"
@@ -42,6 +43,8 @@ struct Hit
     CSOLMonsterActionCredit credit;
     bool (*ownerCurrent)(const void*){};
     const void* ownerContext{};
+    const CSOLBodyStainShot* stain{};
+    TraceResult trace{};
     bool entered{}, consumed{}, healthCommitted{}, finished{}, killed{};
 
     Hit(CCSOLScenarioMonster& target, CBaseEntity& source, CBasePlayer* player,
@@ -146,8 +149,11 @@ bool CSOL_CaptureMonsterActionDamage(CSOLMonsterDamageCall& call)
 
 void CSOL_CommitMonsterActionHealth(CSOLMonsterDamageCall& call)
 {
-    if (call.Action() != CSOLMonsterActionKind::None)
-        static_cast<Hit*>(const_cast<void*>(call.m_actionContext))->healthCommitted = true;
+    if (call.Action() == CSOLMonsterActionKind::None) return;
+    auto& hit = *static_cast<Hit*>(const_cast<void*>(call.m_actionContext));
+    hit.healthCommitted = true;
+    if (hit.stain && call.damage > 0)
+        if (auto* target = hit.Current()) hit.stain->CommitContact(*target, hit.trace);
 }
 void CSOL_FinishMonsterActionDamage(CSOLMonsterDamageCall& call, bool killed)
 {
@@ -168,7 +174,8 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, const Vector& direction, const Vector& actorVelocity,
     csol::scenario::ConfigError& error,
-    bool (*ownerCurrent)(const void*), const void* ownerContext)
+    bool (*ownerCurrent)(const void*), const void* ownerContext,
+    const CSOLBodyStainShot* stain, const TraceResult* contact)
 {
     using Result = CSOLHumanKickDamageResult;
     if (!ownerCurrent || !ownerCurrent(ownerContext) ||
@@ -196,6 +203,8 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     { error.message = "human kick impulse is not finite"; return Result::Failed; }
     Hit hit(target, actor, &actor, runtime, CSOLMonsterActionKind::HumanKick, ownerCurrent, ownerContext);
     if (!hit.OwnerCurrent() || !hit.Current() || !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    if (stain && stain->PrepareContact(target, contact, hit.trace)) hit.stain = stain;
+    if (stain && (!hit.OwnerCurrent() || !hit.Current())) return Result::Cancelled;
     // Actual entity/behavior/armor/death hooks execute, retaining actor credit.
     target.TakeDamage(actor.pev, actor.pev, baseDamage, DMG_CLUB);
     if (hit.finished && hit.killed) return Result::Killed;
@@ -219,7 +228,7 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
 CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, csol::scenario::ConfigError& error,
-    bool (*ownerCurrent)(const void*), const void* ownerContext)
+    bool (*ownerCurrent)(const void*), const void* ownerContext, const CSOLBodyStainShot* stain)
 {
     using Result = CSOLMonsterActionDamageResult;
     if (!ownerCurrent || !ownerCurrent(ownerContext) ||
@@ -237,6 +246,8 @@ CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMo
     Hit hit(target, actor, &actor, runtime, CSOLMonsterActionKind::GuestCofPushback, ownerCurrent, ownerContext);
     if (!hit.OwnerCurrent() || !hit.Current() ||
         !CSOL_MonsterActionCreditCurrent(hit.credit, hit.actor.Get<CBasePlayer>())) return Result::Cancelled;
+    if (stain && stain->PrepareContact(target, nullptr, hit.trace)) hit.stain = stain;
+    if (stain && (!hit.OwnerCurrent() || !hit.Current())) return Result::Cancelled;
     // Original0x05001000 is not a native CS damage mask (it includes CS explosion).
     target.TakeDamage(actor.pev, actor.pev, baseDamage, DMG_CLUB);
     if (hit.finished && hit.killed) return Result::Killed;

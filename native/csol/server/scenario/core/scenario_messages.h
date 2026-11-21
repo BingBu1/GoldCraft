@@ -139,6 +139,7 @@ public:
     bool SendMonsterHealing(int monsterIndex, const float* origin, bool self) const;
     bool SendMonsterDisarmImpact(const float* origin) const;
     bool SendMonsterHit(const float* origin, bool metal, int amount) const;
+    bool SendMonsterStains(edict_s* recipient, std::span<const std::uint8_t> bytes) const;
     bool SendMonsterZombieBomb(const float* origin) const;
     // Original CTentacle effect writers; the owner selects recipients and RNG.
     bool SendBloodScreen(edict_s* recipient) const;

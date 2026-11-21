@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "../custom/body_stains.h"
 #include "weapons.h"
 #include "wpn_melee.h"
 #include "melee_trace.h"
@@ -323,6 +324,7 @@ void CCSOLMelee::DelayedAttack()
     const Vector horizontal = horizontalLength > 0
         ? Vector(forward.x / horizontalLength, forward.y / horizontalLength, 0) : g_vecZero;
     const Vector origin = m_pPlayer->GetGunPosition();
+    const CSOLBodyStainShot stain(m_pPlayer, origin, this);
     const float cosine = float(std::cos(double(attack.fullAngle * .5f * (1.f / 180.f)) * 3.14159265358979323846));
     Contact contact = Contact::None;
     EHANDLE self(this), owner(m_pPlayer);
@@ -371,7 +373,7 @@ void CCSOLMelee::DelayedAttack()
         ClearMultiDamage();
         // Original 0x20001002 has CSO-only attack metadata. The shared native
         // damage semantics are BULLET|NEVERGIB; CS high bits mean other things.
-        target->TraceAttack(m_pPlayer->pev, hitDamage, forward, &trace, DMG_BULLET | DMG_NEVERGIB);
+        stain.TraceAttack(target, m_pPlayer->pev, hitDamage, forward, &trace, DMG_BULLET | DMG_NEVERGIB);
         if (!current()) return;
         if (receiver.Get<CBaseEntity>() != target || (pool &&
             (monster->Pool() != pool || pool->Lease(*monster) != lease))) { ClearMultiDamage(); continue; }

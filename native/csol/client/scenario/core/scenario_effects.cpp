@@ -2,6 +2,7 @@
 #include "../../runtime.hpp"
 #include "../../user_message_chain.hpp"
 #include "scenario_effects.hpp"
+#include "body_stains.hpp"
 #include "../monsters/monster_impact.hpp"
 #include "../../cso_tent.hpp"
 #include "../bosses/oberon_hint.hpp"
@@ -290,7 +291,7 @@ void TrapDirection(const float* origin)
 int ReceiveMonsterEffect(const char*, int size, void* data)
 {
     SynchronizeSession();
-    if (ConsumeMonsterImpact(size, data)) return 1;
+    if (ConsumeMonsterStains(size, data) || ConsumeMonsterImpact(size, data)) return 1;
     if (ConsumeCsoTent(size, data)) return 1;
     if (!data || size != 7) return 1;
     const auto* bytes = static_cast<const unsigned char*>(data);

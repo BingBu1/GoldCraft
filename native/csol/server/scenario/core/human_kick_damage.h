@@ -31,6 +31,9 @@ struct CSOLMonsterActionCredit
     std::uint64_t runtimeGeneration{}, roundGeneration{}, actorGeneration{}, actorLife{}, actorSpawn{};
 };
 
+class CSOLBodyStainShot;
+struct TraceResult;
+
 enum class CSOLMonsterActionDamageResult { Ignored, Applied, Killed, Cancelled, Failed };
 using CSOLHumanKickDamageResult = CSOLMonsterActionDamageResult;
 
@@ -42,7 +45,8 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, const Vector& direction, const Vector& actorVelocity,
     csol::scenario::ConfigError& error,
-    bool (*ownerCurrent)(const void*), const void* ownerContext);
+    bool (*ownerCurrent)(const void*), const void* ownerContext,
+    const CSOLBodyStainShot* stain = nullptr, const TraceResult* contact = nullptr);
 
 // Damage-only host adapter for original CoF100E8B40: actor is both source and
 // attacker. Native DMG_CLUB replaces incompatible CoF damage bits. Existing
@@ -51,7 +55,7 @@ CSOLHumanKickDamageResult CSOL_HumanKickMonsterDamage(CCSOLScenarioMonster& targ
 CSOLMonsterActionDamageResult CSOL_GuestCofPushbackMonsterDamage(CCSOLScenarioMonster& target,
     CBasePlayer& actor, const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     float baseDamage, csol::scenario::ConfigError& error,
-    bool (*ownerCurrent)(const void*), const void* ownerContext);
+    bool (*ownerCurrent)(const void*), const void* ownerContext, const CSOLBodyStainShot* stain = nullptr);
 
 // A thrown flare keeps burning if its thrower's player/life registration expires.
 void CSOL_GuestCofFlareMonsterDamage(CCSOLScenarioMonster& target, CBaseEntity& flare,

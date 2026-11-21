@@ -70,6 +70,7 @@ HGLRC graphicsContext{};
 cvar_t* colorSettings[6]{};
 GLuint program{},quadVAO{},quadVBO{};
 struct Uniforms { GLint world,projection,bones,uv,color,eye,light,lightColor,ambient,shade,fullbright,masked,environment,environmentAdd,gamma,lighting,flatshade,stainUv; } uniform{};
+GLint contactStainCount{-1}, contactStains{-1};
 struct State
 {
     Asset* asset{};model_t* model{};int frame=-1,sequence=-1;double time=-1,start{},reviveTime{},action{};
@@ -282,7 +283,7 @@ worldPosition=vec3(dot(v,bones[p]),dot(v,bones[p+1]),dot(v,bones[p+2]));
 worldNormal=normalize(vec3(dot(normal,bones[n].xyz),dot(normal,bones[n+1].xyz),dot(normal,bones[n+2].xyz)));
 uv=texcoord*uvTransform.xy+uvTransform.zw;gl_Position=projection*world*vec4(worldPosition,1);}
 )";
-    const char* fs=R"(#version 330 core
+    const auto fs = std::string("#version 330 core\n") + goldcraft::studio_stain::Shader + R"(
 in vec3 worldPosition,worldNormal;in vec2 uv;out vec4 outputColor;
 uniform sampler2D diffuse,stainTexture;uniform samplerCube environmentMap;uniform vec4 color,stainUvTransform;
 uniform vec3 eye,light,lightColor;uniform float ambient,shade,environmentAdd;
@@ -295,6 +296,10 @@ if(stainUvTransform.x!=0.0){
     vec2 p=uv*stainUvTransform.xy+stainUvTransform.zw;
     vec4 blood=texture(stainTexture,p);
     rgb=mix(rgb,blood.rgb*(0.78+0.28*rgb),blood.a);
+}
+if(gcContactCount>0 && !fullbright){
+    float coverage=StudioContactStain(worldPosition,normalize(worldNormal));
+    rgb=MixStudioContactStain(rgb,coverage);
 }
 float exponent=gammaSettings.w>0.5?1.0/gammaSettings.x:1.0;
 rgb=pow(max(rgb,vec3(0)),vec3(gammaSettings.y*exponent));
@@ -309,11 +314,12 @@ vec3 modulation=gammaSettings.w>0.5?color.rgb:pow(max(color.rgb,vec3(0)),vec3(ga
 outputColor=vec4(rgb*modulation,tex.a*color.a);}
 )";
     const auto vertex=Compile(GL_VERTEX_SHADER,vs);GLuint fragment{};
-    try {fragment=Compile(GL_FRAGMENT_SHADER,fs);}catch(...){glDeleteShader(vertex);throw;}
+    try {fragment=Compile(GL_FRAGMENT_SHADER,fs.c_str());}catch(...){glDeleteShader(vertex);throw;}
     program=glCreateProgram();glAttachShader(program,vertex);glAttachShader(program,fragment);glLinkProgram(program);glDeleteShader(vertex);glDeleteShader(fragment);
     GLint ok{};glGetProgramiv(program,GL_LINK_STATUS,&ok);if(!ok){char log[4096]{};glGetProgramInfoLog(program,sizeof(log),nullptr,log);glDeleteProgram(program);program=0;throw std::runtime_error(log);}
     auto location=[](const char* name){return glGetUniformLocation(program,name);};
     uniform={location("world"),location("projection"),location("bones"),location("uvTransform"),location("color"),location("eye"),location("light"),location("lightColor"),location("ambient"),location("shade"),location("fullbright"),location("masked"),location("environment"),location("environmentAdd"),location("gammaSettings"),location("lightingSettings"),location("flatshade"),location("stainUvTransform")};
+    contactStainCount=location("gcContactCount");contactStains=location("gcContactStains");
     glUseProgram(program);glUniform1i(location("diffuse"),0);glUniform1i(location("environmentMap"),1);
     glUniform1i(location("stainTexture"),MetaRendererStudioStainTextureUnit);
     glGenVertexArrays(1,&quadVAO);glGenBuffers(1,&quadVBO);glBindVertexArray(quadVAO);glBindBuffer(GL_ARRAY_BUFFER,quadVBO);glBufferData(GL_ARRAY_BUFFER,6*sizeof(Vertex),nullptr,GL_STREAM_DRAW);
@@ -553,7 +559,13 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
     const auto& h=asset.Header();Camera();glUniform4fv(uniform.bones,h.numbones*3,(float*)state.bones.data());
     const auto* wrapper=WorldWeaponFor(ent);
     const auto modelTint=WorldModelTint(ent,wrapper);
-    const auto stain=BodyStainForModel(wrapper?wrapper->source:ent,ent->model);
+    const auto* surfaceEntity = wrapper ? wrapper->source : ent;
+    const auto stain = BodyStainForModel(surfaceEntity, ent->model);
+    goldcraft::studio_stain::Contact contacts[goldcraft::studio_stain::MaxContacts];
+    const auto contactCount = ProjectMonsterStains(surfaceEntity, ent->model,
+        reinterpret_cast<const float (*)[3][4]>(state.bones.data()), h.numbones, contacts);
+    if (contactCount) glUniform4fv(contactStains, contactCount * 2, contacts[0].point);
+    bool drawContacts = false;
     struct StainBinding
     {
         GLuint texture{};
@@ -630,10 +642,20 @@ void DrawAsset(cl_entity_t* ent,Asset& asset,State& state,int onlyPass)
                 BodyStainMaterial(stain,static_cast<unsigned>(index),m.stainArm,material);
             stainBinding.Apply(material);
         }
+        if (contactCount)
+        {
+            const bool solid = !draw.fullbright && (draw.blend == Blend::Opaque || draw.blend == Blend::Masked) && m.sprite < 0;
+            if (drawContacts != solid)
+            {
+                drawContacts = solid;
+                glUniform1i(contactStainCount, solid ? contactCount : 0);
+            }
+        }
         glDrawElements(GL_TRIANGLES,batch.count,GL_UNSIGNED_INT,(void*)(size_t(batch.offset)*4));
     }
     if(bodyAlpha)materialAlpha=savedAlpha;bodyAlpha=false;
     }
+    if (drawContacts) glUniform1i(contactStainCount, 0);
     ++draws;
 }
 void Quad(model_t* model,int index,const float* origin,float scale,float alpha,float angle,bool alphaBlend,bool overlay,bool flip)

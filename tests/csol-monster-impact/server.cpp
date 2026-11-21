@@ -5,8 +5,12 @@
 #include "../../native/csol/scenario/monsters/monster_impact.hpp"
 #include "../../native/csol/scenario/custom/body_stains.hpp"
 #include "../../native/csol/server/custom/body_stains.h"
+#include "../../native/csol/scenario/custom/monster_stains.hpp"
 #include <cstddef>
 #include <limits>
+#include <utility>
+
+extern float (*g_pBoneTransform)[MAXSTUDIOBONES][3][4];
 
 namespace {
 using namespace sdk_test;
@@ -25,7 +29,7 @@ public:
     BOOL TakeDamage(entvars_t*,entvars_t*,float,int) override {++calls;const auto f=action;if(f)f();return TRUE;}
     void OnDestroy() override { action={};CBaseEntity::OnDestroy(); }
 };
-struct Packet {int destination{},id{};Vector origin{};std::vector<int> bytes;std::vector<float> coordinates;bool complete{};};
+struct Packet {int destination{},id{};Vector origin{};std::vector<int> bytes;std::vector<float> coordinates;bool complete{};edict_t* recipient{};};
 struct Fixture {
     inline static Fixture* active{};
     Engine& e;
@@ -63,7 +67,7 @@ struct Fixture {
         auto impl=std::make_unique<Behavior>();behavior=impl.get();Require(monster->InstallBehavior(std::move(impl)),"actual behavior installation");
         monster->pev->health=100;monster->pev->takedamage=DAMAGE_AIM;monster->pev->model=Engine::String("models/player/zombi_origin/zombi_origin.mdl");
         auto* ed=e.Reserve(e.nextEntity++,"fixture_flush");flush=GetClassPtr<CCSEntity>(reinterpret_cast<FlushTarget*>(&ed->v));
-        g_engfuncs.pfnMessageBegin=[](int destination,int id,const float* origin,edict_t*){auto& f=*active;f.packets.push_back({destination,id,origin?Vector(origin):Vector{}});const auto cb=f.onMessage;if(cb)cb();};
+        g_engfuncs.pfnMessageBegin=[](int destination,int id,const float* origin,edict_t* recipient){auto& f=*active;f.packets.push_back({destination,id,origin?Vector(origin):Vector{},{},{},false,recipient});const auto cb=f.onMessage;if(cb)cb();};
         g_engfuncs.pfnWriteByte=[](int value){active->packets.back().bytes.push_back(value);};
         g_engfuncs.pfnWriteCoord=[](float value){active->packets.back().coordinates.push_back(value);};
         g_engfuncs.pfnMessageEnd=[](){active->packets.back().complete=true;};
@@ -120,12 +124,19 @@ void BodyStains(Engine& e)
         owner->pev->modelindex = Engine::Model(STRING(owner->pev->model));
     }
     g_engfuncs.pfnCanSkipPlayer = [](const edict_t*) { return 0; };
+    g_engfuncs.pfnMakeVectors = [](const float*)
+    {
+        gpGlobals->v_forward = Vector(1, 0, 0);
+        gpGlobals->v_right = Vector(0, -1, 0);
+        gpGlobals->v_up = Vector(0, 0, 1);
+    };
     // Match the native initialization required by the weapon factories.
     WeaponInfoReset();
     gmsgCurWeapon = 0;
     LinkUserMessages();
     UTIL_PrecacheOtherWeapon("weapon_ak47");
     UTIL_PrecacheOtherWeapon("weapon_usp");
+    UTIL_PrecacheOtherWeapon("weapon_knife");
     const auto equip = [&](const char* name)
     {
         auto* entity = Engine::Create(Engine::String(name));
@@ -141,6 +152,39 @@ void BodyStains(Engine& e)
     };
     auto* rifle = equip("weapon_ak47");
     f.monster->pev->modelindex = Engine::Model(STRING(f.monster->pev->model));
+    // Supply a Studio hitbox through the SDK edge, keeping the production
+    // coordinate conversion and entity snapshots in the exercised path.
+    struct TestStudio { studiohdr_t header; mstudiobbox_t box; };
+    static TestStudio studio{};
+    studio.header.id = 0x54534449;
+    studio.header.length = sizeof(studio);
+    studio.header.numbones = studio.header.numhitboxes = 1;
+    studio.header.hitboxindex = offsetof(TestStudio, box);
+    studio.box.group = HITGROUP_CHEST;
+    studio.box.bbmin = Vector(-8, -8, -8);
+    studio.box.bbmax = Vector(8, 8, 8);
+    static float bones[MAXSTUDIOBONES][3][4]{};
+    struct RestoreBones
+    {
+        decltype(g_pBoneTransform) previous;
+        ~RestoreBones() { g_pBoneTransform = previous; }
+    } restore{std::exchange(g_pBoneTransform, &bones)};
+    g_engfuncs.pfnGetModelPtr = [](edict_t* entity) -> void*
+    {
+        return entity == Fixture::active->monster->edict() ? &studio.header : nullptr;
+    };
+    g_engfuncs.pfnGetBonePosition = [](const edict_t* entity, int bone, float* origin, float*)
+    {
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            bones[bone][axis][axis] = 1;
+            origin[axis] = bones[bone][axis][3] = entity->v.origin[axis];
+        }
+    };
+    g_engfuncs.pfnTraceHull = [](const float* source, const float* end, int flags, int, edict_t* skip, TraceResult* trace)
+    {
+        g_engfuncs.pfnTraceLine(source, end, flags, skip, trace);
+    };
     e.globals.v_forward = Vector(1, 0, 0);
     e.globals.v_right = Vector(0, 1, 0);
     e.globals.v_up = Vector(0, 0, 1);
@@ -167,17 +211,24 @@ void BodyStains(Engine& e)
         return state.fuser4;
     };
     const auto local = [&]{ return custom::DecodeBodyStainField(wire(player, true, playerEdict)); };
-    const auto zombie = [&]{ return custom::DecodeBodyStainField(wire(*f.monster, false, playerEdict)); };
-    const auto hit = [&](float distance, bool lands = true, unsigned pellets = 1)
+    const auto zombie = [&]{ return custom::MonsterStainField(wire(*f.monster, false, playerEdict)); };
+    const auto setupTrace = [&](float distance, bool lands, float height)
     {
-        e.onTrace = [&](edict_t* shooter, TraceResult& trace)
+        f.monster->pev->origin = Vector(distance + 8, 0, -height);
+        f.monster->pev->angles = Vector();
+        e.onTrace = [&, distance, lands](edict_t* shooter, TraceResult& trace)
         {
             if (!lands || shooter != playerEdict) return;
             trace.flFraction = distance / 512;
             trace.vecEndPos = Vector(distance, 0, 0);
+            trace.vecPlaneNormal = Vector(-1, 0, 0);
             trace.pHit = f.monster->edict();
             trace.iHitgroup = HITGROUP_CHEST;
         };
+    };
+    const auto hit = [&](float distance, bool lands = true, unsigned pellets = 1, float height = 0)
+    {
+        setupTrace(distance, lands, height);
         Vector origin{}, direction(1, 0, 0);
         if (pellets > 1)
         {
@@ -194,13 +245,48 @@ void BodyStains(Engine& e)
 
     Expect(local().enabled && !local().body && !local().weapon, "local policy publishes clean arms and gun");
     hit(64, false);
-    Expect(!local().body && !local().weapon && !zombie().body, "a missed shot cannot stain anything");
-    hit(129);
-    Expect(!local().body && !local().weapon && zombie().body && !zombie().weapon,
+    Expect(!local().body && !local().weapon && !zombie(), "a missed shot cannot stain anything");
+    f.packets.clear();
+    hit(129, true, 1, -2);
+    const auto firstZombie = zombie();
+    Expect(!local().body && !local().weapon && custom::MonsterStainCount(firstZombie) == 1,
         "a distant hit stains only the zombie");
-    Expect(custom::BodyStainHits(zombie().body) == 1, "the first hit starts one zombie stain");
+    const auto effectId = e.messages.at("CsoMonFX");
+    const auto deliveries = [&]
+    {
+        std::vector<const Packet*> result;
+        for (const auto& packet : f.packets)
+            if (packet.id == effectId) result.push_back(&packet);
+        return result;
+    };
+    Expect(deliveries().empty(), "local marks replace the ordinary hit spray");
+    const auto flushMarks = [&]
+    {
+        f.packets.clear();
+        CSOL_FlushMonsterStains(f.session->Messages());
+        return deliveries();
+    };
+    const auto firstMark = [&](const Packet& packet)
+    {
+        Require(packet.bytes.size() >= custom::MonsterStainHeaderSize + custom::MonsterStainMarkSize,
+            "complete contact message");
+        std::array<std::uint8_t, custom::MonsterStainMarkSize> bytes{};
+        for (unsigned i = 0; i < bytes.size(); ++i) bytes[i] = packet.bytes[custom::MonsterStainHeaderSize + i];
+        return custom::ReadMonsterStain(bytes);
+    };
+    const auto firstPackets = flushMarks();
+    Require(firstPackets.size() == 1, "only the player whose snapshot included the monster receives a mark");
+    const auto& packet = *firstPackets[0];
+    Expect(packet.complete && packet.destination == MSG_ONE && packet.recipient == playerEdict &&
+        packet.bytes[0] == custom::MonsterStainSubtype && packet.bytes[6] == 0, "reliable first mark");
+    const auto mark = firstMark(packet);
+    Expect(mark.bone == 0 && mark.point[0] == -128 && mark.point[1] == 0 && mark.point[2] == -32 &&
+        mark.normal[0] == -127 && !mark.normal[1] && !mark.normal[2], "actual trace position and outward normal in bone space");
+    hit(129, true, 1, -2);
+    Expect(zombie() == firstZombie, "identical repeated hit keeps one localized mark");
 
     ClearMultiDamage();
+    f.monster->pev->origin = Vector(32, 0, 2);
     TraceResult thrown{};
     thrown.pHit = f.monster->edict();
     thrown.iHitgroup = HITGROUP_CHEST;
@@ -208,22 +294,31 @@ void BodyStains(Engine& e)
     f.monster->TraceAttack(player.pev, 10, Vector(1, 0, 0), &thrown, DMG_BULLET);
     ApplyMultiDamage(player.pev, player.pev);
     Expect(!local().body && !local().weapon, "an unrelated close TraceAttack cannot stain the shooter");
-    const auto previousZombie = zombie().body;
-    hit(128);
+    const auto previousZombie = zombie();
+    hit(128, true, 1, 4);
     const auto first = local();
     Require(first.enabled && custom::BodyStainHits(first.body) == 1 &&
         custom::BodyStainHits(first.weapon) == 1, "a confirmed boundary hit stains arms and weapon once");
-    Expect(zombie().body == previousZombie + 1, "the next hit adds to the established zombie pattern");
+    Expect(zombie() == previousZombie + 1, "the next hit adds a separate bone-space mark");
+    Expect(flushMarks().empty(), "snapshot bursts keep the contact send rate bounded");
+    const auto lateSnapshot = custom::MonsterStainField(wire(*f.monster, false, observer));
+    Expect(lateSnapshot == zombie(), "late observer receives the same monster identity and count");
+    e.globals.time += .125f;
+    const auto replay = flushMarks();
+    Require(replay.size() == 2, "one incremental delivery and one replay");
+    Expect(replay[0]->recipient == playerEdict && replay[0]->bytes[6] == 1 &&
+        replay[1]->recipient == observer && replay[1]->bytes[6] == 0 &&
+        firstMark(*replay[1]).point[2] == mark.point[2], "late replay includes the original hit coordinates");
     const unsigned full = (first.body & ~custom::BodyStainMaxHits) | custom::BodyStainMaxHits;
     Expect(custom::AddBodyStainHit(full, 0) == full,
         "a saturated pattern keeps its seed and all existing marks");
-    hit(16);
+    hit(16, true, 1, 6);
     const auto second = local();
     Expect(second.body == first.body + 1 && second.weapon == first.weapon + 1,
         "each qualifying shot adds a layer while retaining both placement seeds");
-    hit(64, true, 3);
+    hit(64, true, 3, 8);
     const auto stained = local();
-    const auto finalZombie = zombie().body;
+    const auto finalZombie = zombie();
     Expect(stained.body == second.body + 1 && stained.weapon == second.weapon + 1,
         "multiple confirmed pellets from one discharge add one set of splashes");
     Expect(finalZombie > previousZombie, "the victim keeps accumulating its own marks");
@@ -239,11 +334,11 @@ void BodyStains(Engine& e)
 
     e.globals.time = 3600;
     CSOL_SetBodyStainPolicy(true, 128);
-    Expect(local().body == stained.body && local().weapon == stained.weapon && zombie().body == finalZombie,
+    Expect(local().body == stained.body && local().weapon == stained.weapon && zombie() == finalZombie,
         "elapsed time neither clears nor replaces stains");
     f.monster->pev->deadflag = DEAD_DYING;
     f.monster->pev->health = 0;
-    Expect(zombie().body == finalZombie, "visible dying zombie retains its stain");
+    Expect(zombie() == finalZombie, "visible dying zombie retains its stain");
     player.pev->deadflag = DEAD_DEAD;
     player.pev->health = 0;
     Expect(local().body == stained.body && !local().weapon, "dead player retains their arms without showing a held gun");
@@ -268,9 +363,9 @@ void BodyStains(Engine& e)
     Expect(!received().body && received().weapon == stained.weapon, "pickup transfers the weapon blood without transferring arms");
 
     CSOL_SetBodyStainPolicy(false, 128);
-    Expect(!local().enabled && !received().enabled && !zombie().enabled, "off hides all stains");
+    Expect(!local().enabled && !received().enabled && !zombie(), "off hides all stains");
     CSOL_SetBodyStainPolicy(true, 0);
-    Expect(local().body == stained.body && received().weapon == stained.weapon && zombie().body == finalZombie,
+    Expect(local().body == stained.body && received().weapon == stained.weapon && zombie() == finalZombie,
         "turning the feature back on shows established stains even at zero splash radius");
     player.SelectItem("weapon_usp");
     Require(player.m_pActiveItem == pistol, "actual alternate survives the rifle drop");
@@ -302,6 +397,33 @@ void BodyStains(Engine& e)
         if (reused) break;
     }
     Require(reused, "fixture reaches the same monster edict");
+
+    f.monster = f.session->Monsters().Acquire(f.type, 7, f.session->Map().SpawnPoints().Points());
+    Require(f.monster && f.monster->InstallBehavior(std::make_unique<Behavior>()), "fresh monster lease for melee");
+    f.monster->pev->model = Engine::String("models/player/zombi_origin/zombi_origin.mdl");
+    f.monster->pev->modelindex = Engine::Model(STRING(f.monster->pev->model));
+    f.monster->pev->takedamage = DAMAGE_AIM;
+    f.monster->pev->health = 100;
+    f.monster->pev->deadflag = DEAD_NO;
+    auto* knife = equip("weapon_knife");
+    CSOL_SetBodyStainPolicy(true, 128);
+    setupTrace(20, false, 0);
+    knife->PrimaryAttack();
+    Expect(local().body == stained.body && !local().weapon && !zombie(), "missed swing leaves arms, knife and monster clean");
+    setupTrace(20, true, 0);
+    knife->PrimaryAttack();
+    const auto cut = local();
+    Expect(cut.body == stained.body + 1 && custom::BodyStainHits(cut.weapon) == 1 &&
+        custom::MonsterStainCount(zombie()) == 1, "ordinary knife hit stains both arms and that knife");
+    setupTrace(24, true, 2);
+    knife->SecondaryAttack();
+    Expect(local().body == cut.body + 1 && local().weapon == cut.weapon + 1 &&
+        custom::MonsterStainCount(zombie()) == 2, "knife secondary attack stains that instance and adds a local mark");
+    player.SelectItem("weapon_usp");
+    Require(player.m_pActiveItem == pistol, "ordinary sidearm becomes active again");
+    Expect(local().body == cut.body + 1 && !local().weapon, "the clean sidearm retains only arm blood");
+    player.SelectItem("weapon_knife");
+    Expect(local().weapon == cut.weapon + 1, "the original knife retains its marks");
 
     const auto rifleIndex = rifle->entindex();
     Require(receiver.RemovePlayerItem(rifle), "native inventory detaches removed weapon");

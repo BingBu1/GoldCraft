@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "../../../csol/server/custom/body_stains.h"
 #include "weapon_melee.hpp"
 #include <array>
 #include <cmath>
@@ -174,7 +175,8 @@ MeleeStatus PistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest& req
     {
         ClearMultiDamage();
         if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
-        target->TraceAttack(player.pev, static_cast<float>(request.damage), gpGlobals->v_forward, &trace, DamageFlags);
+        const CSOLBodyStainShot stain(&player, source, player.m_pActiveItem);
+        stain.TraceAttack(target, player.pev, static_cast<float>(request.damage), gpGlobals->v_forward, &trace, DamageFlags);
         if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
         ApplyMultiDamage(player.pev, player.pev);
         if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
