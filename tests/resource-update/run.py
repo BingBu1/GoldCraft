@@ -167,6 +167,12 @@ def main():
              ('invalid', 'invalid', 'models/update.mdl', 0), ('final-change', 'final-change', 'models/update.mdl', 1),
              ('corrupt-cache', 'update', 'models/update.mdl', 1),
              ('long-name', 'reuse', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 1),
+             ('long-legacy', 'legacy-cache', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 0),
+             ('flat-sha', 'legacy-cache', 'models/update.mdl', 0),
+             ('short-collision', 'short-collision', 'models/update.mdl', 0),
+             ('mixed-roots', 'mixed-roots', 'models/update.mdl', 0),
+             ('deep-root', 'deep-root', 'models/update.mdl', 1),
+             ('catalog', 'catalog', 'models/update.mdl', 1),
              ('legacy-cache', 'legacy-cache', 'models/update.mdl', 0),
              ('legacy-shadow', 'legacy-cache', 'models/update.mdl', 0),
              ('corrupt-legacy', 'update', 'models/update.mdl', 1),
@@ -185,8 +191,8 @@ def main():
     try:
         for label, mode, name, request_count in cases:
             base = out / 'cases' / label
-            if label == 'long-name':
-                legacy = base / 'cache/objects' / sha / name
+            if label in ('long-name','long-legacy'):
+                legacy = base / 'old/objects' / sha / name
                 pad = max(2, 261 - len(str(legacy)))
                 base = base / ('p' * pad)
                 assert len(str(base / 'cache/objects' / sha / name)) >= 260
@@ -211,11 +217,14 @@ def main():
                 else: destination.write_bytes(initial)
             if mode == 'download-releases-lease':
                 (game / 'models/unchanged.mdl').write_bytes(body)
-            cache_objects = base / 'cache/objects'
+            cache_objects = base / 'old/objects'
             if label in ('corrupt-cache', 'legacy-shadow'):
-                cache_objects.mkdir(parents=True)
-                (cache_objects / (sha + '.mdl')).write_bytes(old)
-            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy'):
+                (base / 'cache').mkdir(parents=True)
+                (base / 'cache' / (sha[:8] + '.mdl')).write_bytes(old)
+            if label in ('flat-sha', 'legacy-shadow', 'mixed-roots'):
+                cache_objects.mkdir(parents=True, exist_ok=True)
+                (cache_objects / (sha + '.mdl')).write_bytes(old if label == 'legacy-shadow' else body)
+            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy', 'long-legacy'):
                 legacy = cache_objects / sha / name
                 legacy.parent.mkdir(parents=True)
                 legacy.write_bytes(old if label == 'corrupt-legacy' else body)
@@ -240,17 +249,17 @@ def main():
                 assert counters['capacityWaits'] >= 8
                 count = counters['fastdlRequests']
                 request_count = counters['capacityWaits'] + 8  # Two successes and three attempts per permanent failure.
-            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy'):
+            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy', 'long-legacy'):
                 assert legacy.read_bytes() == (old if label == 'corrupt-legacy' else body)
             if label == 'legacy-shadow':
                 assert (cache_objects / (sha + '.mdl')).read_bytes() == old
             if label in ('parallel', 'long-name') and code == 0:
-                objects = sorted(p.name for p in (base / 'cache/objects').iterdir())
-                assert objects == [sha + ('.mdl' if label == 'parallel' else '.wav')], objects
+                objects = sorted(p.name for p in (base / 'cache').glob('*.*') if not p.name.startswith('.'))
+                assert objects == [sha[:8] + ('.mdl' if label == 'parallel' else '.wav')], objects
             if label == 'parallel' and parallel['peak'] < 8:
                 code = code or 1
             preserved = all(identity(x['path']) == x for x in before)
-            temporary = list((base / 'cache').rglob('*.tmp-*')) if (base / 'cache').exists() else []
+            temporary = [p for p in base.rglob('*') if p.is_file() and p.name.startswith(('.tmp-', '.i'))]
             result = dict(name=label, mode=mode, exit=code, expectedRequests=request_count, actualRequests=count,
                           concurrentPeak=parallel['peak'] if mode == 'batch' else None,
                           originalsPreserved=preserved, temporaryFiles=[str(x) for x in temporary],

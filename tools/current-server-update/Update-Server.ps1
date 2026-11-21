@@ -3,7 +3,7 @@
 . (Join-Path $PSScriptRoot 'Scenario.ps1')
 . (Join-Path $PSScriptRoot 'Configuration.ps1')
 . (Join-Path $PSScriptRoot 'Publication.ps1')
-# Automatic server lifecycle v1
+# Automatic server lifecycle v2
 . (Join-Path $PSScriptRoot 'Lifecycle.ps1')
 $lifecycle=$null;$safeToStart=$false
 $lock=$null
@@ -110,7 +110,7 @@ try {
         if(!$journal){throw 'No rollback record exists'}
         $lifecycle=Begin-ServerUpdate $target -NoRestart:$NoRestart
         $safeToStart=$true
-        Stopped $target;Unlocked $journal.files
+        Assert-UpdateStopped $target;Unlocked $journal.files
         $lock=[IO.File]::Open((Under $state 'operation.lock'),'OpenOrCreate','ReadWrite','None')
         $journal=Text $journalPath|ConvertFrom-Json;Check-Journal $journal
         $safeToStart=$false
@@ -161,7 +161,7 @@ try {
     if(!$rows.Count -and (!$journal -or $journal.status -ne 'prepared')){Write-Host 'Already current. No files copied.';exit 0}
     $lifecycle=Begin-ServerUpdate $target -NoRestart:$NoRestart
     $safeToStart=$true
-    Stopped $target;Unlocked $rows
+    Assert-UpdateStopped $target;Unlocked $rows
     [IO.Directory]::CreateDirectory($state)|Out-Null
     $lock=[IO.File]::Open((Under $state 'operation.lock'),'OpenOrCreate','ReadWrite','None')
     $journal=$null
@@ -169,7 +169,7 @@ try {
     if($journal -and $journal.status -eq 'prepared'){
         $safeToStart=$false;Restore-Files $target $state $journal;$safeToStart=$true
     }
-    $rows=@(Changes);Stopped $target;Unlocked $rows
+    $rows=@(Changes);Assert-UpdateStopped $target;Unlocked $rows
     if($journal -and $journal.status -eq 'installed' -and $rows.Count){throw 'Installed transaction changed; original rollback retained. Restore before reapplying.'}
     if(!$rows.Count){Write-Host 'Already current. No files copied.';exit 0}
     Write-Host "Backing up $($rows.Count) changed files..."
@@ -180,7 +180,7 @@ try {
     $journal=[pscustomobject]@{scope=$scope;release=$manifest.release;manifestSha256=$manifestSha;status='prepared';files=$rows}
     Json $journalPath $journal
     try {
-        Stopped $target;Unlocked $rows;$i=0
+        Assert-UpdateStopped $target;Unlocked $rows;$i=0
         $safeToStart=$false
         foreach($row in @($rows|Sort-Object @{Expression={if($_.path -ceq 'cs/launcher-public/manifest.json'){3}elseif($_.kind -ceq 'configuration'){2}elseif($_.path.EndsWith('.dll')){1}else{0}}},path)){
             $dest=Under $target $row.path

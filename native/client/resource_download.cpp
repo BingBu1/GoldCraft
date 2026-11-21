@@ -84,7 +84,7 @@ struct Policy {
                         try {
                             resource_cache::Cache cache(job->cacheRoot);
                             job->cacheStored = !job->cancelled &&
-                                cache.Store(job->cacheName, job->expected, job->bytes);
+                                cache.Store(job->cacheName, job->expected, job->bytes, &job->storedPath);
                             if (!job->cacheStored) job->error = cache.Error();
                         } catch (const std::exception& failure) { job->error = failure.what(); }
                         job->cacheStoreMs = std::chrono::duration<double, std::milli>(

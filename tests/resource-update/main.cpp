@@ -252,8 +252,9 @@ int Scale(const fsys::path& binary,const fsys::path& base,const std::string& url
             const auto& s=session.GetStatus();
             Check(s.hashedBytes==bytes,"scale only changed source bodies are hashed");
             Check(s.downloaded==0&&s.checked==count,"scale complete without HTTP");
-            Check(s.profile.openReader.calls==2*count,"scale resolves every VFS name again in the final pass");
-            Check(s.leased==count&&s.profile.leaseOpen.calls==count,"scale reuses verified leases");
+            const bool known = std::string_view(label) == "warm";
+            Check(s.profile.openReader.calls==(known ? 1 : 2)*count,"scale resolves the whole final view");
+            Check(s.leased==(known ? 0 : count)&&s.profile.leaseOpen.calls==count,"scale keeps verified leases");
             std::cout<<"{\"files\":"<<count<<",\"run\":\""<<label<<"\",\"elapsedMs\":"<<s.elapsedMs
                 <<",\"pumpWorkMs\":"<<s.pumpWorkMs<<",\"hashedBytes\":"<<s.hashedBytes
                 <<",\"openCalls\":"<<s.profile.openReader.calls<<",\"openMs\":"<<s.profile.openReader.totalMs
@@ -337,8 +338,8 @@ int Join(const fsys::path& binary,const fsys::path& base,const std::string& url)
     // A replaced binding still gets a new independent read lease.
     auto passes=[&](unsigned remapped,unsigned mounts){
         const auto& s=session.GetStatus();
-        Check(s.profile.openReader.calls==2*count&&s.profile.mount.calls==mounts,"join final pass shape");
-        Check(s.leased==count-remapped&&s.profile.leaseOpen.calls==count+remapped,"join only reopens changed bindings");
+        Check(s.profile.openReader.calls==(mounts ? 2 : 1)*count&&s.profile.mount.calls==mounts,"join final pass shape");
+        Check(s.leased==(mounts ? count-remapped : 0)&&s.profile.leaseOpen.calls==count+remapped,"join only reopens changed bindings");
     };
     Check(session.Begin(1,url,resources),"join first begin");run("first-join");
     Check(session.GetStatus().cached==wrong,"join repaired every wrong root file from cache");passes(wrong,1);
@@ -384,7 +385,7 @@ int main(int argc,char** argv){
         mh_interface_t interfaces{};interfaces.FileSystem=fs;metahook_api_t api{};api.VFTHook=HookVft;api.UnHook=UnHook;
         Check(overlay::Install(&api,&interfaces),"production identity checked overlay install");
         {
-        update::Session session((base/"cache").string());cache::Cache storage((base/"cache").string());
+        update::Session session((base/"cache").string(),(base/"old").string());cache::Cache storage((base/"cache").string());
         if(mode=="store-pressure"){
             StorePressure(session,storage,fs,name,next,third,bytes,old,newer);
         }else if(mode=="legacy-cache"){
@@ -393,8 +394,15 @@ int main(int argc,char** argv){
             Ready(session);
             Check(session.GetStatus().cached==1 && session.GetStatus().downloaded==0,"verified legacy object needs no HTTP");
             Check(EqualVfs(fs,name,bytes),"engine mounts the verified legacy object");
-            Check(!fsys::exists(storage.Path(name,next)) || Disk(storage.Path(name,next))==old,
-                  "legacy cache winner leaves compact storage untouched");
+            char local[MAX_PATH]{};
+            Check(fs->GetLocalPath(name.c_str(),local,MAX_PATH) && Disk(local)==bytes,"engine reads the verified object");
+            const auto flat=base/"old/objects"/(std::string(argv[7])+fsys::path(name).extension().string());
+            const auto nested=base/"old/objects"/argv[7]/name;
+            const auto original=fsys::is_regular_file(flat)&&Disk(flat)==bytes ? flat : nested;
+            if (original.string().size()<MAX_PATH)
+                Check(fsys::equivalent(original,local),"readable old file used at its original location");
+            else
+                Check(fsys::equivalent(storage.Path(name,next),local),"overlong old file promoted into a short slot without HTTP");
         }else if(mode=="same"||mode=="update"||mode=="pak"||mode=="reuse"||mode=="same-generation"||mode=="old-hardlink"||mode=="final-change"){
             Check(EqualVfs(fs,name,mode=="same"?bytes:old),"baseline source winner");
             Check(session.Begin(3,url,{{name,next}}),"manifest accepted");
@@ -586,6 +594,70 @@ int main(int argc,char** argv){
             Check(EqualVfs(fs,name,newer),"only new connection body mounted");
             Check(!fsys::exists(storage.Path(name,next)),"old cancelled result never commits");
             Check(fsys::exists(storage.Path(name,third)),"new connection committed");
+        }else if(mode=="mixed-roots"){
+            const std::string other="sprites/mixed.spr";
+            Check(storage.Store(other,next,bytes),"new short sprite cached");
+            Check(session.Begin(1,url,{{name,next},{other,next}}),"mixed manifest accepted");Ready(session);
+            const auto snapshot=overlay::Capture();
+            Check(snapshot.paths.size()==2 && !snapshot.oldRoot.empty(),"both cache roots were mounted");
+            Check(EqualVfs(fs,name,bytes) && EqualVfs(fs,other,bytes) && session.GetStatus().downloaded==0,
+                  "engine reads old and short resources together");
+            Check(session.Commit() && session.Begin(2,url,{}),"begin removal of both bindings");Ready(session);
+            Check(session.Reset() && EqualVfs(fs,name,bytes) && EqualVfs(fs,other,bytes),"rollback restores both roots");
+            overlay::Clear();
+            Check(fsys::remove(snapshot.paths.at(name)) && !overlay::Restore(snapshot),
+                  "standalone restore detects a missing old resource immediately");
+        }else if(mode=="deep-root"){
+            const auto parent=base/std::string(241-base.string().size(), 'p');
+            const auto deep=parent/"gcr";
+            const auto previous=parent/"goldcraft-resource-cache";
+            cache::Cache deepCache(deep.string(),previous.string());
+            Check(deepCache.Path(name,next).size()==259 && previous.string().size()>=MAX_PATH,
+                  "the compact path fits the engine at the length boundary");
+            update::Session deepSession(deep.string(),previous.string());
+            Check(deepSession.Begin(1,url,{{name,next}}),"deep installation accepts its missing legacy root");
+            Ready(deepSession);
+            Check(deepSession.GetStatus().downloaded==1 && EqualVfs(fs,name,bytes) && deepSession.Commit(),
+                  "download and engine read under the 259 byte path");
+        }else if(mode=="short-collision"){
+            // These different 8-byte files have the same first 32 SHA-256 bits.
+            std::array<std::uint64_t,2> values{46973,80183};
+            std::array<Entry,2> entries{};
+            std::array<std::string,2> stored{};
+            auto body = [&](int i) { return std::span(reinterpret_cast<const std::uint8_t*>(&values[i]), sizeof(values[i])); };
+            for (int i=0;i<2;++i) { cache::Hash h; h.Update(body(i)); entries[i]={true,8,h.Finish()}; }
+            Check(entries[0]!=entries[1] && storage.Path(name,entries[0])==storage.Path(name,entries[1]),"real SHA prefix collision");
+            auto first = std::async(std::launch::async,[&]{cache::Cache writer(storage.Root()); return writer.Store(name,entries[0],body(0),&stored[0]);});
+            cache::Cache writer(storage.Root());
+            Check(writer.Store(name,entries[1],body(1),&stored[1]) && first.get(),"concurrent collision publication");
+            Check(stored[0]!=stored[1],"colliding strong digests kept independently");
+            for (int i=0;i<2;++i) {
+                Check(session.Begin(i+1,url,{{name,entries[i]}}),"begin matching collision body");Ready(session);
+                const std::vector<std::uint8_t> wanted(body(i).begin(),body(i).end());
+                Check(session.GetStatus().downloaded==0 && EqualVfs(fs,name,wanted),"collision resolves through full digest and real VFS");
+                Check(session.Commit(),"commit collision mapping");
+            }
+            Check(Disk(stored[0])!=Disk(stored[1]),"both committed versions remain available");
+        }else if(mode=="catalog"){
+            const auto original=base/"game"/name;
+            { std::ofstream f(original,std::ios::binary|std::ios::trunc); f.write(reinterpret_cast<const char*>(bytes.data()),bytes.size()); }
+            {
+                update::Session fresh(storage.Root());
+                Check(fresh.Begin(1,url,{{name,next}}),"begin original file");Ready(fresh);
+                Check(fresh.GetStatus().downloaded==0 && fresh.Commit(),"commit original in place");
+                Check(fresh.Begin(2,url,{{name,next}}),"begin unchanged view");Ready(fresh);
+                Check(fresh.GetStatus().profile.openReader.calls==1 && fresh.GetStatus().hashedBytes==0,"single final lookup for original");
+            }
+            auto catalog=Disk(base/"cache/index.bin");
+            Check(catalog.size()==4+1+name.size()+4+32 && std::equal(next.sha256.begin(),next.sha256.end(),catalog.end()-32),
+                  "committed catalog records the entire digest");
+            Check(!fsys::exists(storage.Path(name,next)),"correct original body never copied");
+            { std::ofstream f(original,std::ios::binary|std::ios::trunc); f.write(reinterpret_cast<const char*>(old.data()),old.size()); }
+            { std::ofstream f(base/"cache/index.bin",std::ios::binary|std::ios::trunc); f<<"torn catalog"; }
+            update::Session restarted(storage.Root());
+            Check(restarted.Begin(3,url,{{name,next}}),"damaged catalog remains optional on a fresh process session");Ready(restarted);
+            Check(restarted.GetStatus().downloaded==1 && EqualVfs(fs,name,bytes) && Disk(original)==old,
+                  "corrupt index and original repaired through HTTP without overwriting original");
         }else if(mode=="cache-hardlink"){
             const auto target=fsys::path(storage.Path(name,next));fsys::create_directories(target.parent_path());
             fsys::create_hard_link(base/"old-linked-source.bin",target);const auto before=FileInfo(base/"old-linked-source.bin");

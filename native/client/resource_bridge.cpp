@@ -575,7 +575,8 @@ const char* install(metahook_api_s* incoming_api, mh_interface_s* interfaces,
     if (!hud_sprites::bind_source_release(resource_lifecycle::source_release())) return "Native HUD source owner is unavailable";
     if (!api->InlineHook(reinterpret_cast<void*>(frame), reinterpret_cast<void*>(Frame), reinterpret_cast<void**>(&original_frame)))
         return "Cannot install inner HUD_Frame resource pump";
-    session = std::make_unique<resource_update::Session>((std::filesystem::current_path() / "goldcraft-resource-cache").string());
+    const auto game = std::filesystem::current_path();
+    session = std::make_unique<resource_update::Session>((game / "gcr").string(), (game / "goldcraft-resource-cache").string());
     installed = true;
     loading_start = [](const char* type, int steps) { if (*game_ui) (*game_ui)->StartProgressBar(type, steps); };
     loading_advance = [](const char*, int point, float fraction) { if (*game_ui) (*game_ui)->ContinueProgressBar(point, fraction); };

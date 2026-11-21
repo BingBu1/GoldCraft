@@ -154,7 +154,7 @@ resource_model_cache::Result retire_resource_caches(bool,bool,const resource_mod
 }
 namespace goldcraft::resource_update {
 struct Session::Impl {resource_overlay::Snapshot previous;bool transaction{};};
-Session::Session(std::string):impl_(std::make_unique<Impl>()){}
+Session::Session(std::string, std::string):impl_(std::make_unique<Impl>()){}
 Session::~Session()=default;
 bool Session::Begin(std::uint64_t,std::string,std::vector<Resource> value){fixture::Call("begin-session");impl_->previous=fixture::overlay;impl_->transaction=true;fixture::resources=std::move(value);fixture::status={Phase::checking};fixture::status.total=fixture::resources.size();return true;}
 void Session::Pump(){fixture::Call("pump");if(fixture::fail_session){fixture::status.phase=Phase::failed;fixture::status.error="models/test.mdl: unavailable HTTP 503";}else if(fixture::ready){fixture::overlay={"verified",{{"models/csol/buymenu_v10.json","verified-object"}}};fixture::status={Phase::ready,1,0,1,1};}}

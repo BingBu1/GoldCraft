@@ -6,23 +6,26 @@
 #include <compare>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace goldcraft::resource_cache {
 // Independent OS file position and read lease. No engine calls are permitted
 // on worker threads. The range may be one entry inside a PAK.
 class SourceFile {
 public:
-    using Stamp = std::array<std::uint64_t, 9>;
+    using Stamp = std::array<std::uint64_t, 13>;
     static std::unique_ptr<SourceFile> Reopen(void* handle, std::uint64_t offset, std::uint32_t size);
     ~SourceFile();
     SourceFile(const SourceFile&) = delete;
     SourceFile& operator=(const SourceFile&) = delete;
     const Stamp& Identity() const { return stamp_; }
+    bool HasStableIdentity() const { return stamp_.back() != 0; }
     bool Unchanged() const;
     bool ReadAt(std::uint32_t offset, std::span<std::uint8_t> output);
 private:
     SourceFile(void* handle, std::uint64_t offset, std::uint32_t size);
     friend class PendingSource;
+    friend std::unique_ptr<SourceFile> OpenCandidate(const std::string& path, std::uint32_t size);
     static bool Inspect(void* handle, std::uint64_t offset, std::uint32_t size, Stamp& stamp);
     void* handle_{};
     std::uint64_t offset_{};
@@ -52,22 +55,31 @@ private:
 // opened for writing; a new body is committed as an independent file.
 class Cache {
 public:
-    enum class Layout { compact, legacy };
-
-    explicit Cache(std::string root);
+    enum class Layout { shortName, flatSha, nestedSha };
+    explicit Cache(std::string root, std::string previousRoot = {});
     const std::string& Root() const;
+    const std::string& PreviousRoot() const { return previousRoot_; }
     std::string Path(const std::string& name, const resource_sync::Entry& expected) const;
-    bool Read(const std::string& name, const resource_sync::Entry& expected,
-              std::span<std::uint8_t> out, std::uint32_t offset) const;
-    // The caller verifies the content before mounting the returned candidate path.
+    std::vector<std::string> OtherSlots(const std::string& primary) const;
     std::unique_ptr<SourceFile> Open(const std::string& name, const resource_sync::Entry& expected,
-                                     Layout layout, std::string* openedPath = nullptr) const;
+                                     Layout layout, std::string& path) const;
+    // Called with a worker's verified, write-denying lease on a legacy cache object.
+    std::string EnginePath(const std::string& name, const resource_sync::Entry& expected,
+                           std::string verifiedPath, SourceFile& source) const;
     bool Store(const std::string& name, const resource_sync::Entry& expected,
-               std::span<const std::uint8_t> bytes);
+               std::span<const std::uint8_t> bytes, std::string* storedPath = nullptr);
+    // A compact hint for the last committed manifest. Contents are never
+    // accepted as proof of a VFS winner. Only the background catalog thread
+    // reads or replaces the file.
+    std::vector<std::uint8_t> ReadCatalog() const;
+    void WriteCatalog(std::span<const std::uint8_t> bytes) const;
     const std::string& Error() const;
 private:
-    std::string root_, error_;
+    std::string root_, previousRoot_, error_;
 };
+
+// Opens an existing cache candidate under ordinary directories.
+std::unique_ptr<SourceFile> OpenCandidate(const std::string& path, std::uint32_t size);
 
 class Hash {
 public:

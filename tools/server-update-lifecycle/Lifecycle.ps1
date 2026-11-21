@@ -1,13 +1,25 @@
 # Shared by server patch installers. Uses the existing package's graceful
 # stop/start scripts; never kills a game or guesses a process by name alone.
 function Get-UpdateProcesses([string]$Root) {
-    $prefix=(Plain $Root).TrimEnd('\')+'\'
-    @(Get-CimInstance Win32_Process | Where-Object {
-        $_.ProcessId -ne $PID -and (
-            ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix,[StringComparison]::OrdinalIgnoreCase)) -or
-            ($_.Name -match '^(powershell|pwsh|java|javaw)\.exe$' -and $_.CommandLine -and
-             $_.CommandLine.IndexOf($prefix,[StringComparison]::OrdinalIgnoreCase) -ge 0))
-    })
+    $games=@((Under $Root 'cs/hlds.exe'),(Under $Root 'runtime/java/bin/java.exe'))
+    $scripts=Under $Root 'scripts'
+    $hosts=@('Run-Server.ps1','Start-Servers.ps1','Start-Scenario.ps1','Stop-Servers.ps1','Send-Console.ps1')
+    $filter="Name='hlds.exe' OR Name='java.exe' OR Name='powershell.exe' OR Name='pwsh.exe'"
+    foreach($p in Get-CimInstance Win32_Process -Filter $filter -Property ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine){
+        if($p.ProcessId -eq $PID){continue}
+        if($p.ExecutablePath -in $games){$p;continue}
+        if($p.Name -notin @('powershell.exe','pwsh.exe')){continue}
+        # Match the script actually executed by -File. A path supplied to an
+        # operator's status tool or to the updater itself is just an argument.
+        if($p.CommandLine -notmatch '(?i)\s-(?:File|f)\s+(?:"([^"]+)"|(\S+))'){continue}
+        $entry=$Matches[1]
+        if(!$entry){$entry=$Matches[2]}
+        if([IO.Path]::GetDirectoryName($entry) -eq $scripts -and [IO.Path]::GetFileName($entry) -in $hosts){$p}
+    }
+}
+function Assert-UpdateStopped([string]$Root) {
+    $running=@(Get-UpdateProcesses $Root)
+    if($running.Count){throw "Server process or supervisor is still running (PID $($running.ProcessId -join ', '))."}
 }
 function Get-UpdateRole([string]$Root,[string]$Role) {
     $path=Under $Root ('.state/'+$Role+'.json')
@@ -26,12 +38,13 @@ function Get-UpdateRole([string]$Root,[string]$Role) {
         return $record
     }finally{$process.Dispose()}
 }
-function Invoke-UpdateServerScript([string]$Root,[string]$Name,[int]$TimeoutSeconds,[switch]$Hidden) {
+function Invoke-UpdateServerScript([string]$Root,[string]$Name,[int]$TimeoutSeconds,[switch]$Hidden,[switch]$Diagnostics) {
     $path=Under $Root ('scripts/'+$Name)
     if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw "Missing original server script: scripts/$Name"}
     $shell=Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
     $arguments='-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$path+'"'
     if($Hidden){$arguments+=' -Hidden'}
+    if($Diagnostics){$arguments+=' -Diagnostics'}
     # File redirection cannot keep the updater waiting on a pipe inherited by a
     # long-lived server supervisor. Two fixed log pairs replace previous runs.
     $stdout=Under $Root ('.bingsang-current-update/'+$Name+'.out.log')
@@ -61,11 +74,15 @@ function Invoke-UpdateServerScript([string]$Root,[string]$Name,[int]$TimeoutSeco
     }finally{$process.Dispose()}
 }
 function Begin-ServerUpdate([string]$Root,[switch]$NoRestart) {
-    $context=[pscustomobject]@{Root=$Root;Roles=@();Gate=$null;StartupGate=$null;NoRestart=[bool]$NoRestart}
+    $context=[pscustomobject]@{Root=$Root;Roles=@();Gate=$null;StartupGate=$null;NoRestart=[bool]$NoRestart;Hidden=$false;Diagnostics=$false}
+    $stopCompleted=$false
     try {
         $folder=Under $Root '.bingsang-current-update'
         [IO.Directory]::CreateDirectory($folder)|Out-Null
         $context.Gate=[IO.File]::Open((Under $folder 'automatic-operation.lock'),'OpenOrCreate','ReadWrite','None')
+        $state=Under $Root '.state'
+        [IO.Directory]::CreateDirectory($state)|Out-Null
+        $context.StartupGate=[IO.File]::Open((Under $state 'startup.lock'),'OpenOrCreate','ReadWrite','None')
         foreach($role in @('cs','minecraft')){
             $record=Get-UpdateRole $Root $role
             if($record){$context.Roles+=@([pscustomobject]@{Name=$role;Before=$record})}
@@ -78,11 +95,18 @@ function Begin-ServerUpdate([string]$Root,[switch]$NoRestart) {
         foreach($name in @('Stop-Servers.ps1','Start-Servers.ps1')){
             if(!(Test-Path -LiteralPath (Under $Root ('scripts/'+$name)) -PathType Leaf)){throw "Missing original scripts/$name; cannot automatically restart safely."}
         }
-        foreach($record in $context.Roles){
-            if($record.Before.pid -notin @($processes|ForEach-Object {$_.ProcessId})){throw 'Server identity changed before shutdown'}
+        $parents=@(foreach($record in $context.Roles){
+            $game=$processes|Where-Object {$_.ProcessId -eq $record.Before.pid}
+            if(!$game){throw 'Server identity changed before shutdown'}
+            $processes|Where-Object {$_.ProcessId -eq $game.ParentProcessId}
+        })
+        if($parents.Count -eq $context.Roles.Count){
+            $context.Hidden=@($parents|Where-Object {$_.CommandLine -notmatch '(?i)\s-Hidden(?=\s|$)'}).Count -eq 0
+            $context.Diagnostics=@($parents|Where-Object {$_.CommandLine -match '(?i)\s-Diagnostics(?=\s|$)'}).Count -gt 0
         }
         Write-Host 'Preflight passed. Saving and stopping the running servers...'
         Invoke-UpdateServerScript $Root 'Stop-Servers.ps1' 150
+        $stopCompleted=$true
         # Stop-Servers waits for game PIDs. Give their supervisors time to close
         # console handles and role locks too, without repeatedly scanning payloads.
         $watch=[Diagnostics.Stopwatch]::StartNew()
@@ -90,12 +114,13 @@ function Begin-ServerUpdate([string]$Root,[switch]$NoRestart) {
             if($watch.Elapsed.TotalSeconds -gt 15){throw 'Server supervisor did not exit; update stopped before replacement.'}
             Start-Sleep -Milliseconds 250
         }
-        $context.StartupGate=[IO.File]::Open((Under $Root '.state/startup.lock'),'OpenOrCreate','ReadWrite','None')
-        Stopped $Root
         return $context
     }catch{
-        if($context.StartupGate){$context.StartupGate.Dispose()}
-        if($context.Gate){$context.Gate.Dispose()}
+        if($stopCompleted -and !@(Get-UpdateProcesses $Root).Count){End-ServerUpdate $context $true}
+        else{
+            if($context.StartupGate){$context.StartupGate.Dispose()}
+            if($context.Gate){$context.Gate.Dispose()}
+        }
         throw
     }
 }
@@ -107,7 +132,7 @@ function End-ServerUpdate($Context,[bool]$SafeToStart) {
         if(!$SafeToStart){Write-Warning 'Recovery is incomplete. Servers remain stopped; original backups were retained.';return}
         if($Context.NoRestart){Write-Host 'Servers remain stopped as requested (-NoRestart).';return}
         Write-Host 'Verified files are ready. Restarting through the original server startup script...'
-        Invoke-UpdateServerScript $Context.Root 'Start-Servers.ps1' 240 -Hidden
+        Invoke-UpdateServerScript $Context.Root 'Start-Servers.ps1' 240 -Hidden:$Context.Hidden -Diagnostics:$Context.Diagnostics
         foreach($role in $Context.Roles){
             $now=Get-UpdateRole $Context.Root $role.Name
             if(!$now -or ($now.pid -eq $role.Before.pid -and $now.startTicks -eq $role.Before.startTicks)){

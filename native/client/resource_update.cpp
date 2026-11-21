@@ -26,6 +26,66 @@ constexpr std::size_t ChunkSize = 256 * 1024;
 // engine paces frames. Use most of that interval; the dialog still redraws.
 constexpr auto PumpBudget = std::chrono::milliseconds(30);
 constexpr std::size_t InFlight = 32;
+// A complete manifest match selects a single pass over the current VFS view.
+// Disk state is advisory. A failed lookup or digest sends this same pass into
+// repair, followed by a complete verification of the replacement mount.
+using CatalogBytes = std::vector<std::uint8_t>;
+using CatalogView = std::shared_ptr<const CatalogBytes>;
+CatalogView EncodeCatalog(const std::map<std::string, resource_sync::Entry>& resources) {
+    auto bytes = std::make_shared<CatalogBytes>();
+    bytes->reserve(4 + 72 * resources.size());
+    bytes->insert(bytes->end(), {'G','C','I',1});
+    for (const auto& [name, entry] : resources) {
+        bytes->push_back(static_cast<std::uint8_t>(name.size()));
+        bytes->insert(bytes->end(), name.begin(), name.end());
+        for (unsigned shift = 0; shift < 32; shift += 8)
+            bytes->push_back(static_cast<std::uint8_t>(entry.size >> shift));
+        bytes->insert(bytes->end(), entry.sha256.begin(), entry.sha256.end());
+    }
+    return bytes;
+}
+class ManifestCatalog {
+public:
+    explicit ManifestCatalog(const resource_cache::Cache& cache) : cache_(cache), thread_([this] { Run(); }) {}
+    ~ManifestCatalog() {
+        { std::lock_guard lock(mutex_); stopping_ = true; }
+        wake_.notify_one();
+        thread_.join();
+    }
+    bool Matches(const CatalogView& view) {
+        std::lock_guard lock(mutex_);
+        return current_ && *current_ == *view;
+    }
+    void Commit(const CatalogView& view) {
+        std::lock_guard lock(mutex_);
+        if (current_ && *current_ == *view) return;
+        current_ = pending_ = view;
+        wake_.notify_one();
+    }
+private:
+    void Run() {
+        CatalogView initial;
+        try { initial = std::make_shared<CatalogBytes>(cache_.ReadCatalog()); }
+        catch (const std::exception&) { /* A missing hint selects ordinary verification. */ }
+        std::unique_lock lock(mutex_);
+        if (!current_) current_ = std::move(initial);
+        for (;;) {
+            wake_.wait(lock, [&] { return stopping_ || pending_; });
+            if (!pending_) return;
+            auto view = std::move(pending_);
+            lock.unlock();
+            try { cache_.WriteCatalog(*view); }
+            catch (const std::exception&) { /* Contents are always verified independently. */ }
+            lock.lock();
+        }
+    }
+    const resource_cache::Cache& cache_;
+    std::mutex mutex_;
+    std::condition_variable wake_;
+    CatalogView current_, pending_;
+    bool stopping_{};
+    std::thread thread_;
+};
 class HashPool {
 public:
     struct Job {
@@ -86,16 +146,33 @@ private:
         if (job.cancelled || stop.stop_requested()) return;
         if (job.cache) {
             using Layout = resource_cache::Cache::Layout;
-            for (const auto layout : {Layout::compact, Layout::legacy}) {
+            const auto matches = [&] {
+                job.success = false;
+                if (!job.source) return false;
+                VerifySource(job, buffer, stop, true);
+                if (job.success && job.digest == job.expected.sha256) return true;
+                job.source.reset();
+                job.success = false;
+                return false;
+            };
+            for (const auto layout : {Layout::shortName, Layout::flatSha, Layout::nestedSha}) {
                 if (job.cancelled || stop.stop_requested()) return;
                 job.source = Measure(job.profile.cacheOpen, [&] {
-                    return job.cache->Open(job.name, job.expected, layout, &job.cachePath);
+                    return job.cache->Open(job.name, job.expected, layout, job.cachePath);
                 });
-                if (!job.source) continue;
-                VerifySource(job, buffer, stop, true);
-                if (job.success && job.digest == job.expected.sha256) return;
-                job.success = false;
-                job.source.reset();
+                if (matches()) {
+                    if (layout != Layout::shortName)
+                        job.cachePath = job.cache->EnginePath(job.name, job.expected, std::move(job.cachePath), *job.source);
+                    return;
+                }
+            }
+            const auto primary = job.cache->Path(job.name, job.expected);
+            for (const auto& path : job.cache->OtherSlots(primary)) {
+                if (job.cancelled || stop.stop_requested()) return;
+                job.source = Measure(job.profile.cacheOpen, [&] {
+                    return resource_cache::OpenCandidate(path, job.expected.size);
+                });
+                if (matches()) { job.cachePath = path; return; }
             }
             return;
         }
@@ -114,6 +191,7 @@ private:
         if (!job.source || job.cancelled || stop.stop_requested()) return;
         job.reused = false;
         const auto stamp = job.source->Identity();
+        useDigestCache = useDigestCache && job.source->HasStableIdentity();
         if (useDigestCache) {
             std::lock_guard lock(mutex_);
             if (const auto found = digests_.find(stamp); found != digests_.end()) {
@@ -190,6 +268,9 @@ std::string UrlPath(const std::string& name) {
 }
 struct Session::Impl {
     resource_cache::Cache cache;
+    ManifestCatalog catalog{cache};
+    CatalogView manifest;
+    bool checkingCurrentView{};
     resource_download::Worker worker;
     std::vector<Resource> resources;
     resource_overlay::Paths mounted;
@@ -211,7 +292,7 @@ struct Session::Impl {
     std::vector<std::unique_ptr<resource_cache::SourceFile>> leases;
     std::size_t carried{};
     bool remounted{};
-    explicit Impl(std::string root) : cache(std::move(root)) {}
+    Impl(std::string root, std::string previousRoot) : cache(std::move(root), std::move(previousRoot)) {}
     void ResetReader() {
         for (auto& item : checking) item.job->cancelled.store(true, std::memory_order_release);
         checking.clear(); leases.clear();
@@ -231,7 +312,7 @@ struct Session::Impl {
             return false;
         }
         resources.clear(); status = {}; cursor = nextPending = carried = 0; url.clear();
-        changed.clear(); return true;
+        changed.clear(); manifest.reset(); checkingCurrentView = false; return true;
     }
     void Fail(std::string reason) {
         ResetReader(); worker.Cancel(); active.clear();
@@ -240,6 +321,10 @@ struct Session::Impl {
     }
     void Mismatch(std::size_t index, bool cached) {
         const auto& resource = resources[index];
+        if (checkingCurrentView) {
+            checkingCurrentView = false;
+            status.phase = Phase::checking;
+        }
         if (status.phase == Phase::verifying)
             throw std::runtime_error("Final VFS body differs from manifest: " + resource.name);
         if (cached) { pending.push_back(index); status.queued = pending.size(); ++status.checked; return; }
@@ -272,7 +357,7 @@ struct Session::Impl {
                     mounted[resource.name] = std::move(item.job->cachePath);
                     ++status.cached;
                 } else {
-                    if (status.phase == Phase::checking) {
+                    if (checkingCurrentView || status.phase == Phase::checking) {
                         // Keep a binding that was supplied by the previous verified overlay.
                         const auto found = previous.paths.find(Lower(resource.name));
                         if (found != previous.paths.end()) { mounted[resource.name] = found->second; ++carried; }
@@ -316,7 +401,7 @@ struct Session::Impl {
             if (!item.job->cacheStored)
                 throw std::runtime_error(resource.name + ": verified cache publication was not completed");
             status.profile.cacheStore.Add(item.job->cacheStoreMs);
-            mounted[resource.name] = cache.Path(resource.name, resource.expected);
+            mounted[resource.name] = std::move(item.job->storedPath);
             ++status.downloaded; active.erase(active.begin() + i);
         }
         std::size_t reserved{};
@@ -373,7 +458,7 @@ struct Session::Impl {
             if (!retained) Measure(status.profile.mount, [&] {
                 remounted = true;
                 if (mounted.empty()) resource_overlay::Clear();
-                else if (!resource_overlay::Begin(cache.Root(), mounted))
+                else if (!resource_overlay::StageForVerification(cache.Root(), cache.PreviousRoot(), mounted))
                     throw std::runtime_error(resource_overlay::Error());
             });
             // Prove the actual consumer path after mounting, not only a file
@@ -386,11 +471,13 @@ struct Session::Impl {
         } catch (const std::exception& failure) { Fail(failure.what()); }
     }
 };
-Session::Session(std::string root) : impl_(std::make_unique<Impl>(std::move(root))) {}
+Session::Session(std::string root, std::string previousRoot)
+    : impl_(std::make_unique<Impl>(std::move(root), std::move(previousRoot))) {}
 Session::~Session() { impl_->Reset(); }
 bool Session::Reset() { return impl_->Reset(); }
 bool Session::Commit() {
     if (impl_->status.phase != Phase::ready || !impl_->transaction) return false;
+    impl_->catalog.Commit(impl_->manifest);
     impl_->transaction = impl_->remounted = false; impl_->previous = {}; return true;
 }
 const Status& Session::GetStatus() const { return impl_->status; }
@@ -426,7 +513,9 @@ bool Session::Begin(std::uint64_t generation, std::string url, std::vector<Resou
         impl_->leases.resize(impl_->resources.size());
         impl_->url = std::move(url); impl_->status.total = impl_->resources.size();
         impl_->started = Clock::now();
-        impl_->status.phase = Phase::checking;
+        impl_->manifest = EncodeCatalog(unique);
+        impl_->checkingCurrentView = impl_->changed.empty() && impl_->catalog.Matches(impl_->manifest);
+        impl_->status.phase = impl_->checkingCurrentView ? Phase::verifying : Phase::checking;
         return true;
     } catch (const std::exception& failure) { impl_->Fail(failure.what()); return false; }
 }

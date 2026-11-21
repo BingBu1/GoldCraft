@@ -38,7 +38,7 @@ struct DownloadProgress {
 // resource_t/model_t, or continuing an obsolete connection.
 class Session {
 public:
-    explicit Session(std::string cacheRoot);
+    explicit Session(std::string cacheRoot, std::string previousRoot = {});
     ~Session();
     bool Begin(std::uint64_t generation, std::string baseUrl, std::vector<Resource> resources);
     void Pump();

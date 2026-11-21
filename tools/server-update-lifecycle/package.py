@@ -10,15 +10,20 @@ import os
 import shutil
 
 ROOT=Path(__file__).resolve().parents[2]
-MARKER='# Automatic server lifecycle v1'
+LEGACY_MARKER='# Automatic server lifecycle v1'
+MARKER='# Automatic server lifecycle v2'
 
 
 def upgrade(text):
     if MARKER in text:
         return text
+    if LEGACY_MARKER in text:
+        if text.count(LEGACY_MARKER) != 1 or text.count('Stopped $target;Unlocked') != 4:
+            raise ValueError('Unexpected guarded stop checks in legacy installer')
+        return text.replace(LEGACY_MARKER, MARKER).replace('Stopped $target;Unlocked', 'Assert-UpdateStopped $target;Unlocked')
     replacements=[
         ("[switch]$Plan,[switch]$Restore)","[switch]$Plan,[switch]$Restore,[switch]$NoRestart)"),
-        ("$lock=$null\n$scope=",MARKER+"\n. (Join-Path $PSScriptRoot 'Lifecycle.ps1')\n$lifecycle=$null;$safeToStart=$false\n$lock=$null\n$scope="),
+        ("$lock=$null\n$scope=",LEGACY_MARKER+"\n. (Join-Path $PSScriptRoot 'Lifecycle.ps1')\n$lifecycle=$null;$safeToStart=$false\n$lock=$null\n$scope="),
         ("        Stopped $target;Unlocked $journal.files",
          "        $lifecycle=Begin-ServerUpdate $target -NoRestart:$NoRestart\n        $safeToStart=$true\n        Stopped $target;Unlocked $journal.files"),
         ("        if($journal.status -ne 'restored'){Restore-Files $target $state $journal}",
@@ -45,7 +50,7 @@ def upgrade(text):
         if text.count(old)!=1:
             raise ValueError('Unsupported server updater lifecycle boundary: '+old[:100])
         text=text.replace(old,new,1)
-    return text
+    return upgrade(text)
 
 
 def plain(path):

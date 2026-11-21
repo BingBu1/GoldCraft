@@ -26,7 +26,7 @@ namespace {
 // Evidence: docs/2026-11-05_分析-客户端资源更新与下载生命周期-report.md.
 // This file is host adaptation, not original CSOL game behavior.
 constexpr char FileSystemSha[] = "07a432b6214c6ea5ea4a988d5c8384d3ab35a531b49fe71c354f3fed5ce9f316";
-struct Entry { std::string name, absolute; };
+struct Entry { std::string name, absolute; bool historic; };
 std::map<std::string, Entry> paths;
 std::shared_mutex access;
 thread_local unsigned readDepth{};
@@ -37,7 +37,8 @@ struct ReadAccess {
     ReadAccess(const ReadAccess&) = delete;
     ReadAccess& operator=(const ReadAccess&) = delete;
 };
-std::string root, pathId, error;
+std::string root, pathId, oldRoot, oldPathId, error;
+bool primaryMounted{};
 unsigned generation{};
 metahook_api_t* api{};
 IFileSystem* fs{};
@@ -145,7 +146,7 @@ int __fastcall Stat(void* object, void*, const char* name, struct _stat64i32* ou
 FileHandle_t OpenEntry(const Entry& entry, const char* mode) {
     // Original Open rejects absolute names. Its non-null pathID branch filters
     // the search list, so a tail-mounted private ID cannot read an older PAK.
-    return NativeOpen(fs, entry.name.c_str(), mode, pathId.c_str());
+    return NativeOpen(fs, entry.name.c_str(), mode, entry.historic ? oldPathId.c_str() : pathId.c_str());
 }
 FileHandle_t __fastcall Open(void* object, void*, const char* name, const char* mode, const char* id) {
     ReadAccess lock;
@@ -260,8 +261,9 @@ bool MatchModule(void** table) {
 }
 void ClearLocked() {
     paths.clear(); pathId.clear();
-    if (fs && !root.empty()) fs->RemoveSearchPath(root.c_str());
-    root.clear();
+    if (fs && primaryMounted) fs->RemoveSearchPath(root.c_str());
+    if (fs && !oldRoot.empty()) fs->RemoveSearchPath(oldRoot.c_str());
+    root.clear(); oldRoot.clear(); oldPathId.clear(); primaryMounted = false;
 }
 }
 
@@ -321,54 +323,92 @@ bool Install(metahook_api_s* incoming, mh_interface_s* interfaces) {
     }
     error.clear(); return true;
 }
-bool Begin(const std::string& directory, const Paths& verifiedPaths) {
+namespace {
+bool HexDigits(std::string_view text, std::size_t count) {
+    return text.size() == count && text.find_first_not_of("0123456789abcdef") == text.npos;
+}
+bool ObjectName(std::string_view object, std::string_view logical) {
+    const auto ext = logical.substr(logical.rfind('.'));
+    if (object.starts_with("objects/")) {
+        object.remove_prefix(8);
+        constexpr auto length = resource_sync::Digest{}.size() * 2;
+        if (object.size() <= length || !HexDigits(object.substr(0, length), length)) return false;
+        const auto suffix = object.substr(length);
+        return suffix.front() == '/' ? suffix.substr(1) == logical : suffix == ext;
+    }
+    if (!object.ends_with(ext)) return false;
+    object.remove_suffix(ext.size());
+    if (HexDigits(object, 8)) return true;
+    return object.size() == 19 && object.starts_with("x/") && object[10] == '-' &&
+        HexDigits(object.substr(2, 8), 8) && HexDigits(object.substr(11), 8);
+}
+enum class ReadCheck { immediate, finalPass };
+bool Mount(const std::string& directory, const std::string& previousDirectory, const Paths& verifiedPaths, ReadCheck check) {
     if (!fs) return Fail("Resource overlay is not installed");
-    const auto absoluteRoot = Absolute(directory);
+    const auto primary = Absolute(directory);
+    const auto historic = previousDirectory.empty() ? std::string{} : Absolute(previousDirectory);
+    // Overlong historic objects arrive under the short root after promotion.
+    if (primary.empty()) return Fail("Invalid resource overlay root");
+    const auto prefix = Lower(primary) + "/";
+    const auto oldPrefix = Lower(historic) + "/";
+    bool usePrimary = verifiedPaths.empty(), useHistoric = false;
     std::unordered_set<std::string> plain;
-    if (absoluteRoot.empty() || !PlainPath(absoluteRoot, true, &plain)) return Fail("Invalid resource overlay root");
-    const auto prefix = Lower(absoluteRoot) + "/objects/";
     std::map<std::string, Entry> candidate;
     for (const auto& [name, absolute] : verifiedPaths) {
         if (!SafeName(name)) return Fail("Unsafe resource overlay name");
         const auto actual = Absolute(absolute);
         const auto normalized = Lower(actual);
-        if (actual.empty() || !normalized.starts_with(prefix) || !PlainPath(actual, false, &plain))
+        const bool old = !historic.empty() && normalized.starts_with(oldPrefix) && !normalized.starts_with(prefix);
+        const auto& parent = old ? oldPrefix : prefix;
+        if (actual.empty() || !normalized.starts_with(parent) || !PlainPath(actual, false, &plain))
             return Fail("Resource overlay path is not an independent file under its root");
-        constexpr auto digestLength = resource_sync::Digest{}.size() * 2;
-        const auto object = std::string_view(normalized).substr(prefix.size());
-        if (object.size() <= digestLength || !std::all_of(object.begin(), object.begin() + digestLength, [](char c) {
-                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-            }))
-            return Fail("Invalid resource overlay digest path");
         auto logical = Lower(name);
-        const auto suffix = object.substr(digestLength);
-        if (suffix.front() == '/' ? suffix.substr(1) != logical
-                                 : suffix != std::string_view(logical).substr(logical.rfind('.')))
-            return Fail("Resource overlay path does not match its logical name or extension");
-        const auto relative = actual.substr(absoluteRoot.size() + 1);
-        if (!candidate.emplace(std::move(logical), Entry{relative, actual}).second)
+        auto object = std::string_view(normalized).substr(parent.size());
+        if ((old && !object.starts_with("objects/")) || !ObjectName(object, logical))
+            return Fail("Invalid cache object name or extension");
+        if (!candidate.emplace(std::move(logical), Entry{actual.substr(parent.size()), actual, old}).second)
             return Fail("Duplicate resource overlay name");
+        if (old) useHistoric = true;
+        else usePrimary = true;
     }
+    if ((usePrimary && !PlainPath(primary, true, &plain)) || (useHistoric && !PlainPath(historic, true, &plain)))
+        return Fail("Invalid resource overlay root");
     std::unique_lock lock(access);
     ClearLocked();
-    root = absoluteRoot; pathId = "GOLDCRAFT_RESOURCE_" + std::to_string(++generation);
-    fs->AddSearchPathNoWrite(root.c_str(), pathId.c_str());
-    for (const auto& [name, entry] : candidate) {
-        auto handle = OpenEntry(entry, "rb");
-        if (!handle) { ClearLocked(); return Fail("Cannot read mounted resource overlay file"); }
-        const auto size = fs->Size(handle); fs->Close(handle);
-        if (!size || size > resource_sync::max_file_size) { ClearLocked(); return Fail("Invalid resource overlay file size"); }
+    root = primary;
+    pathId = "GOLDCRAFT_RESOURCE_" + std::to_string(++generation);
+    primaryMounted = usePrimary;
+    if (usePrimary) fs->AddSearchPathNoWrite(root.c_str(), pathId.c_str());
+    if (useHistoric) {
+        oldRoot = historic;
+        oldPathId = pathId + "_OLD";
+        fs->AddSearchPathNoWrite(oldRoot.c_str(), oldPathId.c_str());
+    }
+    if (check == ReadCheck::immediate) {
+        for (const auto& [name, entry] : candidate) {
+            auto handle = OpenEntry(entry, "rb");
+            if (!handle) { ClearLocked(); return Fail("Cannot read mounted resource overlay file"); }
+            const auto size = fs->Size(handle); fs->Close(handle);
+            if (!size || size > resource_sync::max_file_size) { ClearLocked(); return Fail("Invalid resource overlay file size"); }
+        }
     }
     paths = std::move(candidate); error.clear(); return true;
 }
+}
+bool Begin(const std::string& directory, const Paths& verifiedPaths) {
+    return Mount(directory, {}, verifiedPaths, ReadCheck::immediate);
+}
+bool StageForVerification(const std::string& directory, const std::string& historic, const Paths& verifiedPaths) {
+    return Mount(directory, historic, verifiedPaths, ReadCheck::finalPass);
+}
 Snapshot Capture() {
     ReadAccess lock;
-    Snapshot value{root, {}};
+    Snapshot value{root, {}, oldRoot};
     for (const auto& [name, entry] : paths) value.paths.emplace(name, entry.absolute);
     return value;
 }
 bool Restore(const Snapshot& snapshot) {
-    if (!snapshot.root.empty()) return Begin(snapshot.root, snapshot.paths);
+    if (!snapshot.root.empty()) return Mount(snapshot.root, snapshot.oldRoot, snapshot.paths, ReadCheck::immediate);
     if (!snapshot.paths.empty()) return Fail("Resource overlay snapshot has no root");
     Clear(); return true;
 }
