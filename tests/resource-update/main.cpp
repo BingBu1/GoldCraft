@@ -647,6 +647,12 @@ int main(int argc,char** argv){
                 Check(fresh.GetStatus().downloaded==0 && fresh.Commit(),"commit original in place");
                 Check(fresh.Begin(2,url,{{name,next}}),"begin unchanged view");Ready(fresh);
                 Check(fresh.GetStatus().profile.openReader.calls==1 && fresh.GetStatus().hashedBytes==0,"single final lookup for original");
+                const std::string extra="models/extra.mdl";
+                fsys::copy_file(original,base/"game"/extra);
+                Check(fresh.Begin(3,url,{{extra,next},{name,next}}),"add a temporary native resource");Ready(fresh);
+                Check(fresh.Commit() && fresh.Begin(4,url,{{name,next}}),"reload without the native resource");Ready(fresh);
+                Check(fresh.GetStatus().checked==1 && fresh.GetStatus().profile.openReader.calls==1 &&
+                      fresh.GetStatus().profile.mount.calls==0 && fresh.Commit(),"manifest subset gets one final VFS pass");
             }
             auto catalog=Disk(base/"cache/index.bin");
             Check(catalog.size()==4+1+name.size()+4+32 && std::equal(next.sha256.begin(),next.sha256.end(),catalog.end()-32),

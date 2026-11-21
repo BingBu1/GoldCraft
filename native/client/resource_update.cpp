@@ -52,9 +52,28 @@ public:
         wake_.notify_one();
         thread_.join();
     }
-    bool Matches(const CatalogView& view) {
-        std::lock_guard lock(mutex_);
-        return current_ && *current_ == *view;
+    bool Covers(const CatalogView& view) {
+        CatalogView previous;
+        { std::lock_guard lock(mutex_); previous = current_; }
+        if (!previous || previous->size() < view->size()) return false;
+        if (previous->size() == view->size()) return *previous == *view;
+        // Both manifests are sorted by logical name. A same-map reload can omit a
+        // transient resource. Every remaining name, size and full digest must match.
+        // Removing an active overlay binding is checked separately by Session::Begin.
+        constexpr std::size_t header = 4;
+        if (!std::equal(view->begin(), view->begin()+header, previous->begin())) return false;
+        auto old = std::span(*previous).subspan(header), wanted = std::span(*view).subspan(header);
+        auto record = [](std::span<const std::uint8_t> bytes) {
+            const std::size_t length = 1 + bytes.front() + 4 + resource_sync::Digest{}.size();
+            return bytes.front() && length <= bytes.size() ? bytes.first(length) : bytes.first(0);
+        };
+        while (!wanted.empty() && !old.empty()) {
+            const auto candidate = record(old), required = record(wanted);
+            if (candidate.empty() || required.empty()) return false;
+            if (std::ranges::equal(candidate, required)) wanted = wanted.subspan(required.size());
+            old = old.subspan(candidate.size());
+        }
+        return wanted.empty();
     }
     void Commit(const CatalogView& view) {
         std::lock_guard lock(mutex_);
@@ -514,7 +533,7 @@ bool Session::Begin(std::uint64_t generation, std::string url, std::vector<Resou
         impl_->url = std::move(url); impl_->status.total = impl_->resources.size();
         impl_->started = Clock::now();
         impl_->manifest = EncodeCatalog(unique);
-        impl_->checkingCurrentView = impl_->changed.empty() && impl_->catalog.Matches(impl_->manifest);
+        impl_->checkingCurrentView = impl_->changed.empty() && impl_->catalog.Covers(impl_->manifest);
         impl_->status.phase = impl_->checkingCurrentView ? Phase::verifying : Phase::checking;
         return true;
     } catch (const std::exception& failure) { impl_->Fail(failure.what()); return false; }
