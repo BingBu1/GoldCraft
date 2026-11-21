@@ -26,7 +26,8 @@ namespace {
 // Evidence: docs/2026-11-05_分析-客户端资源更新与下载生命周期-report.md.
 // This file is host adaptation, not original CSOL game behavior.
 constexpr char FileSystemSha[] = "07a432b6214c6ea5ea4a988d5c8384d3ab35a531b49fe71c354f3fed5ce9f316";
-struct Entry { std::string name, absolute; bool historic; };
+enum class Location { compact, historic, gameDownload };
+struct Entry { std::string name, absolute; Location location; };
 std::map<std::string, Entry> paths;
 std::shared_mutex access;
 thread_local unsigned readDepth{};
@@ -37,7 +38,7 @@ struct ReadAccess {
     ReadAccess(const ReadAccess&) = delete;
     ReadAccess& operator=(const ReadAccess&) = delete;
 };
-std::string root, pathId, oldRoot, oldPathId, error;
+std::string root, pathId, oldRoot, oldPathId, downloadRoot, error;
 bool primaryMounted{};
 unsigned generation{};
 metahook_api_t* api{};
@@ -146,7 +147,10 @@ int __fastcall Stat(void* object, void*, const char* name, struct _stat64i32* ou
 FileHandle_t OpenEntry(const Entry& entry, const char* mode) {
     // Original Open rejects absolute names. Its non-null pathID branch filters
     // the search list, so a tail-mounted private ID cannot read an older PAK.
-    return NativeOpen(fs, entry.name.c_str(), mode, entry.historic ? oldPathId.c_str() : pathId.c_str());
+    const char* id = pathId.c_str();
+    if (entry.location == Location::historic) id = oldPathId.c_str();
+    if (entry.location == Location::gameDownload) id = "GAMEDOWNLOAD";
+    return NativeOpen(fs, entry.name.c_str(), mode, id);
 }
 FileHandle_t __fastcall Open(void* object, void*, const char* name, const char* mode, const char* id) {
     ReadAccess lock;
@@ -263,7 +267,7 @@ void ClearLocked() {
     paths.clear(); pathId.clear();
     if (fs && primaryMounted) fs->RemoveSearchPath(root.c_str());
     if (fs && !oldRoot.empty()) fs->RemoveSearchPath(oldRoot.c_str());
-    root.clear(); oldRoot.clear(); oldPathId.clear(); primaryMounted = false;
+    root.clear(); oldRoot.clear(); oldPathId.clear(); downloadRoot.clear(); primaryMounted = false;
 }
 }
 
@@ -343,39 +347,58 @@ bool ObjectName(std::string_view object, std::string_view logical) {
         HexDigits(object.substr(2, 8), 8) && HexDigits(object.substr(11), 8);
 }
 enum class ReadCheck { immediate, finalPass };
-bool Mount(const std::string& directory, const std::string& previousDirectory, const Paths& verifiedPaths, ReadCheck check) {
+bool Mount(const std::string& directory, const std::string& previousDirectory, const std::string& downloads,
+           const Paths& verifiedPaths, ReadCheck check) {
     if (!fs) return Fail("Resource overlay is not installed");
     const auto primary = Absolute(directory);
     const auto historic = previousDirectory.empty() ? std::string{} : Absolute(previousDirectory);
     // Overlong historic objects arrive under the short root after promotion.
     if (primary.empty()) return Fail("Invalid resource overlay root");
+    const auto nativeRoot = downloads.empty() ? std::string{} : Absolute(downloads);
+    const auto nativePrefix = Lower(nativeRoot) + "/";
     const auto prefix = Lower(primary) + "/";
     const auto oldPrefix = Lower(historic) + "/";
-    bool usePrimary = verifiedPaths.empty(), useHistoric = false;
+    bool usePrimary = verifiedPaths.empty(), useHistoric = false, useDownloads = false;
     std::unordered_set<std::string> plain;
     std::map<std::string, Entry> candidate;
     for (const auto& [name, absolute] : verifiedPaths) {
         if (!SafeName(name)) return Fail("Unsafe resource overlay name");
         const auto actual = Absolute(absolute);
         const auto normalized = Lower(actual);
-        const bool old = !historic.empty() && normalized.starts_with(oldPrefix) && !normalized.starts_with(prefix);
-        const auto& parent = old ? oldPrefix : prefix;
-        if (actual.empty() || !normalized.starts_with(parent) || !PlainPath(actual, false, &plain))
-            return Fail("Resource overlay path is not an independent file under its root");
+        if (actual.empty() || !PlainPath(actual, false, &plain))
+            return Fail("Resource overlay requires a regular file");
         auto logical = Lower(name);
-        auto object = std::string_view(normalized).substr(parent.size());
-        if ((old && !object.starts_with("objects/")) || !ObjectName(object, logical))
-            return Fail("Invalid cache object name or extension");
-        if (!candidate.emplace(std::move(logical), Entry{actual.substr(parent.size()), actual, old}).second)
+        Location location;
+        std::size_t prefixLength;
+        if (!nativeRoot.empty() && normalized.starts_with(nativePrefix)) {
+            prefixLength = nativePrefix.size();
+            if (std::string_view(normalized).substr(prefixLength) != logical)
+                return Fail("Downloaded resource differs from its logical name");
+            location = Location::gameDownload;
+            useDownloads = true;
+        } else {
+            const bool old = !historic.empty() && normalized.starts_with(oldPrefix) && !normalized.starts_with(prefix);
+            const auto& parent = old ? oldPrefix : prefix;
+            if (!normalized.starts_with(parent)) return Fail("Resource overlay path is outside its root");
+            prefixLength = parent.size();
+            const auto object = std::string_view(normalized).substr(prefixLength);
+            if ((old && !object.starts_with("objects/")) || !ObjectName(object, logical))
+                return Fail("Invalid cache object name or extension");
+            location = old ? Location::historic : Location::compact;
+            if (old) useHistoric = true;
+            else usePrimary = true;
+        }
+        if (!candidate.emplace(std::move(logical), Entry{actual.substr(prefixLength), actual, location}).second)
             return Fail("Duplicate resource overlay name");
-        if (old) useHistoric = true;
-        else usePrimary = true;
     }
     if ((usePrimary && !PlainPath(primary, true, &plain)) || (useHistoric && !PlainPath(historic, true, &plain)))
         return Fail("Invalid resource overlay root");
     std::unique_lock lock(access);
     ClearLocked();
     root = primary;
+    // GAMEDOWNLOAD belongs to the engine. Removing a duplicate mount would
+    // also remove its search path for ordinary downloaded resources.
+    if (useDownloads) downloadRoot = nativeRoot;
     pathId = "GOLDCRAFT_RESOURCE_" + std::to_string(++generation);
     primaryMounted = usePrimary;
     if (usePrimary) fs->AddSearchPathNoWrite(root.c_str(), pathId.c_str());
@@ -396,19 +419,20 @@ bool Mount(const std::string& directory, const std::string& previousDirectory, c
 }
 }
 bool Begin(const std::string& directory, const Paths& verifiedPaths) {
-    return Mount(directory, {}, verifiedPaths, ReadCheck::immediate);
+    return Mount(directory, {}, {}, verifiedPaths, ReadCheck::immediate);
 }
-bool StageForVerification(const std::string& directory, const std::string& historic, const Paths& verifiedPaths) {
-    return Mount(directory, historic, verifiedPaths, ReadCheck::finalPass);
+bool StageForVerification(const std::string& directory, const std::string& historic, const std::string& downloads,
+                          const Paths& verifiedPaths) {
+    return Mount(directory, historic, downloads, verifiedPaths, ReadCheck::finalPass);
 }
 Snapshot Capture() {
     ReadAccess lock;
-    Snapshot value{root, {}, oldRoot};
+    Snapshot value{root, {}, oldRoot, downloadRoot};
     for (const auto& [name, entry] : paths) value.paths.emplace(name, entry.absolute);
     return value;
 }
 bool Restore(const Snapshot& snapshot) {
-    if (!snapshot.root.empty()) return Mount(snapshot.root, snapshot.oldRoot, snapshot.paths, ReadCheck::immediate);
+    if (!snapshot.root.empty()) return Mount(snapshot.root, snapshot.oldRoot, snapshot.downloadRoot, snapshot.paths, ReadCheck::immediate);
     if (!snapshot.paths.empty()) return Fail("Resource overlay snapshot has no root");
     Clear(); return true;
 }
@@ -429,9 +453,9 @@ bool Read(const char* name, std::vector<std::uint8_t>& bytes) {
     catch (...) { fs->Close(handle); throw; }
     fs->Close(handle); if (!good) bytes.clear(); return good;
 }
-std::unique_ptr<Reader> OpenReader(const char* name) {
+std::unique_ptr<Reader> OpenReader(const char* name, Search search) {
     if (!fs || !name) return {};
-    auto handle = fs->Open(name, "rb");
+    auto handle = search == Search::mounted ? fs->Open(name, "rb") : NativeOpen(fs, name, "rb", nullptr);
     if (!handle) return {};
     const auto size = fs->Size(handle);
     if (!size || size > resource_sync::max_file_size) { fs->Close(handle); return {}; }

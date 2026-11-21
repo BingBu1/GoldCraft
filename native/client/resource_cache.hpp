@@ -55,15 +55,16 @@ private:
 // opened for writing; a new body is committed as an independent file.
 class Cache {
 public:
-    enum class Layout { shortName, flatSha, nestedSha };
-    explicit Cache(std::string root, std::string previousRoot = {});
+    enum class Layout { gameDownload, shortName, flatSha, nestedSha };
+    explicit Cache(std::string root, std::string previousRoot = {}, std::string downloadRoot = {});
     const std::string& Root() const;
     const std::string& PreviousRoot() const { return previousRoot_; }
+    const std::string& DownloadRoot() const { return downloadRoot_; }
     std::string Path(const std::string& name, const resource_sync::Entry& expected) const;
     std::vector<std::string> OtherSlots(const std::string& primary) const;
     std::unique_ptr<SourceFile> Open(const std::string& name, const resource_sync::Entry& expected,
                                      Layout layout, std::string& path) const;
-    // Called with a worker's verified, write-denying lease on a legacy cache object.
+    // Called with a worker's verified, write-denying lease on a downloaded or legacy file.
     std::string EnginePath(const std::string& name, const resource_sync::Entry& expected,
                            std::string verifiedPath, SourceFile& source) const;
     bool Store(const std::string& name, const resource_sync::Entry& expected,
@@ -75,7 +76,7 @@ public:
     void WriteCatalog(std::span<const std::uint8_t> bytes) const;
     const std::string& Error() const;
 private:
-    std::string root_, previousRoot_, error_;
+    std::string root_, previousRoot_, downloadRoot_, error_;
 };
 
 // Opens an existing cache candidate under ordinary directories.

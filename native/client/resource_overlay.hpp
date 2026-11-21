@@ -13,7 +13,7 @@ class IFileSystem;
 namespace goldcraft::resource_cache { class PendingSource; }
 namespace goldcraft::resource_overlay {
 using Paths = std::map<std::string, std::string>;
-struct Snapshot { std::string root; Paths paths; std::string oldRoot; };
+struct Snapshot { std::string root; Paths paths; std::string oldRoot, downloadRoot; };
 // Only the exact reviewed IFileSystem009 implementation is supported. Install
 // does not advertise protocol support; the caller owns capability negotiation.
 bool Install(metahook_api_s* api, mh_interface_s* interfaces);
@@ -22,7 +22,8 @@ bool Install(metahook_api_s* api, mh_interface_s* interfaces);
 bool Begin(const std::string& root, const Paths& verifiedPaths);
 // Admission only. Consumers are paused until the complete logical VFS pass
 // verifies the staged paths. Restore keeps the synchronous readability check.
-bool StageForVerification(const std::string& root, const std::string& oldRoot, const Paths& verifiedPaths);
+bool StageForVerification(const std::string& root, const std::string& oldRoot, const std::string& downloadRoot,
+                          const Paths& verifiedPaths);
 Snapshot Capture();
 // Restore before consumers recreate their old resources after a cancelled
 // update. A false result is fatal to that admission, never a successful abort.
@@ -30,6 +31,7 @@ bool Restore(const Snapshot& snapshot);
 void Clear();
 void Shutdown();
 bool Read(const char* name, std::vector<std::uint8_t>& bytes);
+enum class Search { mounted, underlying };
 class Reader {
 public:
     ~Reader();
@@ -43,14 +45,14 @@ public:
     // independent read lease after this VFS reader closes.
     std::unique_ptr<resource_cache::PendingSource> DeferredSource() const;
 private:
-    friend std::unique_ptr<Reader> OpenReader(const char*);
+    friend std::unique_ptr<Reader> OpenReader(const char*, Search);
     Reader(IFileSystem* filesystem, void* handle, std::uint32_t size)
         : filesystem_(filesystem), handle_(handle), size_(size) {}
     IFileSystem* filesystem_{};
     void* handle_{};
     std::uint32_t size_{};
 };
-std::unique_ptr<Reader> OpenReader(const char* name);
+std::unique_ptr<Reader> OpenReader(const char* name, Search search = Search::mounted);
 bool SafeName(const std::string& name);
 const char* Error();
 }

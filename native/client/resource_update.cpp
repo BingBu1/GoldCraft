@@ -147,8 +147,10 @@ public:
     // A cache object costs milliseconds; an identity about 0.1 ms. Workers
     // take identities first so a burst of wrong files cannot stall the VFS pass.
     std::shared_ptr<Job> SubmitCache(const resource_cache::Cache& cache, const std::string& name,
-                                     const resource_sync::Entry& expected) {
+                                     const resource_sync::Entry& expected,
+                                     std::unique_ptr<resource_cache::PendingSource> underlying) {
         auto job = std::make_shared<Job>();
+        job->pending = std::move(underlying);
         job->cache = &cache; job->name = name; job->expected = expected; job->size = expected.size;
         std::lock_guard lock(mutex_);
         objects_.push_back(job); ready_.notify_one(); return job;
@@ -174,7 +176,15 @@ private:
                 job.success = false;
                 return false;
             };
-            for (const auto layout : {Layout::shortName, Layout::flatSha, Layout::nestedSha}) {
+            // A different server may want the original GAME/PAK that a prior
+            // binding currently hides. A match needs no replacement binding.
+            if (job.pending) {
+                job.source = Measure(job.profile.leaseOpen, [&] { return job.pending->Lease(); });
+                job.pending.reset();
+                if (matches()) return;
+            }
+            for (const auto layout : {Layout::gameDownload, Layout::shortName, Layout::flatSha, Layout::nestedSha}) {
+                if (layout == Layout::gameDownload && job.cache->DownloadRoot().empty()) continue;
                 if (job.cancelled || stop.stop_requested()) return;
                 job.source = Measure(job.profile.cacheOpen, [&] {
                     return job.cache->Open(job.name, job.expected, layout, job.cachePath);
@@ -311,7 +321,8 @@ struct Session::Impl {
     std::vector<std::unique_ptr<resource_cache::SourceFile>> leases;
     std::size_t carried{};
     bool remounted{};
-    Impl(std::string root, std::string previousRoot) : cache(std::move(root), std::move(previousRoot)) {}
+    Impl(std::string root, std::string previousRoot, std::string downloadRoot)
+        : cache(std::move(root), std::move(previousRoot), std::move(downloadRoot)) {}
     void ResetReader() {
         for (auto& item : checking) item.job->cancelled.store(true, std::memory_order_release);
         checking.clear(); leases.clear();
@@ -338,6 +349,14 @@ struct Session::Impl {
         if (!Rollback()) reason += std::string("; cannot restore previous resource overlay: ") + resource_overlay::Error();
         status.phase = Phase::failed; status.error = std::move(reason);
     }
+    std::unique_ptr<resource_cache::PendingSource> OpenSource(const Resource& resource, resource_overlay::Search search) {
+        auto reader = Measure(status.profile.openReader, [&] { return resource_overlay::OpenReader(resource.name.c_str(), search); });
+        auto source = Measure(status.profile.backgroundSource, [&] {
+            return reader && reader->Size() == resource.expected.size ? reader->DeferredSource() : nullptr;
+        });
+        Measure(status.profile.closeReader, [&] { reader.reset(); });
+        return source;
+    }
     void Mismatch(std::size_t index, bool cached) {
         const auto& resource = resources[index];
         if (checkingCurrentView) {
@@ -348,10 +367,11 @@ struct Session::Impl {
             throw std::runtime_error("Final VFS body differs from manifest: " + resource.name);
         if (cached) { pending.push_back(index); status.queued = pending.size(); ++status.checked; return; }
         changed.push_back(resource.name);
-        // Ancestor pinning, the open and the SHA of a content-cache object are
-        // ordinary Win32 work: about 2 ms a file when done on this thread.
+        std::unique_ptr<resource_cache::PendingSource> underlying;
+        if (!previous.paths.empty() && previous.paths.contains(Lower(resource.name)))
+            underlying = OpenSource(resource, resource_overlay::Search::underlying);
         checking.push_back({index, true, Measure(status.profile.submitHash,
-            [&] { return hashes.SubmitCache(cache, resource.name, resource.expected); })});
+            [&] { return hashes.SubmitCache(cache, resource.name, resource.expected, std::move(underlying)); })});
     }
     void Checks(Clock::time_point deadline) {
         for (;;) {
@@ -372,11 +392,11 @@ struct Session::Impl {
                 if (!item.job->success || item.job->digest != resource.expected.sha256) {
                     Mismatch(item.index, item.cache); continue;
                 }
-                if (item.cache) {
+                if (item.cache && !item.job->cachePath.empty()) {
                     mounted[resource.name] = std::move(item.job->cachePath);
                     ++status.cached;
                 } else {
-                    if (checkingCurrentView || status.phase == Phase::checking) {
+                    if (!item.cache && (checkingCurrentView || status.phase == Phase::checking)) {
                         // Keep a binding that was supplied by the previous verified overlay.
                         const auto found = previous.paths.find(Lower(resource.name));
                         if (found != previous.paths.end()) { mounted[resource.name] = found->second; ++carried; }
@@ -389,11 +409,7 @@ struct Session::Impl {
             while (cursor < resources.size() && checking.size() < InFlight && Clock::now() < deadline) {
                 const auto index = cursor;
                 const auto& resource = resources[index]; status.current = resource.name;
-                auto reader = Measure(status.profile.openReader, [&] { return resource_overlay::OpenReader(resource.name.c_str()); });
-                auto source = Measure(status.profile.backgroundSource, [&] {
-                    return reader && reader->Size() == resource.expected.size ? reader->DeferredSource() : nullptr;
-                });
-                Measure(status.profile.closeReader, [&] { reader.reset(); }); // Engine Close stays on the main thread.
+                auto source = OpenSource(resource, resource_overlay::Search::mounted);
                 if (!source) { ++cursor; Mismatch(index, false); continue; }
                 auto job = Measure(status.profile.submitHash, [&] {
                     return hashes.Submit(std::move(source), resource.expected, leases[index]);
@@ -477,7 +493,7 @@ struct Session::Impl {
             if (!retained) Measure(status.profile.mount, [&] {
                 remounted = true;
                 if (mounted.empty()) resource_overlay::Clear();
-                else if (!resource_overlay::StageForVerification(cache.Root(), cache.PreviousRoot(), mounted))
+                else if (!resource_overlay::StageForVerification(cache.Root(), cache.PreviousRoot(), cache.DownloadRoot(), mounted))
                     throw std::runtime_error(resource_overlay::Error());
             });
             // Prove the actual consumer path after mounting, not only a file
@@ -490,8 +506,8 @@ struct Session::Impl {
         } catch (const std::exception& failure) { Fail(failure.what()); }
     }
 };
-Session::Session(std::string root, std::string previousRoot)
-    : impl_(std::make_unique<Impl>(std::move(root), std::move(previousRoot))) {}
+Session::Session(std::string root, std::string previousRoot, std::string downloadRoot)
+    : impl_(std::make_unique<Impl>(std::move(root), std::move(previousRoot), std::move(downloadRoot))) {}
 Session::~Session() { impl_->Reset(); }
 bool Session::Reset() { return impl_->Reset(); }
 bool Session::Commit() {

@@ -158,7 +158,7 @@ void StorePressure(update::Session& session, cache::Cache& storage, IFileSystem*
               << ",\"capacityWaits\":" << store.stats().capacity_waits << "}\n";
 }
 BY_HANDLE_FILE_INFORMATION FileInfo(const fsys::path& path){
-    auto h=CreateFileA(path.string().c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
+    auto h=CreateFileW(path.c_str(),FILE_READ_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);
     Check(h!=INVALID_HANDLE_VALUE,"file info open");BY_HANDLE_FILE_INFORMATION info{};Check(GetFileInformationByHandle(h,&info),"file info read");CloseHandle(h);return info;
 }
 bool SameFile(const BY_HANDLE_FILE_INFORMATION& a,const BY_HANDLE_FILE_INFORMATION& b){
@@ -381,13 +381,63 @@ int main(int argc,char** argv){
         auto factory=reinterpret_cast<CreateInterfaceFn>(GetProcAddress(module,"CreateInterface"));Check(factory,"filesystem factory");
         auto* fs=static_cast<IFileSystem*>(factory("VFileSystem009",nullptr));Check(fs,"filesystem interface");
         fs->Mount();fs->AddSearchPath((base/"game").string().c_str(),"GAME");fs->AddSearchPath((base/"game").string().c_str(),"GAMECONFIG");
+        const auto downloads = base/"cstrike_downloads";
+        if (fsys::is_directory(downloads)) fs->AddSearchPath(downloads.string().c_str(),"GAMEDOWNLOAD");
         if(fsys::exists(base/"fallback"))fs->AddSearchPath((base/"fallback").string().c_str(),"GAME");
         mh_interface_t interfaces{};interfaces.FileSystem=fs;metahook_api_t api{};api.VFTHook=HookVft;api.UnHook=UnHook;
         Check(overlay::Install(&api,&interfaces),"production identity checked overlay install");
         {
-        update::Session session((base/"cache").string(),(base/"old").string());cache::Cache storage((base/"cache").string());
+        update::Session session((base/"cache").string(),(base/"old").string(),downloads.string());
+        cache::Cache storage((base/"cache").string());
         if(mode=="store-pressure"){
             StorePressure(session,storage,fs,name,next,third,bytes,old,newer);
+        }else if(mode=="downloads-shadow" || mode=="downloads-native" || mode=="downloads-damaged"){
+            const bool damaged = mode=="downloads-damaged", shadow = mode=="downloads-shadow";
+            const auto original = downloads/name;
+            // Use extended paths for the fixture's independent inspection of an engine-inaccessible file.
+            const fsys::path inspect(L"\\\\?\\" + fsys::path(original).make_preferred().wstring());
+            const auto originalId = FileInfo(inspect);
+            const auto localMatches = [&](const fsys::path& expected) {
+                char local[MAX_PATH]{};
+                return fs->GetLocalPath(name.c_str(),local,sizeof(local)) && fsys::equivalent(expected,local);
+            };
+            Check(EqualVfs(fs,name,shadow || damaged ? old : bytes),"initial engine winner");
+            Check(session.Begin(1,url,{{name,next}}),"begin with native downloaded resource");Ready(session);
+            Check((session.GetStatus().downloaded==size_t(damaged)) && EqualVfs(fs,name,bytes),"full SHA selects correct consumer");
+            if (damaged) {
+                Check(localMatches(storage.Path(name,next)) && Disk(original)==old,"same-size corrupt download repaired independently");
+            } else {
+                const bool overlong = original.string().size()>=MAX_PATH;
+                Check(session.GetStatus().cached==size_t(shadow),"download group is probed only behind a stale winner");
+                Check(localMatches(overlong ? fsys::path(storage.Path(name,next)) : original),"consumer resolves the actual file");
+                Check(fsys::exists(storage.Path(name,next))==overlong,"only an engine-inaccessible path needs a short object");
+                Check(session.Commit(),"commit verified file source");
+                Check(session.Begin(2,url,{{name,next}}),"begin warm admission");Ready(session);
+                const auto& warm = session.GetStatus();
+                Check(warm.profile.openReader.calls==1 && warm.downloaded==0 && warm.hashedBytes==0,
+                      "warm admission resolves once and reuses the verified identity");
+                std::cout<<"{\"warmVfsOpens\":"<<warm.profile.openReader.calls<<",\"warmHashedBytes\":"<<warm.hashedBytes
+                         <<",\"shortObject\":"<<(overlong ? "true" : "false")<<"}\n";
+                if (shadow) {
+                    Check(session.Begin(3,url,{}),"stage removal of override");Ready(session);
+                    Check(EqualVfs(fs,name,old),"restore native priority for omitted resource");
+                    Check(session.Reset() && EqualVfs(fs,name,bytes),"cancel removal and recover the previous override");
+                    cache::Hash oldHash; oldHash.Update(old);
+                    const Entry previousBody{true, std::uint32_t(old.size()), oldHash.Finish()};
+                    Check(session.Begin(4,url,{{name,previousBody}}),"new manifest wants the original GAME or PAK");Ready(session);
+                    Check(session.GetStatus().downloaded==0 && overlay::Capture().paths.empty() && EqualVfs(fs,name,old),
+                          "original engine winner becomes visible again without a transfer");
+                    Check(session.Commit(),"commit native search order");
+                }
+                overlay::Clear();
+                if (!overlong) {
+                    auto h=fs->Open(name.c_str(),"rb","GAMEDOWNLOAD");
+                    Check(h && fs->Size(h)==bytes.size(),"ordinary GAMEDOWNLOAD is still mounted");
+                    fs->Close(h);
+                }
+            }
+            Check(SameFile(originalId,FileInfo(inspect)) && Disk(inspect)==(damaged ? old : bytes),
+                  "downloaded file identity and contents preserved");
         }else if(mode=="legacy-cache"){
             Check(EqualVfs(fs,name,old),"legacy cache fixture starts with stale GAME bytes");
             Check(session.Begin(3,url,{{name,next}}),"legacy cache admission begins");

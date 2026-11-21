@@ -100,7 +100,7 @@ def main():
     # Avoid Windows legacy installer-name heuristics for an ordinary test host.
     exe = out / 'resource-check.exe'
     assert execute('link', [compiler, '--target=i686-pc-windows-msvc', '-fuse-ld=lld', '/MT', *objects,
-                           '/Fe' + str(exe), '/link', '/threads:1', 'winhttp.lib', 'bcrypt.lib', 'ws2_32.lib', 'mswsock.lib']) == 0
+                           '/Fe' + str(exe), '/link', '/threads:1', 'winhttp.lib', 'bcrypt.lib', 'ws2_32.lib', 'mswsock.lib'], 120) == 0
     body = bytes(((i * 73 + 19) ^ (i >> 9)) & 255 for i in range(256 * 1024))
     old, third = bytes(x ^ 0x5a for x in body), bytes(x ^ 0xc3 for x in body)
     sha, third_sha = hashlib.sha256(body).hexdigest(), hashlib.sha256(third).hexdigest()
@@ -166,6 +166,12 @@ def main():
              ('steady-slow', 'update', 'models/update.mdl', 1),
              ('invalid', 'invalid', 'models/update.mdl', 0), ('final-change', 'final-change', 'models/update.mdl', 1),
              ('corrupt-cache', 'update', 'models/update.mdl', 1),
+             ('downloads-shadow', 'downloads-shadow', 'models/update.mdl', 0),
+             ('downloads-pak', 'downloads-shadow', 'sprites/packed.spr', 0),
+             ('downloads-own-pak', 'downloads-shadow', 'models/update.mdl', 0),
+             ('downloads-native', 'downloads-native', 'models/update.mdl', 0),
+             ('downloads-damaged', 'downloads-damaged', 'models/update.mdl', 1),
+             ('downloads-long', 'downloads-shadow', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 0),
              ('long-name', 'reuse', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 1),
              ('long-legacy', 'legacy-cache', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 0),
              ('flat-sha', 'legacy-cache', 'models/update.mdl', 0),
@@ -197,6 +203,10 @@ def main():
                 base = base / ('p' * pad)
                 assert len(str(base / 'cache/objects' / sha / name)) >= 260
                 assert len(str(base / 'cache/objects' / (sha + '.wav'))) < 260
+            if label == 'downloads-long':
+                pad = 263 - len(str(base / 'cstrike_downloads' / name))
+                base = base / ('d' * max(pad, 2))
+                assert len(str(base / 'game' / name)) < 260 <= len(str(base / 'cstrike_downloads' / name))
             game = base / 'game'
             game.mkdir(parents=True)
             for filename, data in [('new.bin', body), ('old.bin', old), ('third.bin', third), ('old-linked-source.bin', old)]:
@@ -214,7 +224,15 @@ def main():
             else:
                 destination = game / name; destination.parent.mkdir(parents=True)
                 if mode == 'old-hardlink': os.link(base / 'old-linked-source.bin', destination)
-                else: destination.write_bytes(initial)
+                elif mode != 'downloads-native': destination.write_bytes(initial)
+            if mode.startswith('downloads-'):
+                existing = base / 'cstrike_downloads' / name
+                existing.parent.mkdir(parents=True)
+                existing.write_bytes(old if mode == 'downloads-damaged' else body)
+                if label == 'downloads-own-pak':
+                    entry = struct.pack('<56sii', name.encode(), 12, len(old))
+                    (base / 'cstrike_downloads/pak0.pak').write_bytes(
+                        struct.pack('<4sii', b'PACK', 12 + len(old), len(entry)) + old + entry)
             if mode == 'download-releases-lease':
                 (game / 'models/unchanged.mdl').write_bytes(body)
             cache_objects = base / 'old/objects'

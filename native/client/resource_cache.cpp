@@ -154,8 +154,9 @@ resource_sync::Digest Hash::Finish() {
     impl_->finished = true;
     return value;
 }
-Cache::Cache(std::string root, std::string previousRoot)
-    : root_(Absolute(root)), previousRoot_(previousRoot.empty() ? root_ : Absolute(previousRoot)) {}
+Cache::Cache(std::string root, std::string previousRoot, std::string downloadRoot)
+    : root_(Absolute(root)), previousRoot_(previousRoot.empty() ? root_ : Absolute(previousRoot)),
+      downloadRoot_(downloadRoot.empty() ? std::string{} : Absolute(downloadRoot)) {}
 const std::string& Cache::Root() const { return root_; }
 const std::string& Cache::Error() const { return error_; }
 
@@ -321,7 +322,11 @@ std::unique_ptr<SourceFile> OpenCandidate(const std::string& path, std::uint32_t
 }
 std::unique_ptr<SourceFile> Cache::Open(const std::string& name, const resource_sync::Entry& expected,
                                        Layout layout, std::string& path) const {
-    if (layout == Layout::shortName) path = Path(name, expected);
+    if (layout == Layout::gameDownload) {
+        if (downloadRoot_.empty()) return {};
+        Valid(name, expected);
+        path = downloadRoot_ + "/" + name;
+    } else if (layout == Layout::shortName) path = Path(name, expected);
     else {
         Valid(name, expected);
         path = previousRoot_ + "/objects/" + HexKey(expected.sha256) +
