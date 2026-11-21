@@ -1799,7 +1799,7 @@ index db8b533..2e8c3ad 100644
      {
          ReleaseFrame(it);
 diff --git a/src/gl_rmain.cpp b/src/gl_rmain.cpp
-index d59b139..ffd18a2 100644
+index d59b139..784112d 100644
 --- a/src/gl_rmain.cpp
 +++ b/src/gl_rmain.cpp
 @@ -1,5 +1,12 @@
@@ -2165,7 +2165,21 @@ index d59b139..ffd18a2 100644
  
      R_GenerateSceneUBO();
      R_FreeWorldResources();
-@@ -4367,6 +4518,8 @@ void R_SetupGL(void)
+@@ -4114,6 +4265,13 @@ float R_GetDefaultFOV()
+ 
+ void R_AdjustScopeFOVForViewModel(float& fov)
+ {
++    // The CoF scope is a full-screen optical model projected at the world zoom.
++    if (cl_viewent && cl_viewent->model && *scr_fov_value > 0.0f && *scr_fov_value < 90.0f &&
++        !strcmp(cl_viewent->model->name, "models/guest/cof/rifle/v_rifle_scope.mdl"))
++    {
++        fov = *scr_fov_value;
++        return;
++    }
+     if (viewmodel_fov->value > 0)
+     {
+         if (!g_bIsCounterStrike)
+@@ -4367,6 +4525,8 @@ void R_SetupGL(void)
          }
      }
  
@@ -2174,7 +2188,7 @@ index d59b139..ffd18a2 100644
      glCullFace(GL_FRONT);
  
      if (!gl_cull->value)
-@@ -4650,7 +4803,10 @@ void ClientDLL_DrawNormalTriangles(void)
+@@ -4650,7 +4810,10 @@ void ClientDLL_DrawNormalTriangles(void)
      //Call ClientDLL_DrawNormalTriangles instead of HUD_DrawNormalTriangles
      if (r_draw_classify & DRAW_CLASSIFY_OPAQUE_ENTITIES)
      {
@@ -2185,7 +2199,7 @@ index d59b139..ffd18a2 100644
      }
  
      //Clear texture id cache since SC client dll bind texture id 0 but leave texture id cache non-zero
-@@ -4667,6 +4823,10 @@ void R_RenderScene(void)
+@@ -4667,6 +4830,10 @@ void R_RenderScene(void)
  {
      GL_BeginDebugGroup("R_RenderScene");
  
@@ -2196,7 +2210,7 @@ index d59b139..ffd18a2 100644
      if (CL_IsDevOverviewMode())
          CL_SetDevOverView(R_GetRefDef());
  
-@@ -4682,9 +4842,15 @@ void R_RenderScene(void)
+@@ -4682,9 +4849,15 @@ void R_RenderScene(void)
      if (!(*r_refdef.onlyClientDraws))
      {
          R_DrawWorld();
@@ -2212,7 +2226,7 @@ index d59b139..ffd18a2 100644
      R_EndRenderOpaque();
  
      R_InhibitRenderingFog();
-@@ -4720,13 +4886,17 @@ int EngineGetMaxGLTextures()
+@@ -4720,13 +4893,17 @@ int EngineGetMaxGLTextures()
      return MAX_GLTEXTURES;
  }
  
@@ -2230,7 +2244,7 @@ index d59b139..ffd18a2 100644
      if (g_iEngineType == ENGINE_SVENGINE)
          return MAX_KNOWN_MODELS_SVENGINE;
  
-@@ -4735,6 +4905,7 @@ int EngineGetMaxKnownModel(void)
+@@ -4735,6 +4912,7 @@ int EngineGetMaxKnownModel(void)
  
  int EngineGetModelIndex(model_t* mod)
  {
@@ -2238,7 +2252,7 @@ index d59b139..ffd18a2 100644
      int index = (mod - (model_t*)(mod_known));
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4745,6 +4916,7 @@ int EngineGetModelIndex(model_t* mod)
+@@ -4745,6 +4923,7 @@ int EngineGetModelIndex(model_t* mod)
  
  model_t* EngineGetModelByIndex(int index)
  {
@@ -2246,7 +2260,7 @@ index d59b139..ffd18a2 100644
      auto pmod_known = (model_t*)(mod_known);
  
      if (index >= 0 && index < *mod_numknown)
-@@ -4798,12 +4970,50 @@ int EngineGetMaxLightmapTextures(void)
+@@ -4798,12 +4977,50 @@ int EngineGetMaxLightmapTextures(void)
  
  int EngineGetMaxClientModels(void)
  {
@@ -2297,19 +2311,19 @@ index d59b139..ffd18a2 100644
  //const int skytexorder_svengine[6] = { 0, 1, 2, 3, 4, 5 };
  //const int skytexorder_goldsrc[6] = { 0, 2, 1, 3, 4, 5 };
  
-@@ -5400,23 +5610,14 @@ void R_Reload_f(void)
+@@ -5400,23 +5617,14 @@ void R_Reload_f(void)
          delete ent;
      }
  
 -    for (int j = 1; j < EngineGetMaxClientModels(); j++)
 -    {
 -        auto mod = gEngfuncs.hudGetModelByIndex(j);
--
--        if (!mod)
--            break;
 +    EngineForEachClientBrushModel([](model_t* mod) {
 +        auto pModel = R_GetWorldSurfaceModel(mod);
  
+-        if (!mod)
+-            break;
+-
 -        if (mod->type == mod_brush)
 +        if (pModel)
          {
@@ -2326,7 +2340,7 @@ index d59b139..ffd18a2 100644
  
      gEngfuncs.Con_Printf("Map entities reloaded\n");
  }
-@@ -5464,6 +5665,10 @@ void Mod_ClearModel(void)
+@@ -5464,6 +5672,10 @@ void Mod_ClearModel(void)
  
  void Host_ClearMemory(qboolean bQuite)
  {
@@ -2337,7 +2351,7 @@ index d59b139..ffd18a2 100644
      Mod_ClearModel();
  
      gPrivateFuncs.Host_ClearMemory(bQuite);
-@@ -6601,6 +6806,214 @@ uint32_t R_GetSwapChainHeight()
+@@ -6601,6 +6813,214 @@ uint32_t R_GetSwapChainHeight()
      return glheight;
  }
  

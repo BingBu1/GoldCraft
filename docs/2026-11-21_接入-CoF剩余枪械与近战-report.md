@@ -61,3 +61,15 @@
 两把枪各实际消耗一发。七件命中后专服均报告 `active`，弹簧刀再次命中也能继续。表中是本场扣血，部位和当前灾变状态会参与结算。额外一次弹簧刀真实头部致死，服务端记录隐藏原尸、一次爆尸消息、四块碎片和一次音效。临时开启血迹后，开枪前后画面可见僵尸躯干的红色血迹，随后恢复了原设置。
 
 服务端 x86 `mp.dll` SHA-256 为 `062001e0abd0303999a6aeb8bc4ee35048434b87db1bc8fe9c23ca6c1cf71fea`。本地回执在 `build/cof-hit-scope-20261121/fixed/weapon-hits.json`、`head-gib.json` 和 `blood-contact.jpg`。排查期间测试用 Pawn 观察器曾因缺少碰撞比例的浮点输出参数退出该隔离专服。补齐观察器后，以上七件和爆尸均已重新完成实测。
+
+## 狩猎步枪瞄镜与正常对局
+
+旧版中键开镜后的服务端视野为 30°，1280×720 实拍的镜片中心全黑。CoF 的 `CRifle::PostZoom`（服务端 VA `0x10066F60`）切换 `v_rifle_scope.mdl` 和视野，并使用 `CameraZoom` 和 `IronSights`。原客户端的消息消费者分别在 `0x100393D0` 和 `0x1006E780`。宿主 CS x86 `client.dll` SHA-256 为 `b434b1c09b10b011be6c42e4154955da0c3ca46e95746988ebea1aa316a2a9f2`。其 RVA `0x64FB5` 会在 FOV 小于 45 时额外绘制 CS 狙击镜。CoF 样本身份见本报告的原版依据。
+
+狩猎步枪现在复用宿主的武器自管瞄镜接口。单独处理宿主 HUD 后，实拍仍有一个约 478 像素宽的黑方框，镜内可见区域直径仅约 135 像素。Renderer 在绘制已开镜的 CoF 猎枪模型时改用当前放大视野。最终同一机位的原生 F5 三帧分别记录 90°、30°、90°。圆形镜片直径约 504 像素，十字线居中，镜内可辨认门框、铁网与阳台。退镜恢复枪模和正常视野，人物 100 血和弹药数字均可见。本地图片为 `build/cof-hit-scope-20261121/scope-final/native-hip.png`、`native-scope.png`、`native-out.png`。[猎枪 HUD](../native/csol/client/weapons/guest_cof_hud.cpp) · [Renderer 补丁](../patches/renderer-goldcraft.patch)
+
+在新回合的购买区，通过真实 B 菜单逐件选择两把枪和五件近战。客户端记录七次购买成功、零次拒绝。Browning 扣 750，猎枪扣 3500，五件近战均按菜单规则免费替换刀位。逐件库存和余额在 `build/cof-hit-scope-20261121/scope-final/menu-seven.json`。
+
+清除测试插件和假人后，隔离专服以《穷途末路》重新开局。唯一的 B 启用正常鼠标，重新买入猎枪和一组备弹。射击后弹药从 5/5 到 4/5，按 R 后到 5/4。水平转向约 17.16°，反向移动后回到起始朝向。玩家生命为 100，灾变保持 `active`。
+
+客户端更新前核查 335 项 HUD 和 127 项菜单资源。正常开局通过 3611 项资源检查。已从实际运行进程核对 `CSOLSupport.dll`（`14dbbba774fd2020fad271a8a7e1ae95945fa43eb348b164df4eff86259813c0`）、`Renderer_AVX2.dll`（`2b0a1914609a8d8d49cdeb9f70c141d5d098c402bb5c044cb863107048edf8a3`）和上节的 `mp.dll`。本轮隔离会话通过单 B 验收，正式服分发和双真人验证仍待。最终回执及画面在 `build/cof-hit-scope-20261121/handoff/final.json` 和 `playable.png`。

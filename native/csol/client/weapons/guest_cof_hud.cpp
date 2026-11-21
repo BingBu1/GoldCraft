@@ -99,7 +99,8 @@ constinit const WeaponModule browning{
     .ammoSprite="sprites/guest/cof/browning_ammo.spr",.ammoRect={0,32,0,32},.dynamicCrosshair=false};
 constinit const WeaponModule hunting{
     .ids=rifleIds,.order=101,.ammoKind=hud_style::AmmoKind::Magazine,
-    .ammoSprite="sprites/guest/cof/rifle_ammo.spr",.ammoRect={0,32,0,32},.dynamicCrosshair=false};
+    .ammoSprite="sprites/guest/cof/rifle_ammo.spr",.ammoRect={0,32,0,32},.dynamicCrosshair=false,
+    .ownsSniperScope=true};
 constinit const WeaponModule handWeapons{.ids=meleeIds,.order=102,.dynamicCrosshair=false};
 const WeaponModuleRegistration browningRegistration{browning},huntingRegistration{hunting},meleeRegistration{handWeapons};
 }
