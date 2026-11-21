@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "goldcraft/scenario_guest_weapon.hpp"
 #include "../../../scenario/core/map_support.hpp"
 #include "scenario_monster_damage.h"
 #include "../core/scenario_incoming_damage.h"
@@ -118,6 +119,17 @@ bool ApplyOrdinaryKnockback(CSOLMonsterDamageCall& call, const EHANDLE& attribut
         monster->Type()->priority != 0) return true;
     auto* weapon = dynamic_cast<CBasePlayerWeapon*>(player->m_pActiveItem);
     if (!weapon || (weapon->pev->flags & FL_KILLME)) return true;
+    if (auto* guest=dynamic_cast<goldcraft::scenario::GuestWeapon*>(weapon))
+    {
+        const EHANDLE identity(weapon);
+        const auto profile=guest->ScenarioGuestProfile();
+        if (!call.Current() || attribution.Get<CBaseEntity>()!=player ||
+            identity.Get<CBaseEntity>()!=weapon || player->m_pActiveItem!=weapon)
+            return call.Cancel();
+        if (!goldcraft::scenario::ValidGuestProfile(profile,weapon->m_iId))
+        { error.message="authored guest scenario impulse contract is invalid";return false; }
+        return true; // The guest's original hit path owns its impulse behavior.
+    }
     // These actual MP v22C implementations return false. Nonzero values in
     // the shared weapon table alone do not enable ordinary-monster knockback.
     // Both helpers belong to original CKnife (ID29). Its v22C at
@@ -695,6 +707,14 @@ bool CSOL_ApplyMonsterMeleeImpulse(CSOLMonsterDamageCall& call,
         auto* weapon = active();
         if (!weapon) return true;
         const EHANDLE before(weapon);
+        if (auto* guest=dynamic_cast<goldcraft::scenario::GuestWeapon*>(weapon))
+        {
+            const auto profile=guest->ScenarioGuestProfile();
+            if (!current() || before.Get<CBaseEntity>()!=weapon || active()!=weapon)return call.Cancel();
+            if (!goldcraft::scenario::ValidGuestProfile(profile,weapon->m_iId))
+            { error.message="authored guest scenario melee contract is invalid";return false; }
+            return true;
+        }
         if (weapon->m_iId != WEAPON_KNIFE)
         {
             if (auto* provider = dynamic_cast<CSOLWeaponMonsterMelee*>(weapon))

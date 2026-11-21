@@ -7,6 +7,8 @@
 #include "weapon_slots.h"
 #include "primary_purchase.h"
 #include "../custom/action_stamina.h"
+#include "../custom/body_stains.h"
+#include "native/include/goldcraft/scenario_guest_weapon.hpp"
 #include "../../buy_menu.hpp"
 #include "native/guest/cof/arsenal.hpp"
 #include "native/guest/cof/arsenal_audio.hpp"
@@ -142,10 +144,16 @@ bool PrepareItem(const Definition& def,const CSOLScenarioSdkScope& scope)
     return scope.Current() && Resources(def.id).view && (def.id!=Rifle || Resources(def.id).scope);
 }
 
-class ArsenalWeapon : public CBasePlayerWeapon
+class ArsenalWeapon : public CBasePlayerWeapon, public goldcraft::scenario::GuestWeapon
 {
 public:
     virtual Id Identity() const=0;
+    goldcraft::scenario::GuestProfile ScenarioGuestProfile() const noexcept final
+    {
+        using namespace goldcraft::scenario;
+        return {Identity(), GuestMetadata::NoCsoItem, GuestImpulse::WeaponOwnsHitBehavior,
+            GuestKill::StandardPlayerProcessing};
+    }
     const Definition& Info() const { return *arsenal::Find(Identity()); }
     int iItemSlot() override { return Info().hudSlot+1; }
     BOOL UseDecrement() override { return TRUE; }
@@ -359,7 +367,8 @@ void HandWeapon::Strike(CSOLWeaponCall& call)
         } restore{gMultiDamage};
         const int flags = id == Pickaxe ? 0x0d001000 : 0x04001000;
         ClearMultiDamage();
-        target->TraceAttack(owner.pev,float(damage),direction,&trace,flags);
+        const CSOLBodyStainShot swing(&owner, start, this);
+        swing.TraceAttack(target, owner.pev, float(damage), direction, &trace, flags);
         if(!call.Current() || victim.Get<CBaseEntity>()!=target){ClearMultiDamage();return;}
         ApplyMultiDamage(owner.pev,owner.pev);
         if(!call.Current())return;

@@ -39,3 +39,25 @@
 本批已完成工作区 x86 客户端和服务端的完整链接。两份构建回执各记录了 3,223 个稳定的源码输入。客户端 `CSOLSupport.dll` 的 SHA-256 为 `a322dfa06fc745b6774abbc80e9e01be05a60861be1b054b9f7c32e69003d84e`，服务端 `mp.dll` 为 `3c2f26659d574f92e2beb6e2788b4b8e57a4511ac62647665d7b7b55fa441a74`。服务端导出表包含本批七个实体名。
 
 本地两份 DLL 位于 `build/cof-arsenal-20261121/client-final/` 和 `server-final/`，资源清单位于同一构建目录下的 `resources-audio/resource-plan.json`。自动化测试、实际购买和多人验证按用户要求顺延。本批尚未部署至沙盒或正式服。
+
+## 命中僵尸导致整局停用的修复
+
+旧版《穷途末路》的服务端在给普通僵尸结算伤害时报告 `linked weapon item identity is unresolved`，随后把地图标为 `rejected`。当时客户端持有 ID 912 弹簧刀，旧回执缺少该击的命中事件。客户端和专服当时仍能响应。
+
+七件武器共用的 `ArsenalWeapon` 现按实际实体提供 `ScenarioGuestProfile()`。服务端核对实体、所有者和实际库存 ID，采用 `NoCsoItem` 处理客串武器的物品来源，并把冲击交给武器自身、击杀交给通用玩家流程。普通 CSOL 武器继续核对物品表和关联皮肤。五件近战的真实 `TraceAttack` 使用同一个挥击作用域记录血迹和近战头部致死。[武器实体](../native/csol/server/weapons/guest_cof_arsenal.cpp) · [灾变物品校验](../native/csol/server/weapons/scenario_weapon_state.cpp)
+
+隔离 ReHLDS 专服和单客户端 B 在《穷途末路》分别命中活僵尸，七次均出现实际生命值下降。
+
+| 武器 | 本次扣血 |
+| --- | ---: |
+| Browning HP | 7.5 |
+| 狩猎步枪 | 52.5 |
+| 斧头 | 62.5 |
+| 树枝 | 15 |
+| 警棍 | 11 |
+| 十字镐 | 33.75 |
+| 弹簧刀 | 4.5 |
+
+两把枪各实际消耗一发。七件命中后专服均报告 `active`，弹簧刀再次命中也能继续。表中是本场扣血，部位和当前灾变状态会参与结算。额外一次弹簧刀真实头部致死，服务端记录隐藏原尸、一次爆尸消息、四块碎片和一次音效。临时开启血迹后，开枪前后画面可见僵尸躯干的红色血迹，随后恢复了原设置。
+
+服务端 x86 `mp.dll` SHA-256 为 `062001e0abd0303999a6aeb8bc4ee35048434b87db1bc8fe9c23ca6c1cf71fea`。本地回执在 `build/cof-hit-scope-20261121/fixed/weapon-hits.json`、`head-gib.json` 和 `blood-contact.jpg`。排查期间测试用 Pawn 观察器曾因缺少碰撞比例的浮点输出参数退出该隔离专服。补齐观察器后，以上七件和爆尸均已重新完成实测。

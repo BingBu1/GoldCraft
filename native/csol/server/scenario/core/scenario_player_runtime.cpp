@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "goldcraft/scenario_guest_weapon.hpp"
 #include "../monsters/scenario_monster_skills.h"
 #include "scenario_player_runtime.h"
 #include "../../scenario_active_skill.h"
@@ -3323,6 +3324,17 @@ bool CCSOLScenarioPlayerRuntime::NotifyMonsterKill(CSOLMonsterDeathCall& call,
         if (!weapon || (weapon->pev->flags & FL_KILLME)) return true;
         if (weapon->m_pPlayer != player)
         { error.message = "scenario kill notification weapon owner is invalid"; return false; }
+        if (auto* guest=dynamic_cast<goldcraft::scenario::GuestWeapon*>(weapon))
+        {
+            const EHANDLE identity(weapon);
+            const auto profile=guest->ScenarioGuestProfile();
+            if (!current() || identity.Get<CBaseEntity>()!=weapon || weapon->m_pPlayer!=player)return false;
+            if (!goldcraft::scenario::ValidGuestProfile(profile,weapon->m_iId))
+            { error.message="authored guest scenario kill contract is invalid";return false; }
+            // Generic player components already ran above. Guest weapons have
+            // no CSO-specific active/source kill perks or fabricated callbacks.
+            return true;
+        }
         if (auto* callbacks = dynamic_cast<CSOLWeaponMonsterKillCallbacks*>(weapon))
         {
             auto* monster = call.Current();

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "goldcraft/scenario_guest_weapon.hpp"
 #include "scenario_weapon_state.h"
 #include "../scenario/monsters/scenario_monster_damage.h"
 #include "weapons.h"
@@ -1199,6 +1200,22 @@ bool CCSOLScenarioWeaponState::Item(CBasePlayer& attacker, int source, std::int3
     item = 0;
     if (!Current()) return false;
     if (!source) return true;
+    // Authored foreign-game metadata is resolved before the CSO directory:
+    // a coincident numeric ID must never attach an unrelated CSO item/perk.
+    auto* candidate=Active(attacker);
+    if (!candidate || candidate->m_iId!=source) candidate=CarriedSource(attacker,source);
+    if (auto* guest=dynamic_cast<goldcraft::scenario::GuestWeapon*>(candidate))
+    {
+        const EHANDLE identity(candidate);
+        const auto profile=guest->ScenarioGuestProfile();
+        if (!Current() || identity.Get<CBaseEntity>()!=candidate || !Live(candidate) ||
+            candidate->m_pPlayer!=&attacker) return false;
+        if (!goldcraft::scenario::ValidGuestProfile(profile,candidate->m_iId) || profile.weaponId!=source)
+        { error.message="authored guest scenario metadata contract is invalid";return false; }
+        // NoCsoItem is an explicit typed capability; ordinary unknown weapons
+        // still use the original strict item/linked-skin path below.
+        return true;
+    }
     // Bridge knives keep distinct inventory IDs. Their original item identity
     // is assigned to the actual instance before Touch, not guessed from a
     // numeric range or the player's default native-knife selection.
