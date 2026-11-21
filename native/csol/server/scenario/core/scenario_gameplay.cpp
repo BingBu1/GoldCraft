@@ -17,7 +17,7 @@ CCSOLScenarioGameplay::CCSOLScenarioGameplay(CCSOLScenarioSession& session,
     std::shared_ptr<const CCSOLMonsterSpawnOwner> owner)
     : m_session(session), m_owner(owner), m_hasOwner(owner != nullptr), m_spawnDeaths(spawnDeaths),
       m_factoryServices(factoryServices),
-      m_deaths(session.Map(), session.Monsters(), session.Models(), session.Messages(), deathServices, mapId),
+      m_deaths(session.Map(), session.Monsters(), session.Models(), session.Messages(), deathServices, mapId, CSOL_ReadZombieGibChance),
       m_occupancy(session.Monsters(), spawnDeaths), m_spawns(m_occupancy),
       m_factory(session.Map(), session.Monsters(), session.Models(), m_occupancy,
           m_deaths.Requests(), factoryServices, session.Messages(), std::move(owner)) {}

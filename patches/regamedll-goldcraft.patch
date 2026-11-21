@@ -4498,10 +4498,10 @@ index e0ffed5..23c46f8 100644
  	}
  }
 diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
-index 6663e2e..300a3ea 100644
+index 6663e2e..b1184f2 100644
 --- a/regamedll/dlls/weapons.cpp
 +++ b/regamedll/dlls/weapons.cpp
-@@ -1,22 +1,36 @@
+@@ -1,22 +1,37 @@
  #include "precompiled.h"
 -
 -short g_sModelIndexLaser;		// holds the index for the laser beam
@@ -4522,6 +4522,7 @@ index 6663e2e..300a3ea 100644
 -short int g_sModelIndexTGhost;
 -short int g_sModelIndexC4Glow;
 +#include "../../../../native/csol/server/custom/body_stains.h"
++#include "../../../../native/csol/server/scenario/monsters/scenario_monster_death.h"
 +#include "../../../../native/csol/server/paired_inventory.h"
 +#include "../../../../native/csol/server/weapons/guest_cof_light_equipment.hpp"
 +#include "../../../../native/csol/server/weapons/weapons.h"
@@ -4556,7 +4557,7 @@ index 6663e2e..300a3ea 100644
  
  int giAmmoIndex;
  
-@@ -40,13 +54,16 @@ int MaxAmmoCarry(const char *szName)
+@@ -40,13 +55,16 @@ int MaxAmmoCarry(const char *szName)
  		}
  	}
  
@@ -4574,15 +4575,16 @@ index 6663e2e..300a3ea 100644
  }
  
  // All automatic weapons are represented here
-@@ -82,6 +99,7 @@ void EXT_FUNC __API_HOOK(ClearMultiDamage)()
+@@ -82,6 +100,8 @@ void EXT_FUNC __API_HOOK(ClearMultiDamage)()
  	gMultiDamage.hEntity = nullptr;
  	gMultiDamage.amount = 0;
  	gMultiDamage.type = 0;
 +	CSOL_ClearBodyStainSplash();
++	CSOLMeleeHeadshotDamage::Clear();
  }
  
  LINK_HOOK_VOID_CHAIN(ApplyMultiDamage, (entvars_t *pevInflictor, entvars_t *pevAttacker), pevInflictor, pevAttacker)
-@@ -93,7 +111,10 @@ void EXT_FUNC __API_HOOK(ApplyMultiDamage)(entvars_t *pevInflictor, entvars_t *p
+@@ -93,7 +113,11 @@ void EXT_FUNC __API_HOOK(ApplyMultiDamage)(entvars_t *pevInflictor, entvars_t *p
  	if (!hEnt)
  		return;
  
@@ -4590,11 +4592,20 @@ index 6663e2e..300a3ea 100644
 +	auto* target = hEnt.Get<CBaseEntity>();
 +	if (!target) return;
 +	CSOL_ApplyBodyStainSplash(*target, pevInflictor, pevAttacker);
++	const CSOLMeleeHeadshotDamage headshot(*target, pevInflictor, pevAttacker);
 +	target->TakeDamage(pevInflictor, pevAttacker, gMultiDamage.amount, gMultiDamage.type);
  
  	// check again, the entity may be removed after taking damage
  	if (hEnt)
-@@ -223,53 +244,74 @@ struct {
+@@ -123,6 +147,7 @@ void EXT_FUNC __API_HOOK(AddMultiDamage)(entvars_t *pevInflictor, CBaseEntity *p
+ 		gMultiDamage.amount = 0;
+ 	}
+ 
++	CSOLMeleeHeadshotDamage::Clear();
+ 	gMultiDamage.amount += flDamage;
+ }
+ 
+@@ -223,53 +248,74 @@ struct {
  };
  #endif
  
@@ -4702,7 +4713,7 @@ index 6663e2e..300a3ea 100644
  }
  
  // Precaches the weapon and queues the weapon info for sending to clients
-@@ -290,12 +332,7 @@ void UTIL_PrecacheOtherWeapon(const char *szClassname)
+@@ -290,12 +336,7 @@ void UTIL_PrecacheOtherWeapon(const char *szClassname)
  
  		pItem->Precache();
  		if (pItem->GetItemInfo(&info))
@@ -4716,7 +4727,7 @@ index 6663e2e..300a3ea 100644
  	}
  
  	REMOVE_ENTITY(pEdict);
-@@ -304,6 +341,7 @@ void UTIL_PrecacheOtherWeapon(const char *szClassname)
+@@ -304,6 +345,7 @@ void UTIL_PrecacheOtherWeapon(const char *szClassname)
  // Called by worldspawn
  void WeaponsPrecache()
  {
@@ -4724,7 +4735,7 @@ index 6663e2e..300a3ea 100644
  	Q_memset(CBasePlayerItem::m_ItemInfoArray, 0, sizeof(CBasePlayerItem::m_ItemInfoArray));
  	Q_memset(CBasePlayerItem::m_AmmoInfoArray, 0, sizeof(CBasePlayerItem::m_AmmoInfoArray));
  
-@@ -616,6 +654,15 @@ void CBasePlayerItem::DefaultTouch(CBaseEntity *pOther)
+@@ -616,6 +658,15 @@ void CBasePlayerItem::DefaultTouch(CBaseEntity *pOther)
  	}
  
  	CBasePlayer *pPlayer = static_cast<CBasePlayer *>(pOther);
@@ -4740,7 +4751,7 @@ index 6663e2e..300a3ea 100644
  
  	if (pPlayer->m_bIsVIP
  		&&
-@@ -636,21 +683,30 @@ void CBasePlayerItem::DefaultTouch(CBaseEntity *pOther)
+@@ -636,21 +687,30 @@ void CBasePlayerItem::DefaultTouch(CBaseEntity *pOther)
  	}
  
  	// can I have this?
@@ -4775,7 +4786,7 @@ index 6663e2e..300a3ea 100644
  }
  
  void CBasePlayerWeapon::SetPlayerShieldAnim()
-@@ -931,6 +987,7 @@ bool CBasePlayerWeapon::HasSecondaryAttack()
+@@ -931,6 +991,7 @@ bool CBasePlayerWeapon::HasSecondaryAttack()
  	case WEAPON_DEAGLE:
  	case WEAPON_P228:
  	case WEAPON_P90:
@@ -4783,7 +4794,7 @@ index 6663e2e..300a3ea 100644
  	case WEAPON_C4:
  	case WEAPON_GALIL:
  		return false;
-@@ -959,7 +1016,7 @@ void CBasePlayerWeapon::HandleInfiniteAmmo()
+@@ -959,7 +1020,7 @@ void CBasePlayerWeapon::HandleInfiniteAmmo()
  	else if ((nInfiniteAmmo == WPNMODE_INFINITE_BPAMMO
  #ifdef REGAMEDLL_API
  		&&
@@ -4792,7 +4803,7 @@ index 6663e2e..300a3ea 100644
  #endif
  		)
  		|| (IsGrenadeWeapon(m_iId) && infiniteGrenades.value == 1.0f))
-@@ -1054,6 +1111,8 @@ void EXT_FUNC CBasePlayerWeapon::__API_HOOK(ItemPostFrame)()
+@@ -1054,6 +1115,8 @@ void EXT_FUNC CBasePlayerWeapon::__API_HOOK(ItemPostFrame)()
  
  		m_pPlayer->TabulateAmmo();
  		m_fInReload = FALSE;
@@ -4801,7 +4812,7 @@ index 6663e2e..300a3ea 100644
  	}
  
  	if ((usableButtons & IN_ATTACK2) && CanAttack(m_flNextSecondaryAttack, UTIL_WeaponTimeBase(), UseDecrement())
-@@ -1149,7 +1208,8 @@ void EXT_FUNC CBasePlayerWeapon::__API_HOOK(ItemPostFrame)()
+@@ -1149,7 +1212,8 @@ void EXT_FUNC CBasePlayerWeapon::__API_HOOK(ItemPostFrame)()
  
  #ifdef REGAMEDLL_FIXES
  				// Reset accuracy
@@ -4811,7 +4822,7 @@ index 6663e2e..300a3ea 100644
  				{
  					m_flAccuracy = GetBaseAccuracy((WeaponIdType)m_iId);
  				}
-@@ -1221,10 +1281,10 @@ bool CBasePlayerItem::DestroyItem()
+@@ -1221,10 +1285,10 @@ bool CBasePlayerItem::DestroyItem()
  				m_pPlayer->SetProgressBarTime(0);
  			}
  
@@ -4824,7 +4835,7 @@ index 6663e2e..300a3ea 100644
  				m_pPlayer->m_iHideHUD |= HIDEHUD_WEAPONS;
  			}
  
-@@ -1244,6 +1304,7 @@ bool CBasePlayerItem::DestroyItem()
+@@ -1244,6 +1308,7 @@ bool CBasePlayerItem::DestroyItem()
  int CBasePlayerItem::AddToPlayer(CBasePlayer *pPlayer)
  {
  	m_pPlayer = pPlayer;
@@ -4832,7 +4843,7 @@ index 6663e2e..300a3ea 100644
  
  	MESSAGE_BEGIN(MSG_ONE, gmsgWeapPickup, nullptr, pPlayer->pev);
  		WRITE_BYTE(m_iId);
-@@ -1323,8 +1384,9 @@ int CBasePlayerWeapon::AddDuplicate(CBasePlayerItem *pOriginal)
+@@ -1323,8 +1388,9 @@ int CBasePlayerWeapon::AddDuplicate(CBasePlayerItem *pOriginal)
  
  int CBasePlayerWeapon::AddToPlayer(CBasePlayer *pPlayer)
  {
@@ -4843,7 +4854,7 @@ index 6663e2e..300a3ea 100644
  
  	if (!m_iPrimaryAmmoType)
  	{
-@@ -1377,11 +1439,14 @@ int CBasePlayerWeapon::UpdateClientData(CBasePlayer *pPlayer)
+@@ -1377,11 +1443,14 @@ int CBasePlayerWeapon::UpdateClientData(CBasePlayer *pPlayer)
  
  	if (bSend)
  	{
@@ -4863,7 +4874,7 @@ index 6663e2e..300a3ea 100644
  
  		m_iClientClip = m_iClip;
  		m_iClientWeaponState = state;
-@@ -1400,22 +1465,33 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayerWeapon, SendWeaponAnim, (int iAnim, int sk
+@@ -1400,22 +1469,33 @@ LINK_HOOK_CLASS_VOID_CHAIN(CBasePlayerWeapon, SendWeaponAnim, (int iAnim, int sk
  
  void EXT_FUNC CBasePlayerWeapon::__API_HOOK(SendWeaponAnim)(int iAnim, int skiplocal)
  {
@@ -4898,7 +4909,7 @@ index 6663e2e..300a3ea 100644
  
  	if (iMaxClip < 1)
  	{
-@@ -1435,6 +1511,11 @@ BOOL CBasePlayerWeapon::AddPrimaryAmmo(int iCount, char *szName, int iMaxClip, i
+@@ -1435,6 +1515,11 @@ BOOL CBasePlayerWeapon::AddPrimaryAmmo(int iCount, char *szName, int iMaxClip, i
  		iIdAmmo = m_pPlayer->GiveAmmo(iCount, szName, iMaxCarry);
  	}
  
@@ -4910,7 +4921,7 @@ index 6663e2e..300a3ea 100644
  	if (iIdAmmo > 0)
  	{
  		m_iPrimaryAmmoType = iIdAmmo;
-@@ -1491,13 +1572,22 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayerWeapon, DefaultDeploy, (char *szViewModel
+@@ -1491,13 +1576,22 @@ LINK_HOOK_CLASS_CHAIN(BOOL, CBasePlayerWeapon, DefaultDeploy, (char *szViewModel
  
  BOOL EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultDeploy)(char *szViewModel, char *szWeaponModel, int iAnim, char *szAnimExt, int skiplocal)
  {
@@ -4936,7 +4947,7 @@ index 6663e2e..300a3ea 100644
  #else
  	m_pPlayer->pev->viewmodel = MAKE_STRING(szViewModel);
  	m_pPlayer->pev->weaponmodel = MAKE_STRING(szWeaponModel);
-@@ -1505,6 +1595,7 @@ BOOL EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultDeploy)(char *szViewModel, ch
+@@ -1505,6 +1599,7 @@ BOOL EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultDeploy)(char *szViewModel, ch
  	model_name = m_pPlayer->pev->viewmodel;
  	Q_strlcpy(m_pPlayer->m_szAnimExtention, szAnimExt);
  	SendWeaponAnim(iAnim, skiplocal);
@@ -4944,7 +4955,7 @@ index 6663e2e..300a3ea 100644
  
  	m_pPlayer->m_flNextAttack = 0.75f;
  	m_flTimeWeaponIdle = 1.5f;
-@@ -1521,6 +1612,33 @@ BOOL EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultDeploy)(char *szViewModel, ch
+@@ -1521,6 +1616,33 @@ BOOL EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultDeploy)(char *szViewModel, ch
  
  void CBasePlayerWeapon::ReloadSound()
  {
@@ -4978,7 +4989,7 @@ index 6663e2e..300a3ea 100644
  	CBasePlayer *pPlayer = nullptr;
  	while ((pPlayer = UTIL_FindEntityByClassname(pPlayer, "player")))
  	{
-@@ -1551,6 +1669,8 @@ LINK_HOOK_CLASS_CHAIN(int, CBasePlayerWeapon, DefaultReload, (int iClipSize, int
+@@ -1551,6 +1673,8 @@ LINK_HOOK_CLASS_CHAIN(int, CBasePlayerWeapon, DefaultReload, (int iClipSize, int
  
  int EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultReload)(int iClipSize, int iAnim, float fDelay)
  {
@@ -4987,7 +4998,7 @@ index 6663e2e..300a3ea 100644
  	if (m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] <= 0)
  		return FALSE;
  
-@@ -1563,7 +1683,9 @@ int EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultReload)(int iClipSize, int iAn
+@@ -1563,7 +1687,9 @@ int EXT_FUNC CBasePlayerWeapon::__API_HOOK(DefaultReload)(int iClipSize, int iAn
  	m_pPlayer->m_flNextAttack = fDelay;
  
  	ReloadSound();
@@ -4997,7 +5008,7 @@ index 6663e2e..300a3ea 100644
  
  	m_fInReload = TRUE;
  	m_flTimeWeaponIdle = fDelay + 0.5f;
-@@ -1717,6 +1839,10 @@ int CBasePlayerWeapon::ExtractAmmo(CBasePlayerWeapon *pWeapon)
+@@ -1717,6 +1843,10 @@ int CBasePlayerWeapon::ExtractAmmo(CBasePlayerWeapon *pWeapon)
  // called by the new item's class with the existing item as parameter
  int CBasePlayerWeapon::ExtractClipAmmo(CBasePlayerWeapon *pWeapon)
  {
@@ -5008,7 +5019,7 @@ index 6663e2e..300a3ea 100644
  	int iAmmo;
  	if (m_iClip == WEAPON_NOCLIP)
  	{
-@@ -1925,6 +2051,7 @@ void CWeaponBox::Kill()
+@@ -1925,6 +2055,7 @@ void CWeaponBox::Kill()
  
  bool CWeaponBox::GiveAmmoToPlayer(CBasePlayer *pPlayer, CBasePlayerWeapon *pWeapon, int iCurrentAmmo, const char *pszAmmo, int iMaxAmmo, CBasePlayerItem **pGivenItem)
  {
@@ -5016,7 +5027,7 @@ index 6663e2e..300a3ea 100644
  	if (iCurrentAmmo >= iMaxAmmo)
  		return false; // can't pickup more, these ammo are full in backpack
  
-@@ -1936,7 +2063,7 @@ bool CWeaponBox::GiveAmmoToPlayer(CBasePlayer *pPlayer, CBasePlayerWeapon *pWeap
+@@ -1936,7 +2067,7 @@ bool CWeaponBox::GiveAmmoToPlayer(CBasePlayer *pPlayer, CBasePlayerWeapon *pWeap
  		int iAmmoPickup = min(m_rgAmmo[iAmmoIndex], iMaxAmmo - iCurrentAmmo);
  		if (iAmmoPickup > 0)
  		{
@@ -5025,7 +5036,7 @@ index 6663e2e..300a3ea 100644
  			{
  				if (m_rgAmmo[iAmmoIndex] > iMaxAmmo)
  				{
-@@ -2033,6 +2160,9 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
+@@ -2033,6 +2164,9 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
  	if (pPlayer->m_bIsVIP || pPlayer->m_bShieldDrawn)
  		return;
  
@@ -5035,7 +5046,7 @@ index 6663e2e..300a3ea 100644
  	pPlayer->OnTouchingWeapon(this);
  
  	bool bRemove = true;
-@@ -2068,6 +2198,41 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
+@@ -2068,6 +2202,41 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
  				return;
  #endif
  
@@ -5077,7 +5088,7 @@ index 6663e2e..300a3ea 100644
  			if (FClassnameIs(pItem->pev, "weapon_c4"))
  			{
  #ifdef REGAMEDLL_FIXES
-@@ -2142,7 +2307,7 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
+@@ -2142,7 +2311,7 @@ void CWeaponBox::Touch(CBaseEntity *pOther)
  				}
  			}
  
@@ -5086,7 +5097,7 @@ index 6663e2e..300a3ea 100644
  			{
  				// ...
  			}
-@@ -2856,7 +3021,7 @@ LINK_ENTITY_TO_CLASS(armoury_entity, CArmoury, CCSArmoury)
+@@ -2856,7 +3025,7 @@ LINK_ENTITY_TO_CLASS(armoury_entity, CArmoury, CCSArmoury)
  #ifdef REGAMEDLL_API
  #define m_ItemInfoEx CSPlayerItem()->m_ItemInfo
  #else
@@ -5095,7 +5106,7 @@ index 6663e2e..300a3ea 100644
  #endif
  
  const char *CBasePlayerItem::pszAmmo1() const
-@@ -2866,7 +3031,7 @@ const char *CBasePlayerItem::pszAmmo1() const
+@@ -2866,7 +3035,7 @@ const char *CBasePlayerItem::pszAmmo1() const
  
  int CBasePlayerItem::iMaxAmmo1() const
  {

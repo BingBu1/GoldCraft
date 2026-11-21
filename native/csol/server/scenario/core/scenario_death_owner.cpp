@@ -51,8 +51,9 @@ CBaseEntity* CSOLMonsterDeathCall::Attacker() const
 
 CCSOLMonsterDeathOwner::CCSOLMonsterDeathOwner(CCSOLScenarioMap& map,
     CCSOLMonsterPool& pool, CCSOLMonsterModels& models,
-    const CCSOLScenarioMessages& messages, CCSOLMonsterDeathServices& services, int mapId)
-    : m_map(map), m_pool(pool), m_models(models), m_services(services), m_mapId(mapId),
+    const CCSOLScenarioMessages& messages, CCSOLMonsterDeathServices& services, int mapId, GibChance gibChance)
+    : m_map(map), m_pool(pool), m_models(models), m_messages(messages), m_services(services), m_mapId(mapId),
+      m_gibChance(gibChance),
       m_requests(*this), m_notice(map, m_requests, messages), m_targets(map, m_requests),
       m_rules(map, pool, m_requests)
 {
@@ -181,8 +182,25 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
         if (!step(sequenceBehavior->SelectDeathSequence(call, sequence, error), "scenario death sequence failed")) return false;
         if (!step(call.m_stages.FinishAnimation(call.Current()->Animation(), sequence),
             "scenario death animation failed")) return false;
+        bool gibbed{};
+        if (const int model = m_models.ZombieGibModelIndex();
+            model && m_gibChance && arguments.gibKill != CSOLZombieGibKill::None && g_engfuncs.pfnRandomLong &&
+            !(call.Current()->pev->effects & EF_NODRAW))
+        {
+            const int chance = m_gibChance(arguments.gibKill == CSOLZombieGibKill::MeleeHeadshot);
+            if (chance > 0 && RANDOM_LONG(1, 100) <= chance && call.Current())
+            {
+                const int count = RANDOM_LONG(4, 5);
+                if (const auto* victim = call.Current())
+                {
+                    const Vector center = victim->pev->origin + (victim->pev->mins + victim->pev->maxs) * 0.5f;
+                    gibbed = m_messages.SendZombieGibs(center, model, count);
+                }
+            }
+            if (!step(true, "scenario changed during zombie gib effect")) return false;
+        }
         if (!step(call.m_stages.ReturnPointAndSound(m_map.SpawnPoints().Points(), m_models,
-            call.SuppressSound()), "scenario death point or sound failed")) return false;
+            call.SuppressSound() || gibbed), "scenario death point or sound failed")) return false;
 
         auto moneyBehavior = std::dynamic_pointer_cast<CCSOLMonsterDeathBehavior>(call.Current()->RetainBehavior());
         if (!step(moneyBehavior != nullptr, "scenario money attribute owner is unavailable")) return false;
@@ -198,7 +216,12 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
                 if (!step(AwardKillMoney(call, money, error), "scenario kill money failed")) return false;
             }
         }
-        if (!step(call.m_stages.MarkDead(), "scenario dead state failed")) return false;
+        if (!step(call.m_stages.MarkDead(gibbed), "scenario dead state failed")) return false;
+        if (gibbed)
+        {
+            m_models.EmitZombieGibSound(*call.Current());
+            if (!step(true, "scenario changed while emitting zombie gib sound")) return false;
+        }
         const auto* appearance = csol::scenario::FindMonsterAppearance(call.Current()->Type()->appearance);
         if (!step(appearance != nullptr, "scenario death appearance is unavailable")) return false;
         float seconds = appearance->deathSeconds;

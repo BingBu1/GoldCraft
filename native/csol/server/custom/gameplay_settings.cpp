@@ -37,7 +37,8 @@ bool Available(custom::Feature feature)
     return feature == custom::Feature::Kick || feature == custom::Feature::TimeCycle || feature == custom::Feature::BlindBox || feature == custom::Feature::DamageRefundCap ||
         feature == custom::Feature::NightPlayerLights || feature == custom::Feature::CofSprint ||
         feature == custom::Feature::DuskBuff || feature == custom::Feature::NightBuff ||
-        feature == custom::Feature::ZombiePopulation || feature == custom::Feature::RandomHorde;
+        feature == custom::Feature::ZombiePopulation || feature == custom::Feature::RandomHorde ||
+        feature == custom::Feature::ZombieGibs;
 }
 
 std::optional<double> LiveNumber(custom::Setting id)
@@ -261,6 +262,12 @@ bool CSOL_CustomFeatureEnabled(custom::Feature feature)
     const auto index = static_cast<std::size_t>(feature);
     return registered && current && index < custom::FeatureCount && Available(feature) &&
         (publishing ? current->Enabled(feature) : variables[index].value == 1);
+}
+int CSOL_ReadZombieGibChance(bool meleeHeadshot)
+{
+    if (!CSOL_CustomFeatureEnabled(custom::Feature::ZombieGibs)) return 0;
+    return static_cast<int>(LiveNumber(meleeHeadshot ? custom::Setting::ZombieGibMeleeHeadChance :
+        custom::Setting::ZombieGibChance).value_or(0));
 }
 std::optional<std::array<int, custom::BlindBoxCount>> CSOL_ReadBlindBoxPrices()
 {

@@ -4,6 +4,35 @@
 #include "scenario_monster_models.h"
 #include "../../../scenario/monsters/monster_death.hpp"
 
+#include <utility>
+
+CSOLMeleeHeadshotDamage::CSOLMeleeHeadshotDamage(CBaseEntity& target, entvars_t* inflictor,
+    entvars_t* attacker) noexcept
+    : m_hit(std::exchange(pending, {})), m_previous(active)
+{
+    active = nullptr;
+    if (m_hit.target == &target && m_hit.attacker && attacker == inflictor &&
+        attacker == &m_hit.attacker->v && !m_hit.attacker->free &&
+        m_hit.attacker->serialnumber == m_hit.serial)
+        active = this;
+}
+
+CSOLMeleeHeadshotDamage::~CSOLMeleeHeadshotDamage()
+{
+    active = m_previous;
+}
+
+bool CSOLMeleeHeadshotDamage::Consume(const CCSOLScenarioMonster& target,
+    const entvars_t* inflictor, const entvars_t* attacker) noexcept
+{
+    if (!active || active->m_hit.target != &target || inflictor != attacker ||
+        attacker != &active->m_hit.attacker->v) return false;
+    const auto hit = std::exchange(active, nullptr)->m_hit;
+    const auto* pool = target.Pool();
+    return pool && pool->Lease(target) == hit.lease && !hit.attacker->free &&
+        hit.attacker->serialnumber == hit.serial;
+}
+
 CCSOLMonsterDeathStages::CCSOLMonsterDeathStages(CCSOLScenarioMonster& monster,
     SessionCheck sessionCheck, const void* sessionContext)
     : m_sessionCheck(sessionCheck), m_sessionContext(sessionContext)
@@ -89,7 +118,7 @@ bool CCSOLMonsterDeathStages::ReturnPointAndSound(csol::scenario::SpawnPoints& p
     return true;
 }
 
-bool CCSOLMonsterDeathStages::MarkDead()
+bool CCSOLMonsterDeathStages::MarkDead(bool gibbed)
 {
     if (m_stage != Stage::PointReturned) return false;
     m_stage = Stage::Invalid;
@@ -98,6 +127,12 @@ bool CCSOLMonsterDeathStages::MarkDead()
     monster->pev->takedamage = DAMAGE_NO;
     monster->pev->deadflag = DEAD_DEAD;
     monster->pev->solid = SOLID_NOT;
+    if (gibbed)
+    {
+        monster->HostState().gibbed = true;
+        monster->pev->effects |= EF_NODRAW;
+        monster->pev->movetype = MOVETYPE_NONE;
+    }
     m_stage = Stage::Dead;
     return true;
 }

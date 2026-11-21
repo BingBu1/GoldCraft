@@ -64,8 +64,10 @@ struct Fixture : PoolFixture
     CCSOLMonsterModels models;
     CCSOLMonsterAnimation animation;
     MonsterSequences sequences;
-    Fixture()
+    Fixture() : PoolFixture(false)
     {
+        if (!pool.Initialize()) throw std::runtime_error("death fixture pool initialization failed");
+        services.queries = 0;
         resets = 0; engine.globals.time = 20;
         for (auto& type : types) type.appearance = "zombi_host";
         for (std::size_t i = 0; i < sequences.values.size(); ++i) sequences.values[i] = static_cast<std::int16_t>(i + 1);
@@ -182,6 +184,23 @@ void OrdinaryStages()
         m->Think();
         Check(f.pool.ActiveCount() == 0 && m->m_pfnThink == nullptr && m->m_pfnTouch == nullptr, "actual SDK Think dispatch runs idempotent late Free");
     }
+}
+
+void HiddenCorpseReturns()
+{
+    Fixture f;
+    auto* monster = f.Get();
+    CCSOLMonsterDeathStages death(*monster);
+    Check(death.Animate(f.animation, f.sequences, HITGROUP_HEAD), "gibbed monster enters normal death lifecycle");
+    Check(death.ReturnPointAndSound(f.points, f.models, true), "gibbed death returns the spawn quota without ordinary sound");
+    Check(death.MarkDead(true) && (monster->pev->effects & EF_NODRAW) && monster->HostState().gibbed,
+        "gibbed corpse is hidden immediately");
+    Check(death.ScheduleReturn(3, false, 1, 0, 98) && f.pool.ActiveCount() == 1,
+        "hidden corpse retains its pool lease until the scheduled return");
+    monster->Think();
+    Check(f.pool.ActiveCount() == 0 && !f.pool.Borrowed(*monster) && !monster->HostState().gibbed,
+        "normal death timer returns the hidden corpse and clears its gib state");
+    Check(f.pool.Free(*monster) && f.pool.ActiveCount() == 0, "gibbed corpse cannot return twice");
 }
 
 void EarlyFreeAndIdentity()
@@ -336,7 +355,10 @@ void CallbackInvalidation()
 void DeletedOwner()
 {
     // Guard pages make a stale pool read deterministic, not dependent on heap reuse.
-    PoolEngine engine; SpawnPoints points; MonsterType type; type.id = 1; type.appearance = "zombi_host";
+    PoolEngine engine;
+    Services services;
+    SpawnPoints points;
+    MonsterType type; type.id = 1; type.appearance = "zombi_host";
     void* memory = VirtualAlloc(nullptr, sizeof(CCSOLMonsterPool), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!memory) throw std::runtime_error("pool guard allocation failed");
     auto* pool = new (memory) CCSOLMonsterPool;
@@ -353,7 +375,11 @@ void DeletedOwner()
 
 void SoundCache()
 {
-    PoolFixture f; Services services; CCSOLMonsterModels models; ConfigError error;
+    PoolFixture f(false);
+    Services services;
+    if (!f.pool.Initialize()) throw std::runtime_error("death sound fixture pool initialization failed");
+    CCSOLMonsterModels models;
+    ConfigError error;
     MonsterTypeTable table;
     for (const auto& appearance : MonsterAppearances())
     {
@@ -370,8 +396,9 @@ void SoundCache()
     bool nestedReset = true, nestedPrecache = true;
     services.onPrecache = [&] { nestedReset = models.Reset(); ConfigError nested; nestedPrecache = models.Precache(table, nested); };
     Check(models.Precache(table, error) && !nestedReset && !nestedPrecache, "sound precache rejects reentrant cache mutation");
-    Check(services.precaches.size() == unique.size() && std::set<std::string>(services.precaches.begin(), services.precaches.end()) == unique,
-        "all effective catalog sounds cached once by exact path");
+    for (const auto& sound : unique)
+        Check(std::count(services.precaches.begin(), services.precaches.end(), sound) == 1,
+            "each effective catalog death sound is cached once by exact path");
     services.onPrecache = {};
     auto* m = f.Acquire(0); Check(m != nullptr, "sound direct subject acquired"); if (!m) return;
     for (const auto& row : table.rows)
@@ -433,8 +460,17 @@ int SENTENCEG_Lookup(const char*, char (&)[32])
 int main(int argc, char** argv)
 {
     if (argc == 2 && std::string_view(argv[1]) == "--oracle") return Oracle();
-    if (argc != 1) return 2;
-    try { CatalogAndRandom(); Timing(); OrdinaryStages(); EarlyFreeAndIdentity(); RejectionAndSentinels(); CallbackInvalidation(); DeletedOwner(); SoundCache(); }
+    const bool onlyGibs = argc == 2 && std::string_view(argv[1]) == "--gib-pool";
+    if (argc != 1 && !onlyGibs) return 2;
+    try
+    {
+        HiddenCorpseReturns();
+        if (!onlyGibs)
+        {
+            CatalogAndRandom(); Timing(); OrdinaryStages(); EarlyFreeAndIdentity();
+            RejectionAndSentinels(); CallbackInvalidation(); DeletedOwner(); SoundCache();
+        }
+    }
     catch (const std::exception& error) { ++failures; std::cerr << error.what() << '\n'; }
     std::cout << "monster_death checks=" << checks << " failures=" << failures << '\n';
     return failures ? 1 : 0;

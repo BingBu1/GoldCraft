@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
+#include "scenario_monster_death.h"
 #include "scenario_monster_pool.h"
 #include "../../custom/body_stains.h"
 #include "scenario_monster_resources.h"
@@ -218,16 +219,23 @@ void CCSOLScenarioMonster::TraceAttack(entvars_t* attacker, float damage,
         (csol::monster_impact::DirectHit(damageType) || CSOL_IsMeleeStainTrace(*this, trace)))
         impact = csol::monster_impact::Classify("monster", STRING(pev->model),
             pev->solid, trace->iHitgroup, csol::monster_impact::UnknownBullet);
+    const bool meleeHeadshot = damage > 0 && trace->pHit == edict() &&
+        trace->iHitgroup == HITGROUP_HEAD && CSOL_IsMeleeWeaponHeadTrace(*this, trace, attacker);
     AddMultiDamage(attacker, this, damage, damageType);
     // AddMultiDamage may flush another victim, whose hooks can change map,
     // restart the round, destroy this entity or reuse its pool slot.
-    if (impact.kind == csol::monster_impact::Kind::None || !session || !runtime ||
+    if ((!meleeHeadshot && impact.kind == csol::monster_impact::Kind::None) || !session || !runtime ||
         !scope.Current() || !access->Allowed() || runtime->Closing() ||
         runtime->Generation() != generation || runtime->session != session ||
         &session->Monsters() != pool || pool->EntityAccess() != access ||
         session->Map().RoundGeneration() != round ||
         self.Get<CBaseEntity>() != this || m_pool != pool || !pool->Borrowed(*this) ||
         pool->Lease(*this) != lease || m_behavior != behavior) return;
+    // Knife swings clear the batch per target. A combined or replaced batch
+    // cannot inherit the head contact from this contribution.
+    if (meleeHeadshot && gMultiDamage.hEntity.Get<CBaseEntity>() == this && gMultiDamage.amount == damage)
+        CSOLMeleeHeadshotDamage::Record(*this, attacker, lease);
+    if (impact.kind == csol::monster_impact::Kind::None) return;
     // Custom blood uses a local Studio mark instead of a second spray sprite.
     if (impact.kind == csol::monster_impact::Kind::Blood && CSOL_BodyStainsActive())
         CSOL_RecordBodyStains(*this, attacker, trace, direction);
@@ -461,6 +469,7 @@ std::uint64_t CCSOLMonsterPool::Lease(const CCSOLScenarioMonster& monster) const
 void CCSOLMonsterPool::Park(CCSOLScenarioMonster& monster, bool clearCallbacks)
 {
     CSOL_ClearBodyStain(monster);
+    monster.HostState().gibbed = false;
     monster.pev->effects |= EF_NODRAW;
     monster.pev->solid = SOLID_NOT;
     monster.pev->movetype = MOVETYPE_NONE;
@@ -622,7 +631,7 @@ bool CCSOLMonsterPool::Return(std::size_t slot, bool clearCallbacks)
     auto& record = m_slots[slot];
     // NODRAW is the original guard against duplicate return. Do not infer
     // that a non-solid/dead entity has already returned: death precedes Free.
-    if (record.borrowed && !(monster->pev->effects & EF_NODRAW))
+    if (record.borrowed && (!(monster->pev->effects & EF_NODRAW) || monster->HostState().gibbed))
     {
         if (!m_active || !m_category[record.priority])
             return Fail("scenario monster pool counters are inconsistent");

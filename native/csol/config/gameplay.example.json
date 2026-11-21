@@ -337,6 +337,20 @@
                 }
             }
         },
+        "zombie_gibs": {
+            "enabled": true,
+            "comment": "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。",
+            "values": {
+                "zombie_gib_chance": {
+                    "value": 2,
+                    "comment": "普通击杀的爆尸概率（%）。"
+                },
+                "zombie_gib_melee_head_chance": {
+                    "value": 50,
+                    "comment": "近战武器命中头部并击杀时的爆尸概率（%）。"
+                }
+            }
+        },
         "dusk_buff": {
             "enabled": false,
             "comment": "黄昏普通怪的基础移速和回血；开关和数值在本图即时生效。",

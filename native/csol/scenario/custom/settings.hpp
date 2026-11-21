@@ -17,7 +17,7 @@ namespace csol::scenario::custom
 // the documented 512-byte comments serializable even with maximum escaping.
 inline constexpr std::size_t MaximumBytes = 96 * 1024;
 enum class Feature : std::uint8_t
-{ Kick, TimeCycle, BlindBox, Mastery, CofSprint, Blood, DuskBuff, NightBuff, ZombiePopulation, RandomHorde, DamageRefundCap, NightPlayerLights, Count };
+{ Kick, TimeCycle, BlindBox, Mastery, CofSprint, Blood, DuskBuff, NightBuff, ZombiePopulation, RandomHorde, DamageRefundCap, NightPlayerLights, ZombieGibs, Count };
 enum class Setting : std::uint8_t
 {
     MiddaySeconds, DuskSeconds, BlindBoxPrice1, BlindBoxPrice2, BlindBoxPrice3,
@@ -33,7 +33,7 @@ enum class Setting : std::uint8_t
     DuskLightLevel, NightLightLevel, LightStepSeconds, NightFogDensity,
     NightFogColor, NightFogStart, NightFogEnd, NightFogSkybox,
     SprintCostPerUnit, NightPlayerLightRadius, NightPlayerLightBrightness, NightPlayerLightColor,
-    HordeExtraZombies, BloodSplashRadius, Count
+    HordeExtraZombies, BloodSplashRadius, ZombieGibChance, ZombieGibMeleeHeadChance, Count
 };
 enum class ValueType : std::uint8_t { Boolean, Integer, Real };
 enum class Scope : std::uint8_t { Immediate, NextMapSession };

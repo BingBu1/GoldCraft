@@ -406,6 +406,8 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
     csol::scenario::ConfigError& error, bool (*ownerValid)(const void*),
     const void* ownerContext, CSOLMonsterDeathContext context)
 {
+    const auto* victim = CSOLMeleeHeadshotDamage::Dispatching() ? spawn.Current() : nullptr;
+    const bool meleeHeadshot = victim && CSOLMeleeHeadshotDamage::Consume(*victim, inflictor, attacker);
     auto services = m_services.lock();
     if (!services) return FALSE;
     auto players = m_players;
@@ -636,6 +638,10 @@ BOOL CCSOLOrdinaryMonsterDamage::Apply(CSOLMonsterSpawnCall& spawn,
             arguments.attacker = actor;
             arguments.context = call.context;
             arguments.action = call.ActionCredit();
+            const auto* type = monster->Type();
+            if (type->propensity == 0 && type->priority != 2 && type->skill < 1000 && call.Player())
+                arguments.gibKill = !independentAction && meleeHeadshot ? CSOLZombieGibKill::MeleeHeadshot :
+                    CSOLZombieGibKill::Normal;
             const auto result = m_deaths.Request(*monster, arguments);
             if (m_valid && spawn.SameSession() && result == CSOLDeathRequestResult::Failed)
                 fail(m_deaths.Error().c_str());

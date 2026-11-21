@@ -38,6 +38,7 @@ new const g_CustomKeys[][] = {
     "random_horde",
     "damage_refund_cap",
     "night_player_lights",
+    "zombie_gibs",
     "midday_seconds",
     "dusk_seconds",
     "blind_box_price_1",
@@ -86,7 +87,9 @@ new const g_CustomKeys[][] = {
     "night_player_light_brightness",
     "night_player_light_color",
     "horde_extra_zombies",
-    "blood_splash_radius"
+    "blood_splash_radius",
+    "zombie_gib_chance",
+    "zombie_gib_melee_head_chance"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
@@ -101,6 +104,7 @@ new const g_CustomNames[][] = {
     "随机尸潮",
     "伤害返金限制",
     "永夜随身照明",
+    "僵尸爆尸",
     "正午时长",
     "黄昏时长",
     "CoF盲盒价格",
@@ -149,7 +153,9 @@ new const g_CustomNames[][] = {
     "随身光亮度",
     "随身光颜色",
     "尸潮增加怪量",
-    "血迹溅射距离"
+    "血迹溅射距离",
+    "普通击杀爆尸概率",
+    "近战爆头爆尸概率"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.

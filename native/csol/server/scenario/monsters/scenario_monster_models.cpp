@@ -10,6 +10,10 @@
 
 namespace
 {
+constexpr char ZombieGibModel[] = "models/fleshgibs.mdl";
+constexpr char ZombieGibSound[] = "goldcraft/killzombie.wav";
+constexpr char ZombieGibSoundFile[] = "sound/goldcraft/killzombie.wav";
+
 struct Operation
 {
     bool& busy;
@@ -30,6 +34,7 @@ bool CCSOLMonsterModels::Reset()
     m_indices = {};
     m_deathSounds = {};
     m_oberonBlackHoleModel = 0;
+    m_zombieGibModel = 0;
     m_ready = false;
     return true;
 }
@@ -124,6 +129,17 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
             if (!precacheSound(sound))
                 return Fail(error, "Oberon attack sound precache failed");
     }
+    // Optional custom resources are prepared once during map loading, including
+    // when the feature is disabled so the administrator can enable it in place.
+    int zombieGibModel{};
+    if (g_engfuncs.pfnGetFileSize && g_engfuncs.pfnPrecacheModel && g_engfuncs.pfnPrecacheSound &&
+        g_engfuncs.pfnEmitSound && g_engfuncs.pfnGetFileSize(ZombieGibSoundFile) > 0 &&
+        g_engfuncs.pfnGetFileSize(ZombieGibModel) > 0)
+    {
+        const int index = PRECACHE_MODEL(ZombieGibModel);
+        if (index > 0 && precacheSound(ZombieGibSound)) zombieGibModel = index;
+    }
+    m_zombieGibModel = zombieGibModel;
     m_indices = candidate;
     m_deathSounds = deathSounds;
     m_ready = true;
@@ -135,6 +151,12 @@ int CCSOLMonsterModels::ModelIndex(const csol::scenario::MonsterAppearance& appe
     if (!m_ready || appearance.index >= m_indices.size() ||
         &csol::scenario::MonsterAppearances()[appearance.index] != &appearance) return 0;
     return m_indices[appearance.index];
+}
+
+void CCSOLMonsterModels::EmitZombieGibSound(CCSOLScenarioMonster& monster) const
+{
+    if (ZombieGibModelIndex() && g_engfuncs.pfnEmitSound)
+        EMIT_SOUND_DYN(monster.edict(), CHAN_BODY, ZombieGibSound, 1.0f, ATTN_NORM, 0, PITCH_NORM);
 }
 
 bool CCSOLMonsterModels::EmitDeathSound(CCSOLScenarioMonster& monster,

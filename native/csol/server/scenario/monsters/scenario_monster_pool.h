@@ -54,6 +54,7 @@ struct CSOLMonsterHostState
     // Presence of the original +1328 SK-table row, not the ordinary skill ID.
     // Ordinary pool reuse preserves it. Boss row ownership is separate.
     bool hasSkillRow{};
+    bool gibbed{}; // Hidden while the death timer still owns the borrowed slot.
     bool transformed{}; // original host+1320, explicitly cleared by pooled spawn
     int lastHitgroup{};
     int targetPolicy{-1}; // original host1368, retained on ordinary reuse

@@ -52,6 +52,7 @@ struct AttackTrace
     const CSOLBodyStainShot& shot;
     const CBaseEntity* target;
     const TraceResult* trace;
+    const entvars_t* meleeHeadAttacker{};
     bool recorded{}, melee{};
 };
 AttackTrace* attackTrace{};
@@ -360,13 +361,15 @@ void CSOL_CopyDroppedBodyStain(CWeaponBox& box, CBasePlayerItem& weapon) noexcep
 CSOLBodyStainShot::CSOLBodyStainShot(CBaseEntity* shooter, const Vector& source,
     const CBasePlayerItem* melee) noexcept
 {
-    if (!enabled || !shooter || (!melee && !splashRadiusSquared)) return;
+    if (!shooter || (!melee && (!enabled || !splashRadiusSquared))) return;
     auto* player = dynamic_cast<CBasePlayer*>(shooter);
-    if (!player || !player->pev->viewmodel || !player->pev->weaponmodel || !player->m_pActiveItem) return;
+    if (!player || !player->m_pActiveItem || (melee && player->m_pActiveItem != melee)) return;
     const auto* active = player->m_pActiveItem->edict();
     if (active->v.flags & FL_KILLME) return;
     const auto slot = player->m_pActiveItem->iItemSlot();
-    if (melee ? player->m_pActiveItem != melee : slot != PRIMARY_WEAPON_SLOT && slot != PISTOL_SLOT) return;
+    if (melee && slot == KNIFE_SLOT) meleeAttacker_ = player->edict();
+    if (!enabled || !player->pev->viewmodel || !player->pev->weaponmodel) return;
+    if (!melee && slot != PRIMARY_WEAPON_SLOT && slot != PISTOL_SLOT) return;
     if (!CaptureOwner(*player, source)) return;
     melee_ = melee != nullptr;
     weapon_ = active;
@@ -402,12 +405,15 @@ CSOLBodyStainShot::~CSOLBodyStainShot()
 void CSOLBodyStainShot::TraceAttack(CBaseEntity* target, entvars_t* attacker, float damage,
     const Vector& direction, TraceResult* trace, int damageType) const
 {
-    if (!owner_ || attacker != &owner_->v || (!melee_ && (damageType & DMG_BULLET) == 0))
+    const bool head = trace && trace->iHitgroup == HITGROUP_HEAD &&
+        meleeAttacker_ && attacker == &meleeAttacker_->v;
+    const bool stain = owner_ && attacker == &owner_->v && (melee_ || (damageType & DMG_BULLET));
+    if (!head && !stain)
     {
         target->TraceAttack(attacker, damage, direction, trace, damageType);
         return;
     }
-    AttackTrace contact{*this, target, trace, false, melee_};
+    AttackTrace contact{*this, target, trace, head ? attacker : nullptr, false, stain && melee_};
     struct Restore
     {
         AttackTrace* previous;
@@ -471,6 +477,13 @@ bool CSOL_IsMeleeStainTrace(const CCSOLScenarioMonster& monster, const TraceResu
     return attackTrace && attackTrace->melee && attackTrace->target == &monster && attackTrace->trace == trace;
 }
 
+bool CSOL_IsMeleeWeaponHeadTrace(const CCSOLScenarioMonster& monster, const TraceResult* trace,
+    const entvars_t* attacker) noexcept
+{
+    return attacker && attackTrace && attackTrace->meleeHeadAttacker == attacker &&
+        attackTrace->target == &monster && attackTrace->trace == trace;
+}
+
 void CSOL_RecordBodyStains(CCSOLScenarioMonster& monster, entvars_t* attacker,
     const TraceResult* trace, const Vector& direction) noexcept
 {
@@ -482,7 +495,7 @@ void CSOL_RecordBodyStains(CCSOLScenarioMonster& monster, entvars_t* attacker,
     if (!contact || contact->trace != trace || contact->target != &monster || contact->recorded) return;
     contact->recorded = true;
     const auto& shot = contact->shot;
-    if (!splashRadiusSquared || shot.splashed_ || shot.generation_ != generation || attacker != &shot.owner_->v ||
+    if (!shot.owner_ || !splashRadiusSquared || shot.splashed_ || shot.generation_ != generation || attacker != &shot.owner_->v ||
         gMultiDamage.hEntity.Get<CBaseEntity>() != &monster || !(gMultiDamage.amount > 0)) return;
     const Vector distance = Vector(shot.source_[0], shot.source_[1], shot.source_[2]) - hit;
     if (DotProduct(distance, distance) <= splashRadiusSquared)

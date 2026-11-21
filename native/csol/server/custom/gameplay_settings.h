@@ -11,6 +11,7 @@ void CSOL_PollGameplaySettings();
 void CSOL_UpdateGameplayBodyStains() noexcept;
 void CSOL_ShutdownGameplaySettings();
 bool CSOL_CustomFeatureEnabled(csol::scenario::custom::Feature feature);
+int CSOL_ReadZombieGibChance(bool meleeHeadshot);
 csol::scenario::custom::SnapshotPtr CSOL_CustomSettings();
 std::optional<std::array<int, csol::scenario::custom::BlindBoxCount>> CSOL_ReadBlindBoxPrices();
 bool CSOL_ReadTimeCycleControls(csol::scenario::custom::TimeCycleControls& output);

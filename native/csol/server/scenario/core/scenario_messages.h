@@ -144,6 +144,7 @@ public:
     // Original CTentacle effect writers; the owner selects recipients and RNG.
     bool SendBloodScreen(edict_s* recipient) const;
     bool SendTeddyTentacleShake(edict_s* recipient) const;
+    bool SendZombieGibs(const Vector& origin, int modelIndex, int count) const;
     bool SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const;
     // MP10997A90 event1: cached-origin debris then reliable MPToCL/88 smoke.
     bool SendTeddyBlackholeDebris(const float* origin, int modelIndex) const;

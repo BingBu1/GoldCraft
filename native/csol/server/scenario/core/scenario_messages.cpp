@@ -1190,6 +1190,32 @@ bool CCSOLScenarioMessages::SendTeddyTentacleShake(edict_s* recipient) const
     return true;
 }
 
+bool CCSOLScenarioMessages::SendZombieGibs(const Vector& origin, int modelIndex, int count) const
+{
+    if (g_scenarioMessageOpen || modelIndex <= 0 || modelIndex > 32767 ||
+        (count != 4 && count != 5) || !g_engfuncs.pfnMessageBegin || !g_engfuncs.pfnMessageEnd ||
+        !g_engfuncs.pfnWriteCoord || !g_engfuncs.pfnWriteByte || !g_engfuncs.pfnWriteShort)
+        return false;
+    std::int16_t encoded[3]{};
+    if (!csol::cso_tent::detail::Coord(origin.x, encoded[0]) ||
+        !csol::cso_tent::detail::Coord(origin.y, encoded[1]) ||
+        !csol::cso_tent::detail::Coord(origin.z, encoded[2])) return false;
+
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_PVS, SVC_TEMPENTITY, origin);
+    WRITE_BYTE(TE_BREAKMODEL);
+    for (const auto coordinate : encoded) WRITE_COORD(static_cast<float>(coordinate) * .125f);
+    WRITE_COORD(24); WRITE_COORD(24); WRITE_COORD(28);
+    WRITE_COORD(0); WRITE_COORD(0); WRITE_COORD(140);
+    WRITE_BYTE(12); // Variation in tens of units/sec.
+    WRITE_SHORT(modelIndex);
+    WRITE_BYTE(count);
+    WRITE_BYTE(25); // 2.5 seconds.
+    WRITE_BYTE(BREAK_FLESH);
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const
 {
     if (g_scenarioMessageOpen || !origin || modelIndex <= 0 || modelIndex > 32767 ||

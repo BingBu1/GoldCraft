@@ -97,9 +97,10 @@ public:
 class CCSOLMonsterDeathOwner final : public CCSOLMonsterDeathExecutor
 {
 public:
+    using GibChance = int (*)(bool meleeHeadshot);
     CCSOLMonsterDeathOwner(CCSOLScenarioMap& map, CCSOLMonsterPool& pool,
         CCSOLMonsterModels& models, const CCSOLScenarioMessages& messages,
-        CCSOLMonsterDeathServices& services, int mapId);
+        CCSOLMonsterDeathServices& services, int mapId, GibChance gibChance = nullptr);
     bool Reset();
     // Ending batches and death-table recursion share the map's live filter.
     CSOLMonsterDrainResult Drain(std::int32_t limit, bool includeBosses);
@@ -116,8 +117,10 @@ private:
     CCSOLScenarioMap& m_map;
     CCSOLMonsterPool& m_pool;
     CCSOLMonsterModels& m_models;
+    const CCSOLScenarioMessages& m_messages;
     CCSOLMonsterDeathServices& m_services;
     int m_mapId{};
+    GibChance m_gibChance{};
     CCSOLMonsterDeathRequests m_requests;
     CCSOLScenarioDeathNotice m_notice;
     CCSOLScenarioDeathTargets m_targets;

@@ -1,6 +1,7 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-21_实现-大灾变爆尸-report.md",
     "docs/2026-11-21_修复-蝗虫图复活与跨图模型错配-report.md",
     "native/client/scenario_key_defaults.cpp",
     "native/client/scenario_key_defaults.hpp",

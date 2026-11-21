@@ -6,6 +6,39 @@
 
 class CCSOLMonsterModels;
 
+// A verified knife contact belongs to one multidamage batch and one pool lease.
+class CSOLMeleeHeadshotDamage
+{
+public:
+    CSOLMeleeHeadshotDamage(CBaseEntity& target, entvars_t* inflictor, entvars_t* attacker) noexcept;
+    ~CSOLMeleeHeadshotDamage();
+    CSOLMeleeHeadshotDamage(const CSOLMeleeHeadshotDamage&) = delete;
+    CSOLMeleeHeadshotDamage& operator=(const CSOLMeleeHeadshotDamage&) = delete;
+
+    static void Record(CCSOLScenarioMonster& target, const entvars_t* attacker, std::uint64_t lease) noexcept
+    {
+        if (const auto* entity = attacker->pContainingEntity)
+            pending = {&target, entity, lease, entity->serialnumber};
+    }
+    static void Clear() noexcept { pending.target = nullptr; }
+    static bool Dispatching() noexcept { return active != nullptr; }
+    static bool Consume(const CCSOLScenarioMonster& target, const entvars_t* inflictor,
+        const entvars_t* attacker) noexcept;
+
+private:
+    struct Hit
+    {
+        const CBaseEntity* target{};
+        const edict_t* attacker{};
+        std::uint64_t lease{};
+        int serial{};
+    };
+    inline static Hit pending{nullptr, nullptr, 0, 0};
+    inline static CSOLMeleeHeadshotDamage* active{};
+    Hit m_hit;
+    CSOLMeleeHeadshotDamage* m_previous;
+};
+
 // Entity-state stages of a single synchronous death, owned on the death
 // handler's stack. Capture BEFORE notification/beforeDeath. The owner keeps the
 // original gaps: notification/beforeDeath -> Animate -> ReturnPointAndSound ->
@@ -34,7 +67,7 @@ public:
         const CCSOLMonsterModels& models, bool suppressSound);
     // Must precede the appearance/behavior duration calls: those callbacks
     // observe DAMAGE_NO, DEAD_DEAD and SOLID_NOT in the original.
-    bool MarkDead();
+    bool MarkDead(bool gibbed = false);
     // slotSkill is the attribute-stage copy, not a later replacement type's
     // skill. The live type supplies the priority used by the map override.
     bool ScheduleReturn(float adjustedSeconds, bool shortDeath, int scenarioType,

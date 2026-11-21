@@ -67,12 +67,23 @@ void Defaults()
     for (const auto& descriptor : Features())
     {
         Check(value->Enabled(descriptor.id) == descriptor.defaultValue, "feature getter matches documented transition default");
-        Check(descriptor.id == Feature::Kick || descriptor.id == Feature::NightPlayerLights || !descriptor.defaultValue,
-            "incomplete features remain disabled; client night lights have an explicit enabled default");
+        Check(descriptor.id == Feature::Kick || descriptor.id == Feature::NightPlayerLights ||
+            descriptor.id == Feature::ZombieGibs || !descriptor.defaultValue,
+            "only the implemented and explicitly enabled features are on by default");
         Check(!descriptor.key.empty() && descriptor.key.size() <= 63 && descriptor.cvar.starts_with("csol_custom_"), "feature descriptor has bounded key and uniform cvar namespace");
         Check(FindFeature(descriptor.key) == descriptor.id, "feature key finds stable typed identity");
         Check(!value->Comment(descriptor.id).empty(), "default feature explanation is retained");
     }
+    const auto grouped = Read(R"({"version":2,"features":{}})");
+    for (const auto& snapshot : {value, grouped})
+        Check(snapshot->Enabled(Feature::ZombieGibs) &&
+            snapshot->Integer(Setting::ZombieGibChance) == 2 &&
+            snapshot->Integer(Setting::ZombieGibMeleeHeadChance) == 50,
+            "existing settings files default to 2 percent and 50 percent for melee head kills");
+    const auto disabled = Read(Document(R"("zombie_gibs":false)", R"("zombie_gib_chance":0,"zombie_gib_melee_head_chance":100)"));
+    Check(!disabled->Enabled(Feature::ZombieGibs) && disabled->Integer(Setting::ZombieGibChance) == 0 &&
+        disabled->Integer(Setting::ZombieGibMeleeHeadChance) == 100,
+        "administrators can switch off gibs and persist both probability limits");
     Check(value->Integer(Setting::MiddaySeconds) == 180 && value->Integer(Setting::DuskSeconds) == 120,
         "authorized phase defaults are 180 and 120 seconds");
     Check(value->Integer(Setting::MasteryThreshold1) == 100 && value->Integer(Setting::MasteryThreshold2) == 200 &&

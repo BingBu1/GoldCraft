@@ -17,11 +17,14 @@ struct CSOLMonsterDeathContext
 };
 static_assert(sizeof(CSOLMonsterDeathContext) == 32);
 
+enum class CSOLZombieGibKill : std::uint8_t { None, Normal, MeleeHeadshot };
+
 struct CSOLMonsterDeathArguments
 {
     EHANDLE inflictor;
     EHANDLE attacker;
     bool suppressSound{};
+    CSOLZombieGibKill gibKill{};
     CSOLMonsterDeathContext context;
     CSOLMonsterActionCredit action;
 };

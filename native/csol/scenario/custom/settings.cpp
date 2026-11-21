@@ -36,7 +36,8 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::ZombiePopulation, "zombie_population", "csol_custom_zombie_population", "阶段普通怪上限为基础值加每位真人增量；下一次刷怪时生效。", false, Scope::Immediate},
     {Feature::RandomHorde, "random_horde", "csol_custom_random_horde", "永夜随机尸潮；阶段怪量开启后，尸潮期间放宽普通怪上限。", false, Scope::Immediate},
     {Feature::DamageRefundCap, "damage_refund_cap", "csol_custom_damage_refund_cap", "返现上限对每位玩家与每只怪物的组合分别累计，新怪租约获得新额度。", false, Scope::NextMapSession},
-    {Feature::NightPlayerLights, "night_player_lights", "csol_custom_night_player_lights", "永夜全员互见随身光；客户端管理灯池与跟随，服务器仅同步阶段和配置。自定义默认开启。", true, Scope::Immediate}
+    {Feature::NightPlayerLights, "night_player_lights", "csol_custom_night_player_lights", "永夜全员互见随身光；客户端管理灯池与跟随，服务器仅同步阶段和配置。自定义默认开启。", true, Scope::Immediate},
+    {Feature::ZombieGibs, "zombie_gibs", "csol_custom_zombie_gibs", "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。", true, Scope::Immediate}
 }};
 
 // Bounds are host configuration/overflow limits, not recovered CSOL values.
@@ -92,7 +93,9 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::NightPlayerLightBrightness, Feature::NightPlayerLights, "night_player_light_brightness", "csol_custom_night_player_light_brightness", "随身光亮度0至255，0熄灭；自定义默认48，保留永夜黑暗和雾。", ValueType::Integer, 0, 255, 48, Scope::Immediate},
     {Setting::NightPlayerLightColor, Feature::NightPlayerLights, "night_player_light_color", "csol_custom_night_player_light_color", "随身光RGB颜色十进制0至16777215；自定义默认16777215为白色。", ValueType::Integer, 0, 16777215, 16777215, Scope::Immediate},
     {Setting::HordeExtraZombies, Feature::RandomHorde, "horde_extra_zombies", "csol_custom_horde_extra_zombies", "尸潮期间增加的普通怪上限，默认8；仍受地图普通怪池限制。", ValueType::Integer, 0, 4096, 8, Scope::Immediate},
-    {Setting::BloodSplashRadius, Feature::Blood, "blood_splash_radius", "csol_custom_blood_splash_radius", "血迹溅到攻击者的最大距离，默认128单位，0只在僵尸模型上显示。", ValueType::Real, 0, 1024, 128, Scope::Immediate}
+    {Setting::BloodSplashRadius, Feature::Blood, "blood_splash_radius", "csol_custom_blood_splash_radius", "血迹溅到攻击者的最大距离，默认128单位，0只在僵尸模型上显示。", ValueType::Real, 0, 1024, 128, Scope::Immediate},
+    {Setting::ZombieGibChance, Feature::ZombieGibs, "zombie_gib_chance", "csol_custom_zombie_gib_chance", "普通击杀的爆尸概率（%）。", ValueType::Integer, 0, 100, 2, Scope::Immediate},
+    {Setting::ZombieGibMeleeHeadChance, Feature::ZombieGibs, "zombie_gib_melee_head_chance", "csol_custom_zombie_gib_melee_head_chance", "近战武器命中头部并击杀时的爆尸概率（%）。", ValueType::Integer, 0, 100, 50, Scope::Immediate}
 }};
 
 constexpr bool DescriptorOrder()

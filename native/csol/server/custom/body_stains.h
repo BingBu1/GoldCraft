@@ -29,6 +29,8 @@ void CSOL_FlushMonsterStains(const CCSOLScenarioMessages& messages) noexcept;
 void CSOL_RecordBodyStains(CCSOLScenarioMonster& monster, entvars_s* attacker,
     const TraceResult* trace, const Vector& direction) noexcept;
 bool CSOL_IsMeleeStainTrace(const CCSOLScenarioMonster& monster, const TraceResult* trace) noexcept;
+bool CSOL_IsMeleeWeaponHeadTrace(const CCSOLScenarioMonster& monster, const TraceResult* trace,
+    const entvars_s* attacker) noexcept;
 void CSOL_ClearBodyStainSplash() noexcept;
 void CSOL_ApplyBodyStainSplash(CBaseEntity& victim, entvars_s* inflictor, entvars_s* attacker) noexcept;
 
@@ -54,6 +56,7 @@ private:
     friend void CSOL_ClearBodyStain(CBaseEntity&) noexcept;
     bool CaptureOwner(CBasePlayer& player, const Vector& source) noexcept;
     void Splash(const Vector& hit) const noexcept;
+    const edict_s* meleeAttacker_{};
     const edict_s* owner_{};
     const edict_s* weapon_{};
     int ownerSerial_{}, weaponSerial_{}, spawn_{}, view_{}, held_{};

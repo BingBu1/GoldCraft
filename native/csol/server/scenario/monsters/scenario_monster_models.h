@@ -21,6 +21,8 @@ public:
     bool Reset();
     bool Ready() const { return m_ready; }
     int ModelIndex(const csol::scenario::MonsterAppearance& appearance) const;
+    int ZombieGibModelIndex() const { return m_ready ? m_zombieGibModel : 0; }
+    void EmitZombieGibSound(CCSOLScenarioMonster& monster) const;
     int OberonBlackHoleModelIndex() const { return m_ready ? m_oberonBlackHoleModel : 0; }
     // Sound is precached with the map's effective appearances. Empty sound
     // entries deliberately emit nothing; never precache from a death callback.
@@ -44,7 +46,7 @@ public:
 private:
     std::array<int, csol::scenario::MonsterAppearanceCount> m_indices{};
     std::array<bool, csol::scenario::MonsterAppearanceCount> m_deathSounds{};
-    int m_oberonBlackHoleModel{};
+    int m_oberonBlackHoleModel{}, m_zombieGibModel{};
     bool m_ready{};
     bool m_busy{};
 };
