@@ -130,7 +130,10 @@ def generate(source, template, calibration, *, candidate=False):
     source_anchor = source.bone_index(calibration['source']['bone'])
     target = template.bone_index(calibration['target']['bone'])
     hand = template.bone_index(calibration['target']['handBone'])
-    if (calibration['target']['handBone'] != 'Bip01 R Hand' or
+    if calibration['target'].get('binding') == 'hand':
+        if target != hand or template.bones[hand]['name'] not in ('Bip01 L Hand', 'Bip01 R Hand'):
+            raise ValueError('Direct hand binding requires the matching player hand bone')
+    elif (calibration['target']['handBone'] != 'Bip01 R Hand' or
           calibration['target']['bone'] not in ('SHOTGUN', 'p_famas') or template.bones[target]['parent'] != hand):
         raise ValueError('Target must be a direct child of the supported original hand bone')
     matrix = rigid_matrix(calibration['sourceAnchorToTargetBone'])

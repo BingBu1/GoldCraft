@@ -532,6 +532,19 @@ CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const Runtime& runtime, CBasePlaye
     if (token < state->token || !state->stamina.DebitKick(state->key)) return CSOLKickStaminaDebit::Declined;
     state->token = token; return CSOLKickStaminaDebit::Applied;
 }
+bool CSOL_GuestCofPickaxeSwing(const Runtime& runtime, CBasePlayer& player, bool debit)
+{
+    // On maps with stamina switched off there is no meter to spend.
+    if (!Enabled()) return true;
+    if (operating) return false;
+    Guard guard;
+    auto* state = Find(runtime, player);
+    if (!state || !state->settings) return false;
+    const auto view = state->stamina.View(state->key);
+    if (!view || !view->alive) return false;
+    return view->infinite || (view->amount >= 8.F &&
+        (!debit || state->stamina.DebitExternalAction(state->key, view->amount, 8.F)));
+}
 bool CSOL_DebitGuestCofPushbackStamina(const Runtime& runtime, CBasePlayer& player, float requestedAmount)
 {
     if (operating || !std::isfinite(requestedAmount) || !Enabled()) return false;

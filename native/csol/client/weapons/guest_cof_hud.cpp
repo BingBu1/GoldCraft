@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "weapon_module.hpp"
+#include "../../../guest/cof/arsenal.hpp"
 #include "guest_cof_crosshair.hpp"
 #include "guest_cof.hpp"
 #include "../../../guest/cof/catalog.hpp"
@@ -90,5 +91,16 @@ constinit const WeaponModule famasModule{
     .ammoSprite="sprites/guest/cof/famas_ammo.spr",.ammoRect={0,32,0,32},
     .dynamicCrosshair=false};
 const WeaponModuleRegistration famasRegistration{famasModule};
+namespace arsenal = guest::cof::arsenal;
+constexpr int browningIds[]{arsenal::Browning}, rifleIds[]{arsenal::Rifle};
+constexpr int meleeIds[]{arsenal::Axe,arsenal::Branch,arsenal::Nightstick,arsenal::Pickaxe,arsenal::Switchblade};
+constinit const WeaponModule browning{
+    .ids=browningIds,.order=100,.ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/browning_ammo.spr",.ammoRect={0,32,0,32},.dynamicCrosshair=false};
+constinit const WeaponModule hunting{
+    .ids=rifleIds,.order=101,.ammoKind=hud_style::AmmoKind::Magazine,
+    .ammoSprite="sprites/guest/cof/rifle_ammo.spr",.ammoRect={0,32,0,32},.dynamicCrosshair=false};
+constinit const WeaponModule handWeapons{.ids=meleeIds,.order=102,.dynamicCrosshair=false};
+const WeaponModuleRegistration browningRegistration{browning},huntingRegistration{hunting},meleeRegistration{handWeapons};
 }
 }

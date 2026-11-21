@@ -8,7 +8,20 @@
 
 namespace csol::buy {
 namespace {
+constexpr Item CofItem(guest::cof::arsenal::Id id, const char* alias)
+{
+    const auto& item = *guest::cof::arsenal::Find(id);
+    return {static_cast<std::uint16_t>(id), item.category, alias, item.title, alias, item.price,
+        item.Melee() ? WeaponSlot::Melee : WeaponSlot::ByCategory};
+}
 constexpr Item items[]{
+    CofItem(guest::cof::arsenal::Browning,"cof_browning"),
+    CofItem(guest::cof::arsenal::Rifle,"cof_rifle"),
+    CofItem(guest::cof::arsenal::Axe,"cof_axe"),
+    CofItem(guest::cof::arsenal::Branch,"cof_branch"),
+    CofItem(guest::cof::arsenal::Nightstick,"cof_nightstick"),
+    CofItem(guest::cof::arsenal::Pickaxe,"cof_sledgehammer"),
+    CofItem(guest::cof::arsenal::Switchblade,"cof_switchblade"),
     // Authored guest placement/price, separate from original CSO item records.
     {896,1,"cof_glock","客串武器·Glock 19","cof_glock",650},
     {897,1,"cof_p345","客串武器·P345","cof_p345",800},

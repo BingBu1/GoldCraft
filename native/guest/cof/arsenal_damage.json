@@ -1,0 +1,9 @@
+{
+  "browning": { "primary": 10 },
+  "rifle": { "primary": 70, "secondary": 3, "penetration": 3 },
+  "axe": { "primary": 55 },
+  "branch": { "primary": 10, "secondary": 5 },
+  "nightstick": { "primary": 11 },
+  "sledgehammer": { "primary": 45 },
+  "switchblade": { "primary": 6, "secondary": 9 }
+}

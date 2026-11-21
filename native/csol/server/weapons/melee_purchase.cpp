@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "melee_purchase.h"
+#include "../buy_menu.h"
+#include "guest_cof_arsenal.hpp"
+#include "../../../guest/cof/arsenal.hpp"
 #include "knife_selection.h"
 #include "wpn_melee.h"
 #include "weapons.h"
@@ -58,7 +61,8 @@ bool Linked(const CSOLScenarioSdkScope& sdk, const CBaseEntity* entity)
 }
 bool ValidKnife(const CBasePlayerWeapon& weapon)
 {
-    return CSOL_MeleeSelectionItem(weapon) != 0;
+    const auto* extra=guest::cof::arsenal::Find(weapon.m_iId);
+    return (extra && extra->Melee() && CSOL_IsCofArsenal(weapon,extra->id)) || CSOL_MeleeSelectionItem(weapon) != 0;
 }
 class NativeDeployment {
 public:
@@ -194,10 +198,12 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
 {
     CSOLScenarioSdkScope sdk;
     const bool nativeKnife = weaponId == WEAPON_KNIFE;
+    const auto* extra=guest::cof::arsenal::Find(weaponId);
+    const bool guestKnife=extra && extra->Melee();
     const auto* info = CSOL_ItemInfo(weaponId);
-    if (!sdk.Current() || !gpGlobals || (!nativeKnife && !csol::melee::IsWeapon(weaponId)) ||
+    if (!sdk.Current() || !gpGlobals || (!nativeKnife && !guestKnife && !csol::melee::IsWeapon(weaponId)) ||
         !CSOL_WeaponsReady() || !info || !info->pszName ||
-        (!nativeKnife && !CSOL_MeleeReady(weaponId)) || !CSOL_CanUseExtendedWeapons(&buyer)) return false;
+        (guestKnife ? !CSOL_CofArsenalReady(buyer,weaponId) : !nativeKnife && !CSOL_MeleeReady(weaponId)) || !CSOL_CanUseExtendedWeapons(&buyer)) return false;
     const PurchaseGuard guard(buyer.entindex());
     if (!guard || !sdk.Current()) return false;
     const EHANDLE playerHandle(&buyer);
@@ -231,7 +237,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     if (prior && prior->m_iId == weaponId) {
         // MP 114D8759 skips recreation/Deploy, but 1140D44F still executes
         // the selection common tail. Do not reset an in-flight knife attack.
-        if (sdk.Scenario() && !CSOL_ScenarioRefreshMeleeSelection(buyer, *prior)) return false;
+        if (sdk.Scenario() && !guestKnife && !CSOL_ScenarioRefreshMeleeSelection(buyer, *prior)) return false;
         const auto retained = [&]() {
             return current() && original.Get<CBaseEntity>() == prior &&
                 buyer.m_rgpPlayerItems[KNIFE_SLOT] == prior && !prior->m_pNext &&
@@ -240,6 +246,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
                 ValidKnife(*prior);
         };
         if (!retained()) return false;
+        if(guestKnife)CSOL_RebuyMeleeSelected(buyer,weaponId);
         CSOL_UpdateWeaponInventory(&buyer);
         return retained();
     }
@@ -275,7 +282,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
         auto* weapon = live(fresh);
         if (selectReplacement || (!prior && buyer.m_pActiveItem == weapon))
             return weapon && buyer.m_pActiveItem == weapon && (nativeKnife ?
-                nativeDeployment.Complete(*weapon) : CSOL_MeleeDeploymentComplete(*weapon));
+                nativeDeployment.Complete(*weapon) : guestKnife ? CSOL_CofArsenalDeployed(*weapon,weaponId) : CSOL_MeleeDeploymentComplete(*weapon));
         // MP 114D8775/114D8897: changing the carried knife must not deploy
         // it or interrupt the gun currently held by the player.
         auto* previous = live(active);
@@ -362,7 +369,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
         CSOL_UpdateWeaponInventory(&buyer);
         return false;
     };
-    const char* classname = nativeKnife ? "weapon_knife" :
+    const char* classname = nativeKnife ? "weapon_knife" : guestKnife ? extra->classname :
         csol::melee::Resource(csol::melee::WeaponVariant(weaponId)).classname;
     const auto name = ALLOC_STRING(classname);
     if (!current()) return false;
@@ -380,7 +387,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     if (!current()) return reject();
     auto* weapon = live(fresh);
     if (spawned < 0 || !weapon || weapon->m_iId != weaponId || !ValidKnife(*weapon) ||
-        (sdk.Scenario() && !CSOL_ScenarioSetMeleeIdentity(*weapon))) return reject();
+        (sdk.Scenario() && !guestKnife && !CSOL_ScenarioSetMeleeIdentity(*weapon))) return reject();
     if (nativeKnife) nativeDeployment.Bind(*weapon);
     if (auto* old = live(original)) {
         ReplacementTouch touch(sdk, buyer, *old, *weapon);
@@ -407,7 +414,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
     }
     auto* added = live(fresh);
     if (!selected() || buyer.m_rgpPlayerItems[KNIFE_SLOT] != added || added->m_pNext) return reject();
-    if (sdk.Scenario() && !CSOL_ScenarioRefreshMeleeSelection(buyer, *added)) return reject();
+    if (sdk.Scenario() && !guestKnife && !CSOL_ScenarioRefreshMeleeSelection(buyer, *added)) return reject();
     if (!selected()) return reject();
     if (prior) {
         // Original keeps the knife entity, so lastinv still refers to that
@@ -427,6 +434,7 @@ bool CSOL_DeliverMeleeWeapon(CBasePlayer& buyer, int weaponId)
         UTIL_Remove(old);
         if (live(original)) return reject();
     }
+    if (current() && guestKnife)CSOL_RebuyMeleeSelected(buyer,weaponId);
     if (current()) CSOL_UpdateWeaponInventory(&buyer);
     return selected() ? true : reject();
 }

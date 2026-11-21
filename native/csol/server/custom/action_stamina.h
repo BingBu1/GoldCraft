@@ -50,6 +50,9 @@ std::optional<csol::scenario::custom::StaminaView> CSOL_ActionStaminaView(
 // increasing within a player life; repeating the last token never debits twice.
 CSOLKickStaminaDebit CSOL_TryDebitKickStamina(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
     CBasePlayer& player, std::uint64_t actionToken);
+// CoF pickaxe checks eight at wind-up and spends it at contact.
+bool CSOL_GuestCofPickaxeSwing(const std::shared_ptr<CCSOLScenarioRuntime>& runtime,
+    CBasePlayer& player, bool debit);
 // Original CoF positive gate/debit15, explicitly on the existing CSOL ledger.
 // requestedAmount must equal its current amount minus15. This never grants
 // stamina, advances recovery, seeds a life, or publishes a second HUD.

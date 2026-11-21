@@ -17,6 +17,7 @@ MENU = re.compile(rb"models/csol/buymenu_v[0-9]+[.]json\x00")
 
 BASE_MENU = "models/csol/buymenu_v16.json"
 EQUIPMENT_MENU = "models/csol/buymenu_v17.json"
+ARSENAL_MENU = "models/csol/buymenu_v18.json"
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -31,11 +32,10 @@ def compiled_menus(path: Path) -> tuple[str, ...]:
     names = {match[:-1].decode("ascii") for match in MENU.findall(data)}
     if len(names) == 1:
         return (names.pop(),)
-    # v17 is negotiated on signon. The same DLLs use v16 on maps where
-    # the server has only the base catalogue. Reject unrelated marker pairs.
-    negotiated = (BASE_MENU, EQUIPMENT_MENU)
-    if names == set(negotiated):
-        return negotiated
+    # A server negotiates the most recent installed catalogue at signon.
+    revisions = (BASE_MENU, EQUIPMENT_MENU, ARSENAL_MENU)
+    if names and names == set(revisions[:len(names)]):
+        return revisions[:len(names)]
     raise ValueError(f"Unexpected compiled buy-menu resources in {path.name}: {sorted(names)}")
 
 def compiled_menu(path: Path) -> str:
@@ -51,13 +51,14 @@ def menu_resources(name: str, data: bytes) -> list[str]:
     value = json.loads(data.decode("utf-8-sig"))
     if not isinstance(value, dict) or value.get("version") not in (3, 4):
         raise ValueError("Unsupported buy-menu presentation schema")
-    if name == EQUIPMENT_MENU:
+    if name in (EQUIPMENT_MENU, ARSENAL_MENU):
         # CSOL_PrecacheBuyMenu requires both the list image and the detail
         # card for each offered item, even when every referenced file exists.
         details = value.get("weaponInfo")
+        required = (976, 977) if name == EQUIPMENT_MENU else (976, 977, *range(906, 913))
         for rows in (value.get("images"), details.get("items") if isinstance(details, dict) else None):
             ids = [row.get("id") for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
-            for item_id in (976, 977):
+            for item_id in required:
                 if ids.count(item_id) != 1:
                     raise ValueError(f"Missing or duplicate equipment card for item {item_id}")
     header = (ROOT / "native/csol/character_menu.hpp").read_text("utf-8-sig")
@@ -100,6 +101,8 @@ def verify_pair(server: Path, client: Path, resources: dict[str, Path], http_url
     if client_tables[0] not in resources:
         raise ValueError(f"Compiled menu is absent from the resource set: {client_tables[0]}")
     active = [table for table in client_tables if table in resources]
+    if active != list(client_tables[:len(active)]):
+        raise ValueError("Missing preceding catalogue for " + active[-1])
     names = sorted({name for table in active for name in menu_resources(table, resources[table].read_bytes())})
     missing = [name for name in names if name not in resources or not resources[name].is_file() or resources[name].stat().st_size == 0]
     if missing:

@@ -4,12 +4,14 @@
 #include "guest_cof_resources.hpp"
 #include "guest_cof_effects.hpp"
 #include "../../../guest/cof/resource_catalog.hpp"
+#include "../../../guest/cof/arsenal_audio.hpp"
 #include "../../../guest/cof/client/resource_groups.hpp"
 #include "../../../guest/cof/admission.hpp"
 #include "../../../include/goldcraft/connection_api.h"
 #include "../../../include/goldcraft/sound_precache_api.h"
 #include "../../../include/goldcraft/precache_ready_api.h"
 
+#include <algorithm>
 #include <limits>
 
 namespace csol::client
@@ -68,6 +70,48 @@ bool NativeSound(void* context, std::string_view asset) noexcept
     // A native SFX may be registered while its engine cache remains lazy.
     return (result & GoldCraftSoundSignonRegistered) != 0 && lease.Current();
 }
+AudioResult PrepareMapAudio(Lease& lease, const GuestCofResourceBudget& limits,
+    std::span<const GuestCofSoundAsset> base, std::size_t availableBytes, unsigned& added) noexcept
+{
+    using guest::cof::arsenal::Gunshots;
+    std::array<GuestCofSoundAsset, maxSamples + Gunshots.size()> plan{};
+    std::array<std::vector<std::byte>, Gunshots.size()> waves;
+    std::copy(base.begin(), base.end(), plan.begin());
+    added = 0;
+    if (!limits.voicesPerSample) return AudioResult::InvalidLimits;
+    unsigned count = static_cast<unsigned>(base.size());
+    for (std::size_t i = 0; i < Gunshots.size(); ++i) {
+        const auto& sample = Gunshots[i];
+        if (count >= 2048 / limits.voicesPerSample || !NativeSound(&lease, sample.nativeAsset)) continue;
+        if (!lease.Current() || !ResourceReadsAllowed()) return AudioResult::Inactive;
+        try { waves[i] = ReadResource(sample.localFile); }
+        catch (const std::exception&) { continue; }
+        if (!lease.Current()) return AudioResult::Inactive;
+        if (waves[i].empty() || waves[i].size() > availableBytes) continue;
+        availableBytes -= waves[i].size();
+        plan[count++] = {sample.localKey, sample.remoteKey, sample.nativeAsset, waves[i], limits.voicesPerSample};
+    }
+    const auto prepare = [&](unsigned n) {
+        return PrepareGuestCofAudio({{n, n * limits.voicesPerSample, limits.pcmBytes},
+            {plan.data(), n}, &lease, NativeSound});
+    };
+    if (!count) return AudioResult::NotPrepared;
+    auto result = prepare(count);
+    const auto baseCount = static_cast<unsigned>(base.size());
+    if (result == AudioResult::Applied) { added = count - baseCount; return result; }
+    if (!lease.Current() || count == baseCount) return result;
+    // Preserve usable guns if one optional waveform was corrupt in the download.
+    if (count == baseCount + 2) {
+        for (unsigned i = baseCount; i < count; ++i) {
+            plan[baseCount] = plan[i];
+            result = prepare(baseCount + 1);
+            if (result == AudioResult::Applied) { added = 1; return result; }
+            if (!lease.Current()) return AudioResult::Inactive;
+        }
+    }
+    return baseCount ? prepare(baseCount) : result;
+}
+
 void Failed(const Lease& lease, GuestCofResourceState candidate) noexcept
 {
     if (!lease.Current()) return;
@@ -147,8 +191,13 @@ void Ready(void*, std::uint64_t generation) noexcept
     }
     if (!candidate.samples)
     {
-        candidate.status = GuestCofResourceStatus::NoAssets;
-        state = candidate;
+        unsigned extra{};
+        candidate.audio = PrepareMapAudio(lease, budget, {}, budget.pcmBytes, extra);
+        if (!lease.Current()) return;
+        candidate.samples = extra;
+        candidate.status = extra ? GuestCofResourceStatus::Prepared : GuestCofResourceStatus::NoAssets;
+        if (extra) candidate.studioAndRecoilPrepared = PrepareGuestCofEffects();
+        if (lease.Current()) state = candidate;
         return;
     }
     const auto coldBudget = budget;
@@ -223,15 +272,17 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
+        unsigned extraSamples{};
         const auto prepareAudio = [&] {
-            return PrepareGuestCofAudio({{candidate.samples, candidate.samples * coldBudget.voicesPerSample,
-                coldBudget.pcmBytes}, {assets.data(), candidate.samples}, &lease, NativeSound});
+            return PrepareMapAudio(lease, coldBudget, {assets.data(), candidate.samples},
+                coldBudget.pcmBytes - fileBytes - script.size(), extraSamples);
         };
         candidate.audio = prepareAudio();
         if (lease.Current() && candidate.audio != AudioResult::Applied && legacySamples &&
             (candidate.weapons & famasBit))
         {
             omitFamasAudio();
+            fileBytes = legacyBytes;
             candidate.audio = prepareAudio();
         }
         if (!lease.Current()) return;
@@ -241,6 +292,7 @@ void Ready(void*, std::uint64_t generation) noexcept
             Failed(lease, candidate);
             return;
         }
+        candidate.samples += extraSamples;
         candidate.particles = PrepareGuestCofParticles({
             {reinterpret_cast<const char*>(script.data()), script.size()}, sprite});
         if (!lease.Current()) return;
@@ -382,6 +434,7 @@ void GuestCofResourcesVideoInit() noexcept
         ~Preparation() { preparing = false; }
     } preparation;
     auto candidate = state;
+    if (!candidate.weapons && particleScript.empty()) return;
     if (!ResourceReadsAllowed() || !engine.pfnSPR_Load || particleScript.empty())
     {
         candidate.status = GuestCofResourceStatus::ResourceFailed;

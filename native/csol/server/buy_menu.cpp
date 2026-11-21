@@ -55,7 +55,7 @@ std::uint64_t clientGeneration{};
 int message{};
 int hintMessage{};
 bool sendingHint{};
-bool ready{},equipmentCatalog{};
+bool ready{},equipmentCatalog{},arsenalCatalog{};
 std::vector<std::string> resources;
 void Send(const Packet& p, CBasePlayer* player=nullptr)
 {
@@ -78,6 +78,7 @@ int Price(CBasePlayer* player,const Item& item)
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
+    if(guest::cof::arsenal::Find(item.id) && !arsenalCatalog)return false;
     if(guest::cof::light::Find(item.id))return equipmentCatalog && CSOL_CanReceiveLightEquipment(*player,item.id);
     if(!IsWeapon(item))return true;
     if(item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
@@ -293,7 +294,7 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
     // delivery counterpart can replace them, so restore the original common
     // purchase gate here, before availability, balance and any debit/grant.
     // MP1140D916..1140D959 returns failure; knife selection has its own tail.
-    if(IsWeapon(item)&&CSOL_ExtendedWeapon(item.id)&&!csol::melee::IsWeapon(item.id)&&OwnsGun(player,item.id)){
+    if(IsWeapon(item)&&CSOL_ExtendedWeapon(item.id)&&item.slot!=WeaponSlot::Melee&&OwnsGun(player,item.id)){
         if(g_bClientPrintEnable)ClientPrint(player.pev,HUD_PRINTCENTER,"#Cstrike_Already_Own_Weapon");
         return Result::Failed;
     }
@@ -424,10 +425,10 @@ void Replay(CBasePlayer& player,Client& state,const Current& current)
     if(!allowed())return;
     // MP114E58D8 calls the separate paint tail even for absent/failed knife
     // selection. No parts, selected identity or attack state is changed.
-    CSOL_ScenarioRefreshMeleePaint(player,state.selectedKnife);
+    if(!guest::cof::arsenal::Find(state.selectedKnife))CSOL_ScenarioRefreshMeleePaint(player,state.selectedKnife);
 }
 }
-void CSOL_ResetBuyMenu(){++epoch;ready=false;equipmentCatalog=false;hintMessage=0;clients={};resources.clear();}
+void CSOL_ResetBuyMenu(){++epoch;ready=false;equipmentCatalog=false;arsenalCatalog=false;hintMessage=0;clients={};resources.clear();}
 bool CSOL_BuildRebuyStruct(CBasePlayer* player)
 {
     CSOLScenarioSdkScope scope;
@@ -456,7 +457,8 @@ bool CSOL_BuildRebuyStruct(CBasePlayer* player)
 }
 void CSOL_RebuyMeleeSelected(CBasePlayer& player,int weaponId)
 {
-    if(weaponId!=WEAPON_KNIFE&&!csol::melee::IsWeapon(weaponId))return;
+    const auto* item=Find(weaponId);
+    if(!item || item->slot!=WeaponSlot::Melee)return;
     CSOLScenarioSdkScope scope;
     if(!scope.Scenario()||!scope.Current())return;
     if(auto* state=State(player);scope.Current()&&state){
@@ -506,6 +508,14 @@ bool CSOL_PrecacheBuyMenu()
                         throw std::runtime_error("missing light equipment card");
             }
             const auto files=Resources(menu);
+            if (path == ArsenalPresentationResource) {
+                for (const auto& item : guest::cof::arsenal::Items)
+                    if (!menu.images.contains(item.id) || !menu.weaponInfo.items.contains(item.id))
+                        throw std::runtime_error("missing CoF weapon card");
+                for (const auto& resource : files)
+                    if (GET_FILE_SIZE(resource.c_str()) <= 0)
+                        throw std::runtime_error("missing CoF menu resource " + resource);
+            }
             resources.insert(resources.end(),files.begin(),files.end());
             if(withEquipment)resources.emplace_back(path);
         }catch(const std::exception& e){FREE_FILE(file);ALERT(at_error,"CSOL buy menu %s: %s\n",path,e.what());return false;}
@@ -514,6 +524,8 @@ bool CSOL_PrecacheBuyMenu()
     if(!loadMenu(PresentationResource,false))return false;
     equipmentCatalog=g_engfuncs.pfnGetFileSize && GET_FILE_SIZE(EquipmentPresentationResource)>0;
     if(equipmentCatalog && !loadMenu(EquipmentPresentationResource,true))return false;
+    arsenalCatalog=equipmentCatalog && GET_FILE_SIZE(ArsenalPresentationResource)>0 &&
+        loadMenu(ArsenalPresentationResource,true);
     std::sort(resources.begin(),resources.end());
     resources.erase(std::unique(resources.begin(),resources.end()),resources.end());
     for(const auto& path:resources)
@@ -523,7 +535,7 @@ bool CSOL_PrecacheBuyMenu()
     if(!message)message=REG_USER_MSG(csol::buy::Message,static_cast<int>(csol::buy::MessageBytes));
     hintMessage=REG_USER_MSG("ZBSVer2",-1);
     ready=message>=64&&message<=255&&hintMessage>=64&&hintMessage<=255;
-    if(ready)Send({Kind::Capability,0,std::uint16_t(equipmentCatalog?EquipmentPresentationRevision:0)});return ready;
+    if(ready)Send({Kind::Capability,0,std::uint16_t(arsenalCatalog?ArsenalPresentationRevision:equipmentCatalog?EquipmentPresentationRevision:0)});return ready;
 }
 void CSOL_PrepareBlindBoxPools(const custom::Snapshot& settings)
 {
@@ -536,7 +548,7 @@ void CSOL_PrepareBlindBoxPools(const custom::Snapshot& settings)
             if (!entry.weight) continue;
             const auto* item = Find(entry.weapon);
             if (!item || !IsWeapon(*item)) continue;
-            const auto source = guest::cof::FindFirearm(item->id) ? custom::BlindBox::Cof :
+            const auto source = (guest::cof::FindFirearm(item->id) || guest::cof::arsenal::Find(item->id)) ? custom::BlindBox::Cof :
                 CSOL_ExtendedWeapon(item->id) ? custom::BlindBox::Csol : custom::BlindBox::CounterStrike;
             if (source == box.id) pool.rewards[pool.count++] = {item, entry.weight};
         }
@@ -593,6 +605,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
         Send({Kind::Begin,request,0,0,player->m_iAccount,Result::Available,2},player);
         for(const auto& item:Catalog()){
             if(!equipmentCatalog && guest::cof::light::Find(item.id))continue;
+            if(!arsenalCatalog && guest::cof::arsenal::Find(item.id))continue;
             if(!current())return true;
             const bool available=Available(player,item);if(!current())return true;
             Send({Kind::Item,request,item.id,Price(player,item),player->m_iAccount,available?Result::Available:Result::Unavailable,2},player);

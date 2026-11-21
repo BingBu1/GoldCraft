@@ -18,6 +18,7 @@
 #include "../../weapons/cannon.hpp"
 #include "../../render_settings.hpp"
 #include "../../../guest/cof/catalog.hpp"
+#include "../../../guest/cof/arsenal.hpp"
 
 namespace
 {
@@ -260,6 +261,9 @@ bool CSOL_SendWeaponPickup(CBasePlayer* player,int id)
 }
 bool CSOL_AmmoPurchase(int id,int& price,int& count)
 {
+    if(const auto* extra=guest::cof::arsenal::Find(id); extra && !extra->Melee()) {
+        price=extra->ammoPrice;count=extra->clip;return true;
+    }
     if(const auto* guest=::guest::cof::FindFirearm(id)) {
         price=guest->ammunitionPrice;count=guest->ammunitionCount;return true;
     }

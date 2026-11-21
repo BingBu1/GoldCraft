@@ -21,6 +21,8 @@
 #include "melee_purchase.h"
 #include "primary_purchase.h"
 #include "guest_cof_host.hpp"
+#include "guest_cof_arsenal.hpp"
+#include "../../../guest/cof/arsenal.hpp"
 #include "../../../guest/cof/catalog.hpp"
 #include "../../weapons/melee_identity.hpp"
 #include "../../weapons/melee_resources.hpp"
@@ -67,6 +69,7 @@ CBasePlayer* Player(int index)
 }
 const char* WeaponName(int id)
 {
+    if(const auto* extra=guest::cof::arsenal::Find(id))return extra->classname;
     if(const auto* guest=::guest::cof::FindFirearm(id))return guest->classname.data();
     switch (id) {
     case WEAPON_KNIFE: return "weapon_knife";
@@ -406,6 +409,7 @@ public:
         const bool human=scenario ? (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy()) : CSOL_ZombieHuman(player);
         return WeaponName(weapon) && player && player->IsAlive() && human &&
             CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
+            (!guest::cof::arsenal::Find(weapon) || (scenario && CSOL_CofArsenalReady(*player,weapon))) &&
             (!guest::cof::FindFirearm(weapon) || (scenario&&CSOL_GuestCofCanUse(*player,weapon))) &&
             !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
             (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready()) &&
@@ -428,6 +432,8 @@ public:
         WeaponPurchaseGuard guard(index);
         if(!guard.Allowed())return 0;
         auto* player = Player(index);
+        if(const auto* item=guest::cof::arsenal::Find(weapon))
+            return item->Melee() ? CSOL_DeliverMeleeWeapon(*player,weapon) : CSOL_GiveCofArsenalGun(*player,weapon);
         if(guest::cof::FindFirearm(weapon))return CSOL_DeliverGuestCof(*player,weapon);
         if(weapon==WEAPON_KNIFE || csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
         if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull3::Id || weapon==csol::skull5::Id)

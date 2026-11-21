@@ -3,6 +3,7 @@
 #include "guest_cof_input.hpp"
 #include "weapon_inventory.hpp"
 #include "../../../guest/cof/catalog.hpp"
+#include "../../../guest/cof/arsenal.hpp"
 #include <charconv>
 #include <cstring>
 #include <usercmd.h>
@@ -72,12 +73,13 @@ bool GuestCofInputReady() noexcept { return Owner() && installed; }
 void GuestCofCreateMove(usercmd_s* command, int active, bool admitted) noexcept
 {
     if (!GuestCofInputReady()) return;
-    if (!active || !admitted || view.health <= 0 || view.spectator)
+    const auto& current = CurrentExtendedWeapon();
+    const bool rifle=current.state && current.id==guest::cof::arsenal::Rifle;
+    if (!active || (!admitted && !rifle) || view.health <= 0 || view.spectator)
     { ResetGuestCofInput(); return; }
     if (!command) return;
-    const auto& current = CurrentExtendedWeapon();
     const auto* definition=guest::cof::FindFirearm(current.id);
-    if (!current.state || !definition)
+    if (!current.state || (!definition && !rifle))
     { ResetGuestCofInput(); return; }
     // CoF10078670 maps +attack3 to0x40, +use to0x20. The host transports
     // only the extra aim bit; native Use/right-click and key bindings survive.

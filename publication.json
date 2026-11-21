@@ -2885,6 +2885,9 @@
     "native/guest/cof/light_equipment.hpp",
     "native/include/goldcraft/opaque_surface_mesh.hpp",
     "tools/Prepare-CryOfFearLightEquipment.py",
+    "tools/Prepare-CryOfFearArsenal.py",
+    "tools/cryoffear_arsenal_sources.json",
+    "docs/2026-11-21_接入-CoF剩余枪械与近战-report.md",
     "docs/2026-11-20_实现-大灾变永久模型血迹-report.md"
   ],
   "trees": {

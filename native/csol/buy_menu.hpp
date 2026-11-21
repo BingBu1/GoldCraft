@@ -2,6 +2,7 @@
 #pragma once
 #include "character_menu.hpp"
 #include "../guest/cof/light_equipment.hpp"
+#include "../guest/cof/arsenal.hpp"
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -14,6 +15,8 @@ inline constexpr std::size_t MessageBytes=16;
 inline constexpr char PresentationResource[]="models/csol/buymenu_v16.json";
 inline constexpr char EquipmentPresentationResource[]="models/csol/buymenu_v17.json";
 inline constexpr std::uint16_t EquipmentPresentationRevision=17;
+inline constexpr char ArsenalPresentationResource[]="models/csol/buymenu_v18.json";
+inline constexpr std::uint16_t ArsenalPresentationRevision=18;
 enum class Kind:std::uint8_t {Capability,Begin,Item,End,Result};
 enum class Result:std::uint8_t {Available,Unavailable,Insufficient,Success,Failed};
 struct Packet {Kind kind{};std::uint16_t request{},id{};std::int32_t price{},balance{};Result result{};std::uint8_t team{};};

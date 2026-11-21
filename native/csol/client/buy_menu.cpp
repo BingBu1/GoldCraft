@@ -55,6 +55,8 @@ int screenW{},screenH{},fontScreenW{},fontScreenH{};
 bool fontRefreshPending{};
 HANDLE privateFont{};
 Presentation presentation;
+bool arsenalCatalog{};
+const char* MenuResource(bool equipment) { return arsenalCatalog ? ArsenalPresentationResource : equipment ? EquipmentPresentationResource : PresentationResource; }
 bool capability{},equipmentCatalog{},loaded{},visible{},catalogReady{},swallowMouse{},restoreMouse{};
 MenuButtonInput leftInput,rightInput;
 int team=2;
@@ -130,7 +132,7 @@ void Close(bool gameplay=true)
 bool Load()
 {
     if(loaded)return true;
-    try{const auto bytes=ReadResource(equipmentCatalog?EquipmentPresentationResource:PresentationResource);presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});fontScreenW=fontScreenH=0;
+    try{const auto bytes=ReadResource(MenuResource(equipmentCatalog));presentation=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});fontScreenW=fontScreenH=0;
         menuTitle=Wide(presentation.title);listTitle=Wide(presentation.listTitle);favoriteDescription=Wide(presentation.favoriteDescription);
         for(int i=0;i<2;++i)teamLabels[i]=Wide(presentation.teamNames[i]);
         itemNames.clear();searchNames.clear();
@@ -184,7 +186,7 @@ const std::vector<const Item*>& Rows()
 {
     if(rowsCategory!=category){visibleRows.clear();visibleRows.reserve(Catalog().size());rowsCategory=category;
         auto needle=query;std::transform(needle.begin(),needle.end(),needle.begin(),std::towlower);
-        for(const auto& item:Catalog())if((equipmentCatalog || !guest::cof::light::Find(item.id)) && InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
+        for(const auto& item:Catalog())if((arsenalCatalog || !guest::cof::arsenal::Find(item.id)) && (equipmentCatalog || !guest::cof::light::Find(item.id)) && InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
             if(needle.empty()||searchNames.at(item.id).find(needle)!=std::wstring::npos)visibleRows.push_back(&item);
         }}
     return visibleRows;
@@ -227,8 +229,10 @@ int Receive(const char*,int size,void* data)
     SynchronizeSession();Packet p;
     if(!data||size<0||!Decode({static_cast<const std::uint8_t*>(data),std::size_t(size)},p)){++rejected;return 0;}
     if(p.kind==Kind::Capability){
-        const bool withEquipment=p.id==EquipmentPresentationRevision;
-        if(equipmentCatalog!=withEquipment && loaded)InvalidateBuyResources();
+        const bool withArsenal=p.id==ArsenalPresentationRevision;
+        const bool withEquipment=withArsenal || p.id==EquipmentPresentationRevision;
+        if((equipmentCatalog!=withEquipment || arsenalCatalog!=withArsenal) && loaded)InvalidateBuyResources();
+        arsenalCatalog=withArsenal;
         equipmentCatalog=withEquipment;capability=true;return 1;
     }
     if(p.kind==Kind::Result && p.result!=Result::Available && p.id && submittedPurchases[p.request]==p.id)
@@ -778,7 +782,7 @@ void InitializeBuyMenu()
 }
 void ResetBuyMenu()
 {
-    Close(false);capability=false;equipmentCatalog=false;loaded=false;offers.clear();visibleRows.clear();rowsCategory=-2;restoreMouse=false;swallowMouse=false;request=0;submittedPurchases={};presentation={};query.clear();
+    Close(false);capability=false;equipmentCatalog=false;arsenalCatalog=false;loaded=false;offers.clear();visibleRows.clear();rowsCategory=-2;restoreMouse=false;swallowMouse=false;request=0;submittedPurchases={};presentation={};query.clear();
     if(surface)for(const auto& [path,texture]:textures)if(texture)surface->DeleteTextureByID(texture);textures.clear();imageRefs.clear();fontScreenW=fontScreenH=0;
 }
 void InvalidateBuyResources()
@@ -791,7 +795,7 @@ void InvalidateBuyResources()
 void PrepareBuyResourceFonts(ResourceFontPreparation& output)
 {
     if(!surface||!font||!ResourceFontIsTracked(&privateFont))return;
-    const auto bytes=ReadResource(equipmentCatalog?EquipmentPresentationResource:PresentationResource);
+    const auto bytes=ReadResource(MenuResource(equipmentCatalog));
     const auto next=ParsePresentation({reinterpret_cast<const char*>(bytes.data()),bytes.size()});
     output.sources.push_back({&privateFont,MenuFontResource,next.font});
     output.recipes.push_back({font,next.font,fontRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
