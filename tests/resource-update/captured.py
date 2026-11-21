@@ -58,7 +58,11 @@ def main():
         result = subprocess.run(command, cwd=out, stdout=log, stderr=subprocess.STDOUT, timeout=240)
     preserved = all(sha(path) == expected for path, expected in original)
     bad_copies_preserved = all(sha(out / 'game' / row['path']) == row['observedSha256'] for row in entries)
-    cache_verified = all(sha(out / 'cache/objects' / row['sha256'] / row['path']) == row['sha256'] for row in entries)
+    cache_objects = out / 'cache/objects'
+    cache_verified = all(
+        (cached := cache_objects / (row['sha256'] + Path(row['path']).suffix.lower())).is_file()
+        and sha(cached) == row['sha256'] for row in entries
+    )
     receipt = dict(returncode=result.returncode, files=len(entries), originalsPreserved=preserved,
                    corruptCopiesPreserved=bad_copies_preserved, cacheVerified=cache_verified,
                    executableSha256=sha(args.exe), manifestSha256=sha(args.manifest),

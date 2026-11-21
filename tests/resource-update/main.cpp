@@ -387,6 +387,14 @@ int main(int argc,char** argv){
         update::Session session((base/"cache").string());cache::Cache storage((base/"cache").string());
         if(mode=="store-pressure"){
             StorePressure(session,storage,fs,name,next,third,bytes,old,newer);
+        }else if(mode=="legacy-cache"){
+            Check(EqualVfs(fs,name,old),"legacy cache fixture starts with stale GAME bytes");
+            Check(session.Begin(3,url,{{name,next}}),"legacy cache admission begins");
+            Ready(session);
+            Check(session.GetStatus().cached==1 && session.GetStatus().downloaded==0,"verified legacy object needs no HTTP");
+            Check(EqualVfs(fs,name,bytes),"engine mounts the verified legacy object");
+            Check(!fsys::exists(storage.Path(name,next)) || Disk(storage.Path(name,next))==old,
+                  "legacy cache winner leaves compact storage untouched");
         }else if(mode=="same"||mode=="update"||mode=="pak"||mode=="reuse"||mode=="same-generation"||mode=="old-hardlink"||mode=="final-change"){
             Check(EqualVfs(fs,name,mode=="same"?bytes:old),"baseline source winner");
             Check(session.Begin(3,url,{{name,next}}),"manifest accepted");
@@ -603,10 +611,14 @@ int main(int argc,char** argv){
             Check(!session.Begin(1,url,{{name,next},{"MODELS/UPDATE.MDL",third}}),"case collision rejected");
             Check(!session.Begin(0,url,{{name,next}}),"zero generation rejected");
             Check(!session.Begin(1,"file:///C:/tmp",{{name,next}}),"non-http URL rejected");
-            const auto longName=std::string("models/")+std::string(110,'x')+".mdl";
-            Check(overlay::SafeName(longName),"logical name within logical policy");
-            Check(!storage.Store(longName,next,bytes),"cache path beyond host MAX_PATH rejected");
-            Check(!fsys::exists(base/"cache"),"invalid identities created no files");
+            const auto objectTail = storage.Path(name, next).size() - storage.Root().size();
+            const auto baseLength = base.string().size() + 1;
+            Check(baseLength + objectTail < MAX_PATH, "fixture can create a cache at the path boundary");
+            const auto deepRoot = base / std::string(MAX_PATH - baseLength - objectTail, 'x');
+            cache::Cache tooDeep(deepRoot.string());
+            Check(!tooDeep.Store(name, next, bytes) && tooDeep.Error() == "Cached resource path exceeds host filesystem limit",
+                  "physical cache path at MAX_PATH is rejected");
+            Check(!fsys::exists(deepRoot) && !fsys::exists(base / "cache"), "invalid identities created no files");
         }else throw std::runtime_error("unknown mode");
         session.Reset();
         }

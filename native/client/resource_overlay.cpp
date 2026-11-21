@@ -16,6 +16,7 @@
 #include <intrin.h>
 #include <mutex>
 #include <shared_mutex>
+#include <string_view>
 #include <unordered_set>
 #include <sys/stat.h>
 #pragma comment(lib, "bcrypt.lib")
@@ -333,12 +334,20 @@ bool Begin(const std::string& directory, const Paths& verifiedPaths) {
         const auto normalized = Lower(actual);
         if (actual.empty() || !normalized.starts_with(prefix) || !PlainPath(actual, false, &plain))
             return Fail("Resource overlay path is not an independent file under its root");
-        const auto object = normalized.substr(prefix.size());
-        if (object.size() <= 65 || object[64] != '/' || object.substr(65) != Lower(name) ||
-            !std::all_of(object.begin(), object.begin()+64, [](char c) { return (c>='0'&&c<='9') || (c>='a'&&c<='f'); }))
-            return Fail("Resource overlay path does not match its content-addressed logical name");
-        const auto relative = actual.substr(absoluteRoot.size()+1);
-        if (!candidate.emplace(Lower(name), Entry{relative, actual}).second) return Fail("Duplicate resource overlay name");
+        constexpr auto digestLength = resource_sync::Digest{}.size() * 2;
+        const auto object = std::string_view(normalized).substr(prefix.size());
+        if (object.size() <= digestLength || !std::all_of(object.begin(), object.begin() + digestLength, [](char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+            }))
+            return Fail("Invalid resource overlay digest path");
+        auto logical = Lower(name);
+        const auto suffix = object.substr(digestLength);
+        if (suffix.front() == '/' ? suffix.substr(1) != logical
+                                 : suffix != std::string_view(logical).substr(logical.rfind('.')))
+            return Fail("Resource overlay path does not match its logical name or extension");
+        const auto relative = actual.substr(absoluteRoot.size() + 1);
+        if (!candidate.emplace(std::move(logical), Entry{relative, actual}).second)
+            return Fail("Duplicate resource overlay name");
     }
     std::unique_lock lock(access);
     ClearLocked();

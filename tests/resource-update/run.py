@@ -166,7 +166,10 @@ def main():
              ('steady-slow', 'update', 'models/update.mdl', 1),
              ('invalid', 'invalid', 'models/update.mdl', 0), ('final-change', 'final-change', 'models/update.mdl', 1),
              ('corrupt-cache', 'update', 'models/update.mdl', 1),
-             ('long-name', 'update', 'models/' + 'a' * 52 + '.mdl', 1),
+             ('long-name', 'reuse', 'sound/guest/cof/player/vocal/breathing/release_breath.wav', 1),
+             ('legacy-cache', 'legacy-cache', 'models/update.mdl', 0),
+             ('legacy-shadow', 'legacy-cache', 'models/update.mdl', 0),
+             ('corrupt-legacy', 'update', 'models/update.mdl', 1),
              ('transaction', 'transaction', 'models/update.mdl', 2),
              ('mtime-change', 'mtime-change', 'models/update.mdl', 1),
              ('replace-source', 'replace-source', 'models/update.mdl', 1),
@@ -181,7 +184,15 @@ def main():
     results = []
     try:
         for label, mode, name, request_count in cases:
-            base = out / 'cases' / label; game = base / 'game'; game.mkdir(parents=True)
+            base = out / 'cases' / label
+            if label == 'long-name':
+                legacy = base / 'cache/objects' / sha / name
+                pad = max(2, 261 - len(str(legacy)))
+                base = base / ('p' * pad)
+                assert len(str(base / 'cache/objects' / sha / name)) >= 260
+                assert len(str(base / 'cache/objects' / (sha + '.wav'))) < 260
+            game = base / 'game'
+            game.mkdir(parents=True)
             for filename, data in [('new.bin', body), ('old.bin', old), ('third.bin', third), ('old-linked-source.bin', old)]:
                 (base / filename).write_bytes(data)
             initial = body if mode in ('same', 'mtime-change', 'replace-source', 'lease', 'shadow') else old
@@ -200,8 +211,14 @@ def main():
                 else: destination.write_bytes(initial)
             if mode == 'download-releases-lease':
                 (game / 'models/unchanged.mdl').write_bytes(body)
-            if label == 'corrupt-cache':
-                cached = base / 'cache/objects' / sha / name; cached.parent.mkdir(parents=True); cached.write_bytes(old)
+            cache_objects = base / 'cache/objects'
+            if label in ('corrupt-cache', 'legacy-shadow'):
+                cache_objects.mkdir(parents=True)
+                (cache_objects / (sha + '.mdl')).write_bytes(old)
+            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy'):
+                legacy = cache_objects / sha / name
+                legacy.parent.mkdir(parents=True)
+                legacy.write_bytes(old if label == 'corrupt-legacy' else body)
             if mode == 'batch':
                 manifest = []
                 for i in range(16):
@@ -223,6 +240,13 @@ def main():
                 assert counters['capacityWaits'] >= 8
                 count = counters['fastdlRequests']
                 request_count = counters['capacityWaits'] + 8  # Two successes and three attempts per permanent failure.
+            if label in ('legacy-cache', 'legacy-shadow', 'corrupt-legacy'):
+                assert legacy.read_bytes() == (old if label == 'corrupt-legacy' else body)
+            if label == 'legacy-shadow':
+                assert (cache_objects / (sha + '.mdl')).read_bytes() == old
+            if label in ('parallel', 'long-name') and code == 0:
+                objects = sorted(p.name for p in (base / 'cache/objects').iterdir())
+                assert objects == [sha + ('.mdl' if label == 'parallel' else '.wav')], objects
             if label == 'parallel' and parallel['peak'] < 8:
                 code = code or 1
             preserved = all(identity(x['path']) == x for x in before)

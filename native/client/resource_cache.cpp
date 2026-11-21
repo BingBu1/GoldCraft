@@ -5,11 +5,13 @@
 #include <bcrypt.h>
 #include "resource_cache.hpp"
 #include "resource_overlay.hpp"
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace goldcraft::resource_cache {
@@ -27,41 +29,35 @@ std::string Absolute(const std::string& input) {
     while (value.size() > 3 && (value.back() == '/' || value.back() == '\\')) value.pop_back();
     return value;
 }
-bool Plain(const std::string& path, bool directory) {
-    const DWORD attributes = GetFileAttributesA(path.c_str());
-    return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_REPARSE_POINT) &&
-           bool(attributes & FILE_ATTRIBUTE_DIRECTORY) == directory;
-}
 struct Parents {
     std::vector<HANDLE> handles;
     ~Parents() { for (auto handle : handles) CloseHandle(handle); }
     bool Lock(const std::string& path, bool create) {
-    // Deny rename/delete of each opened ancestor while publishing a child.
-    // This also keeps a directory from being exchanged for a junction between
-    // checking attributes and creating or replacing the file below it.
-    const auto pin = [&](const std::string& directory) {
-        const auto handle = CreateFileA(directory.c_str(), FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-        if (handle == INVALID_HANDLE_VALUE) return false;
-        BY_HANDLE_FILE_INFORMATION info{};
-        if (!GetFileInformationByHandle(handle, &info) ||
-            !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
-            (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
-            CloseHandle(handle); return false;
+        // Deny rename/delete of each opened ancestor while publishing a child.
+        // This also keeps a directory from being exchanged for a junction between
+        // checking attributes and creating or replacing the file below it.
+        const auto pin = [&](const std::string& directory) {
+            const auto handle = CreateFileA(directory.c_str(), FILE_READ_ATTRIBUTES,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            if (handle == INVALID_HANDLE_VALUE) return false;
+            BY_HANDLE_FILE_INFORMATION info{};
+            if (!GetFileInformationByHandle(handle, &info) ||
+                !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+                (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)) {
+                CloseHandle(handle); return false;
+            }
+            handles.push_back(handle); return true;
+        };
+        if (!pin(path.substr(0, 3))) return false;
+        for (std::size_t i = 3; i < path.size(); ++i) {
+            if (path[i] != '/' && path[i] != '\\') continue;
+            const auto directory = path.substr(0, i);
+            if (pin(directory)) continue;
+            if (!create || (!CreateDirectoryA(directory.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS)
+                || !pin(directory)) return false;
         }
-        handles.push_back(handle); return true;
-    };
-    if (!pin(path.substr(0, 3))) return false;
-    for (std::size_t i = 3; i < path.size(); ++i) {
-        if (path[i] != '/' && path[i] != '\\') continue;
-        const auto directory = path.substr(0, i);
-        if (!Plain(directory, true)) {
-            if (!create || !CreateDirectoryA(directory.c_str(), nullptr) || !Plain(directory, true)) return false;
-        }
-        if (!pin(directory)) return false;
-    }
-    return true;
+        return true;
     }
 };
 struct File {
@@ -74,6 +70,25 @@ bool Regular(HANDLE file, std::uint32_t size) {
     return GetFileInformationByHandle(file, &info) &&
         !(info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) &&
         !info.nFileSizeHigh && info.nFileSizeLow == size;
+}
+std::unique_ptr<SourceFile> OpenObject(const std::string& path, std::uint32_t size) {
+    File file{CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
+    if (!file.Valid() || !Regular(file.handle, size)) return {};
+    return SourceFile::Reopen(file.handle, 0, size);
+}
+
+bool HasBody(const std::string& path, std::span<const std::uint8_t> bytes) {
+    auto existing = OpenObject(path, std::uint32_t(bytes.size()));
+    if (!existing) return false;
+    std::array<std::uint8_t, 64 * 1024> buffer;
+    for (std::uint32_t offset = 0; offset < bytes.size();) {
+        const auto count = std::min(buffer.size(), bytes.size() - offset);
+        if (!existing->ReadAt(offset, std::span(buffer).first(count)) ||
+            std::memcmp(buffer.data(), bytes.data() + offset, count) != 0) return false;
+        offset += std::uint32_t(count);
+    }
+    return existing->Unchanged();
 }
 std::atomic<unsigned long> serial{};
 }
@@ -160,40 +175,57 @@ resource_sync::Digest Hash::Finish() {
 Cache::Cache(std::string root) : root_(Absolute(root)) {}
 const std::string& Cache::Root() const { return root_; }
 const std::string& Cache::Error() const { return error_; }
-std::string Cache::Path(const std::string& name, const resource_sync::Entry& expected) const {
+namespace {
+std::string ObjectPath(const std::string& root, const std::string& name, const resource_sync::Entry& expected,
+                       Cache::Layout layout) {
     Check(resource_overlay::SafeName(name) && expected.required && expected.size &&
           expected.size <= resource_sync::max_file_size, "Invalid cached resource identity");
+
+    constexpr std::string_view directory = "/objects/";
     constexpr char hex[] = "0123456789abcdef";
-    std::string digest;
-    digest.reserve(64);
-    for (const auto value : expected.sha256) { digest += hex[value >> 4]; digest += hex[value & 15]; }
-    const auto path = root_ + "/objects/" + digest + "/" + name;
-    // The reviewed engine filesystem uses MAX_PATH buffers, including the
-    // temporary suffix. Do not let an OS long-path form bypass that contract.
-    Check(path.size() + 40 < MAX_PATH, "Cached resource path exceeds host filesystem limit");
+    const auto extension = std::string_view(name).substr(name.rfind('.'));
+    const bool legacy = layout == Cache::Layout::legacy;
+    std::string path;
+    path.reserve(root.size() + directory.size() + expected.sha256.size() * 2 +
+                 (legacy ? 1 + name.size() : extension.size()));
+    path += root;
+    path += directory;
+    for (const auto value : expected.sha256) {
+        path += hex[value >> 4];
+        path += hex[value & 15];
+    }
+    if (legacy) {
+        path += '/';
+        path += name;
+    } else {
+        for (const char c : extension) path += c >= 'A' && c <= 'Z' ? char(c + 'a' - 'A') : c;
+    }
+    return path;
+}
+}
+std::string Cache::Path(const std::string& name, const resource_sync::Entry& expected) const {
+    auto path = ObjectPath(root_, name, expected, Layout::compact);
+    Check(path.size() < MAX_PATH, "Cached resource path exceeds host filesystem limit");
     return path;
 }
 bool Cache::Read(const std::string& name, const resource_sync::Entry& expected,
-                 std::span<std::uint8_t> out, std::uint32_t offset) const {
-    const auto path = Path(name, expected);
-    Parents parents;
-    if (offset > expected.size || out.size() > expected.size - offset || !parents.Lock(path, false)) return false;
-    File file{CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                          FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
-    if (!file.Valid() || !Regular(file.handle, expected.size)) return false;
-    LARGE_INTEGER seek{}; seek.QuadPart = offset;
-    DWORD count{};
-    return SetFilePointerEx(file.handle, seek, nullptr, FILE_BEGIN) &&
-        ReadFile(file.handle, out.data(), DWORD(out.size()), &count, nullptr) && count == out.size();
+                  std::span<std::uint8_t> out, std::uint32_t offset) const {
+    auto source = Open(name, expected, Layout::compact);
+    if (!source) source = Open(name, expected, Layout::legacy);
+    return source && source->ReadAt(offset, out);
 }
-std::unique_ptr<SourceFile> Cache::Open(const std::string& name, const resource_sync::Entry& expected) const {
-    const auto path = Path(name, expected);
+std::unique_ptr<SourceFile> Cache::Open(const std::string& name, const resource_sync::Entry& expected,
+                                       Layout layout, std::string* openedPath) const {
+    if (openedPath) openedPath->clear();
+    auto path = ObjectPath(root_, name, expected, layout);
+    if (path.size() >= MAX_PATH) return {};
+    // Avoid reopening the deeper parent chain if this legacy object is absent.
+    if (layout == Layout::legacy && GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES) return {};
     Parents parents;
     if (!parents.Lock(path, false)) return {};
-    File file{CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
-    if (!file.Valid() || !Regular(file.handle, expected.size)) return {};
-    return SourceFile::Reopen(file.handle, 0, expected.size);
+    auto source = OpenObject(path, expected.size);
+    if (source && openedPath) *openedPath = std::move(path);
+    return source;
 }
 bool Cache::Store(const std::string& name, const resource_sync::Entry& expected,
                   std::span<const std::uint8_t> bytes) {
@@ -210,7 +242,8 @@ bool Cache::Store(const std::string& name, const resource_sync::Entry& expected,
         const DWORD existing = GetFileAttributesA(target.c_str());
         Check(existing == INVALID_FILE_ATTRIBUTES ||
               !(existing & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)), "Unsafe resource cache target");
-        temporary = target + ".tmp-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(++serial);
+        if (existing != INVALID_FILE_ATTRIBUTES && HasBody(target, bytes)) return true;
+        temporary = root_ + "/.tmp-" + std::to_string(GetCurrentProcessId()) + "-" + std::to_string(++serial);
         {
             File file{CreateFileA(temporary.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
                                   FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr)};
@@ -220,8 +253,11 @@ bool Cache::Store(const std::string& name, const resource_sync::Entry& expected,
             Check(WriteFile(file.handle, bytes.data(), DWORD(bytes.size()), &count, nullptr) && count == bytes.size() &&
                   FlushFileBuffers(file.handle), "Cannot write complete resource cache file");
         }
-        Check(MoveFileExA(temporary.c_str(), target.c_str(),
-              MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH), "Cannot commit resource cache file");
+        if (!MoveFileExA(temporary.c_str(), target.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            // An alias or another client can publish and pin this content first.
+            Check(HasBody(target, bytes), "Cannot commit resource cache file");
+            Check(DeleteFileA(temporary.c_str()), "Cannot remove redundant resource cache staging file");
+        }
         temporary.clear();
         return true;
     } catch (const std::exception& failure) {

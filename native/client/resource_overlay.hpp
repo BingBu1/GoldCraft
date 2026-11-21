@@ -18,7 +18,7 @@ struct Snapshot { std::string root; Paths paths; };
 // does not advertise protocol support; the caller owns capability negotiation.
 bool Install(metahook_api_s* api, mh_interface_s* interfaces);
 // Main-thread connection boundary. Values are immutable files already verified
-// against this server's SHA manifest under root/objects/<sha256>/<logical-key>.
+// against this server's SHA manifest. Accepts compact and legacy object paths.
 bool Begin(const std::string& root, const Paths& verifiedPaths);
 Snapshot Capture();
 // Restore before consumers recreate their old resources after a cancelled

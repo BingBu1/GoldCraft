@@ -34,7 +34,7 @@ public:
         std::unique_ptr<resource_cache::PendingSource> pending;
         std::unique_ptr<resource_cache::SourceFile> source;
         const resource_cache::Cache* cache{};
-        std::string name;
+        std::string name, cachePath;
         resource_sync::Entry expected{};
         resource_sync::Digest digest{};
         std::uint32_t size{};
@@ -84,20 +84,35 @@ public:
 private:
     void Verify(Job& job, std::span<std::uint8_t> buffer, std::stop_token stop) {
         if (job.cancelled || stop.stop_requested()) return;
+        if (job.cache) {
+            using Layout = resource_cache::Cache::Layout;
+            for (const auto layout : {Layout::compact, Layout::legacy}) {
+                if (job.cancelled || stop.stop_requested()) return;
+                job.source = Measure(job.profile.cacheOpen, [&] {
+                    return job.cache->Open(job.name, job.expected, layout, &job.cachePath);
+                });
+                if (!job.source) continue;
+                VerifySource(job, buffer, stop, true);
+                if (job.success && job.digest == job.expected.sha256) return;
+                job.success = false;
+                job.source.reset();
+            }
+            return;
+        }
         // A rejected lease match can include missing or ambiguous file IDs.
         const bool useDigestCache = !job.source;
-        if (job.pending) {
-            if (job.source && Measure(job.profile.leaseCheck, [&] { return job.pending->Matches(*job.source); })) {
-                if (job.cancelled || stop.stop_requested()) return;
-                job.digest = job.expected.sha256;
-                job.reused = job.leased = job.success = true;
-                return;
-            }
-            job.source = Measure(job.profile.leaseOpen, [&] { return job.pending->Lease(); });
-        } else if (job.cache) {
-            job.source = Measure(job.profile.cacheOpen, [&] { return job.cache->Open(job.name, job.expected); });
+        if (job.source && Measure(job.profile.leaseCheck, [&] { return job.pending->Matches(*job.source); })) {
+            if (job.cancelled || stop.stop_requested()) return;
+            job.digest = job.expected.sha256;
+            job.reused = job.leased = job.success = true;
+            return;
         }
+        job.source = Measure(job.profile.leaseOpen, [&] { return job.pending->Lease(); });
+        VerifySource(job, buffer, stop, useDigestCache);
+    }
+    void VerifySource(Job& job, std::span<std::uint8_t> buffer, std::stop_token stop, bool useDigestCache) {
         if (!job.source || job.cancelled || stop.stop_requested()) return;
+        job.reused = false;
         const auto stamp = job.source->Identity();
         if (useDigestCache) {
             std::lock_guard lock(mutex_);
@@ -106,9 +121,10 @@ private:
                 job.reused = true;
             }
         }
+        std::uint32_t offset = 0;
         if (!job.reused) {
             resource_cache::Hash hash;
-            for (std::uint32_t offset = 0; offset < job.size;) {
+            while (offset < job.size) {
                 if (job.cancelled || stop.stop_requested()) break;
                 const auto count = std::min<std::size_t>(buffer.size(), job.size - offset);
                 auto span = buffer.first(count);
@@ -117,11 +133,11 @@ private:
                 offset += std::uint32_t(count);
                 job.bytes += count;
             }
-            if (job.bytes == job.size)
+            if (offset == job.size)
                 job.digest = Measure(job.profile.hashFinish, [&] { return hash.Finish(); });
         }
         job.success = !job.cancelled && !stop.stop_requested() &&
-            (job.reused || job.bytes == job.size) && Measure(job.profile.unchanged, [&] { return job.source->Unchanged(); });
+            (job.reused || offset == job.size) && Measure(job.profile.unchanged, [&] { return job.source->Unchanged(); });
         if (job.success && useDigestCache && !job.reused) {
             std::lock_guard lock(mutex_);
             if (digests_.size() >= 32768) digests_.clear();
@@ -253,7 +269,8 @@ struct Session::Impl {
                     Mismatch(item.index, item.cache); continue;
                 }
                 if (item.cache) {
-                    mounted[resource.name] = cache.Path(resource.name, resource.expected); ++status.cached;
+                    mounted[resource.name] = std::move(item.job->cachePath);
+                    ++status.cached;
                 } else {
                     if (status.phase == Phase::checking) {
                         // Keep a binding that was supplied by the previous verified overlay.
