@@ -17,7 +17,11 @@ class Worker
         {
             string text="{\"pid\":"+process.Id+",\"startTicks\":\""+process.StartTime.ToUniversalTime().Ticks+
                 "\",\"runId\":\""+run+"\",\"role\":\""+role+"\"}";
-            File.WriteAllText(Path.Combine(state,role+".json"),text);
+            string record = Path.Combine(state, role+".json");
+            string pending = Path.Combine(state, run+".tmp");
+            File.WriteAllText(pending, text);
+            if (File.Exists(record)) File.Replace(pending, record, null);
+            else File.Move(pending, record);
             string command=Path.Combine(state,run+".command");
             for(int i=0;i<18000;i++)
             {

@@ -115,6 +115,31 @@ def run(output):
         target,package=fixture('stop-failure');before=start(target);put(target,'scripts/Stop-Servers.ps1',"throw 'fixture graceful stop failed'")
         call(target,package,'failed graceful stop refuses replacement',ok=False);check((target/'cs/swds.dll').read_bytes()==old_engine and all(alive(r) for r in before.values()),'no force kill or mutation after stop failure')
         shutil.copy2(ROOT/'tools/server-package/scripts/Stop-Servers.ps1',target/'scripts/Stop-Servers.ps1')
+        for stale in (False,True):
+            target,package=fixture('stale-exit' if stale else 'confirmed-exit')
+            before=start(target)
+            stop=target/'scripts/Stop-Servers.ps1'
+            script=stop.read_text('utf-8-sig')
+            # Reproduce a legacy polling error after both real fixture PIDs exit.
+            script+='''
+$marker = Join-Path $State 'stop-returned'
+if (!(Test-Path -LiteralPath $marker)) {
+    Write-Text $marker 'first call'
+    foreach ($role in @('cs','minecraft')) {
+        $record = Read-Json (Join-Path $State "$role.json")
+        Write-Json (Join-Path $State "$role-exit.json") @{runId=RUN_ID;exitCode=0}
+    }
+    throw 'fixture legacy stop reported failure after exit'
+}
+'''
+            stop.write_text(script.replace('RUN_ID',"('0'*24)" if stale else '$record.runId'),'utf-8-sig')
+            if stale:
+                call(target,package,'stale exit receipts cannot authorize replacement',ok=False)
+                check(stopped(target) and (target/'cs/swds.dll').read_bytes()==old_engine,'stale stop preserves original payload')
+            else:
+                call(target,package,'confirm a clean exit reported as failure by the legacy stop script')
+                after=identities(target)
+                check(all(alive(v) and v['runId']!=before[k]['runId'] for k,v in after.items()),'confirmed stop restarts both recorded roles')
         target,package=fixture('failed-apply');start(target)
         helper=package/'Files.ps1';helper.write_text(helper.read_text('utf-8-sig')+'''
 $script:originalAtomic=${function:Atomic}
@@ -155,7 +180,8 @@ function Restore-Files([string]$Root,[string]$Backup,$Journal){throw 'injected r
                     if alive(r):put(target,'.state/'+r['runId']+'.command','quit' if role=='cs' else 'stop')
         deadline=time.monotonic()+5
         while time.monotonic()<deadline:
-            records=[json.loads(p.read_text('utf-8-sig')) for t in targets for p in (t/'.state').glob('*.json')]
+            records=[json.loads(p.read_text('utf-8-sig')) for t in targets for role in ('cs','minecraft')
+                     if (p:=t/'.state'/f'{role}.json').is_file()]
             if all(not alive(r) for r in records):break
             time.sleep(.1)
         report['fixturesStopped']=all(not alive(r) for r in records)

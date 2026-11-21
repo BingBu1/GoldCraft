@@ -53,10 +53,16 @@ function Get-RoleProcess([string]$Role) {
     if (-not (Test-Path -LiteralPath $path)) { return $null }
     $record = Read-Json $path
     $proc = Get-Process -Id $record.pid -ErrorAction SilentlyContinue
-    if ($proc -and $proc.StartTime.ToUniversalTime().Ticks.ToString() -eq $record.startTicks) {
-        return $record
-    }
-    return $null
+    if (!$proc) { return $null }
+    try {
+        $started = $proc.StartTime
+        if (!$started) {
+            if ($proc.HasExited) { return $null }
+            throw "Cannot verify the start time of the recorded $Role process."
+        }
+        if ($started.ToUniversalTime().Ticks.ToString() -eq $record.startTicks) { return $record }
+        return $null
+    } finally { $proc.Dispose() }
 }
 function Send-RoleCommand([string]$Role, [string]$Command) {
     $record = Get-RoleProcess $Role

@@ -30,7 +30,12 @@ function Get-UpdateRole([string]$Root,[string]$Role) {
     $process=Get-Process -Id $record.pid -ErrorAction SilentlyContinue
     if(!$process){return $null}
     try {
-        if($process.StartTime.ToUniversalTime().Ticks.ToString() -cne [string]$record.startTicks){return $null}
+        $started=$process.StartTime
+        if(!$started){
+            if($process.HasExited){return $null}
+            throw "Cannot verify the start time of the recorded $Role process."
+        }
+        if($started.ToUniversalTime().Ticks.ToString() -cne [string]$record.startTicks){return $null}
         $expected=Under $Root $(if($Role -eq 'cs'){'cs/hlds.exe'}else{'runtime/java/bin/java.exe'})
         if(!$process.Path -or ![string]::Equals((Plain $process.Path),$expected,[StringComparison]::OrdinalIgnoreCase)){
             throw "Unexpected $Role executable; no process was stopped."
@@ -105,14 +110,40 @@ function Begin-ServerUpdate([string]$Root,[switch]$NoRestart) {
             $context.Diagnostics=@($parents|Where-Object {$_.CommandLine -match '(?i)\s-Diagnostics(?=\s|$)'}).Count -gt 0
         }
         Write-Host 'Preflight passed. Saving and stopping the running servers...'
-        Invoke-UpdateServerScript $Root 'Stop-Servers.ps1' 150
-        $stopCompleted=$true
+        $stopFailure=$null
+        try {
+            Invoke-UpdateServerScript $Root 'Stop-Servers.ps1' 150
+            $stopCompleted=$true
+        }catch{
+            $stopFailure=$_
+            foreach($role in $context.Roles){
+                if(Get-UpdateRole $Root $role.Name){throw $stopFailure}
+            }
+        }
         # Stop-Servers waits for game PIDs. Give their supervisors time to close
         # console handles and role locks too, without repeatedly scanning payloads.
         $watch=[Diagnostics.Stopwatch]::StartNew()
         while(@(Get-UpdateProcesses $Root).Count){
             if($watch.Elapsed.TotalSeconds -gt 15){throw 'Server supervisor did not exit; update stopped before replacement.'}
             Start-Sleep -Milliseconds 250
+        }
+        if($stopFailure){
+            # Older Stop-Servers scripts can lose StartTime while observing an
+            # already exiting game. Retry only after every original supervisor
+            # recorded a clean exit for this run and released its process.
+            foreach($role in $context.Roles){
+                $path=Under $Root ('.state/'+$role.Name+'-exit.json')
+                if(!(Test-Path -LiteralPath $path -PathType Leaf)){throw $stopFailure}
+                $exitRecord=Text $path|ConvertFrom-Json
+                $code=$exitRecord.exitCode
+                if($exitRecord.runId -cne $role.Before.runId -or ($code -isnot [int] -and $code -isnot [long]) -or $code -ne 0){
+                    throw $stopFailure
+                }
+            }
+            Write-Host 'All recorded servers exited cleanly. Confirming shutdown with the original stop script...'
+            Invoke-UpdateServerScript $Root 'Stop-Servers.ps1' 150
+            Assert-UpdateStopped $Root
+            $stopCompleted=$true
         }
         return $context
     }catch{
