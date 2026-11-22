@@ -2,6 +2,7 @@
 #pragma once
 #include <array>
 #include <cstddef>
+#include "resource_refresh.hpp"
 
 namespace csol::client {
 // VGUI2Extension sorts BaseUI callbacks by descending altitude and runs Paint
@@ -30,6 +31,7 @@ inline bool active{};
 // Without an active compositor the overlay paints immediately, as before.
 inline void QueueOverlayPaint(OverlayLayer layer, void (*paint)())
 {
+    if(!ResourceReadsAllowed())return;
     const auto index = static_cast<std::size_t>(layer);
     if (!paint || index >= overlay_detail::LayerCount) return;
     if (overlay_detail::active) overlay_detail::queued[index] = paint;
@@ -41,6 +43,7 @@ inline void PaintQueuedOverlays()
 {
     const auto frame = overlay_detail::queued;
     overlay_detail::queued = {};
+    if(!ResourceReadsAllowed())return;
     for (const auto paint : frame)
         if (paint) paint();
 }

@@ -15,6 +15,7 @@
 #include <VGUI/IInput.h>
 #include <VGUI/IClientVGUI.h>
 #include <IVGUI2Extension.h>
+#include <SDL2/SDL_events.h>
 #include <usercmd.h>
 #include <in_buttons.h>
 #include <vgui_controls/TextEntry.h>
@@ -58,6 +59,7 @@ Presentation presentation;
 bool arsenalCatalog{};
 const char* MenuResource(bool equipment) { return arsenalCatalog ? ArsenalPresentationResource : equipment ? EquipmentPresentationResource : PresentationResource; }
 bool capability{},equipmentCatalog{},loaded{},visible{},catalogReady{},swallowMouse{},restoreMouse{};
+bool inputSuspended{};
 MenuButtonInput leftInput,rightInput;
 int team=2;
 cvar_t* favoriteCvars[2]{};
@@ -102,6 +104,7 @@ void Layout();
 void PrepareImages();
 void PrepareDetailControls();
 void UpdateDetail();
+void SuspendInput();
 void LoadFavorites(){favorites=ParseFavorites(favoriteCvars[team-1]?favoriteCvars[team-1]->string:"");}
 void SaveFavorites(){const auto text=SerializeFavorites(favorites);engine.Cvar_Set(favoriteCvars[team-1]->name,text.c_str());}
 std::wstring Wide(const std::string& text){int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),nullptr,0);if(n<=0)return{};std::wstring s(n,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),s.data(),n);return s;}
@@ -121,7 +124,7 @@ void Close(bool gameplay=true)
     visible=false;catalogReady=false;
     if(menuLayer)menuLayer->SetVisible(false);
     if(!hadMenu)return;
-    hover=-1;swallowMouse=true;leftInput.Reset();rightInput.Reset();
+    hover=-1;swallowMouse=true;inputSuspended=false;leftInput.Reset();rightInput.Reset();
     if(searchEntry){searchEntry->SetVisible(false);searchEntry->SetKeyBoardInputEnabled(false);}
     // A stock VGUI Buy panel can own SDL/VGUI input after its children close.
     // Hide that owner before handing the cursor back to native game input.
@@ -161,6 +164,17 @@ bool ExpireRequest()
     catalogReady=false;status=L"购买请求超时；请关闭后重试";
     return true;
 }
+void ResumeInput()
+{
+    inputSuspended=false;
+    if(menuLayer)menuLayer->SetMouseInputEnabled(true);
+    if(searchEntry)searchEntry->SetMouseInputEnabled(true);
+    leftInput.Reset(input->IsMouseDown(vgui::MOUSE_LEFT));
+    rightInput.Reset(input->IsMouseDown(vgui::MOUSE_RIGHT));
+    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();
+    surface->UnlockCursor();
+    surface->SetCursor(2);
+}
 void OpenMenu(bool fallback)
 {
     if(visible){Close();return;}
@@ -177,8 +191,10 @@ void OpenMenu(bool fallback)
     }
     if(searchEntry){searchEntry->SetText(L"");searchEntry->SetVisible(true);searchEntry->SetKeyBoardInputEnabled(false);}
     PrepareDetailControls();Layout();UpdateDetail();
-    engine.GetViewAngles(angles);leftInput.Reset(input->IsMouseDown(vgui::MOUSE_LEFT));rightInput.Reset(input->IsMouseDown(vgui::MOUSE_RIGHT));
-    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);Refresh();
+    engine.GetViewAngles(angles);
+    if(Focused())ResumeInput();
+    else SuspendInput();
+    Refresh();
 }
 void Open(){OpenMenu(true);}
 void Cancel(){if(visible)Close();else if(oldCancel)oldCancel();}
@@ -524,6 +540,14 @@ public:
     {
         for(auto* arrow:arrows_)arrow->SetArrowFont(value);
     }
+    void CancelPointerInput()
+    {
+        GetSlider()->OnMouseReleased(vgui::MOUSE_LEFT);
+        for(auto* arrow:arrows_){
+            arrow->SetSelected(false);
+            arrow->SetArmed(false);
+        }
+    }
 protected:
     void ApplySchemeSettings(vgui::IScheme* scheme) override
     {
@@ -606,6 +630,7 @@ public:
         if(!std::strcmp(message->GetName(),"ScrollBarSliderMoved")){canvas_->SetPos(0,-bar_->GetValue());return;}
         vgui::Panel::OnMessage(message,from);
     }
+    void CancelPointerInput() {bar_->CancelPointerInput();}
 protected:
     void OnMouseWheeled(int delta) override {bar_->SetValue(bar_->GetValue()-delta*step_);}
 private:
@@ -614,6 +639,22 @@ private:
     WeaponInfoBar* bar_{};
     int step_{};
 };
+void SuspendInput()
+{
+    if(inputSuspended)return;
+    inputSuspended=true;
+    hover=-1;
+    leftInput.Reset();
+    rightInput.Reset();
+    if(menuLayer)menuLayer->SetMouseInputEnabled(false);
+    if(searchEntry){
+        searchEntry->SetMouseInputEnabled(false);
+        searchEntry->SetKeyBoardInputEnabled(false);
+    }
+    if(descriptionPanel)descriptionPanel->CancelPointerInput();
+    input->SetMouseCapture(0);
+    input->SetCursorOveride(0);
+}
 void PaintWeaponInfo();
 void PrepareDetailControls()
 {
@@ -744,21 +785,58 @@ public:
     void Initialize(CreateInterfaceFn*,int)override{}void Start(cl_enginefuncs_s*,int)override{}void Shutdown()override{Close(false);}
     void Key_Event(int& down,int& key,const char*& binding,VGUI2Extension_CallbackContext* context)override{
         if(!visible||context->IsPost)return;
-        // Let the native VGUI text entry own Unicode/IME, editing, and paste.
-        // Its key focus consumes bindings instead of interpreting B/R as buys.
-        if(searchEntry&&searchEntry->IsKeyBoardInputEnabled()&&searchEntry->HasFocus()&&key!=27&&key!=241&&key!=242)return;
-        if(binding&&(!std::strcmp(binding,"toggleconsole")||!std::strcmp(binding,"snapshot")||!std::strcmp(binding,"screenshot"))){if(down){if(!std::strcmp(binding,"toggleconsole"))Close(false);std::string command=std::string(binding)+"\n";engine.pfnClientCmd(command.data());}}
-        else if(key==241||key==242){int x,y;input->GetCursorPos(x,y);const int hit=Hit(x,y);hover=hit;const int clicked=(key==241?leftInput:rightInput).Event(down!=0,hit);if(clicked>=0){if(key==241)Click(clicked);else EditFavorite(clicked);}}
-        else if(down){if(key==27||(binding&&!std::strcmp(binding,"buy")))Close();else if(key>='0'&&key<='9')Select(key=='0'?9:key-'1');else if(key==149||key==150)Click(key==149?11:10);else if(key=='j')Click(team==1?21:20);else if(key=='r')Click(41);else if(key>0&&key<128&&std::strchr(favoriteKeys,key))Click(30+int(std::strchr(favoriteKeys,key)-favoriteKeys));else if(key==8)Select(9);}
+        if(!inputSuspended&&!Focused())SuspendInput();
+        if(!inputSuspended){
+            // Let the native VGUI text entry own Unicode/IME, editing, and paste.
+            // Its key focus consumes bindings instead of interpreting B/R as buys.
+            if(searchEntry&&searchEntry->IsKeyBoardInputEnabled()&&searchEntry->HasFocus()&&key!=27&&key!=241&&key!=242)return;
+            if(binding&&(!std::strcmp(binding,"toggleconsole")||!std::strcmp(binding,"snapshot")||!std::strcmp(binding,"screenshot"))){if(down){if(!std::strcmp(binding,"toggleconsole"))Close(false);std::string command=std::string(binding)+"\n";engine.pfnClientCmd(command.data());}}
+            else if(key==241||key==242){int x,y;input->GetCursorPos(x,y);const int hit=Hit(x,y);hover=hit;const int clicked=(key==241?leftInput:rightInput).Event(down!=0,hit);if(clicked>=0){if(key==241)Click(clicked);else EditFavorite(clicked);}}
+            else if(down){if(key==27||(binding&&!std::strcmp(binding,"buy")))Close();else if(key>='0'&&key<='9')Select(key=='0'?9:key-'1');else if(key==149||key==150)Click(key==149?11:10);else if(key=='j')Click(team==1?21:20);else if(key=='r')Click(41);else if(key>0&&key<128&&std::strchr(favoriteKeys,key))Click(30+int(std::strchr(favoriteKeys,key)-favoriteKeys));else if(key==8)Select(9);}
+        }
         if(context->pPluginReturnValue)*static_cast<int*>(context->pPluginReturnValue)=1;context->Result=VGUI2Extension_Result::SUPERCEDE_SKIP_PLUGINS;
     }
-    void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
-    void CallEngineSurfaceWndProc(void*&,unsigned int& message,unsigned int& wparam,long&,VGUI2Extension_CallbackContext* context)override{if(visible&&!context->IsPost&&(message==WM_KILLFOCUS||(message==WM_ACTIVATEAPP&&!wparam)))Close(false);}
+    void CallEngineSurfaceAppProc(void*& event,void*&,VGUI2Extension_CallbackContext* context)override
+    {
+        if(!visible||context->IsPost||!event)return;
+        const auto& sdl=*static_cast<const SDL_Event*>(event);
+        if(sdl.type==SDL_WINDOWEVENT&&sdl.window.event==SDL_WINDOWEVENT_FOCUS_LOST)SuspendInput();
+    }
+    void CallEngineSurfaceWndProc(void*&,unsigned int& message,unsigned int& wparam,long&,VGUI2Extension_CallbackContext* context)override
+    {
+        if(visible&&!context->IsPost&&(message==WM_KILLFOCUS||(message==WM_ACTIVATEAPP&&!wparam)))SuspendInput();
+    }
     void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)QueueOverlayPaint(OverlayLayer::BuyMenu,csol::client::Paint);}
     void HideGameUI(VGUI2Extension_CallbackContext*)override{}void HideConsole(VGUI2Extension_CallbackContext*)override{}
     void ActivateGameUI(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Close(false);}
     void ShowConsole(VGUI2Extension_CallbackContext* context)override{if(!context->IsPost)Close(false);}
 } overlay;
+
+void ReleaseBuyVgui()
+{
+    ResetBuyMenu();
+    // The root owns its children. A legacy search entry can instead be
+    // parented directly to the engine's embedded panel.
+    menuLayer.reset();
+    detailPanel=nullptr;descriptionPanel=nullptr;
+    if(searchEntry)searchEntry->MarkForDeletion();
+    searchEntry=nullptr;
+    input=nullptr;surface=nullptr;clientUI=nullptr;schemes=nullptr;
+}
+class BuyClientLifetime final : public IVGUI2Extension_ClientVGUICallbacks {
+public:
+    int GetAltitude()const override{return 31;}
+    void Initialize(CreateInterfaceFn*,int)override{}
+    void Start()override{}
+    void SetParent(vgui::VPANEL)override{}
+    void UseVGUI1(VGUI2Extension_CallbackContext*)override{}
+    void HideScoreBoard(VGUI2Extension_CallbackContext*)override{}
+    void HideAllVGUIMenu(VGUI2Extension_CallbackContext*)override{}
+    void ActivateClientUI(VGUI2Extension_CallbackContext*)override{}
+    void HideClientUI(VGUI2Extension_CallbackContext*)override{}
+    void Shutdown()override{ReleaseBuyVgui();}
+} buyClientLifetime;
+bool callbacksRegistered{};
 }
 void InitializeBuyMenu()
 {
@@ -778,7 +856,11 @@ void InitializeBuyMenu()
     auto module=GetModuleHandleA("vgui2.dll");const auto inputFactory=module?Sys_GetFactory(reinterpret_cast<HINTERFACEMODULE>(module)):nullptr;input=inputFactory?static_cast<vgui::IInput*>(inputFactory(VGUI_INPUT_INTERFACE_VERSION,nullptr)):nullptr;
     schemes=inputFactory?static_cast<vgui::ISchemeManager*>(inputFactory(VGUI_SCHEME_INTERFACE_VERSION,nullptr)):nullptr;
     const auto plugin=api->GetPluginModuleHandleByBaseFileName("VGUI2Extension");const auto pluginFactory=plugin?Sys_GetFactory(plugin):nullptr;extension=pluginFactory?static_cast<IVGUI2Extension*>(pluginFactory(VGUI2_EXTENSION_INTERFACE_VERSION,nullptr)):nullptr;
-    if(extension&&surface&&input)extension->RegisterBaseUICallbacks(&overlay);
+    if(!callbacksRegistered&&extension&&surface&&input){
+        extension->RegisterBaseUICallbacks(&overlay);
+        extension->RegisterClientVGUICallbacks(&buyClientLifetime);
+        callbacksRegistered=true;
+    }
 }
 void ResetBuyMenu()
 {
@@ -802,28 +884,41 @@ void PrepareBuyResourceFonts(ResourceFontPreparation& output)
     if(titleFont && titleFont!=font)output.recipes.push_back({titleFont,next.font,titleRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
     if(tabFont && tabFont!=font && tabFont!=titleFont)output.recipes.push_back({tabFont,next.font,tabRecipeTall,0,0,0,vgui::FONTFLAG_ANTIALIAS,0,0xffff});
 }
-void ShutdownBuyMenu(){ResetBuyMenu();menuLayer.reset();detailPanel=nullptr;descriptionPanel=nullptr;if(searchEntry){searchEntry->MarkForDeletion();searchEntry=nullptr;}if(extension)extension->UnregisterBaseUICallbacks(&overlay);if(privateFont)RemoveFontMemResourceEx(privateFont);privateFont=nullptr;extension=nullptr;input=nullptr;surface=nullptr;clientUI=nullptr;schemes=nullptr;menuFonts.Invalidate();font=titleFont=tabFont=closeFont=0;fontScreenW=fontScreenH=0;}
+void ShutdownBuyMenu()
+{
+    ReleaseBuyVgui();
+    if(extension&&callbacksRegistered){
+        extension->UnregisterClientVGUICallbacks(&buyClientLifetime);
+        extension->UnregisterBaseUICallbacks(&overlay);
+    }
+    callbacksRegistered=false;extension=nullptr;
+    if(privateFont)RemoveFontMemResourceEx(privateFont);
+    privateFont=nullptr;menuFonts.Invalidate();font=titleFont=tabFont=closeFont=0;fontScreenW=fontScreenH=0;
+}
 void BuyMenuFrame()
 {
     if(!visible)return;
     if(view.health<=0||view.spectator){Close();return;}
-    if(ExpireRequest())return;
-    if(visible){
-        if(!Focused()){Close(false);return;}Layout();
-        if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
-        int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);
-        const int leftClick=leftInput.Poll(input->IsMouseDown(vgui::MOUSE_LEFT),hover);if(leftClick>=0)Click(leftClick);
-        if(!visible)return;
-        UpdateDetail();
-        const int rightClick=rightInput.Poll(input->IsMouseDown(vgui::MOUSE_RIGHT),hover);if(rightClick>=0)EditFavorite(rightClick);
-        if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
-    }
+    const bool requestExpired=ExpireRequest();
+    if(!Focused()){SuspendInput();return;}
+    if(inputSuspended){ResumeInput();return;}
+    if(requestExpired)return;
+    Layout();
+    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
+    int x,y;input->GetCursorPos(x,y);hover=Hit(x,y);
+    const int leftClick=leftInput.Poll(input->IsMouseDown(vgui::MOUSE_LEFT),hover);if(leftClick>=0)Click(leftClick);
+    if(!visible)return;
+    UpdateDetail();
+    const int rightClick=rightInput.Poll(input->IsMouseDown(vgui::MOUSE_RIGHT),hover);if(rightClick>=0)EditFavorite(rightClick);
+    if(searchEntry){wchar_t value[49]{};searchEntry->GetText(value,sizeof(value));if(query!=value){query=value;rowsCategory=-2;page=0;}}
 }
 void BuyMenuCreateMove(usercmd_t* cmd,int active)
 {
     if(!cmd)return;
     if(!visible){if(active)RestoreMouse();if(swallowMouse){cmd->buttons&=~(IN_ATTACK|IN_ATTACK2);if(!input||(!input->IsMouseDown(vgui::MOUSE_LEFT)&&!input->IsMouseDown(vgui::MOUSE_RIGHT)))swallowMouse=false;}return;}
-    cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;std::copy_n(angles,3,cmd->viewangles);engine.SetViewAngles(angles);
+    cmd->buttons=0;cmd->forwardmove=cmd->sidemove=cmd->upmove=0;
+    if(inputSuspended)return;
+    std::copy_n(angles,3,cmd->viewangles);engine.SetViewAngles(angles);
 }
 bool BuyMenuVisible(){return visible;}
 bool PrepareBuyMenuItem(int id)
@@ -835,5 +930,5 @@ bool PrepareBuyMenuItem(int id)
     return image != imageRefs.end() && image->second != 0;
 }
 void CloseBuyMenuForOverlay(){Close(false);restoreMouse=false;}
-void BuyMenuDiagnostics(std::ostream& out){out<<",\"buyMenu\":{\"capability\":"<<capability<<",\"visible\":"<<visible<<",\"loaded\":"<<loaded<<",\"team\":"<<team<<",\"category\":"<<category<<",\"search\":"<<bool(searchEntry)<<",\"offers\":"<<offers.size()<<",\"purchases\":"<<purchases<<",\"rejected\":"<<rejected<<",\"draws\":"<<draws<<",\"mouseRestores\":"<<restores<<'}';}
+void BuyMenuDiagnostics(std::ostream& out){out<<",\"buyMenu\":{\"capability\":"<<capability<<",\"visible\":"<<visible<<",\"inputSuspended\":"<<inputSuspended<<",\"loaded\":"<<loaded<<",\"team\":"<<team<<",\"category\":"<<category<<",\"search\":"<<bool(searchEntry)<<",\"offers\":"<<offers.size()<<",\"purchases\":"<<purchases<<",\"rejected\":"<<rejected<<",\"draws\":"<<draws<<",\"mouseRestores\":"<<restores<<'}';}
 }

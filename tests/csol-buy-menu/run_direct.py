@@ -25,7 +25,8 @@ def main():
  flags+=['-D'+v for v in ['VGUI_USE_SURFACE2','VGUI_USE_SCHEME2','VGUI_USE_INPUT2','NO_MALLOC_OVERRIDE','NO_TIER0_MINIDUMP','NO_VCR']]
  flags+=['-I'+str(ROOT/'external/MetaHookSv/MetaHook/include'/v) for v in ['VGUI','Interface/VGUI','vgui_controls','SourceSDK/vstdlib']]
  flags+=['-I'+str(ROOT/'external/MetaHookSv/Plugins/VGUI2Extension/include/Interface')]
- library=ROOT/'build/csol-client-crc/client/csol_damage_vgui.lib'
+ flags+=['-I'+str(ROOT/'external/MetaHookSv-20261007/MetaHook/thirdparty/sdl2-compat-fork/include')]
+ library=Path(entry['directory']).resolve(strict=True)/'csol_damage_vgui.lib'
  sources=[ROOT/'tests/csol-buy-menu/direct.cpp',ROOT/'native/csol/buy_menu.cpp',ROOT/'native/csol/image_codec.cpp']
  tracked=set(sources+[Path(__file__),library,a.compile_database.resolve(),a.environment.resolve()])
  # Resolve actual quoted and angle includes against the production search paths.

@@ -10,6 +10,7 @@ SIGNATURES = [
     'void Panel(', 'void Text(', 'std::wstring Fit(', 'void Button(', 'int MaxScroll()',
     'MenuRect Scrollbar()', 'MenuRect Thumb()', 'MenuRect Card(', 'int Hit(', 'void Click(',
     'void Paint()', 'void ScenarioMapVoteFrame()', 'void ScenarioMapVoteCreateMove(',
+    'bool ScenarioMapVoteVisible()',
 ]
 
 
@@ -33,6 +34,9 @@ def main():
     signatures = list(SIGNATURES)
     if 'double VoteClock()' in text:
         signatures.insert(0, 'double VoteClock()')
+    if 'void SuspendInput()' in text:
+        index = signatures.index('void Open()')
+        signatures[index:index] = ['void SuspendInput()', 'void ResumeInput()']
     if 'void Suspend()' in text:
         signatures.insert(signatures.index('void Open()'), 'void Suspend()')
     parts = [extract(text, signature) for signature in signatures]

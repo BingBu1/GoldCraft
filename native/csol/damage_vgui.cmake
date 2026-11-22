@@ -19,3 +19,5 @@ set_source_files_properties(client/scenario/core/damage_options.cpp client/chara
     INCLUDE_DIRECTORIES "${CSOL_DAMAGE_VGUI_INCLUDES}"
     COMPILE_DEFINITIONS "${CSOL_DAMAGE_VGUI_DEFINITIONS}")
 target_link_libraries(CSOLSupport PRIVATE csol_damage_vgui imm32 winmm)
+set_property(SOURCE client/buy_menu.cpp client/scenario/core/scenario_map_vote.cpp
+    APPEND PROPERTY INCLUDE_DIRECTORIES "${METAHOOK_ROOT}/MetaHook/thirdparty/sdl2-compat-fork/include")

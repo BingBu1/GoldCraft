@@ -12,6 +12,7 @@
 #include <VGUI/IInput.h>
 #include <VGUI/IClientVGUI.h>
 #include <IVGUI2Extension.h>
+#include <SDL2/SDL_events.h>
 #include <vgui_controls/Panel.h>
 #include <usercmd.h>
 #include <in_buttons.h>
@@ -41,8 +42,8 @@ mv::Countdown countdown;
 vgui::DHANDLE<vgui::Panel> listPanel;
 std::unordered_map<std::string,int> textures;
 bool loaded{},visible{},mouseHeld{},restoreMouse{},swallowMouse{},registered{},listPainting{},dragging{},gameUiVisible{};
-// GoldCraft rule: keep an active ballot open; host UI/focus only suspends it.
-bool pendingOpen{},clientLifetimeRegistered{};
+// The ballot stays visible when only the window loses focus.
+bool inputSuspended{},ignoreHeldMouse{},pendingOpen{},clientLifetimeRegistered{};
 int left{},top{},fontHeight{},scroll{},hover{-1},dragY{},dragStart{};
 float scale{1},angles[3]{};
 std::uint16_t selection{};
@@ -76,10 +77,30 @@ void RestoreMouse()
 }
 void Close(bool gameplay=true)
 {
-    if(!visible){if(gameplay)RestoreMouse();return;}visible=false;swallowMouse=true;hover=-1;dragging=false;
+    if(!visible){if(gameplay)RestoreMouse();return;}
+    visible=false;swallowMouse=true;hover=-1;dragging=false;inputSuspended=ignoreHeldMouse=false;
     if(listPanel)listPanel->SetVisible(false);
     if(input){input->SetMouseCapture(0);input->SetCursorOveride(0);}
     restoreMouse=gameplay;if(gameplay)RestoreMouse();
+}
+void SuspendInput()
+{
+    if(inputSuspended)return;
+    inputSuspended=true;
+    hover=-1;
+    mouseHeld=false;
+    dragging=false;
+    input->SetMouseCapture(0);
+    input->SetCursorOveride(0);
+}
+void ResumeInput()
+{
+    inputSuspended=false;
+    mouseHeld=input->IsMouseDown(vgui::MOUSE_LEFT);
+    ignoreHeldMouse=mouseHeld;
+    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();
+    surface->UnlockCursor();
+    surface->SetCursor(2);
 }
 void Suspend()
 {
@@ -117,14 +138,15 @@ bool Load()
 void Open()
 {
     if(visible)return;
-    if(!surface||!input||!extension||!Focused()||gameUiVisible||(engine.Con_IsVisible&&engine.Con_IsVisible())||!Remaining()||!Load())return;
+    if(!surface||!input||!extension||gameUiVisible||(engine.Con_IsVisible&&engine.Con_IsVisible())||!Remaining()||!Load())return;
     CloseBuyMenuForOverlay();CloseCharacterMenuForOverlay();
     if(clientUI)clientUI->HideAllVGUIMenu();ClearNativeWeaponSelection();
     visible=true;pendingOpen=false;restoreMouse=false;hover=-1;
     listPanel->SetVisible(true);
     if(!selection&&state.count)selection=state.choices[0].id;
-    engine.GetViewAngles(angles);mouseHeld=input->IsMouseDown(vgui::MOUSE_LEFT);
-    if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
+    engine.GetViewAngles(angles);
+    if(Focused())ResumeInput();
+    else SuspendInput();
 }
 int Receive(const char*,int size,void* data)
 {
@@ -272,19 +294,27 @@ public:
     void Initialize(CreateInterfaceFn*,int)override{}void Start(cl_enginefuncs_s*,int)override{}void Shutdown()override{Close(false);}
     void Key_Event(int& down,int& key,const char*& binding,VGUI2Extension_CallbackContext* context)override{
         if(!visible||context->IsPost)return;
-        if(binding&&(!std::strcmp(binding,"toggleconsole")||!std::strcmp(binding,"snapshot")||!std::strcmp(binding,"screenshot"))){
-            if(down){if(!std::strcmp(binding,"toggleconsole"))Suspend();std::string command=std::string(binding)+"\n";engine.pfnClientCmd(command.data());}
-        }else if(down){
-            if(key==13)Click(Confirm);else if(key>='1'&&key<='9')Click(key-'1');
-            else if(key==149||key==150)scroll=std::clamp(scroll+(key==149?48:-48),0,MaxScroll());
-            else if(key==241){int x{},y{};input->GetCursorPos(x,y);mouseHeld=true;Click(Hit(x,y));}
+        if(!inputSuspended&&!Focused())SuspendInput();
+        if(!inputSuspended){
+            if(binding&&(!std::strcmp(binding,"toggleconsole")||!std::strcmp(binding,"snapshot")||!std::strcmp(binding,"screenshot"))){
+                if(down){if(!std::strcmp(binding,"toggleconsole"))Suspend();std::string command=std::string(binding)+"\n";engine.pfnClientCmd(command.data());}
+            }else if(down){
+                if(key==13)Click(Confirm);else if(key>='1'&&key<='9')Click(key-'1');
+                else if(key==149||key==150)scroll=std::clamp(scroll+(key==149?48:-48),0,MaxScroll());
+                else if(key==241&&!ignoreHeldMouse){int x{},y{};input->GetCursorPos(x,y);mouseHeld=true;Click(Hit(x,y));}
+            }
         }
         if(context->pPluginReturnValue)*static_cast<int*>(context->pPluginReturnValue)=1;
         context->Result=VGUI2Extension_Result::SUPERCEDE_SKIP_PLUGINS;
     }
-    void CallEngineSurfaceAppProc(void*&,void*&,VGUI2Extension_CallbackContext*)override{}
+    void CallEngineSurfaceAppProc(void*& event,void*&,VGUI2Extension_CallbackContext* context)override
+    {
+        if(!visible||context->IsPost||!event)return;
+        const auto& sdl=*static_cast<const SDL_Event*>(event);
+        if(sdl.type==SDL_WINDOWEVENT&&sdl.window.event==SDL_WINDOWEVENT_FOCUS_LOST)SuspendInput();
+    }
     void CallEngineSurfaceWndProc(void*&,unsigned int& message,unsigned int& wparam,long&,VGUI2Extension_CallbackContext* context)override{
-        if(visible&&!context->IsPost&&(message==WM_KILLFOCUS||(message==WM_ACTIVATEAPP&&!wparam)))Suspend();
+        if(visible&&!context->IsPost&&(message==WM_KILLFOCUS||(message==WM_ACTIVATEAPP&&!wparam)))SuspendInput();
     }
     void Paint(int&,int&,int&,int&,VGUI2Extension_CallbackContext* context)override{if(context->IsPost)QueueOverlayPaint(OverlayLayer::MapVote,csol::client::Paint);}
     void HideGameUI(VGUI2Extension_CallbackContext* context)override{if(context->IsPost)gameUiVisible=false;}void HideConsole(VGUI2Extension_CallbackContext*)override{}
@@ -341,15 +371,19 @@ void ScenarioMapVoteFrame()
     if(!Remaining()){pendingOpen=false;Close();return;}
     if(pendingOpen&&!BuyMenuVisible()&&!CharacterMenuVisible())Open();
     if(!visible)return;
-    if(!Focused()||gameUiVisible||(engine.Con_IsVisible&&engine.Con_IsVisible())||BuyMenuVisible()||CharacterMenuVisible()){Suspend();return;}Layout();
+    if(gameUiVisible||(engine.Con_IsVisible&&engine.Con_IsVisible())||BuyMenuVisible()||CharacterMenuVisible()){Suspend();return;}
+    if(!Focused()){SuspendInput();return;}
+    if(inputSuspended){ResumeInput();return;}
+    Layout();
     if(downstream.IN_DeactivateMouse)downstream.IN_DeactivateMouse();surface->UnlockCursor();surface->SetCursor(2);
     int x{},y{};input->GetCursorPos(x,y);hover=Hit(x,y);
-    const bool pressed=input->IsMouseDown(vgui::MOUSE_LEFT);if(pressed&&!mouseHeld)Click(hover);
+    const bool pressed=input->IsMouseDown(vgui::MOUSE_LEFT);if(pressed&&!mouseHeld&&!ignoreHeldMouse)Click(hover);
     if(dragging&&pressed&&MaxScroll()){
         const auto thumb=Thumb();const int travel=Scrollbar().h-thumb.h;
         if(travel>0)scroll=std::clamp(dragStart+(int((y-top)/scale)-dragY)*MaxScroll()/travel,0,MaxScroll());
     }
-    if(!pressed)dragging=false;mouseHeld=pressed;
+    if(!pressed){dragging=false;ignoreHeldMouse=false;}
+    mouseHeld=pressed;
 }
 void ScenarioMapVoteCreateMove(usercmd_t* command,int active)
 {
@@ -359,12 +393,14 @@ void ScenarioMapVoteCreateMove(usercmd_t* command,int active)
         if(active)RestoreMouse();if(swallowMouse){command->buttons&=~(IN_ATTACK|IN_ATTACK2);if(!input||(!input->IsMouseDown(vgui::MOUSE_LEFT)&&!input->IsMouseDown(vgui::MOUSE_RIGHT)))swallowMouse=false;}return;
     }
     command->buttons=0;command->forwardmove=command->sidemove=command->upmove=0;
+    if(inputSuspended)return;
     std::copy_n(angles,3,command->viewangles);engine.SetViewAngles(angles);
 }
 bool ScenarioMapVoteVisible(){return visible;}
 void ScenarioMapVoteDiagnostics(std::ostream& output)
 {
     output<<",\"mapVote\":{\"generation\":"<<state.generation<<",\"visible\":"<<visible
+        <<",\"inputSuspended\":"<<inputSuspended
         <<",\"revision\":"<<state.revision<<",\"phase\":"<<unsigned(state.phase)
         <<",\"remaining\":"<<Remaining()<<",\"pending\":"<<pendingOpen
         <<",\"restoreMouse\":"<<restoreMouse<<",\"gameUiVisible\":"<<gameUiVisible

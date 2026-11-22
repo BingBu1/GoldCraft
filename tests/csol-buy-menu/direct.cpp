@@ -3,7 +3,8 @@
 // Engine/VGUI boundaries are controlled; this is not a visual or gameplay test.
 #include <windows.h>
 static HWND BuyFixtureForeground(){return reinterpret_cast<HWND>(1);}
-static DWORD BuyFixtureWindowProcess(HWND,DWORD* process){*process=GetCurrentProcessId();return 1;}
+static bool buyFixtureFocused=true;
+static DWORD BuyFixtureWindowProcess(HWND,DWORD* process){*process=buyFixtureFocused?GetCurrentProcessId():0;return 1;}
 #define GetForegroundWindow BuyFixtureForeground
 #define GetWindowThreadProcessId BuyFixtureWindowProcess
 #include "tests/csol-hud-style/allocation_probe.hpp"
@@ -92,6 +93,11 @@ void Fresh(){
  category=-1;page=0;hover=-1;detailItem=0;query.clear();rowsCategory=-2;commands.clear();offers.clear();status.clear();leftInput.Reset();rightInput.Reset();swallowMouse=restoreMouse=false;inputCapture.left=inputCapture.right=false;Offers();commands.clear();
 }
 void Key(int key,bool down){int d=down,k=key,value{};const char* binding=nullptr;VGUI2Extension_CallbackContext context{};context.pPluginReturnValue=&value;overlay.Key_Event(d,k,binding,&context);Check(value==1,"real overlay consumes menu input");}
+void LoseFocus(unsigned message)
+{
+ void* window{};unsigned wparam{};long lparam{};VGUI2Extension_CallbackContext context{};
+ overlay.CallEngineSurfaceWndProc(window,message,wparam,lparam,&context);
+}
 void StateTests(){
  Fresh();visible=false;capability=false;oldBuy=[](){++nativeBuys;};const auto nativeBefore=nativeBuys;OpenMenu(true);Check(!visible&&nativeBuys==nativeBefore+1,"ordinary server falls back through chained native buy");
  Deliver(Kind::Capability);OpenMenu(false);Check(visible&&!catalogReady&&request==8&&commands.size()==1,"capable open requests authoritative catalog");OpenMenu(false);Check(!visible,"buy toggle closes visible menu");
@@ -152,6 +158,52 @@ void StateTests(){
  Fresh();category=4;const auto& favoritesRows=Rows();const auto expected=favoritesRows.front()->id;EditFavorite(0);Check(favorites[0]==expected,"actual favorite editor saves visible item");EditFavorite(30);Check(favorites[0]==0,"actual favorite editor removes saved slot");
  Fresh();const auto unsolicitedUI=ui();const auto countBefore=purchases;Deliver(Kind::Result,16,Result::Success);
  Check(ui()==unsolicitedUI&&purchases==countBefore,"unrequested result leaves ordinary UI and authority accounting untouched");
+}
+void WindowFocusTests()
+{
+ font=11;titleFont=12;tabFont=13;closeFont=14;
+ for(unsigned message:{0u,unsigned(WM_KILLFOCUS),unsigned(WM_ACTIVATEAPP)}){
+  Fresh();category=4;Rows();Layout();
+  const auto slot=PixelBounds(presentation.slots[0]);
+  inputCapture.x=slot.x+slot.w/2;inputCapture.y=slot.y+slot.h/2;
+  inputCapture.left=inputCapture.right=true;
+  Key(241,true);Key(242,true);
+  const auto state=std::tuple{request,category,page,favorites};
+  const auto drawBefore=draws,deactivateBefore=deactivates,captureBefore=inputCapture.captureCalls;
+  buyFixtureFocused=false;
+  if(message)LoseFocus(message);
+  else Key('r',true); // Input may arrive before HUD_Frame observes focus loss.
+  BuyMenuFrame();Paint();BuyMenuFrame();Paint();
+  Check(visible&&catalogReady&&draws==drawBefore+2,"background buy menu continues drawing with its catalog");
+  Check(deactivates==deactivateBefore&&inputCapture.captureCalls==captureBefore+1,"focus loss clears capture once without taking the background cursor");
+  Key('r',true);Key(241,false);Key(242,false);
+  Check(commands.empty()&&std::tuple{request,category,page,favorites}==state,"background events do not purchase or edit selection");
+  buyFixtureFocused=true;
+  BuyMenuFrame();Key(241,true);Key(242,true);
+  inputCapture.left=inputCapture.right=false;
+  Key(241,false);Key(242,false);
+  BuyMenuFrame();
+  Check(visible&&commands.empty()&&favorites==std::get<3>(state),"release of focus click cannot buy or edit a favorite");
+  Key(241,true);Key(241,false);
+  Check(!visible&&commands.size()==1&&commands.front().starts_with("csol_buy 7 "),"fresh click after focus restoration purchases exactly once");
+ }
+ Fresh();
+ SDL_Event lost{};
+ lost.type=SDL_WINDOWEVENT;
+ lost.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+ void* event=&lost;
+ void* userData=nullptr;
+ VGUI2Extension_CallbackContext context{};
+ overlay.CallEngineSurfaceAppProc(event,userData,&context);
+ Check(visible&&inputSuspended,"SDL focus event suspends the active purchase menu before the input frame");
+ Key('r',true);
+ Check(commands.empty(),"queued keys after SDL focus loss cannot rebuy");
+ Close(false);buyFixtureFocused=false;
+ const auto before=deactivates;
+ OpenMenu(false);Offers();Paint();
+ Check(visible&&catalogReady&&deactivates==before,"server-requested purchase menu opens in background without capture");
+ view.health=0;BuyMenuFrame();view.health=100;buyFixtureFocused=true;
+ Check(!visible,"death closes an unfocused buy menu");
 }
 void RebuyTests(){
  // The registered command wrapper is tested directly; a physical F2 binding
@@ -317,6 +369,21 @@ void NativeControls(){
  Check(actualBar->GetValue()==maximum-actualBar->GetRangeWindow()&&host.nodes[canvas].y==-actualBar->GetValue(),"actual SDK thumb drag clamps at bottom and updates canvas");
  auto* release=new KeyValues("MouseReleased","code",int(vgui::MOUSE_LEFT));host.Client(slider)->OnMessage(release,0);release->deleteThis();nativeInput.left=false;
  Check(nativeInput.capture==0,"actual SDK slider release frees native capture");
+ actualBar->SetValue(step);gui.RunFrame();
+ actualBar->GetSlider()->GetNobPos(first,last);
+ nativeInput.SetCursorPos(ax+1,ay+(first+last)/2);nativeInput.left=true;
+ actualBar->GetSlider()->OnMousePressed(vgui::MOUSE_LEFT);
+ Check(nativeInput.capture==slider,"native slider is captured before focus loss");
+ arrow->SetArmed(true);arrow->OnMousePressed(vgui::MOUSE_LEFT);
+ buyFixtureFocused=false;LoseFocus(WM_KILLFOCUS);BuyMenuFrame();
+ Check(menuLayer->IsVisible()&&!menuLayer->IsMouseInputEnabled()&&inputCapture.captured==0&&nativeInput.capture==0&&!arrow->IsSelected(),
+       "focus loss preserves painted controls and releases native thumb and arrow input");
+ const auto scrolled=actualBar->GetValue();
+ actualBar->GetSlider()->OnCursorMoved(1,actualBar->GetSlider()->GetTall()+100);
+ arrow->OnMouseFocusTicked();gui.RunFrame();
+ Check(actualBar->GetValue()==scrolled,"cancelled native drag and arrow cannot scroll after focus loss");
+ nativeInput.left=false;buyFixtureFocused=true;BuyMenuFrame();
+ Check(menuLayer->IsMouseInputEnabled(),"focused menu restores native pointer routing");
  hover=-1;detailItem=tableItem;UpdateDetail();Check(!descriptionPanel->IsVisible(),"table mode hides description scroller");
  detailItem=textItem;UpdateDetail();const auto kept=detailItem;hover=-1;UpdateDetail();Check(detailItem==kept&&descriptionPanel->IsVisible(),"hover exit retains the last valid description");
  const auto readBefore=reads,uploadBefore=uploads;
@@ -382,6 +449,12 @@ void SearchFocus(){
  Check(message("KeyCodeTyped","code",int(vgui::KEY_BACKSPACE)),"SDK key focus receives backspace edit");
  searchEntry->GetText(text,sizeof(text));Check(std::wstring_view(text)==L"br","actual TextEntry backspace edits its buffer");
  BuyMenuFrame();Check(query==L"br","production frame consumes actual SDK-edited search text");
+ buyFixtureFocused=false;LoseFocus(WM_ACTIVATEAPP);gui.RunFrame();
+ searchEntry->GetText(text,sizeof(text));
+ Check(searchEntry->IsVisible()&&std::wstring_view(text)==L"br"&&query==L"br"&&!searchEntry->IsKeyBoardInputEnabled(),
+       "focus loss preserves native search and releases editing focus");
+ buyFixtureFocused=true;BuyMenuFrame();Click(40);gui.RunFrame();
+ Check(searchEntry->HasFocus()&&query==L"br","native search can resume editing the same query");
  Click(team==1?21:20);gui.RunFrame();
  Check(!searchEntry->IsKeyBoardInputEnabled(),"clicking team tab disables native search keyboard input");
  Check(!searchEntry->HasFocus()&&nativeInput.GetFocus()!=searchEntry->GetVPanel(),"clicking team tab retires SDK search focus through its actual parent");
@@ -418,7 +491,7 @@ void* RegisterResourceFont(void*&,const char*,const char*,std::span<const std::b
 }
 int main(int argc,char** argv){
  if(argc!=2)return 2;fixture::resources=argv[1];fixture::Setup();
- try{fixture::Check(csol::client::Load(),"complete actual client loads real buy resource and TGA codec");fixture::Check(csol::client::presentation.normalizedLayout,"normalized schema parsed");fixture::StateTests();fixture::RebuyTests();fixture::RefreshTests();fixture::HotPath();fixture::NativeControls();fixture::SearchFocus();}
+ try{fixture::Check(csol::client::Load(),"complete actual client loads real buy resource and TGA codec");fixture::Check(csol::client::presentation.normalizedLayout,"normalized schema parsed");fixture::StateTests();fixture::WindowFocusTests();fixture::RebuyTests();fixture::RefreshTests();fixture::HotPath();fixture::NativeControls();fixture::SearchFocus();}
  catch(const std::exception& e){++fixture::failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}
  csol::client::extension=nullptr;csol::client::ResetBuyMenu();std::cout<<"checks="<<fixture::checks<<" failures="<<fixture::failures<<'\n';return fixture::failures?1:0;
 }

@@ -4,6 +4,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <SDL2/SDL_events.h>
 #include "../../native/csol/scenario/core/map_vote_presentation.hpp"
 #include "../../native/csol/scenario/core/map_vote.hpp"
 #include <algorithm>
@@ -25,7 +26,7 @@ mv::Snapshot state;
 mv::Countdown countdown;
 std::unordered_map<std::string,int> textures;
 bool loaded{},visible{},mouseHeld{},restoreMouse{},swallowMouse{},registered{},listPainting{},dragging{},gameUiVisible{};
-bool pendingOpen{};
+bool inputSuspended{},ignoreHeldMouse{},pendingOpen{};
 #ifdef CSOL_MAP_VOTE_TEST_RESET
 HANDLE privateFont{};
 #endif
@@ -48,8 +49,8 @@ struct Panel {
     unsigned GetVPanel(){return 2;}
 }panel,*listPanel=&panel;
 struct Input {
-    bool down[2]{};int x{},y{};
-    void SetMouseCapture(int){}void SetCursorOveride(int){}
+    bool down[2]{};int x{},y{};unsigned captureClears{};
+    void SetMouseCapture(int){++captureClears;}void SetCursorOveride(int){}
     bool IsMouseDown(int button){return down[button];}
     void GetCursorPos(int& a,int& b){a=x;b=y;}
 }inputValue,*input=&inputValue;
@@ -160,6 +161,22 @@ void ResetScenarioRoundHud(){}
 void ResetScenarioRespawnUi(){}
 void ResetPlayerClips(){}
 void ResetRenderSettings(){}
+void ResetChallengeEnvironment(){}
+void ResetChallengePhase(){}
+void ResetHumanKick(){}
+void ResetBodyStains(){}
+void ResetMonsterStains(){}
+void ResetCofMovementInput(){}
+void ResetStandaloneMovementInput(){}
+void ResetStaminaAudio(){}
+void ResetStaminaHud(){}
+void BodyStainsFrame(){}
+void PrepareCofLightEquipment(){}
+void GuestCofAudioFrame(){}
+void HumanKickFrame(){}
+void ChallengePhaseFrame(){}
+void StaminaHudFrame(){}
+void GuestCofAdmissionFrame(){}
 void ScenarioEffectsFrame(){}
 void ScenarioMusicFrame(){}
 void ScenarioKillFrame(){}
@@ -185,6 +202,10 @@ bool ResourceReadsAllowed(){return true;}
 void BossImpactCreateMove(int){}
 void CharacterCreateMove(float,usercmd_t*,int){}
 void BuyMenuCreateMove(usercmd_t*,int){}
+void GuestCofCreateMove(usercmd_t*,int,bool){}
+bool GuestCofAdmitted(int){return false;}
+struct TestWeapon {int id{};};
+TestWeapon CurrentExtendedWeapon(){return {};}
 #include "actual_session.inc"
 
 void Reset(unsigned count=7)
@@ -196,7 +217,7 @@ void Reset(unsigned count=7)
         state.choices[i].id=presentation.maps[i].id;
     }
     textures.clear();int id{};for(const auto& path:mv::Resources(presentation))if(path.ends_with(".tga"))textures.emplace(path,++id);
-    countdown.Reset();clockTime=1;countdown.Observe(state,clockTime);loaded=true;visible=false;pendingOpen=false;mouseHeld=restoreMouse=swallowMouse=dragging=gameUiVisible=listPainting=false;
+    countdown.Reset();clockTime=1;countdown.Observe(state,clockTime);loaded=true;visible=false;pendingOpen=inputSuspended=ignoreHeldMouse=false;mouseHeld=restoreMouse=swallowMouse=dragging=gameUiVisible=listPainting=false;
     focused=true;buyVisible=characterVisible=consoleVisible=false;selection=0;hover=-1;scroll=0;font=0;fontHeight=0;
     surfaceValue.width=1920;surfaceValue.height=1080;surfaceValue.events.clear();surfaceValue.stack.clear();inputValue={};commands.clear();
     readCalls=activations=deactivations=clears=buyCloses=characterCloses=0;Open();Layout();
@@ -262,9 +283,9 @@ mv::Snapshot BeginBlockedVote()
 }
 void AutoOpenTests()
 {
-    for(int blocker=0;blocker<3;++blocker){
+    for(int blocker=0;blocker<2;++blocker){
         Reset();Close(false);
-        consoleVisible=blocker==0;gameUiVisible=blocker==1;focused=blocker!=2;
+        consoleVisible=blocker==0;gameUiVisible=blocker==1;
         auto next=BeginBlockedVote();
         Check(!visible&&pendingOpen&&deactivations==1,"blocked first snapshot defers display without taking mouse");
         // These callbacks may call Close even though the vote has never opened.
@@ -283,7 +304,7 @@ void AutoOpenTests()
     gameUiVisible=true;consoleVisible=false;ScenarioMapVoteFrame();
     Check(!visible&&pendingOpen,"one remaining UI blocker still defers display");
     gameUiVisible=false;focused=false;ScenarioMapVoteFrame();
-    Check(!visible&&pendingOpen,"foreground focus remains required after UI closes");
+    Check(visible&&!pendingOpen&&inputSuspended,"ballot opens in background once the game UI closes");
     focused=true;ScenarioMapVoteFrame();Click(Confirm);++next.revision;Deliver(next);ScenarioMapVoteFrame();
     Check(visible&&!pendingOpen&&commands.size()==1,"submitted ballot stays visible through acknowledgement");
     for(const auto phase:std::array{mv::Phase::Cancelled,mv::Phase::Finished}){
@@ -345,12 +366,14 @@ void PersistentTests()
         const auto held=deactivations;
         for(int frame=0;frame<3;++frame){
             ScenarioMapVoteFrame();command={IN_ATTACK|IN_ATTACK2,10,20,30,{}};ScenarioMapVoteCreateMove(&command,1);
-            Check(!visible&&pendingOpen&&deactivations==held&&activations==0,"blocked frames neither steal focus nor hand input to weapons");
+            const bool background=blocker==2||blocker==3;
+            Check(visible==background&&pendingOpen!=background&&deactivations==held&&activations==0,
+                  "only host overlays suspend drawing and blocked frames do not take mouse");
             Check(command.buttons==0&&command.forwardmove==0&&command.sidemove==0&&command.upmove==0,"suspended ballot suppresses queued attack and movement input");
         }
         context.IsPost=true;overlay.HideGameUI(&context);overlay.HideConsole(&context);
         focused=true;consoleVisible=characterVisible=false;ScenarioMapVoteFrame();
-        Check(visible&&!pendingOpen&&selection==chosen&&scroll==offset,"host UI and focus restoration resumes same ballot selection and scroll");
+        Check(visible&&!pendingOpen&&!inputSuspended&&selection==chosen&&scroll==offset,"host UI and focus restoration resumes same ballot selection and scroll");
     }
     Reset();Key('`',"toggleconsole");
     Check(!visible&&pendingOpen&&commands.size()==1&&commands[0]=="toggleconsole\n","console binding suspends rather than dismisses ballot");
@@ -374,6 +397,52 @@ void PersistentTests()
     Reset();VGUI2Extension_CallbackContext post;post.IsPost=true;overlay.ActivateGameUI(&post);overlay.ShowConsole(&post);
     Check(visible&&!gameUiVisible&&!pendingOpen,"post UI callbacks do not repeat ownership transitions");
 }
+void WindowFocusTests()
+{
+    Reset(16);
+    selection=state.choices[3].id;
+    scroll=MaxScroll();
+    const int offset=scroll;
+    const auto choice=selection;
+    const auto generation=state.generation;
+    dragging=true;mouseHeld=true;
+    inputValue.down[0]=true;
+    inputValue.x=X(presentation.confirm.x+2);
+    inputValue.y=Y(presentation.confirm.y+2);
+    focused=false;
+    const auto deactivationsBefore=deactivations,captureBefore=inputValue.captureClears,drawBefore=draws;
+    SDL_Event lost{};
+    lost.type=SDL_WINDOWEVENT;
+    lost.window.event=SDL_WINDOWEVENT_FOCUS_LOST;
+    void* event=&lost;
+    void* userData=nullptr;
+    VGUI2Extension_CallbackContext before{};
+    overlay.CallEngineSurfaceAppProc(event,userData,&before);
+    Check(inputSuspended&&visible&&!dragging,"SDL focus event suspends the active ballot before the input frame");
+    Key(13);
+    clockTime+=1;
+    ScenarioMapVoteFrame();Paint();ScenarioMapVoteFrame();
+    Check(visible&&listPanel->visible&&draws==drawBefore+1&&Remaining()==19,"inactive ballot still paints and counts down");
+    Check(!dragging&&inputValue.captureClears==captureBefore+1&&deactivations==deactivationsBefore,
+          "focus loss stops drag and releases capture only once");
+    Key(13);Key('1');Key(149);Key(241);
+    Check(commands.empty()&&selection==choice&&scroll==offset,"background events do not vote or change ballot state");
+    focused=true;ScenarioMapVoteFrame();Key(241);ScenarioMapVoteFrame();
+    Check(commands.empty()&&selection==choice&&scroll==offset,"focus-restoring click cannot vote or drag");
+    inputValue.down[0]=false;Key(241,nullptr,0);ScenarioMapVoteFrame();
+    Key(241);Check(commands.size()==1&&state.generation==generation&&selection==choice,"fresh mouse press submits once to the same ballot");
+
+    Reset();Close(false);focused=false;
+    const auto mouseBefore=deactivations;
+    auto next=BeginBlockedVote();
+    Paint();
+    Check(visible&&!pendingOpen&&inputSuspended&&state.generation==next.generation&&deactivations==mouseBefore,
+          "first server vote received in background displays without grabbing cursor");
+    clockTime=21;ScenarioMapVoteFrame();
+    Check(!visible&&!pendingOpen&&Remaining()==0&&activations==0,"vote expires normally in background");
+    focused=true;usercmd_t recovered{};ScenarioMapVoteCreateMove(&recovered,1);
+    Check(activations==1,"expiry restores gameplay once after focus returns");
+}
 void ReplacementLifecycleTests()
 {
     for(const auto phase:std::array{mv::Phase::Finished,mv::Phase::Cancelled})for(int blocked=0;blocked<3;++blocked){
@@ -393,7 +462,8 @@ void ReplacementLifecycleTests()
         Reset();auto next=state;++next.generation;next.revision=1;
         // A new packet can arrive before the host's ShowConsole/focus callback.
         consoleVisible=blocker==0;gameUiVisible=blocker==1;focused=blocker!=2;
-        Deliver(next);Check(!visible&&pendingOpen&&activations==0,"new open generation transfers old ownership to a blocked ballot");
+        Deliver(next);Check(visible==(blocker==2)&&pendingOpen==(blocker!=2)&&activations==0,
+                            "new open generation transfers ownership and draws in the background");
         clockTime=21;ScenarioMapVoteFrame();Check(!visible&&!pendingOpen,"replacement can expire before ever becoming visible");
         consoleVisible=gameUiVisible=false;focused=true;ScenarioMapVoteFrame();
         usercmd_t command{};ScenarioMapVoteCreateMove(&command,1);
@@ -454,7 +524,7 @@ int main(int argc,char** argv)
     std::ifstream file(argv[1],std::ios::binary);std::string json{std::istreambuf_iterator<char>(file),{}};
     original=mv::ParsePresentation(json);LayoutTests();PaintTests();OwnershipTests();AutoOpenTests();
 #ifdef CSOL_MAP_VOTE_TEST_RESET
-    PersistentTests();
+    PersistentTests();WindowFocusTests();
     ReplacementLifecycleTests();
     CrossMapClockTests();
 #endif
