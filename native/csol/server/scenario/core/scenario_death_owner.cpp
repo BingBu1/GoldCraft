@@ -183,8 +183,8 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
         if (!step(call.m_stages.FinishAnimation(call.Current()->Animation(), sequence),
             "scenario death animation failed")) return false;
         bool gibbed{};
-        if (const int model = m_models.ZombieGibModelIndex();
-            model && m_gibChance && arguments.gibKill != CSOLZombieGibKill::None && g_engfuncs.pfnRandomLong &&
+        if (const auto models = m_models.ZombieGibModels();
+            models.flesh && m_gibChance && arguments.gibKill != CSOLZombieGibKill::None && g_engfuncs.pfnRandomLong &&
             !(call.Current()->pev->effects & EF_NODRAW))
         {
             const int chance = m_gibChance(arguments.gibKill == CSOLZombieGibKill::MeleeHeadshot);
@@ -194,7 +194,11 @@ bool CCSOLMonsterDeathOwner::ExecuteDeath(CCSOLScenarioMonster& monster,
                 if (const auto* victim = call.Current())
                 {
                     const Vector center = victim->pev->origin + (victim->pev->mins + victim->pev->maxs) * 0.5f;
-                    gibbed = m_messages.SendZombieGibs(center, model, count);
+                    const CSOLMonsterEffectGuard guard{[](const void* context)
+                    {
+                        return static_cast<const CSOLMonsterDeathCall*>(context)->Current();
+                    }, &call};
+                    gibbed = m_messages.SendZombieGibs(center, models, count, guard);
                 }
             }
             if (!step(true, "scenario changed during zombie gib effect")) return false;

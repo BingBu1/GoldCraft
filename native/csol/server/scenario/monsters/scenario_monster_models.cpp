@@ -10,7 +10,10 @@
 
 namespace
 {
-constexpr char ZombieGibModel[] = "models/fleshgibs.mdl";
+constexpr char ZombieGibFlesh[] = "models/gib_lung.mdl";
+constexpr char ZombieGibFleshFallback[] = "models/fleshgibs.mdl";
+constexpr char ZombieGibSkull[] = "models/gib_skull.mdl";
+constexpr char ZombieGibLegBone[] = "models/gib_legbone.mdl";
 constexpr char ZombieGibSound[] = "goldcraft/killzombie.wav";
 constexpr char ZombieGibSoundFile[] = "sound/goldcraft/killzombie.wav";
 
@@ -34,7 +37,7 @@ bool CCSOLMonsterModels::Reset()
     m_indices = {};
     m_deathSounds = {};
     m_oberonBlackHoleModel = 0;
-    m_zombieGibModel = 0;
+    m_zombieGibs = {};
     m_ready = false;
     return true;
 }
@@ -131,15 +134,22 @@ bool CCSOLMonsterModels::Precache(const csol::scenario::MonsterTypeTable& types,
     }
     // Optional custom resources are prepared once during map loading, including
     // when the feature is disabled so the administrator can enable it in place.
-    int zombieGibModel{};
+    CSOLZombieGibModels zombieGibs{};
     if (g_engfuncs.pfnGetFileSize && g_engfuncs.pfnPrecacheModel && g_engfuncs.pfnPrecacheSound &&
-        g_engfuncs.pfnEmitSound && g_engfuncs.pfnGetFileSize(ZombieGibSoundFile) > 0 &&
-        g_engfuncs.pfnGetFileSize(ZombieGibModel) > 0)
+        g_engfuncs.pfnEmitSound && g_engfuncs.pfnGetFileSize(ZombieGibSoundFile) > 0)
     {
-        const int index = PRECACHE_MODEL(ZombieGibModel);
-        if (index > 0 && precacheSound(ZombieGibSound)) zombieGibModel = index;
+        const auto precacheGib = [&](const char* path)
+        {
+            if (g_engfuncs.pfnGetFileSize(path) <= 0) return 0;
+            const int index = PRECACHE_MODEL(path);
+            return index > 0 && index <= 32767 ? index : 0;
+        };
+        int flesh = precacheGib(ZombieGibFlesh);
+        if (!flesh) flesh = precacheGib(ZombieGibFleshFallback);
+        if (flesh && precacheSound(ZombieGibSound))
+            zombieGibs = {flesh, precacheGib(ZombieGibSkull), precacheGib(ZombieGibLegBone)};
     }
-    m_zombieGibModel = zombieGibModel;
+    m_zombieGibs = zombieGibs;
     m_indices = candidate;
     m_deathSounds = deathSounds;
     m_ready = true;
@@ -155,7 +165,7 @@ int CCSOLMonsterModels::ModelIndex(const csol::scenario::MonsterAppearance& appe
 
 void CCSOLMonsterModels::EmitZombieGibSound(CCSOLScenarioMonster& monster) const
 {
-    if (ZombieGibModelIndex() && g_engfuncs.pfnEmitSound)
+    if (m_ready && m_zombieGibs.flesh && g_engfuncs.pfnEmitSound)
         EMIT_SOUND_DYN(monster.edict(), CHAN_BODY, ZombieGibSound, 1.0f, ATTN_NORM, 0, PITCH_NORM);
 }
 

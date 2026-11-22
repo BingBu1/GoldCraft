@@ -9,6 +9,7 @@ struct edict_s;
 struct CSOLDamageNumber;
 bool CSOLWriteGuardedDamageNumber(int messageId, edict_s* recipient, CSOLDamageNumber message);
 struct CSOLMonsterEffectGuard;
+struct CSOLZombieGibModels;
 namespace csol::scenario { struct ConfigError; }
 namespace csol::cso_tent { struct Model; struct Sprite; }
 namespace csol::abilities { struct Snapshot; }
@@ -144,7 +145,8 @@ public:
     // Original CTentacle effect writers; the owner selects recipients and RNG.
     bool SendBloodScreen(edict_s* recipient) const;
     bool SendTeddyTentacleShake(edict_s* recipient) const;
-    bool SendZombieGibs(const Vector& origin, int modelIndex, int count) const;
+    bool SendZombieGibs(const Vector& origin, CSOLZombieGibModels models, int count,
+        const CSOLMonsterEffectGuard& guard) const;
     bool SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const;
     // MP10997A90 event1: cached-origin debris then reliable MPToCL/88 smoke.
     bool SendTeddyBlackholeDebris(const float* origin, int modelIndex) const;

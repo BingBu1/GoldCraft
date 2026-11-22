@@ -7,6 +7,13 @@
 
 class CCSOLScenarioMonster;
 
+struct CSOLZombieGibModels
+{
+    int flesh{};
+    int skull{};
+    int legBone{};
+};
+
 // Per-map model precache, owned by the scenario rules. Precache is called only
 // in the engine's map loading phase. All paths use the game filesystem; this
 // layer never opens an archive or depends on an external resource directory.
@@ -21,7 +28,7 @@ public:
     bool Reset();
     bool Ready() const { return m_ready; }
     int ModelIndex(const csol::scenario::MonsterAppearance& appearance) const;
-    int ZombieGibModelIndex() const { return m_ready ? m_zombieGibModel : 0; }
+    CSOLZombieGibModels ZombieGibModels() const { return m_ready ? m_zombieGibs : CSOLZombieGibModels{}; }
     void EmitZombieGibSound(CCSOLScenarioMonster& monster) const;
     int OberonBlackHoleModelIndex() const { return m_ready ? m_oberonBlackHoleModel : 0; }
     // Sound is precached with the map's effective appearances. Empty sound
@@ -46,7 +53,8 @@ public:
 private:
     std::array<int, csol::scenario::MonsterAppearanceCount> m_indices{};
     std::array<bool, csol::scenario::MonsterAppearanceCount> m_deathSounds{};
-    int m_oberonBlackHoleModel{}, m_zombieGibModel{};
+    int m_oberonBlackHoleModel{};
+    CSOLZombieGibModels m_zombieGibs{};
     bool m_ready{};
     bool m_busy{};
 };
