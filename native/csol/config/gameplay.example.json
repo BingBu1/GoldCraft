@@ -1,5 +1,5 @@
 {
-    "version": 2,
+    "version": 3,
     "features": {
         "kick": {
             "enabled": true,
@@ -21,8 +21,8 @@
             }
         },
         "blind_box": {
-            "enabled": false,
-            "comment": "CoF/CS1.6/CSOL三档盲盒使用CS金钱；pools设置每把武器的相对权重，0停用。",
+            "enabled": true,
+            "comment": "CoF/CS1.6/CSOL三档盲盒在全图使用CS金钱购买。pools设置每把武器的相对权重，0停用。",
             "values": {
                 "blind_box_price_1": {
                     "value": 3000,
@@ -33,7 +33,7 @@
                     "comment": "第二档CS金钱价格，不用仓库币。GoldCraft自定义默认，非CSOL原值。"
                 },
                 "blind_box_price_3": {
-                    "value": 9000,
+                    "value": 30000,
                     "comment": "第三档CS金钱价格。GoldCraft自定义默认，非CSOL原值。"
                 }
             },
@@ -185,7 +185,7 @@
                     ]
                 },
                 "csol": {
-                    "comment": "CSOL武器盲盒；只发放已接入且本图真实就绪的武器。自定义等权默认，非原CSOL机制。",
+                    "comment": "CSOL武器盲盒；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。",
                     "weapons": [
                         {
                             "weapon": "tknifeex2",
@@ -434,6 +434,30 @@
                 "damage_refund_max_per_monster": {
                     "value": 1000,
                     "comment": "每player-victim组合累计CS金钱上限，怪物新租约是新额度。GoldCraft自定义默认，非CSOL原值。"
+                }
+            }
+        },
+        "night_equipment": {
+            "enabled": true,
+            "comment": "允许玩家在永夜期间购买提灯和照明弹。",
+            "values": {
+                "night_lantern_price": {
+                    "value": 1500,
+                    "comment": "每盏提灯的CS金钱价格。"
+                },
+                "night_flare_price": {
+                    "value": 300,
+                    "comment": "每支照明弹的CS金钱价格。"
+                }
+            }
+        },
+        "ammo_refill": {
+            "enabled": true,
+            "comment": "允许存活玩家在购买区一次补满随身主副武器的弹匣和备弹。",
+            "values": {
+                "ammo_refill_price": {
+                    "value": 2000,
+                    "comment": "主副武器一次满弹的CS金钱总价。已有满弹无需扣款。"
                 }
             }
         }

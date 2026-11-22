@@ -15,9 +15,10 @@ namespace csol::scenario::custom
 {
 // One bounded document includes comments for every feature and setting. Keep
 // the documented 512-byte comments serializable even with maximum escaping.
-inline constexpr std::size_t MaximumBytes = 96 * 1024;
+inline constexpr std::size_t MaximumBytes = 128 * 1024;
 enum class Feature : std::uint8_t
-{ Kick, TimeCycle, BlindBox, Mastery, CofSprint, Blood, DuskBuff, NightBuff, ZombiePopulation, RandomHorde, DamageRefundCap, NightPlayerLights, ZombieGibs, Count };
+{ Kick, TimeCycle, BlindBox, Mastery, CofSprint, Blood, DuskBuff, NightBuff, ZombiePopulation, RandomHorde, DamageRefundCap, NightPlayerLights, ZombieGibs,
+    NightEquipment, AmmoRefill, Count };
 enum class Setting : std::uint8_t
 {
     MiddaySeconds, DuskSeconds, BlindBoxPrice1, BlindBoxPrice2, BlindBoxPrice3,
@@ -33,7 +34,9 @@ enum class Setting : std::uint8_t
     DuskLightLevel, NightLightLevel, LightStepSeconds, NightFogDensity,
     NightFogColor, NightFogStart, NightFogEnd, NightFogSkybox,
     SprintCostPerUnit, NightPlayerLightRadius, NightPlayerLightBrightness, NightPlayerLightColor,
-    HordeExtraZombies, BloodSplashRadius, ZombieGibChance, ZombieGibMeleeHeadChance, Count
+    HordeExtraZombies, BloodSplashRadius, ZombieGibChance, ZombieGibMeleeHeadChance,
+    NightLanternPrice, NightFlarePrice, AmmoRefillPrice,
+    Count
 };
 enum class ValueType : std::uint8_t { Boolean, Integer, Real };
 enum class Scope : std::uint8_t { Immediate, NextMapSession };
@@ -114,14 +117,15 @@ public:
 private:
     Snapshot value_;
 };
-// Canonical version2 is one grouped document:
-// {version:2, features:{feature:{enabled:bool,comment:string,
+// Versions 2 and 3 use one grouped document:
+// {version:3, features:{feature:{enabled:bool,comment:string,
 // values:{setting:{value:number|null,comment:string}}}}}.
 // Settings must belong to their descriptor's feature. Null represents an
 // absent optional setting or resets the two legacy blood parameters. Omitted
 // feature/setting objects retain defaults; present objects require every declared field.
 // Published version1's exact four-root features/values/comments envelope is
-// still accepted. Serialize always emits version2 with prose adjacent to the
+// still accepted. Versions 1/2 migrate the old default blind-box prices.
+// Serialize emits version3 with prose adjacent to the
 // setting it explains, including null optional entries so prose is preserved.
 // Parse/Finish preserve output on rejection. JSON // and block comments parse.
 // blind_box optionally contains pools:{cof|cs16|csol:{comment, weapons:[

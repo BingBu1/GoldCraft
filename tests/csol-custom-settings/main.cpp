@@ -68,7 +68,8 @@ void Defaults()
     {
         Check(value->Enabled(descriptor.id) == descriptor.defaultValue, "feature getter matches documented transition default");
         Check(descriptor.id == Feature::Kick || descriptor.id == Feature::NightPlayerLights ||
-            descriptor.id == Feature::ZombieGibs || !descriptor.defaultValue,
+            descriptor.id == Feature::ZombieGibs || descriptor.id == Feature::BlindBox ||
+            descriptor.id == Feature::NightEquipment || descriptor.id == Feature::AmmoRefill || !descriptor.defaultValue,
             "only the implemented and explicitly enabled features are on by default");
         Check(!descriptor.key.empty() && descriptor.key.size() <= 63 && descriptor.cvar.starts_with("csol_custom_"), "feature descriptor has bounded key and uniform cvar namespace");
         Check(FindFeature(descriptor.key) == descriptor.id, "feature key finds stable typed identity");
@@ -86,8 +87,23 @@ void Defaults()
         "administrators can switch off gibs and persist both probability limits");
     Check(value->Integer(Setting::MiddaySeconds) == 180 && value->Integer(Setting::DuskSeconds) == 120,
         "authorized phase defaults are 180 and 120 seconds");
+
     Check(value->Integer(Setting::MasteryThreshold1) == 100 && value->Integer(Setting::MasteryThreshold2) == 200 &&
         value->Integer(Setting::MasteryThreshold3) == 300, "authorized mastery thresholds preserved");
+    const auto migrated = Read(Document(R"("blind_box":false)",
+        R"("blind_box_price_1":3000,"blind_box_price_2":6000,"blind_box_price_3":9000)"));
+    Check(!migrated->Enabled(Feature::BlindBox) && migrated->Integer(Setting::BlindBoxPrice3) == 30000,
+        "legacy default prices migrate while retaining administrator toggles");
+    const auto partial = Read(Document({}, R"("blind_box_price_1":1000)"));
+    Check(partial->Integer(Setting::BlindBoxPrice3) == 9000,
+        "partial legacy tuning retains omitted legacy prices");
+    const auto explicitPrice = Read(R"({"version":3,"features":{"blind_box":{"enabled":true,"comment":"","values":{"blind_box_price_3":{"value":9000,"comment":""}}}}})");
+    Check(Read(Serialize(*explicitPrice))->Integer(Setting::BlindBoxPrice3) == 9000,
+        "version 3 preserves an intentional override to the former price");
+    Check(value->Integer(Setting::NightLanternPrice) == 1500 && value->Integer(Setting::NightFlarePrice) == 300,
+        "lighting equipment uses the specified defaults");
+    Check(value->Enabled(Feature::AmmoRefill) && value->Integer(Setting::AmmoRefillPrice) == 2000,
+        "the ammo refill defaults to enabled with a fixed 2000 price");
     Check(value->Number(Setting::MasteryReload1) == .85 && value->Integer(Setting::DamageRefundMaximumPerMonster) == 1000 &&
         value->Comment(Setting::MasteryReload1).find("GoldCraft自定义默认") != std::string_view::npos,
         "explicit custom balance defaults retain their provenance");
@@ -137,7 +153,7 @@ void InputValidation()
 }
 void RoundTrip()
 {
-    const auto source = Read(Document(R"("kick":false)", R"("blind_box_price_1":10,"blind_box_price_2":20,"blind_box_price_3":30)",
+    const auto source = Read(Document(R"("kick":false,"blind_box":false)", R"("blind_box_price_1":10,"blind_box_price_2":20,"blind_box_price_3":30)",
         R"({"features":{"kick":"踢击可再次开启；不是永久删除"},"values":{"blind_box_price_1":"CS金钱\n第一档"}})"));
     const auto serialized = Serialize(*source);
     const auto restored = Read(serialized);
@@ -166,8 +182,8 @@ void GroupedVersion2()
     document.Parse(text.data(), text.size());
     Require(!document.HasParseError() && document.IsObject(), "generated single JSON is valid UTF8 JSON");
     Require(document.MemberCount() == 2 && document.HasMember("version") && document["version"].IsInt() &&
-        document["version"].GetInt() == 2 && document.HasMember("features") && document["features"].IsObject(),
-        "canonical file has only version2 and grouped features root");
+        document["version"].GetInt() == 3 && document.HasMember("features") && document["features"].IsObject(),
+        "canonical file has only version3 and grouped features root");
     const auto restored = Read(text);
     Check(document["features"].MemberCount() == FeatureCount, "single generated file includes every feature once");
     for (const auto& feature : Features())
@@ -194,7 +210,7 @@ void GroupedVersion2()
             Check(leaf.IsObject() && leaf.MemberCount() == 2 && leaf.HasMember("value") && leaf.HasMember("comment") &&
                 leaf["comment"].IsString(), "numeric value and explanation are adjacent in one object");
             Check(restored->Number(setting.id) == legacy->Number(setting.id) &&
-                restored->Comment(setting.id) == legacy->Comment(setting.id), "version1 numbers absence and prose roundtrip through grouped version2");
+                restored->Comment(setting.id) == legacy->Comment(setting.id), "version1 numbers absence and prose roundtrip through grouped format");
             Check(legacy->Number(setting.id).has_value() ? leaf["value"].IsNumber() : leaf["value"].IsNull(),
                 "optional absence is visible as null without inventing a numeric default");
         }
@@ -213,7 +229,7 @@ void GroupedVersion2()
     Reject(R"({"version":2,"version":2,"features":{}})", "grouped duplicate version rejected");
     Reject(R"({"version":2,"features":{},"features":{}})", "grouped duplicate features root rejected");
     Reject(R"({"version":2.0,"features":{}})", "grouped version must be integer2");
-    Reject(R"({"version":3,"features":{}})", "future unsupported format rejected");
+    Reject(R"({"version":4,"features":{}})", "future unsupported format rejected");
     Reject(Grouped(R"("unknown":{"enabled":false,"comment":"x","values":{}})"), "unknown grouped feature rejected");
     Reject(Grouped(R"("kick":{"enabled":true,"comment":"x","values":{}},"kick":{"enabled":false,"comment":"y","values":{}})"), "duplicate grouped feature rejected");
     Reject(Grouped(R"("kick":true)"), "flat feature boolean rejected in version2");

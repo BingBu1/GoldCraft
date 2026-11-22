@@ -24,6 +24,7 @@
 #include <climits>
 #include <vector>
 #include <optional>
+#include <string_view>
 
 namespace {
 bool Contains(const CBasePlayer& player, const CBaseEntity* wanted)
@@ -135,7 +136,17 @@ bool UnlinkFresh(CBasePlayer& player,CBasePlayerWeapon& weapon)
 }
 
 namespace {
-bool DeliverGun(CBasePlayer& buyer,int weaponId,const CSOLGunPurchaseAdapter* adapter)
+struct PairPurchase
+{
+    int primary;
+    bool (*current)(void*);
+    void* context;
+    EHANDLE secondary;
+};
+bool DeliverBlindBoxGun(CBasePlayer& buyer, int id, int slot, const PairPurchase& pair);
+
+bool DeliverGun(CBasePlayer& buyer, int weaponId, const CSOLGunPurchaseAdapter* adapter,
+    const PairPurchase* pair = nullptr)
 {
     CSOLScenarioSdkScope sdk;
     if(!sdk.Current() || !gpGlobals ||
@@ -341,6 +352,8 @@ bool DeliverGun(CBasePlayer& buyer,int weaponId,const CSOLGunPurchaseAdapter* ad
         if(!current())return reject();
         auto* w=dynamic_cast<CBasePlayerWeapon*>(live(entry.handle));
         if(spawned<0 || !w || w!=entry.object || !identity(*w,entry.id))return reject();
+        if (pair && entry.id == CSOL_WEAPON_K3 && !CSOL_ScenarioSetK3Identity(*w)) return reject();
+        if (!current()) return reject();
     }
     if(!prior.empty()) {
         auto* old=prior.front().object;
@@ -376,11 +389,78 @@ bool DeliverGun(CBasePlayer& buyer,int weaponId,const CSOLGunPurchaseAdapter* ad
         auto* w=dynamic_cast<CBasePlayerWeapon*>(live(fresh[0].handle));
         if(!w || buyer.m_pActiveItem!=w || !deployed(*w,weaponId))return reject();
     }
+    if (!current()) return reject();
     CSOL_UpdateWeaponInventory(&buyer);
-    return acquired()?true:reject();
+    if (!acquired()) return reject();
+    if (pair)
+    {
+        if (!pair->current(pair->context) || !acquired()) return reject();
+        if (slot == PISTOL_SLOT)
+        {
+            const PairPurchase next{pair->primary, pair->current, pair->context, fresh.front().handle};
+            if (!DeliverBlindBoxGun(buyer, next.primary, PRIMARY_WEAPON_SLOT, next)) return reject();
+        }
+        else
+        {
+            auto* secondary = dynamic_cast<CBasePlayerWeapon*>(live(pair->secondary));
+            if (!secondary || buyer.m_rgpPlayerItems[PISTOL_SLOT] != secondary || secondary->m_pNext ||
+                secondary->m_pPlayer != &buyer || secondary->pev->owner != playerHandle.Get()) return reject();
+        }
+    }
+    return true;
+}
+
+bool BlindBoxIdentity(const CBasePlayerWeapon& weapon, int id) noexcept
+{
+    if (weapon.m_iId != id || !CSOL_IsWeapon(&weapon)) return false;
+    switch (id)
+    {
+    case CSOL_WEAPON_TKNIFEEX2: return CSOL_TKnifeEmptyMonsterKillCallbacks(weapon);
+    case CSOL_WEAPON_K3: return CSOL_K3EmptyMonsterKillCallbacks(weapon);
+    case CSOL_WEAPON_CANNON: return CSOL_CannonEmptyMonsterKillCallbacks(weapon);
+    case CSOL_WEAPON_BEAMGUN:
+    case CSOL_WEAPON_BEAMGUNLE: return CSOL_BeamEmptyMonsterKillCallbacks(weapon);
+    default: return false;
+    }
+}
+
+bool BlindBoxDeployment(const CBasePlayerWeapon& weapon, int) noexcept
+{
+    const auto* world = CSOL_WorldModel(&weapon);
+    if (!world || !weapon.m_pPlayer) return false;
+    const auto& vars = *weapon.m_pPlayer->pev;
+    const std::string_view view = STRING(vars.viewmodel);
+    const std::string_view held = STRING(vars.weaponmodel);
+    constexpr std::string_view prefix = "models/w_";
+    const std::string_view model = world;
+    return model.starts_with(prefix) && view.starts_with("models/v_") && held.starts_with("models/p_") &&
+        view.substr(prefix.size()) == model.substr(prefix.size()) &&
+        held.substr(prefix.size()) == model.substr(prefix.size());
+}
+
+bool DeliverBlindBoxGun(CBasePlayer& buyer, int id, int slot, const PairPurchase& pair)
+{
+    const auto* info = CSOL_ItemInfo(id);
+    if (!info || !info->pszName || info->iSlot + 1 != slot || !CSOL_CanDeliverScenarioWeapon(&buyer, id))
+        return false;
+    if (id == csol::skull1::Id || id == csol::skull2::Id || id == csol::skull3::Id ||
+        id == csol::skull5::Id || id == csol::balrog11::Id || id == csol::m249ex::Id)
+        return DeliverGun(buyer, id, nullptr, &pair);
+    const CSOLGunPurchaseAdapter adapter{id, slot, info->pszName,
+        [](CBasePlayer& player, int weapon) noexcept { return CSOL_CanDeliverScenarioWeapon(&player, weapon); },
+        BlindBoxIdentity, BlindBoxDeployment};
+    return DeliverGun(buyer, id, &adapter, &pair);
 }
 }
+
 bool CSOL_DeliverSkullBalrog(CBasePlayer& player,int weaponId) {return DeliverGun(player,weaponId,nullptr);}
+
+bool CSOL_DeliverBlindBoxPair(CBasePlayer& player, int primary, int secondary,
+    bool (*current)(void*), void* context)
+{
+    const PairPurchase pair{primary, current, context, {}};
+    return DeliverBlindBoxGun(player, secondary, PISTOL_SLOT, pair);
+}
 bool CSOL_DeliverAdaptedGun(CBasePlayer& player,const CSOLGunPurchaseAdapter& request)
 {
     const auto adapter=request;

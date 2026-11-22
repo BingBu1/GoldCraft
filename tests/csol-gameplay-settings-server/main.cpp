@@ -153,7 +153,8 @@ void Init()
             Check(field.available == (id == int(custom::Feature::Kick) || id == int(custom::Feature::TimeCycle) || id == int(custom::Feature::BlindBox) || id == int(custom::Feature::DamageRefundCap) ||
                 id == int(custom::Feature::NightPlayerLights) || id == int(custom::Feature::CofSprint) ||
                 id == int(custom::Feature::DuskBuff) || id == int(custom::Feature::NightBuff) ||
-                id == int(custom::Feature::ZombiePopulation) || id == int(custom::Feature::RandomHorde)),
+                id == int(custom::Feature::ZombiePopulation) || id == int(custom::Feature::RandomHorde) ||
+                id == int(custom::Feature::NightEquipment) || id == int(custom::Feature::AmmoRefill)),
                 "only integrated feature capability is reported available");
     }
     csol::GameplaySetting field;
@@ -218,9 +219,18 @@ void Writer()
 {
     Init(); Negative();
     Check(!CSOL_ReadBlindBoxPrices(), "disabled blind boxes expose no live quote");
+    Check(CSOL_ReadAmmoRefillPrice() == 2000, "ammo offer is enabled at its default price");
+    Set("csol_custom_ammo_refill_price", "2500.5");
+    Check(!CSOL_ReadAmmoRefillPrice(), "invalid live ammo price hides the offer");
+    Set("csol_custom_ammo_refill_price", "2500");
+    Check(CSOL_ReadAmmoRefillPrice() == 2500, "valid live ammo price is applied immediately");
+    Set("csol_custom_ammo_refill", "0");
+    Check(!CSOL_ReadAmmoRefillPrice(), "disabling the service turns off the ammo offer");
+    Set("csol_custom_ammo_refill", "1");
+    Set("csol_custom_ammo_refill_price", "2000");
     Set("csol_custom_blind_box", "1");
     auto prices = CSOL_ReadBlindBoxPrices();
-    Check(prices && *prices == std::array{3000, 6000, 9000}, "live quotes use the three registered CS prices");
+    Check(prices && *prices == std::array{3000, 6000, 30000}, "live quotes use the three registered CS prices");
     Set("csol_custom_blind_box_price_2", "3000");
     Check(!CSOL_ReadBlindBoxPrices(), "equal effective prices disable all quotes");
     Set("csol_custom_blind_box_price_2", "6000.5");

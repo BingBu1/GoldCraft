@@ -4,6 +4,7 @@
 #include "settings_store.hpp"
 #include "body_stains.h"
 #include "../buy_menu.h"
+#include "../../../guest/cof/light_equipment.hpp"
 #include "../game_mode.h"
 #include "../scenario/core/human_kick.h"
 #include "../scenario/core/game_rules_gate.h"
@@ -38,7 +39,8 @@ bool Available(custom::Feature feature)
         feature == custom::Feature::NightPlayerLights || feature == custom::Feature::CofSprint ||
         feature == custom::Feature::DuskBuff || feature == custom::Feature::NightBuff ||
         feature == custom::Feature::ZombiePopulation || feature == custom::Feature::RandomHorde ||
-        feature == custom::Feature::ZombieGibs;
+        feature == custom::Feature::ZombieGibs || feature == custom::Feature::NightEquipment ||
+        feature == custom::Feature::AmmoRefill;
 }
 
 std::optional<double> LiveNumber(custom::Setting id)
@@ -269,6 +271,21 @@ int CSOL_ReadZombieGibChance(bool meleeHeadshot)
     return static_cast<int>(LiveNumber(meleeHeadshot ? custom::Setting::ZombieGibMeleeHeadChance :
         custom::Setting::ZombieGibChance).value_or(0));
 }
+std::optional<int> CSOL_ReadAmmoRefillPrice()
+{
+    if (!CSOL_CustomFeatureEnabled(custom::Feature::AmmoRefill)) return {};
+    const auto price = LiveNumber(custom::Setting::AmmoRefillPrice);
+    return price ? std::optional<int>(static_cast<int>(*price)) : std::nullopt;
+}
+
+int CSOL_ReadNightEquipmentPrice(bool lantern)
+{
+    const int fallback = lantern ? guest::cof::light::Lantern.price : guest::cof::light::Flare.price;
+    if (!registered || !current) return fallback;
+    const auto key = lantern ? custom::Setting::NightLanternPrice : custom::Setting::NightFlarePrice;
+    return static_cast<int>(LiveNumber(key).value_or(fallback));
+}
+
 std::optional<std::array<int, custom::BlindBoxCount>> CSOL_ReadBlindBoxPrices()
 {
     if (!CSOL_CustomFeatureEnabled(custom::Feature::BlindBox)) return {};

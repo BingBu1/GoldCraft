@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "settings.hpp"
+#include "../../../guest/cof/light_equipment.hpp"
 
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
@@ -17,7 +18,7 @@ namespace
 constexpr std::array<BlindBoxDescriptor, BlindBoxCount> BoxRows{{
     {BlindBox::Cof, Setting::BlindBoxPrice1, "cof", "CoF武器盲盒；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。"},
     {BlindBox::CounterStrike, Setting::BlindBoxPrice2, "cs16", "CS1.6武器盲盒；同类有效武器按权重抽取，无可领取武器时不扣钱。"},
-    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；只发放已接入且本图真实就绪的武器。自定义等权默认，非原CSOL机制。"}
+    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。"}
 }};
 constexpr std::string_view CofDefaults[]{"cof_glock", "cof_p345", "cof_revolver", "cof_vp70", "cof_tmp", "cof_mp5", "cof_m16", "cof_g43", "cof_shotgun"};
 constexpr std::string_view CsDefaults[]{"p228", "elites", "fn57", "usp", "glock", "deagle", "xm1014", "m3",
@@ -27,7 +28,7 @@ constexpr std::string_view CsolDefaults[]{"tknifeex2", "skull1", "skull2", "skul
 constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::Kick, "kick", "csol_custom_kick", "F范围踢击开关；关闭不删除配置，可再次开启。", true, Scope::Immediate},
     {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "即时开关时间阶段；开启从正午开始，关闭恢复地图环境；配套资源须已预载。", false, Scope::Immediate},
-    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL三档盲盒使用CS金钱；pools设置每把武器的相对权重，0停用。", false, Scope::Immediate},
+    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL三档盲盒在全图使用CS金钱购买。pools设置每把武器的相对权重，0停用。", true, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
     {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "下次载入地图启用体力。正午为灾变原有移速，黄昏和永夜解锁疾跑，站姿疾跑地速为300。", false, Scope::NextMapSession},
     {Feature::Blood, "blood", "csol_custom_blood", "僵尸受击后保留随机模型血迹，近距离枪击将血溅到射手手臂及手持枪械。血迹持续到对应实体离开本图，关闭时隐藏。", false, Scope::Immediate},
@@ -37,7 +38,9 @@ constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::RandomHorde, "random_horde", "csol_custom_random_horde", "永夜随机尸潮；阶段怪量开启后，尸潮期间放宽普通怪上限。", false, Scope::Immediate},
     {Feature::DamageRefundCap, "damage_refund_cap", "csol_custom_damage_refund_cap", "返现上限对每位玩家与每只怪物的组合分别累计，新怪租约获得新额度。", false, Scope::NextMapSession},
     {Feature::NightPlayerLights, "night_player_lights", "csol_custom_night_player_lights", "永夜全员互见随身光；客户端管理灯池与跟随，服务器仅同步阶段和配置。自定义默认开启。", true, Scope::Immediate},
-    {Feature::ZombieGibs, "zombie_gibs", "csol_custom_zombie_gibs", "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。", true, Scope::Immediate}
+    {Feature::ZombieGibs, "zombie_gibs", "csol_custom_zombie_gibs", "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。", true, Scope::Immediate},
+    {Feature::NightEquipment, "night_equipment", "csol_custom_night_equipment", "允许玩家在永夜期间购买提灯和照明弹。", true, Scope::Immediate},
+    {Feature::AmmoRefill, "ammo_refill", "csol_custom_ammo_refill", "允许存活玩家在购买区一次补满随身主副武器的弹匣和备弹。", true, Scope::Immediate}
 }};
 
 // Bounds are host configuration/overflow limits, not recovered CSOL values.
@@ -49,7 +52,7 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::DuskSeconds, Feature::TimeCycle, "dusk_seconds", "csol_custom_dusk_seconds", "黄昏持续秒数；即时调整当前黄昏剩余时间，阶段不倒退。", ValueType::Integer, 1, 86400, 120, Scope::Immediate},
     {Setting::BlindBoxPrice1, Feature::BlindBox, "blind_box_price_1", "csol_custom_blind_box_price_1", "第一档CS金钱价格，三档严格递增。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 3000, Scope::Immediate},
     {Setting::BlindBoxPrice2, Feature::BlindBox, "blind_box_price_2", "csol_custom_blind_box_price_2", "第二档CS金钱价格，不用仓库币。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 6000, Scope::Immediate},
-    {Setting::BlindBoxPrice3, Feature::BlindBox, "blind_box_price_3", "csol_custom_blind_box_price_3", "第三档CS金钱价格。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 9000, Scope::Immediate},
+    {Setting::BlindBoxPrice3, Feature::BlindBox, "blind_box_price_3", "csol_custom_blind_box_price_3", "第三档CS金钱价格。GoldCraft自定义默认，非CSOL原值。", ValueType::Integer, 0, 32000, 30000, Scope::Immediate},
     {Setting::MasteryThreshold1, Feature::Mastery, "mastery_threshold_1", "csol_custom_mastery_threshold_1", "本图累计熟练度第一档阈值。", ValueType::Integer, 1, 1000000000, 100, Scope::NextMapSession},
     {Setting::MasteryThreshold2, Feature::Mastery, "mastery_threshold_2", "csol_custom_mastery_threshold_2", "本图累计熟练度第二档阈值，严格大于第一档。", ValueType::Integer, 1, 1000000000, 200, Scope::NextMapSession},
     {Setting::MasteryThreshold3, Feature::Mastery, "mastery_threshold_3", "csol_custom_mastery_threshold_3", "本图累计熟练度第三档阈值，严格大于第二档。", ValueType::Integer, 1, 1000000000, 300, Scope::NextMapSession},
@@ -95,7 +98,10 @@ constexpr std::array<SettingDescriptor, SettingCount> SettingRows{{
     {Setting::HordeExtraZombies, Feature::RandomHorde, "horde_extra_zombies", "csol_custom_horde_extra_zombies", "尸潮期间增加的普通怪上限，默认8；仍受地图普通怪池限制。", ValueType::Integer, 0, 4096, 8, Scope::Immediate},
     {Setting::BloodSplashRadius, Feature::Blood, "blood_splash_radius", "csol_custom_blood_splash_radius", "血迹溅到攻击者的最大距离，默认128单位，0只在僵尸模型上显示。", ValueType::Real, 0, 1024, 128, Scope::Immediate},
     {Setting::ZombieGibChance, Feature::ZombieGibs, "zombie_gib_chance", "csol_custom_zombie_gib_chance", "普通击杀的爆尸概率（%）。", ValueType::Integer, 0, 100, 2, Scope::Immediate},
-    {Setting::ZombieGibMeleeHeadChance, Feature::ZombieGibs, "zombie_gib_melee_head_chance", "csol_custom_zombie_gib_melee_head_chance", "近战武器命中头部并击杀时的爆尸概率（%）。", ValueType::Integer, 0, 100, 50, Scope::Immediate}
+    {Setting::ZombieGibMeleeHeadChance, Feature::ZombieGibs, "zombie_gib_melee_head_chance", "csol_custom_zombie_gib_melee_head_chance", "近战武器命中头部并击杀时的爆尸概率（%）。", ValueType::Integer, 0, 100, 50, Scope::Immediate},
+    {Setting::NightLanternPrice, Feature::NightEquipment, "night_lantern_price", "csol_custom_night_lantern_price", "每盏提灯的CS金钱价格。", ValueType::Integer, 0, 32000, guest::cof::light::Lantern.price, Scope::Immediate},
+    {Setting::NightFlarePrice, Feature::NightEquipment, "night_flare_price", "csol_custom_night_flare_price", "每支照明弹的CS金钱价格。", ValueType::Integer, 0, 32000, guest::cof::light::Flare.price, Scope::Immediate},
+    {Setting::AmmoRefillPrice, Feature::AmmoRefill, "ammo_refill_price", "csol_custom_ammo_refill_price", "主副武器一次满弹的CS金钱总价。已有满弹无需扣款。", ValueType::Integer, 0, 32000, 2000, Scope::Immediate}
 }};
 
 constexpr bool DescriptorOrder()
@@ -291,7 +297,8 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
             const auto& number = leaf["value"];
             if (number.IsNull())
             {
-                if (descriptor.defaultValue) return Fail(error, name, "null is only valid for an optional setting without a default");
+                if (descriptor.defaultValue)
+                    return Fail(error, name, "null is only valid for an optional setting without a default");
                 if (!draft.Set(*setting, std::nullopt, error)) return false;
             }
             else
@@ -449,7 +456,7 @@ bool Draft::Finish(SnapshotPtr& output, Error& error) const
 bool Parse(std::string_view json, SnapshotPtr& output, Error& error)
 {
     if (json.empty() || json.size() > MaximumBytes || json.find('\0') != json.npos)
-        return Fail(error, "root", "configuration must contain1..98304 UTF8 bytes without NUL");
+        return Fail(error, "root", "expected nonempty UTF-8 configuration within the size limit and without NUL");
     rapidjson::Document document;
     document.Parse<rapidjson::kParseValidateEncodingFlag | rapidjson::kParseCommentsFlag |
         rapidjson::kParseIterativeFlag | rapidjson::kParseFullPrecisionFlag>(json.data(), json.size());
@@ -458,21 +465,32 @@ bool Parse(std::string_view json, SnapshotPtr& output, Error& error)
     if (!document.IsObject()) return Fail(error, "root", "expected an object");
     const auto version = document.FindMember("version");
     if (version == document.MemberEnd() || !version->value.IsInt() ||
-        (version->value.GetInt() != 1 && version->value.GetInt() != 2))
-        return Fail(error, "version", "version must be integer1 or2");
-    if (version->value.GetInt() == 2)
-    {
-        if (!Fields(document, std::array<std::string_view, 2>{"version", "features"}, "root", error)) return false;
-        Draft draft;
-        return ReadGrouped(document["features"], draft, error) && draft.Finish(output, error);
-    }
-    if (!Fields(document, std::array<std::string_view, 4>{"version", "features", "values", "comments"}, "root", error)) return false;
-    if (!Fields(document["comments"], std::array<std::string_view, 2>{"features", "values"}, "comments", error)) return false;
+        version->value.GetInt() < 1 || version->value.GetInt() > 3)
+        return Fail(error, "version", "version must be integer1, 2 or3");
+    const auto format = version->value.GetInt();
     Draft draft;
-    return ReadEntries<true>(document["features"], draft, false, error) &&
-        ReadEntries<false>(document["values"], draft, false, error) &&
-        ReadEntries<true>(document["comments"]["features"], draft, true, error) &&
-        ReadEntries<false>(document["comments"]["values"], draft, true, error) && draft.Finish(output, error);
+    // Parse partial old documents against their original numeric defaults.
+    // Upgrade only a complete former default tuple after resolving omissions.
+    if (format < 3 && !draft.Set(Setting::BlindBoxPrice3, 9000, error)) return false;
+    if (format == 1)
+    {
+        if (!Fields(document, std::array<std::string_view, 4>{"version", "features", "values", "comments"}, "root", error) ||
+            !Fields(document["comments"], std::array<std::string_view, 2>{"features", "values"}, "comments", error) ||
+            !ReadEntries<true>(document["features"], draft, false, error) ||
+            !ReadEntries<false>(document["values"], draft, false, error) ||
+            !ReadEntries<true>(document["comments"]["features"], draft, true, error) ||
+            !ReadEntries<false>(document["comments"]["values"], draft, true, error)) return false;
+    }
+    else if (!Fields(document, std::array<std::string_view, 2>{"version", "features"}, "root", error) ||
+        !ReadGrouped(document["features"], draft, error)) return false;
+
+    if (format == 3) return draft.Finish(output, error);
+    SnapshotPtr legacy;
+    if (!draft.Finish(legacy, error)) return false;
+    if (legacy->Integer(Setting::BlindBoxPrice1) == 3000 &&
+        legacy->Integer(Setting::BlindBoxPrice2) == 6000 && legacy->Integer(Setting::BlindBoxPrice3) == 9000 &&
+        !draft.Set(Setting::BlindBoxPrice3, {}, error)) return false;
+    return draft.Finish(output, error);
 }
 std::string Serialize(const Snapshot& snapshot)
 {
@@ -480,7 +498,7 @@ std::string Serialize(const Snapshot& snapshot)
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(buffer);
     const auto key = [&](std::string_view text) { writer.Key(text.data(), static_cast<rapidjson::SizeType>(text.size())); };
     const auto text = [&](std::string_view value) { writer.String(value.data(), static_cast<rapidjson::SizeType>(value.size())); };
-    writer.StartObject(); key("version"); writer.Int(2);
+    writer.StartObject(); key("version"); writer.Int(3);
     key("features"); writer.StartObject();
     for (const auto& feature : FeatureRows)
     {

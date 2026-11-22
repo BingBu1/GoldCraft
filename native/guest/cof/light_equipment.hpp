@@ -18,12 +18,12 @@ struct Equipment
 };
 
 inline constexpr Equipment Lantern{
-    976, 4, 600, "weapon_cof_lantern", "客串武器·提灯",
+    976, 4, 1500, "weapon_cof_lantern", "客串武器·提灯",
     "models/guest/cof/lantern/v_lantern.mdl", "models/guest/cof/lantern/p_lantern.mdl",
     "models/guest/cof/lantern/w_lantern.mdl"
 };
 inline constexpr Equipment Flare{
-    977, 3, 150, "weapon_cof_flare", "客串武器·照明弹",
+    977, 3, 300, "weapon_cof_flare", "客串武器·照明弹",
     "models/guest/cof/flare/v_flare.mdl", "models/guest/cof/flare/p_flare.mdl",
     "models/guest/cof/flare/w_flare.mdl"
 };

@@ -10,6 +10,11 @@
 #include "../../native/csol/scenario/core/wall_upgrade.hpp"
 #include "../../native/csol/scenario/core/human_kick.hpp"
 #include "../../native/csol/scenario/custom/stamina_audio.hpp"
+#include "../../native/csol/scenario/custom/challenge_cycle.hpp"
+#include "../../native/csol/scenario/custom/phase_art.hpp"
+#include "../../native/csol/scenario/core/scenario_music.hpp"
+#include "../../native/csol/server/weapons/guest_cof_light_equipment.hpp"
+#include "../csol-challenge-environment/provider_loader.hpp"
 #include "../../native/csol/scenario/bosses/boss_health.hpp"
 #include "../../native/csol/scenario/monsters/monster_appearances.hpp"
 #include "../../native/csol/scenario_part_effects.hpp"
@@ -118,7 +123,8 @@ struct Fixture {
   g_ReGameHookchains.m_CBasePlayer_RemovePlayerItem.registerHook(Remove,192);
   g_ReGameHookchains.m_CBasePlayerWeapon_DefaultDeploy.registerHook(Deploy,192);hooks=true;
  }
- explicit Fixture(const std::filesystem::path& root, bool prepareGuest = false) : guestBox(prepareGuest) {
+ explicit Fixture(const std::filesystem::path& root, bool prepareGuest = false, bool nightShop = false)
+  : guestBox(prepareGuest) {
   Require(!active,"one actual rebuy SDK fixture per process");active=this;
   engine.files=oberon_chain::BaseResources();
   // Required loader fallback, authored with zero champion schedules. The
@@ -143,6 +149,20 @@ struct Fixture {
    const auto guestRoot=root/"guest-box";
    for(const auto& entry:std::filesystem::recursive_directory_iterator(guestRoot))
     if(entry.is_regular_file())engine.files[entry.path().lexically_relative(guestRoot).generic_string()]=Read(entry.path());
+  }
+  if (nightShop)
+  {
+   const auto* path = std::getenv("GOLDCRAFT_TEST_NIGHT_EQUIPMENT_ROOT");
+   Require(path && *path, "recorded light equipment resources are available");
+   const std::filesystem::path root(path);
+   for (const auto& entry : std::filesystem::recursive_directory_iterator(root))
+    if (entry.is_regular_file()) engine.files[entry.path().lexically_relative(root).generic_string()] = Read(entry.path());
+   const auto presentation = ParsePresentation(engine.files.at(EquipmentPresentationResource));
+   for (const auto& file : Resources(presentation))
+    engine.files.try_emplace(file, "controlled menu texture");
+   for (const auto file : csol::music::NightFiles)
+    engine.files["bgm/" + std::string(file)] = "controlled BGM existence";
+   engine.files[csol::scenario::custom::NightAnimationAtlas] = "controlled night atlas existence";
   }
   for(const auto& image:csol::scenario_respawn_ui::Outcomes)engine.files[image.path]="controlled-image";
   for(const auto& image:csol::scenario_respawn_ui::RetryImages)engine.files[image.path]="controlled-image";
@@ -210,7 +230,13 @@ struct Fixture {
   g_engfuncs.pfnInfoKeyValue=[](char*,const char* name)->char*{
    return const_cast<char*>(FStrEq(name,"csol_protocol") ||
     (active->guestBox && (FStrEq(name,"cof_protocol") || FStrEq(name,"cof_weapons"))) ? "1" : "");};
-  if(guestBox)g_engfuncs.pfnPlaybackEvent=[](int,const edict_t*,unsigned short,float,float*,float*,float,float,int,int,int,int){};
+  if (guestBox || nightShop)
+   g_engfuncs.pfnPlaybackEvent = [](int flags, const edict_t* owner, unsigned short event,
+       float, float*, float*, float, float, int, int, int, int) {
+    if (!active->guestBox)
+     Require(flags == (FEV_GLOBAL | FEV_RELIABLE) && !owner, "night-shop fixture receives the native global reset event");
+    active->engine.Record("playback-event:" + std::to_string(event));
+   };
   g_engfuncs.pfnCmd_Argc=[](){return int(active->args.size());};
   g_engfuncs.pfnCmd_Argv=[](int i){return active->args.at(i).c_str();};
   g_engfuncs.pfnMessageBegin=[](int,int id,const float*,edict_t*){
@@ -231,6 +257,7 @@ struct Fixture {
    "actual extension configs and weapon factories ready");
   g_pGameRules=InstallGameRules();
   if(guestBox)CSOL_PrecacheGuestCof();
+  if (nightShop) CSOL_PrecacheLightEquipment();
   CSOL_PrecacheGameRules();
   if(CSOL_RulesRejected())for(const auto& line:engine.events)std::cerr<<line<<'\n';
   Require(g_pGameRules&&!CSOL_RulesRejected(),"actual combat rules precache");
@@ -695,7 +722,7 @@ void Stale(Fixture& f,const std::string& kind){
  }
 }
 
-void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindBox)
+void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindBox, bool nightShop, bool skullBox)
 {
  Require(std::filesystem::create_directory(directory), "purchase SDK uses a fresh game directory");
  const auto config = directory / "cstrike/addons/goldcraft/config";
@@ -707,8 +734,15 @@ void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindB
  "cof":{"comment":"","weapons":[{"weapon":"cof_glock","weight":1}]},
  "cs16":{"comment":"","weapons":[{"weapon":"m4a1","weight":2},{"weapon":"usp","weight":5},
  {"weapon":"knife","weight":0},{"weapon":"cannon","weight":99},{"weapon":"unknown_alias","weight":99}]},
- "csol":{"comment":"","weapons":[{"weapon":"k3","weight":1}]}
+ "csol":{"comment":"","weapons":[{"weapon":")" << (skullBox ? "skull3" : "k3") <<
+     R"(","weight":1},{"weapon":"tknifeex2","weight":1}]}
  }})";
+ if (nightShop)
+ {
+  environment_test::LoadProvider();
+  file << R"(,"time_cycle":{"enabled":true,"comment":"","values":{
+   "midday_seconds":{"value":2,"comment":""},"dusk_seconds":{"value":3,"comment":""}}})";
+ }
  file << "}}";
  file.close();
  Require(bool(file), "fixture writes the gameplay JSON before SDK registration");
@@ -719,7 +753,7 @@ void BlindBox(Fixture& fixture, std::string_view group)
 {
  auto& player = *fixture.player;
  namespace custom = csol::scenario::custom;
- Require(CSOL_ReadBlindBoxPrices() == std::array<int, custom::BlindBoxCount>{3000, 6000, 9000},
+ Require(CSOL_ReadBlindBoxPrices() == std::array<int, custom::BlindBoxCount>{3000, 6000, 30000},
   "actual JSON enables native blind box prices");
  static int minimum{}, maximum{}, draws{}, nextRoll{};
  static const auto nativeRandomLong = g_engfuncs.pfnRandomLong;
@@ -737,7 +771,17 @@ void BlindBox(Fixture& fixture, std::string_view group)
   const auto* weapon = player.m_rgpPlayerItems[slot];
   return weapon && weapon->m_iId == id && weapon->m_pPlayer == &player && weapon->pev->owner == player.edict();
  };
+ const auto full = [&](CBasePlayerItem* item) {
+  auto* weapon = dynamic_cast<CBasePlayerWeapon*>(item);
+  return weapon && weapon->m_iClip == weapon->iMaxClip() &&
+   fixture.Ammo(*weapon) == weapon->iMaxAmmo1();
+ };
  nextRoll = 2;
+ if (group == "blind-csol" || group == "blind-csol-rollback" || group == "blind-cof" || group == "blind-skull3")
+ {
+  player.m_signals.Update();
+  Require(!player.CanPlayerBuy(false), "fixture buyer has left the native buy zone");
+ }
  if (group == "blind-weights")
  {
   open("cs16", "6000");
@@ -745,21 +789,66 @@ void BlindBox(Fixture& fixture, std::string_view group)
    fixture.debits == std::vector<int>{-6000}, "last ticket for the first stock weapon grants its real entity at the quoted price");
   Check(draws == 1 && minimum == 1 && maximum == 7,
    "disabled, out-of-category and unresolved entries contribute no weight");
+  auto* rifle = static_cast<CBasePlayerWeapon*>(player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]);
+  Check(full(rifle), "stock rifle arrives with a full magazine and reserve");
+  rifle->m_iClip = 3;
+  fixture.Ammo(*rifle) = 15;
   nextRoll = 5;
   open("cs16", "6000");
   Check(owns(PISTOL_SLOT, WEAPON_USP) && player.m_iAccount == 4000 && draws == 2 && maximum == 5,
    "the owned rifle is removed before the next weighted draw");
+  Check(full(player.m_rgpPlayerItems[PISTOL_SLOT]) && rifle->m_iClip == 3 && fixture.Ammo(*rifle) == 15,
+   "the pistol arrives full and the previous rifle is left alone");
  }
- else if (group == "blind-csol")
+ else if (group == "blind-csol" || group == "blind-csol-rollback")
  {
   nextRoll = 1;
-  open("csol", "9000");
-  Check(owns(PRIMARY_WEAPON_SLOT, CSOL_WEAPON_K3) && player.m_iAccount == 7000 && draws == 1 && maximum == 1,
-   "the extension category pays once and grants the ready K3 through its actual provider");
-  player.m_iAccount = 16000;
-  open("csol", "9000");
-  Check(player.m_iAccount == 16000 && draws == 1 && fixture.debits == std::vector<int>{-9000},
-   "no second purchase when the only extension reward is already owned");
+  player.m_iAccount = 32000;
+  if (group == "blind-csol-rollback")
+  {
+   auto* primary = fixture.Own("weapon_m4a1", PRIMARY_WEAPON_SLOT, WEAPON_M4A1);
+   auto* secondary = fixture.Own("weapon_usp", PISTOL_SLOT, WEAPON_USP);
+   fixture.Ammo(*primary) = 21;
+   fixture.Ammo(*secondary) = 12;
+   primary->m_iClip = 6;
+   secondary->m_iClip = 3;
+   for (int rejected : {CSOL_WEAPON_TKNIFEEX2, CSOL_WEAPON_K3})
+   {
+    fixture.rejectDeployId = rejected;
+    open("csol", "30000");
+    Check(player.m_iAccount == 32000 && player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT] == primary &&
+     player.m_rgpPlayerItems[PISTOL_SLOT] == secondary && fixture.Ammo(*primary) == 21 &&
+     fixture.Ammo(*secondary) == 12 && primary->m_iClip == 6 && secondary->m_iClip == 3,
+     "a rejected grant in either slot returns the original weapons, ammo and money");
+   }
+   Check(fixture.debits == std::vector<int>{-30000, -30000} && draws == 4,
+    "each attempt draws both rewards and debits once before rolling back");
+   fixture.rejectDeployId = 0;
+   fixture.debits.clear();
+   draws = 0;
+  }
+  open("csol", "30000");
+  Check(owns(PRIMARY_WEAPON_SLOT, CSOL_WEAPON_K3) && owns(PISTOL_SLOT, CSOL_WEAPON_TKNIFEEX2) &&
+   player.m_iAccount == 2000 && draws == 2 && maximum == 1 && fixture.debits == std::vector<int>{-30000},
+   "a single payment grants the actual primary and throwing knife");
+  Check(full(player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]) &&
+   full(player.m_rgpPlayerItems[PISTOL_SLOT]), "the CSOL box fills both rewards including ordinary throwing blades");
+  player.m_iAccount = 32000;
+  open("csol", "30000");
+  Check(player.m_iAccount == 32000 && draws == 2 && fixture.debits.size() == 1,
+   "the box takes no second payment when either slot has no remaining eligible reward");
+ }
+ else if (group == "blind-skull3")
+ {
+  nextRoll = 1;
+  player.m_iAccount = 32000;
+  open("csol", "30000");
+  auto* first = player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT];
+  auto* second = first ? first->m_pNext : nullptr;
+  Check(first && second && fixture.debits == std::vector<int>{-30000} && player.m_iAccount == 2000 &&
+   ((first->m_iId == csol::skull3::Id && second->m_iId == csol::skull3::DualId) ||
+    (first->m_iId == csol::skull3::DualId && second->m_iId == csol::skull3::Id)) &&
+   full(first) && full(second), "the two owned SKULL-3 entities have full clips and their shared reserve");
  }
  else if (group == "blind-cof")
  {
@@ -770,6 +859,7 @@ void BlindBox(Fixture& fixture, std::string_view group)
   Check(owns(PISTOL_SLOT, id) && item && CSOL_IsGuestCof(*item) && player.m_pActiveItem == item &&
    player.m_iAccount == 13000 && fixture.debits == std::vector<int>{-3000} && draws == 1 && maximum == 1,
    "the CoF box charges the quoted price and deploys a real admitted CoF Glock");
+  Check(full(player.m_rgpPlayerItems[PISTOL_SLOT]), "the CoF Glock arrives with a full magazine and reserve");
   open("cof", "3000");
   Check(player.m_iAccount == 13000 && draws == 1 && fixture.debits.size() == 1,
    "an already-owned CoF reward is skipped without a second debit");
@@ -780,9 +870,18 @@ void BlindBox(Fixture& fixture, std::string_view group)
   Check(player.m_iAccount == 16000 && draws == 0, "stale quote cannot draw or debit");
   player.m_signals.Update();
   Require(!player.CanPlayerBuy(false), "real native buy-zone predicate refuses a player outside the buy area");
+  Require(fixture.Command({"csol_buy_menu", "12"}), "ordinary shop request reaches its native handler");
+  const auto denied = fixture.Last();
+  Check(denied.kind == Kind::Result && denied.result == Result::Unavailable,
+   "ordinary weapon catalog remains gated by the native buy zone");
+  player.m_bIsVIP = true;
   open("cs16", "6000");
-  Check(player.m_iAccount == 16000 && draws == 0, "blind box respects the real buy zone");
-  player.m_signals.Signal(SIGNAL_BUY); player.m_signals.Update();
+  player.m_bIsVIP = false;
+  CSGameRules()->m_bCTCantBuy = true;
+  open("cs16", "6000");
+  CSGameRules()->m_bCTCantBuy = false;
+  Check(player.m_iAccount == 16000 && draws == 0 && fixture.debits.empty(),
+   "the blind-box location exception does not bypass VIP or CT restrictions");
   player.m_iAccount = 5999;
   open("cs16", "6000");
   Check(player.m_iAccount == 5999 && draws == 0, "insufficient CS money causes no draw");
@@ -794,6 +893,11 @@ void BlindBox(Fixture& fixture, std::string_view group)
   open("cs16", "6000");
   Check(player.m_iAccount == 16000 && draws == 0 && !player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT],
    "administrator toggle disables the gameplay consumer immediately");
+  fixture.engine.Set("csol_custom_blind_box", "1");
+  open("cs16", "6000");
+  Check(owns(PRIMARY_WEAPON_SLOT, WEAPON_M4A1) && player.m_iAccount == 10000 &&
+   draws == 1 && fixture.debits == std::vector<int>{-6000} && !player.CanPlayerBuy(false),
+   "blind box outside the buy zone grants the actual weapon without enabling the normal shop");
  }
  else if (group == "blind-refund")
  {
@@ -815,6 +919,140 @@ void BlindBox(Fixture& fixture, std::string_view group)
  else throw std::runtime_error("unknown blind box group");
 }
 
+void AmmoRefill(Fixture& fixture)
+{
+ auto& player = *fixture.player;
+ auto* rifle = fixture.Own("weapon_m4a1", PRIMARY_WEAPON_SLOT, WEAPON_M4A1);
+ auto* pistol = fixture.Own("weapon_usp", PISTOL_SLOT, WEAPON_USP);
+ rifle->m_iClip = 4;
+ pistol->m_iClip = 9;
+ fixture.Ammo(*rifle) = 22;
+ fixture.Ammo(*pistol) = 6;
+ fixture.Grenade("Flashbang") = 1;
+ const auto open = [&](const char* quote) {
+  Require(fixture.Command({"csol_ammo_refill", quote}), "the menu command reaches the actual ammo transaction");
+ };
+ const auto partial = [&] {
+  return rifle->m_iClip == 4 && pistol->m_iClip == 9 &&
+   fixture.Ammo(*rifle) == 22 && fixture.Ammo(*pistol) == 6;
+ };
+ fixture.engine.Set("csol_custom_ammo_refill", "0");
+ open("2000");
+ fixture.engine.Set("csol_custom_ammo_refill", "1");
+ open("1999");
+ player.m_signals.Update();
+ open("2000");
+ Check(player.m_iAccount == 16000 && partial() && fixture.debits.empty(),
+   "disabled, stale and outside-zone offers leave both weapons and money untouched");
+ player.m_signals.Signal(SIGNAL_BUY);
+ player.m_signals.Update();
+ player.m_iAccount = 1999;
+ open("2000");
+ Check(player.m_iAccount == 1999 && partial() && fixture.debits.empty(), "insufficient funds change no ammo");
+
+ player.m_iAccount = 16000;
+ fixture.intermediate = [&](CBasePlayer&) { fixture.engine.Set("csol_custom_ammo_refill_price", "2500"); };
+ open("2000");
+ fixture.intermediate = {};
+ Check(player.m_iAccount == 16000 && partial() && fixture.debits == std::vector<int>{-2000},
+   "a change during the wallet callback refunds the debit before filling ammo");
+
+ fixture.engine.Set("csol_custom_ammo_refill_price", "2000");
+ fixture.debits.clear();
+ rifle->m_fInReload = TRUE;
+ player.m_flNextAttack = 1;
+ rifle->m_flNextPrimaryAttack = 2;
+ open("2000");
+ Check(player.m_iAccount == 14000 && fixture.debits == std::vector<int>{-2000} &&
+   rifle->m_iClip == rifle->iMaxClip() && fixture.Ammo(*rifle) == rifle->iMaxAmmo1() &&
+   pistol->m_iClip == pistol->iMaxClip() && fixture.Ammo(*pistol) == pistol->iMaxAmmo1(),
+   "one charge fills both magazines and both actual reserve caps");
+ Check(rifle->m_fInReload && player.m_flNextAttack == 1 && rifle->m_flNextPrimaryAttack == 2 &&
+   fixture.Grenade("Flashbang") == 1 && player.m_rebuyStruct.m_primaryAmmo == fixture.Ammo(*rifle) &&
+   player.m_rebuyStruct.m_secondaryAmmo == fixture.Ammo(*pistol),
+   "a refill preserves action locks and grenade inventory and records the new reserve");
+ open("2000");
+ Check(player.m_iAccount == 14000 && fixture.debits.size() == 1, "full inventory never charges again");
+
+ auto* cannon = fixture.Own("weapon_cannon", PRIMARY_WEAPON_SLOT, CSOL_WEAPON_CANNON);
+ cannon->m_iClip = 0;
+ fixture.Ammo(*cannon) = 0;
+ pistol->m_iClip = pistol->iMaxClip() + 1;
+ open("2000");
+ Check(player.m_iAccount == 12000 && cannon->m_iClip == cannon->iMaxClip() && !fixture.Ammo(*cannon) &&
+   pistol->m_iClip == pistol->iMaxClip() + 1, "clip-only ammo needs no phantom reserve and surplus rounds are preserved");
+}
+
+void NightShop(Fixture& fixture)
+{
+ namespace light = guest::cof::light;
+ namespace custom = csol::scenario::custom;
+ auto& player = *fixture.player;
+ const auto inventory = [&](int id) { return player.GetItemById(static_cast<WeaponIdType>(id)); };
+ const auto buy = [&](const char* alias, const char* quote) {
+  Require(fixture.Command({"csol_light", alias, quote}), "AMXX's purchase command reaches the real server consumer");
+ };
+ const auto step = [&](float time, custom::Phase phase) {
+  fixture.engine.globals.time = time;
+  Require(CSOL_ScenarioThink(*CSGameRules()) && !CSOL_RulesRejected(), "real scenario advances the challenge clock");
+  custom::ChallengePhaseView view;
+  Require(CSOL_ReadChallengePhase(fixture.runtime, view) && view.time.phase == phase,
+   "the actual challenge snapshot reaches the expected phase");
+ };
+ Require(CSOL_ScenarioTimeCycleReady() &&
+  CSOL_CanReceiveLightEquipment(player, light::Lantern.id) &&
+  CSOL_CanReceiveLightEquipment(player, light::Flare.id), "actual phase provider and equipment registrations are ready");
+ AddEntityHashValue(player.pev, STRING(player.pev->classname), CLASSNAME);
+ player.pev->origin = Vector(1000, 1000, 128);
+ const auto menu = player.m_iMenu;
+ player.m_iMenu = Menu_ChooseAppearance;
+ Require(CSOL_ScenarioRestartRound(*CSGameRules()) && !CSOL_RulesRejected(),
+  "real GameRules starts a new challenge");
+ player.m_iMenu = menu;
+ csol::scenario::EquipmentLoadout loadout;
+ loadout.classModsComplete = true;
+ Require(fixture.runtime->session->PrepareEquippedPlayer(player, 0, 0, false, std::move(loadout)),
+  "native equipment and upgrades are ready when purchased gear resets player max speed");
+ player.m_signals.Signal(SIGNAL_BUY); player.m_signals.Update();
+ buy("cof_lantern", "1500");
+ Check(!inventory(light::Lantern.id) && fixture.debits.empty(), "preparation does not allow light purchases");
+ step(1030, custom::Phase::Noon);
+ buy("cof_lantern", "1500");
+ step(1032, custom::Phase::Dusk);
+ buy("cof_flare", "300");
+ Check(!inventory(light::Lantern.id) && !inventory(light::Flare.id) && fixture.debits.empty(),
+  "noon and dusk transactions leave cash and inventory untouched");
+ step(1035, custom::Phase::Night);
+ player.m_signals.Update();
+ buy("cof_lantern", "1500");
+ Check(fixture.debits.empty(), "the lighting shop uses the original location gate");
+ player.m_signals.Signal(SIGNAL_BUY); player.m_signals.Update();
+ buy("cof_lantern", "600");
+ buy("cof_flare", "150");
+ Check(fixture.debits.empty(), "quotes from the former prices cannot debit");
+ player.m_iAccount = 299;
+ buy("cof_flare", "300");
+ Check(fixture.debits.empty() && !inventory(light::Flare.id), "insufficient funds cannot create equipment");
+ player.m_iAccount = 16000;
+ buy("cof_lantern", "1500");
+ Require(inventory(light::Lantern.id) && player.m_iAccount == 14500, "one lantern costs 1500");
+ Require(!CSOL_RulesRejected() && player.CanPlayerBuy(false), "lantern delivery preserves the active shop and scenario");
+ buy("cof_lantern", "1500");
+ Check(player.m_iAccount == 14500 && fixture.debits.size() == 1, "owned lantern cannot charge twice");
+ for (int i = 0; i < light::MaximumFlares + 1; ++i) buy("cof_flare", "300");
+ Check(CSOL_FlareStock(inventory(light::Flare.id)) == light::MaximumFlares &&
+  player.m_iAccount == 14500 - 300 * light::MaximumFlares &&
+  fixture.debits.size() == 1 + light::MaximumFlares, "each real flare costs 300 up to the same stock cap");
+ fixture.engine.Set("csol_custom_night_flare_price", "350");
+ Require(fixture.Command({"csol_buy_menu", "42"}), "B shop receives the same live offer prices");
+ const auto offer = std::find_if(fixture.packets.begin(), fixture.packets.end(), [&](const auto& raw) {
+  Packet packet;
+  return Decode(raw, packet) && packet.kind == Kind::Item && packet.id == light::Flare.id &&
+   packet.price == 350 && packet.result == Result::Unavailable;
+ });
+ Check(offer != fixture.packets.end(), "the normal catalog shows the current price and full stock");
+}
+
 void NativeFallback(){
  auto engine=std::make_unique<Engine>();engine->Prepare("0");g_pGameRules=InstallGameRules();
  Require(g_pGameRules&&!CSOL_UsesScenarioRules(),"real ordinary CS rules installed");
@@ -834,10 +1072,13 @@ int main(int argc,char** argv){
   if(group=="native-fallback")rebuy_test::NativeFallback();
   else{
    const bool blindBox = group.starts_with("blind-");
+   const bool nightShop = group == "night-shop";
    const auto resourcePath = std::filesystem::absolute(argv[2]);
-   rebuy_test::PreparePurchaseSettings(std::filesystem::absolute(argv[0]).parent_path() / (group + "-game"), blindBox);
-   rebuy_test::Fixture f(resourcePath, group == "blind-cof");
-   if (blindBox) rebuy_test::BlindBox(f, group);
+   rebuy_test::PreparePurchaseSettings(std::filesystem::absolute(argv[0]).parent_path() / (group + "-game"), blindBox, nightShop, group == "blind-skull3");
+   rebuy_test::Fixture f(resourcePath, group == "blind-cof", nightShop);
+   if (nightShop) rebuy_test::NightShop(f);
+   else if (blindBox) rebuy_test::BlindBox(f, group);
+   else if (group == "ammo-refill") rebuy_test::AmmoRefill(f);
    else if(group=="snapshot")rebuy_test::Snapshot(f);
    else if(group=="failed-capture")rebuy_test::FailedCapture(f);
    else if(group=="ordinary")rebuy_test::Ordinary(f);

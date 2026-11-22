@@ -9,8 +9,11 @@
 #include "weapons/weapon_service.h"
 #include "weapons/weapon_slots.h"
 #include "weapons/weapons.h"
+#include "weapons/wpn_cannon.h"
 #include "weapons/melee_purchase.h"
 #include "scenario/core/scenario_player_runtime.h"
+#include "scenario/core/scenario_runtime.h"
+#include "../scenario/custom/challenge_cycle.hpp"
 #include "../weapons/melee_identity.hpp"
 #include "../weapons/skull3.hpp"
 #include "../buy_menu.hpp"
@@ -65,7 +68,7 @@ void Send(const Packet& p, CBasePlayer* player=nullptr)
 }
 bool Eligible(CBasePlayer* player)
 {
-    return ready && player && !player->has_disconnected && !(player->pev->flags&(FL_KILLME|FL_DORMANT|FL_FAKECLIENT)) &&
+    return ready && player && !player->has_disconnected && !(player->pev->flags&(FL_KILLME|FL_DORMANT|FL_FAKECLIENT|FL_SPECTATOR)) &&
         player->IsAlive() && player->m_iTeam==CT && CSOL_CanUseExtendedWeapons(player) && CSOL_ScenarioCanBuy();
 }
 int Price(CBasePlayer* player,const Item& item)
@@ -73,13 +76,25 @@ int Price(CBasePlayer* player,const Item& item)
     // The stock item consumer discounts a helmet/vest already owned.
     if(item.id==1002)return player->pev->armorvalue>=100?HELMET_PRICE:
         player->m_iKevlar==ARMOR_VESTHELM?KEVLAR_PRICE:ASSAULTSUIT_PRICE;
+    if (guest::cof::light::Find(item.id))
+        return CSOL_ReadNightEquipmentPrice(item.id == guest::cof::light::Lantern.id);
     if(!IsWeapon(item) || item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return item.extendedPrice;
     auto* info=GetWeaponInfo(item.id);return info?info->cost:0;
 }
 bool Available(CBasePlayer* player,const Item& item)
 {
     if(guest::cof::arsenal::Find(item.id) && !arsenalCatalog)return false;
-    if(guest::cof::light::Find(item.id))return equipmentCatalog && CSOL_CanReceiveLightEquipment(*player,item.id);
+    if (guest::cof::light::Find(item.id))
+    {
+        if (!equipmentCatalog || !CSOL_CustomFeatureEnabled(custom::Feature::NightEquipment) ||
+            !CSOL_CustomFeatureEnabled(custom::Feature::TimeCycle)) return false;
+        const CSOLScenarioSdkScope scope;
+        if (!scope.Current()) return false;
+        custom::ChallengePhaseView phase;
+        const auto runtime = CSOL_ScenarioRuntimeForAccess(scope.EntityAccess().get());
+        return CSOL_ReadChallengePhase(runtime, phase) && phase.time.phase == custom::Phase::Night &&
+            CSOL_CanReceiveLightEquipment(*player, item.id) && scope.Current();
+    }
     if(!IsWeapon(item))return true;
     if(item.id==WEAPON_KNIFE || CSOL_ExtendedWeapon(item.id))return CSOL_CanDeliverScenarioWeapon(player,item.id);
     auto* info=GetWeaponInfo(item.id);
@@ -163,7 +178,7 @@ bool BlindBoxStockGun(const Item& item)
 
 bool BlindBoxRewardAvailable(CBasePlayer& player, const Item& item)
 {
-    if (item.id == WEAPON_KNIFE || csol::melee::IsWeapon(item.id))
+    if (RebuySlot(item) == 3)
     {
         const auto* held = Held(player, KNIFE_SLOT);
         if (held && held->m_iId == item.id) return false;
@@ -174,21 +189,148 @@ bool BlindBoxRewardAvailable(CBasePlayer& player, const Item& item)
         CSOL_CanDeliverScenarioWeapon(&player, item.id);
 }
 
+// Relative weights fit into the engine's signed RNG arguments. Accumulate
+// locally so neither weapon offers nor spawn equipment allocate during a roll.
+template<class AvailableReward>
+const Item* RollWeapon(const BlindBoxPool& pool, int slot, const AvailableReward& available)
+{
+    if (!g_engfuncs.pfnRandomLong) return nullptr;
+    std::array<BlindBoxReward, custom::MaximumBlindBoxEntries> eligible;
+    std::size_t count{};
+    std::uint32_t total{};
+    for (std::size_t index = 0; index < pool.count; ++index)
+    {
+        const auto reward = pool.rewards[index];
+        if ((!slot || RebuySlot(*reward.item) == slot) && available(*reward.item))
+        {
+            total += reward.weight;
+            eligible[count++] = {reward.item, total};
+        }
+    }
+    if (!total) return nullptr;
+    const int roll = RANDOM_LONG(1, static_cast<int>(total));
+    if (roll < 1 || roll > static_cast<int>(total)) return nullptr;
+    return std::lower_bound(eligible.data(), eligible.data() + count, std::uint32_t(roll),
+        [](const BlindBoxReward& reward, std::uint32_t value) { return reward.weight < value; })->item;
+}
+
+template<class Current, class Action>
+bool Debit(CBasePlayer& player, Client& state, int price, const Current& sameBuyer, const Action& action)
+{
+    state.delivering = true;
+    const FinishDelivery delivery{state, epoch, state.generation};
+    custom::RefundAwardScope purchase(nullptr, {}, nullptr, nullptr, nullptr);
+    const int before = player.m_iAccount;
+    if (price) player.AddAccount(-price, RT_PLAYER_BOUGHT_SOMETHING, true);
+    if (!sameBuyer()) return false;
+    const int debit = before - player.m_iAccount;
+    if (debit == price && action()) return true;
+    if (debit > 0 && sameBuyer())
+    {
+#ifdef REGAMEDLL_API
+        custom::RefundAccountScope account(&player);
+        player.AddAccount_OrigFunc(debit, RT_NONE, false);
+#else
+        player.AddAccount(debit, RT_NONE, false);
+#endif
+    }
+    return false;
+}
+
+// Zero selects all weapons in the slot. Blind boxes supply the IDs
+// of their rewards, leaving other loaded magazines alone.
+bool RefillAmmo(CBasePlayer& player, bool apply, std::array<int, 2> rewards = {})
+{
+    bool changed = false;
+    bool reserveChanged = false;
+    for (int slot : {PRIMARY_WEAPON_SLOT, PISTOL_SLOT})
+    {
+        const int reward = rewards[slot == PRIMARY_WEAPON_SLOT ? 0 : 1];
+        if (reward < 0) continue;
+        for (auto* item = player.m_rgpPlayerItems[slot]; item; item = item->m_pNext)
+        {
+            auto* weapon = dynamic_cast<CBasePlayerWeapon*>(item);
+            if (!weapon || (weapon->pev->flags & FL_KILLME) ||
+                weapon->m_pPlayer != &player || weapon->pev->owner != player.edict() ||
+                (reward && PurchaseIdentity(*weapon) != reward)) continue;
+            const int ammo = weapon->m_iPrimaryAmmoType;
+            if (!weapon->pszAmmo1() || ammo <= 0 || ammo >= MAX_AMMO_SLOTS) continue;
+            const int clip = weapon->iMaxClip();
+            const int capacity = CSOL_ClipAmmo(weapon) ? 0 : weapon->iMaxAmmo1();
+            const bool fillClip = weapon->m_iClip >= 0 && weapon->m_iClip < clip;
+            const bool fillReserve = capacity > 0 && player.m_rgAmmo[ammo] < capacity;
+            if (!fillClip && !fillReserve) continue;
+            if (!apply) return true;
+            if (fillClip) weapon->m_iClip = clip;
+            if (fillReserve) player.m_rgAmmo[ammo] = capacity;
+            changed = true;
+            reserveChanged |= fillReserve;
+        }
+    }
+    if (reserveChanged) player.TabulateAmmo();
+    return changed;
+}
+
+template<class Current, class SameBuyer>
+void BuyAmmoRefill(CBasePlayer& player, Client& state, int quotedPrice,
+    const Current& current, const SameBuyer& sameBuyer)
+{
+    const auto allowed = [&] {
+        return current() && Eligible(&player) && current() && player.CanPlayerBuy(false) && current();
+    };
+    if (!allowed())
+    {
+        if (current()) ClientPrint(player.pev, HUD_PRINTTALK, "请在购买区购买弹药。\n");
+        return;
+    }
+    const auto price = CSOL_ReadAmmoRefillPrice();
+    if (!price || *price != quotedPrice)
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "弹药报价已失效，请重新打开购买系统。\n");
+        return;
+    }
+    if (!RefillAmmo(player, false))
+    {
+        ClientPrint(player.pev, HUD_PRINTTALK, "当前武器无需补弹。\n");
+        return;
+    }
+    if (player.m_iAccount < *price)
+    {
+        ClientPrint(player.pev, HUD_PRINTCENTER, "#Not_Enough_Money");
+        return;
+    }
+    const bool filled = Debit(player, state, *price, sameBuyer, [&] {
+        return allowed() && CSOL_ReadAmmoRefillPrice() == price && RefillAmmo(player, true);
+    });
+    if (!filled || !current()) return;
+    player.BuildRebuyStruct();
+    if (current()) ClientPrint(player.pev, HUD_PRINTTALK, "主副武器弹药已补满。\n");
+}
+
+bool DeliverReward(CBasePlayer& player, const Item& item)
+{
+    return BlindBoxStockGun(item) ? CSOL_DeliverScenarioStockGun(player, item.id) :
+        CSOL_DeliverScenarioWeapon(&player, item.id);
+}
+
 template<class Current, class SameBuyer>
 void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int quotedPrice,
     const Current& current, const SameBuyer& sameBuyer)
 {
+    // The blind-box shop removes the buy-zone requirement for this transaction.
+    const auto allowed = [&] {
+        return current() && Eligible(&player) && current() && !player.m_bIsVIP && !CSGameRules()->m_bCTCantBuy;
+    };
+    if (!allowed()) return;
     const auto prices = CSOL_ReadBlindBoxPrices();
     const auto pools = blindBoxPools;
     const auto index = static_cast<std::size_t>(box);
-    if (!prices || !pools || !g_engfuncs.pfnRandomLong)
+    if (!prices || !pools)
     {
         ClientPrint(player.pev, HUD_PRINTTALK, "武器盲盒当前不可购买。\n");
         return;
     }
-    const auto offerCurrent = [&] {
-        return blindBoxPools == pools && CSOL_ReadBlindBoxPrices() == prices;
-    };
+    const auto offerCurrent = [&] { return blindBoxPools == pools && CSOL_ReadBlindBoxPrices() == prices; };
     const int price = (*prices)[index];
     if (price != quotedPrice)
     {
@@ -201,93 +343,64 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
         return;
     }
 
-    // Retain only currently available rewards. The prefix sum fits in a
-    // GoldSrc RandomLong argument even at the configured maximum weights.
+    const bool pair = box == custom::BlindBox::Csol;
+    const auto available = [&](const Item& item)
+    {
+        return current() && BlindBoxRewardAvailable(player, item);
+    };
     const auto& pool = (*pools)[index];
-    std::array<BlindBoxReward, custom::MaximumBlindBoxEntries> eligible;
-    std::size_t count{};
-    std::uint32_t total{};
-    for (std::size_t i = 0; i < pool.count; ++i)
+    const auto* primary = RollWeapon(pool, pair ? 2 : 0, available);
+    const auto* secondary = pair && primary ? RollWeapon(pool, 1, available) : nullptr;
+    if (!current()) return;
+    if (!primary || (pair && !secondary))
     {
-        const auto reward = pool.rewards[i];
-        const bool available = BlindBoxRewardAvailable(player, *reward.item);
-        if (!current()) return;
-        if (available)
-        {
-            total += reward.weight;
-            eligible[count++] = {reward.item, total};
-        }
-    }
-    if (!total)
-    {
-        ClientPrint(player.pev, HUD_PRINTTALK, "该盲盒当前没有可领取的武器。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "该盲盒当前没有可领取的武器组合。\n");
         return;
     }
-    const auto roll = RANDOM_LONG(1, static_cast<int>(total));
-    if (!current() || roll < 1 || roll > static_cast<int>(total)) return;
-    if (!offerCurrent())
+    if (!allowed() || !offerCurrent() || player.m_iAccount < price) return;
+    const bool granted = Debit(player, state, price, sameBuyer, [&]
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒设置已变化，请重新打开购买系统。\n");
-        return;
-    }
-    if (player.m_iAccount < price)
-    {
-        ClientPrint(player.pev, HUD_PRINTCENTER, "#Not_Enough_Money");
-        return;
-    }
-    const auto* begin = eligible.data();
-    const auto* selected = std::lower_bound(begin, begin + count, std::uint32_t(roll),
-        [](const BlindBoxReward& reward, std::uint32_t value) { return reward.weight < value; });
-    const auto& item = *selected->item;
-
-    bool granted = false;
-    {
-        state.delivering = true;
-        const FinishDelivery delivery{state, epoch, state.generation};
-        const int before = player.m_iAccount;
-        if (price)
+        if (!allowed() || !offerCurrent() || !available(*primary) || !current()) return false;
+        if (secondary)
         {
-            custom::RefundAwardScope purchase(nullptr, {}, nullptr, nullptr, nullptr);
-            player.AddAccount(-price, RT_PLAYER_BOUGHT_SOMETHING, true);
+            if (!available(*secondary) || !current()) return false;
+            auto pairCurrent = [&] { return allowed() && offerCurrent(); };
+            if (!CSOL_DeliverBlindBoxPair(player, primary->id, secondary->id,
+                [](void* context) { return (*static_cast<decltype(pairCurrent)*>(context))(); }, &pairCurrent))
+                return false;
+            RefillAmmo(player, true, {primary->id, secondary->id});
         }
-        if (!sameBuyer()) return;
-        const int debit = before - player.m_iAccount;
-        if (debit == price && current() && Eligible(&player) && current() && player.CanPlayerBuy(false) && current() && offerCurrent())
+        else
         {
-            const bool available = BlindBoxRewardAvailable(player, item);
-            if (available && current() && offerCurrent())
-                granted = BlindBoxStockGun(item) ? CSOL_DeliverScenarioStockGun(player, item.id) :
-                    CSOL_DeliverScenarioWeapon(&player, item.id);
+            if (!DeliverReward(player, *primary)) return false;
+            if (current())
+            {
+                const int slot = RebuySlot(*primary);
+                if (slot == 2) RefillAmmo(player, true, {primary->id, -1});
+                if (slot == 1) RefillAmmo(player, true, {-1, primary->id});
+            }
         }
-        if (!granted && debit > 0 && sameBuyer())
-        {
-            // Compensate this transaction through the native account writer.
-            // Purchase hooks can decline a debit. They do not own its refund.
-            custom::RefundAwardScope purchase(nullptr, {}, nullptr, nullptr, nullptr);
-#ifdef REGAMEDLL_API
-            custom::RefundAccountScope account(&player);
-            player.AddAccount_OrigFunc(debit, RT_NONE, false);
-#else
-            player.AddAccount(debit, RT_NONE, false);
-#endif
-        }
-    }
+        return true;
+    });
     if (!current()) return;
     if (!granted)
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, offerCurrent() ? "盲盒购买失败。\n" :
-            "盲盒设置已变化，请重新打开购买系统。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒购买失败。\n");
         return;
     }
     player.BuildRebuyStruct();
     if (!current()) return;
-    char notice[128];
-    Q_snprintf(notice, sizeof(notice), "盲盒获得 %s\n", item.name);
+    char notice[200];
+    if (secondary)
+        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s 和 %s\n", primary->name, secondary->name);
+    else
+        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s\n", primary->name);
     ClientPrint(player.pev, HUD_PRINTTALK, notice);
 }
 
-template<class Current>
-Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current& current)
+template<class Current, class SameBuyer>
+Result Purchase(CBasePlayer& player, Client& state, const Item& item,
+    const Current& current, const SameBuyer& sameBuyer, int quotedPrice = -1)
 {
     if(!current()||!Eligible(&player)||!current()||!player.CanPlayerBuy(false)||!current())return Result::Unavailable;
     // The native weapon buyer already rejects owned guns. Its extension
@@ -300,7 +413,17 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
     }
     if(!Available(&player,item)||!current())return Result::Unavailable;
     const int price=Price(&player,item);
+    if (quotedPrice >= 0 && price != quotedPrice) return Result::Unavailable;
     if(!IsAmmunition(item.id)&&player.m_iAccount<price)return Result::Insufficient;
+    if (guest::cof::light::Find(item.id))
+    {
+        const bool granted = Debit(player, state, price, sameBuyer, [&] {
+            return current() && Eligible(&player) && current() && player.CanPlayerBuy(false) &&
+                current() && Available(&player, item) && current() && Price(&player, item) == price &&
+                CSOL_GiveLightEquipment(player, item.id);
+        });
+        return granted ? Result::Success : Result::Failed;
+    }
     // MP+192C is independent from the replay guard. Internal delivery must
     // not let a hook snapshot the temporary inventory before the common tail.
     state.delivering=true;
@@ -327,23 +450,6 @@ Result Purchase(CBasePlayer& player,Client& state,const Item& item,const Current
             // primammo/secammo buy to capacity; a no-progress hook stops.
             if(!bought||!gained)break;
             first=false;
-        }
-    }else if(guest::cof::light::Find(item.id)){
-        const int before=player.m_iAccount;
-        custom::RefundAwardScope purchase(nullptr,{},nullptr,nullptr,nullptr);
-        player.AddAccount(-price,RT_PLAYER_BOUGHT_SOMETHING,true);
-        if(!current())return Result::Unavailable;
-        const int debit=before-player.m_iAccount;
-        if(debit==price && Eligible(&player) && current() && player.CanPlayerBuy(false) && current() && Available(&player,item) && current())
-            success=CSOL_GiveLightEquipment(player,item.id);
-        if(!current())return Result::Unavailable;
-        if(!success && debit>0){
-#ifdef REGAMEDLL_API
-            custom::RefundAccountScope account(&player);
-            player.AddAccount_OrigFunc(debit,RT_NONE,false);
-#else
-            player.AddAccount(debit,RT_NONE,false);
-#endif
         }
     }else if(IsStockEquipment(item.id)){
         const int before=player.m_iAccount;
@@ -381,7 +487,7 @@ void Replay(CBasePlayer& player,Client& state,const Current& current)
     };
     const auto buy=[&](int id){
         if(!allowed())return;
-        if(const auto* item=Find(id))Purchase(player,state,*item,current);
+        if(const auto* item=Find(id))Purchase(player,state,*item,current,current);
         else if(id==WEAPON_SHIELDGUN)NativeCommand(player,"shield");
     };
     // MP114E5030 fixed order. Each normal purchase settles independently;
@@ -539,18 +645,23 @@ bool CSOL_PrecacheBuyMenu()
 }
 void CSOL_PrepareBlindBoxPools(const custom::Snapshot& settings)
 {
+    constexpr std::array<WeaponSource, custom::BlindBoxCount> sources{
+        WeaponSource::Cof, WeaponSource::CounterStrike, WeaponSource::Csol
+    };
     auto prepared = std::make_shared<BlindBoxPools>();
     for (const auto& box : custom::BlindBoxes())
     {
-        auto& pool = (*prepared)[static_cast<std::size_t>(box.id)];
+        const auto index = static_cast<std::size_t>(box.id);
+        auto& pool = (*prepared)[index];
         for (const auto& entry : settings.Pool(box.id))
         {
             if (!entry.weight) continue;
             const auto* item = Find(entry.weapon);
-            if (!item || !IsWeapon(*item)) continue;
-            const auto source = (guest::cof::FindFirearm(item->id) || guest::cof::arsenal::Find(item->id)) ? custom::BlindBox::Cof :
-                CSOL_ExtendedWeapon(item->id) ? custom::BlindBox::Csol : custom::BlindBox::CounterStrike;
-            if (source == box.id) pool.rewards[pool.count++] = {item, entry.weight};
+            if (!item || !IsWeapon(*item) || item->source != sources[index]) continue;
+            // CSOL's current two secondary implementations share the same
+            // transaction used to undo a partially delivered two-slot box.
+            if (box.id == custom::BlindBox::Csol && RebuySlot(*item) == 3) continue;
+            pool.rewards[pool.count++] = {item, entry.weight};
         }
     }
     blindBoxPools = std::move(prepared);
@@ -561,7 +672,9 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     if(!command)return false;
     const bool replay=!Q_strcmp(command,"cl_rebuy")||!Q_strcmp(command,"rebuy_in");
     const bool blind=!Q_strcmp(command,"csol_blindbox");
-    if(!replay&&!blind&&Q_strcmp(command,"csol_buy_menu")&&Q_strcmp(command,"csol_buy"))return false;
+    const bool refill = !Q_strcmp(command, "csol_ammo_refill");
+    const bool light = !Q_strcmp(command, "csol_light");
+    if(!replay&&!blind&&!light&&!refill&&Q_strcmp(command,"csol_buy_menu")&&Q_strcmp(command,"csol_buy"))return false;
     CSOLScenarioSdkScope scope;
     if(!scope.Scenario())return !replay;
     if(!scope.Current()||!entity||entity->free)return true;
@@ -569,8 +682,14 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     const int index=player->entindex();if(index<1||index>=int(clients.size()))return true;
     const bool catalog=!Q_strcmp(command,"csol_buy_menu");std::uint16_t request{},id{};
     std::optional<custom::BlindBox> box;
-    if(blind){
+    const Item* lightOffer = nullptr;
+    if (light) {
+        if (CMD_ARGC() != 3 || !(lightOffer = Find(CMD_ARGV(1))) ||
+            !guest::cof::light::Find(lightOffer->id) || !Number(CMD_ARGV(2), id, true)) return true;
+    } else if(blind){
         if(CMD_ARGC()!=3 || !(box=custom::FindBlindBox(CMD_ARGV(1))) || !Number(CMD_ARGV(2),id,true))return true;
+    }else if (refill) {
+        if (CMD_ARGC() != 2 || !Number(CMD_ARGV(1), id, true)) return true;
     }else if(!replay&&(CMD_ARGC()!=(catalog?2:3)||!Number(CMD_ARGV(1),request)||(!catalog&&!Number(CMD_ARGV(2),id))))return true;
     auto* found=State(*player);if(!scope.Current()||!found)return true;
     auto& state=*found;const int userid=state.userid;const auto stamp=epoch;const auto client=state.generation;
@@ -591,13 +710,50 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
             player->m_iNumSpawns==spawns && authority->Active() && authority->Find(handle)==life &&
             life->generation==generation && life->nativeSpawnSerial==nativeSpawn;
     };
-    const auto current=[&](){return sameBuyer() && player->IsAlive();};
-    if(!Eligible(player)||!current()||!player->CanPlayerBuy(false)||!current()){
-        if(blind&&current())ClientPrint(player->pev,HUD_PRINTCENTER,"盲盒当前不可购买，请在购买区使用。\n");
-        else if(!replay&&!blind&&current())Send({Kind::Result,request,id,0,std::max(0,player->m_iAccount),Result::Unavailable,2},player);
+    const auto runtime = CSOL_ScenarioRuntimeForAccess(scope.EntityAccess().get());
+    if (!runtime || !runtime->session) return true;
+    const auto round = runtime->session->Map().RoundGeneration();
+    const auto current = [&] {
+        return sameBuyer() && player->IsAlive() && runtime->session &&
+            runtime->session->Map().RoundGeneration() == round;
+    };
+    if (!Eligible(player) || !current() ||
+        (!blind && !light && !refill && !player->CanPlayerBuy(false)) || !current()) {
+        if (!replay && !blind && !light && !refill && current())
+            Send({Kind::Result,request,id,0,std::max(0,player->m_iAccount),Result::Unavailable,2},player);
+        return true;
+    }
+    if (refill)
+    {
+        BuyAmmoRefill(*player, state, id, current, sameBuyer);
         return true;
     }
     if(box){BuyBlindBox(*player,state,*box,id,current,sameBuyer);return true;}
+    if (lightOffer)
+    {
+        const auto result = Purchase(*player, state, *lightOffer, current, sameBuyer, id);
+        if (!current()) return true;
+        switch (result)
+        {
+        case Result::Success:
+        {
+            char notice[96];
+            Q_snprintf(notice, sizeof(notice), "已购买 %s。\n", lightOffer->name);
+            ClientPrint(player->pev, HUD_PRINTTALK, notice);
+            break;
+        }
+        case Result::Insufficient:
+            ClientPrint(player->pev, HUD_PRINTCENTER, "#Not_Enough_Money");
+            break;
+        case Result::Unavailable:
+            ClientPrint(player->pev, HUD_PRINTTALK, "照明装备暂不可购买。请在永夜的购买区重新打开菜单并检查库存。\n");
+            break;
+        default:
+            ClientPrint(player->pev, HUD_PRINTTALK, "照明装备购买失败。\n");
+            break;
+        }
+        return true;
+    }
     if(replay){Replay(*player,state,current);return true;}
     if(catalog){
         state.request=request;state.purchased=false;
@@ -607,8 +763,10 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
             if(!equipmentCatalog && guest::cof::light::Find(item.id))continue;
             if(!arsenalCatalog && guest::cof::arsenal::Find(item.id))continue;
             if(!current())return true;
-            const bool available=Available(player,item);if(!current())return true;
-            Send({Kind::Item,request,item.id,Price(player,item),player->m_iAccount,available?Result::Available:Result::Unavailable,2},player);
+            const bool available = Available(player, item);
+            if(!current())return true;
+            Send({Kind::Item,request,item.id,Price(player,item),player->m_iAccount,
+                available?Result::Available:Result::Unavailable,2},player);
         }
         if(current())Send({Kind::End,request,0,0,player->m_iAccount,Result::Available,2},player);return true;
     }
@@ -616,7 +774,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     if(state.purchased){Send(state.last,player);return true;}
     const auto* item=Find(id);if(!item)return true;
     const int price=Price(player,*item);
-    const Result result=Purchase(*player,state,*item,current);
+    const Result result=Purchase(*player,state,*item,current,sameBuyer);
     if(!current())return true;
     // Original114152DE/1141092C rebuild actual equipment even after a
     // normal failed purchase, once the command reached this admitted tail.

@@ -572,10 +572,10 @@ public:
             if(now<magazineIn)return;
             magazineIn=0;
             CSOLWeaponCall call(*this);
-            if (HasReserve()) {
+            if (m_iClip < Info().clip && HasReserve()) {
                 auto& reserve = m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType];
-                const int loaded = std::min(Info().clip, reserve);
-                m_iClip = loaded;
+                const int loaded = std::min(Info().clip - m_iClip, reserve);
+                m_iClip += loaded;
                 reserve -= loaded;
                 if (!CSOL_ScenarioSkillReload(*this) || !call.Current()) return;
             }

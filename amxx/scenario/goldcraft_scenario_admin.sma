@@ -11,6 +11,13 @@ new g_FinishAction;
 new g_NextMap;
 new g_BlindBoxEnabled;
 new g_BlindBoxPrices[3];
+new g_AmmoRefillEnabled, g_AmmoRefillPrice;
+new g_NightEquipmentEnabled, g_NightEquipmentPrices[2];
+new const g_NightEquipmentAliases[][] = { "cof_lantern", "cof_flare" };
+new const g_NightEquipmentNames[][] = { "提灯", "照明弹" };
+new const g_NightEquipmentPriceCvars[][] = {
+    "csol_custom_night_lantern_price", "csol_custom_night_flare_price"
+};
 new const g_BlindBoxKeys[][] = { "cof", "cs16", "csol" };
 new const g_BlindBoxNames[][] = { "CoF 武器盲盒", "CS1.6 武器盲盒", "CSOL 武器盲盒" };
 new const g_BlindBoxPriceCvars[][] = {
@@ -39,6 +46,8 @@ new const g_CustomKeys[][] = {
     "damage_refund_cap",
     "night_player_lights",
     "zombie_gibs",
+    "night_equipment",
+    "ammo_refill",
     "midday_seconds",
     "dusk_seconds",
     "blind_box_price_1",
@@ -89,7 +98,10 @@ new const g_CustomKeys[][] = {
     "horde_extra_zombies",
     "blood_splash_radius",
     "zombie_gib_chance",
-    "zombie_gib_melee_head_chance"
+    "zombie_gib_melee_head_chance",
+    "night_lantern_price",
+    "night_flare_price",
+    "ammo_refill_price"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
@@ -105,6 +117,8 @@ new const g_CustomNames[][] = {
     "伤害返金限制",
     "永夜随身照明",
     "僵尸爆尸",
+    "永夜照明装备",
+    "补满弹药",
     "正午时长",
     "黄昏时长",
     "CoF盲盒价格",
@@ -155,7 +169,10 @@ new const g_CustomNames[][] = {
     "尸潮增加怪量",
     "血迹溅射距离",
     "普通击杀爆尸概率",
-    "近战爆头爆尸概率"
+    "近战爆头爆尸概率",
+    "提灯价格",
+    "照明弹价格",
+    "补满弹药价格"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.
@@ -176,6 +193,11 @@ public plugin_init()
     g_FinishAction = get_cvar_pointer("csol_scenario_finish_action");
     g_NextMap = get_cvar_pointer("csol_scenario_nextmap");
     g_BlindBoxEnabled = get_cvar_pointer("csol_custom_blind_box");
+    g_NightEquipmentEnabled = get_cvar_pointer("csol_custom_night_equipment");
+    g_AmmoRefillEnabled = get_cvar_pointer("csol_custom_ammo_refill");
+    g_AmmoRefillPrice = get_cvar_pointer("csol_custom_ammo_refill_price");
+    for (new i; i < sizeof g_NightEquipmentPrices; i++)
+        g_NightEquipmentPrices[i] = get_cvar_pointer(g_NightEquipmentPriceCvars[i]);
     for (new i; i < sizeof g_BlindBoxPrices; i++)
         g_BlindBoxPrices[i] = get_cvar_pointer(g_BlindBoxPriceCvars[i]);
     if (!g_FinishAction || !g_NextMap || csol_scenario_admin_api_version() != 1 ||
@@ -274,42 +296,73 @@ public PlayerMenuHandler(id, menu, item)
     return PLUGIN_HANDLED;
 }
 
+ReadPurchasePrice(cvar)
+{
+    if (!cvar) return -1;
+    new Float:value = get_pcvar_float(cvar);
+    if (!(0.0 <= value <= 32000.0)) return -1;
+    new price = floatround(value);
+    return float(price) == value ? price : -1;
+}
+
 bool:ReadBlindBoxPrices(prices[3])
 {
     if (!g_BlindBoxEnabled || get_pcvar_float(g_BlindBoxEnabled) != 1.0) return false;
     new previous = -1;
     for (new i; i < sizeof g_BlindBoxPrices; i++)
     {
-        if (!g_BlindBoxPrices[i]) return false;
-        new Float:value = get_pcvar_float(g_BlindBoxPrices[i]);
-        if (!(0.0 <= value <= 32000.0)) return false;
-        new price = floatround(value);
-        if (float(price) != value || price <= previous) return false;
+        new price = ReadPurchasePrice(g_BlindBoxPrices[i]);
+        if (price <= previous) return false;
         prices[i] = price;
         previous = price;
     }
     return true;
 }
 
+AddPurchaseOffer(menu, const name[], const offer[], price)
+{
+    new label[80], info[32];
+    formatex(label, charsmax(label), "%s  $%d", name, price);
+    formatex(info, charsmax(info), "%s %d", offer, price);
+    menu_additem(menu, label, info);
+}
+
 ShowPurchaseMenu(id)
 {
     new prices[3];
-    if (!ReadBlindBoxPrices(prices))
-    {
-        engclient_cmd(id, "buy");
-        return;
-    }
+    new bool:blindBoxes = ReadBlindBoxPrices(prices);
     new menu = menu_create("大灾变^n购买系统", "PurchaseMenuHandler");
     g_Menu[id] = menu;
     g_MenuUserid[id] = get_user_userid(id);
-    menu_additem(menu, "普通武器购买");
-    for (new i; i < sizeof g_BlindBoxKeys; i++)
+    menu_additem(menu, "普通武器购买", "buy");
+    if (blindBoxes)
+        for (new i; i < sizeof g_BlindBoxKeys; i++)
+            AddPurchaseOffer(menu, g_BlindBoxNames[i], g_BlindBoxKeys[i], prices[i]);
+
+    if (g_AmmoRefillEnabled && get_pcvar_float(g_AmmoRefillEnabled) == 1.0)
     {
-        new label[80], quote[8];
-        formatex(label, charsmax(label), "%s  $%d", g_BlindBoxNames[i], prices[i]);
-        num_to_str(prices[i], quote, charsmax(quote));
-        menu_additem(menu, label, quote);
+        new price = ReadPurchasePrice(g_AmmoRefillPrice);
+        if (price >= 0) AddPurchaseOffer(menu, "补满主副武器弹药", "csol_ammo_refill", price);
     }
+    if (g_NightEquipmentEnabled && get_pcvar_float(g_NightEquipmentEnabled) == 1.0)
+        menu_additem(menu, "永夜照明装备", "lighting");
+    menu_setprop(menu, MPROP_PERPAGE, 0);
+    menu_setprop(menu, MPROP_EXIT, MEXIT_FORCE);
+    menu_setprop(menu, MPROP_EXITNAME, "关闭");
+    menu_display(id, menu);
+}
+
+ShowNightEquipmentMenu(id)
+{
+    new menu = menu_create("大灾变^n永夜照明装备", "PurchaseMenuHandler");
+    g_Menu[id] = menu;
+    g_MenuUserid[id] = get_user_userid(id);
+    for (new i; i < sizeof g_NightEquipmentAliases; i++)
+    {
+        new price = ReadPurchasePrice(g_NightEquipmentPrices[i]);
+        if (price >= 0) AddPurchaseOffer(menu, g_NightEquipmentNames[i], g_NightEquipmentAliases[i], price);
+    }
+    menu_additem(menu, "返回购买系统", "purchase");
     menu_setprop(menu, MPROP_EXITNAME, "关闭");
     menu_display(id, menu);
 }
@@ -317,13 +370,46 @@ ShowPurchaseMenu(id)
 public PurchaseMenuHandler(id, menu, item)
 {
     if (id < 1 || id > 32 || g_Menu[id] != menu) return PLUGIN_HANDLED;
-    new userid = g_MenuUserid[id], quote[8], access, callback;
-    new bool:hasItem = item >= 0 && menu_item_getinfo(menu, item, access, quote, charsmax(quote), _, _, callback);
+    new userid = g_MenuUserid[id], info[32], access, callback;
+    new bool:hasItem = item >= 0 && menu_item_getinfo(menu, item, access, info, charsmax(info), _, _, callback);
     g_Menu[id] = -1;
     menu_destroy(menu);
     if (!hasItem || !ScenarioJoined(id) || get_user_userid(id) != userid) return PLUGIN_HANDLED;
-    if (!item) engclient_cmd(id, "buy");
-    else if (item <= sizeof g_BlindBoxKeys) engclient_cmd(id, "csol_blindbox", g_BlindBoxKeys[item - 1], quote);
+    if (equal(info, "buy"))
+    {
+        engclient_cmd(id, "buy");
+        return PLUGIN_HANDLED;
+    }
+    if (equal(info, "lighting"))
+    {
+        if (g_NightEquipmentEnabled && get_pcvar_float(g_NightEquipmentEnabled) == 1.0)
+            ShowNightEquipmentMenu(id);
+        return PLUGIN_HANDLED;
+    }
+    if (equal(info, "purchase"))
+    {
+        ShowPurchaseMenu(id);
+        return PLUGIN_HANDLED;
+    }
+    new offer[24], quote[8];
+    if (parse(info, offer, charsmax(offer), quote, charsmax(quote)) != 2) return PLUGIN_HANDLED;
+    if (equal(offer, "csol_ammo_refill"))
+    {
+        engclient_cmd(id, "csol_ammo_refill", quote);
+        return PLUGIN_HANDLED;
+    }
+    for (new i; i < sizeof g_NightEquipmentAliases; i++)
+        if (equal(offer, g_NightEquipmentAliases[i]))
+        {
+            engclient_cmd(id, "csol_light", offer, quote);
+            return PLUGIN_HANDLED;
+        }
+    for (new i; i < sizeof g_BlindBoxKeys; i++)
+        if (equal(offer, g_BlindBoxKeys[i]))
+        {
+            engclient_cmd(id, "csol_blindbox", offer, quote);
+            return PLUGIN_HANDLED;
+        }
     return PLUGIN_HANDLED;
 }
 

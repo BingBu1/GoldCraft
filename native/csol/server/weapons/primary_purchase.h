@@ -3,6 +3,9 @@
 class CBasePlayer;
 class CBasePlayerWeapon;
 bool CSOL_DeliverSkullBalrog(CBasePlayer& player, int weaponId);
+// Each slot retains its rollback until both grants pass the final check.
+bool CSOL_DeliverBlindBoxPair(CBasePlayer& player, int primary, int secondary,
+    bool (*current)(void*), void* context);
 bool CSOL_CanDeliverScenarioStockGun(CBasePlayer& player, int weaponId) noexcept;
 bool CSOL_DeliverScenarioStockGun(CBasePlayer& player, int weaponId);
 // Host-only foreign weapons may reuse the native allocation/drop/rollback

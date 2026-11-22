@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <sstream>
 
 namespace custom_menu_test
 {
@@ -18,7 +19,9 @@ struct State : Context
     int userid{71}, revision{5}, status{2}, busy{}, edits{}, editIndex{-1}, expectedUserid{}, expectedRevision{};
     bool settingsAvailable{true}, immediateSaved{};
     float editValue{};
-    std::array<float, 4> blindBoxCvars{0, 3000, 6000, 9000};
+    std::array<float, 4> blindBoxCvars{0, 3000, 6000, 30000};
+    std::array<float, 3> nightEquipmentCvars{0, 1500, 300};
+    std::array<float, 2> ammoRefillCvars{0, 2000};
     std::string error;
     std::vector<Field> fields{{"kick", "踢击开关，可反复修改。",0,1,0,1},
         {"midday_seconds","正午持续秒数。",1,180,1,86400,1},
@@ -46,11 +49,32 @@ cell AMX_NATIVE_CALL CustomCvarPointer(AMX* amx, cell* params)
     if (name == "csol_custom_blind_box_price_1") return 4;
     if (name == "csol_custom_blind_box_price_2") return 5;
     if (name == "csol_custom_blind_box_price_3") return 6;
+    if (name == "csol_custom_night_equipment") return 7;
+    if (name == "csol_custom_night_lantern_price") return 8;
+    if (name == "csol_custom_night_flare_price") return 9;
+    if (name == "csol_custom_ammo_refill") return 10;
+    if (name == "csol_custom_ammo_refill_price") return 11;
     return Pointer(amx, params);
 }
 cell AMX_NATIVE_CALL CvarFloat(AMX*, cell* params)
 {
-    return std::bit_cast<cell>(state->blindBoxCvars.at(params[1] - 3));
+    const cell id = params[1];
+    if (id >= 10) return std::bit_cast<cell>(state->ammoRefillCvars.at(id - 10));
+    return std::bit_cast<cell>(id >= 7 ? state->nightEquipmentCvars.at(id - 7) : state->blindBoxCvars.at(id - 3));
+}
+cell AMX_NATIVE_CALL ParsePurchaseOffer(AMX* amx, cell* params)
+{
+    if (params[0] != 5 * sizeof(cell))
+        throw std::runtime_error("expected two output buffers for a purchase offer");
+    std::istringstream input(Read(amx, params[1]));
+    std::string token;
+    cell count{};
+    for (int arg = 2; arg <= 4 && input >> token; arg += 2)
+    {
+        Write(amx, params[arg], token, *Addr(amx, params[arg + 1]));
+        ++count;
+    }
+    return count;
 }
 cell AMX_NATIVE_CALL Notice(AMX* amx,cell* p)
 {
@@ -142,7 +166,7 @@ const AMX_NATIVE_INFO overrides[]{
     {"menu_setprop",Property},{"client_cmd",Command},{"engclient_cmd",EngineCommand},{"formatex",Format},
     {"set_task",Task},{"remove_task",RemoveTask},{"float",Float},{"floatround",FloatRound},{"str_to_float",FloatString},
     {"floatcmp",FloatCmp},{"floatadd",FloatAdd},{"floatsub",FloatSub},{"floatmul",FloatMul},{"floatdiv",FloatDiv},
-    {"read_args",Args},{"remove_quotes",Quotes},{"trim",Trim},
+    {"read_args",Args},{"remove_quotes",Quotes},{"trim",Trim},{"parse",ParsePurchaseOffer},
     {"csol_custom_api_version",One},{"csol_custom_info",Info},{"csol_custom_read",Entry},{"csol_custom_edit",Edit},
     {nullptr,nullptr}};
 struct VM
@@ -194,10 +218,13 @@ void RootCases()
             {return item.first.find("盲盒")!=std::string::npos||item.first.find("熟练度")!=std::string::npos||item.first.find("就绪")!=std::string::npos;}),
             "root contains no unavailable feature or implementation-status labels");
         v.Call("PlayerMenuHandler",{1,root,0});
-        Check(v.s.engineCommands.size()==1,"purchase selection dispatches exactly one engine command");
-        const auto& dispatch=v.s.engineCommands.at(0);
-        Check(dispatch.player==1&&dispatch.command=="buy"&&dispatch.arg1.empty()&&dispatch.arg2.empty()&&dispatch.menuDestroyed,
-            "real engclient_cmd signature receives fixed buy after closing AMXX root");
+        const int purchase = v.s.shown;
+        Check(v.s.menus.at(root).destroyed && v.s.engineCommands.empty() &&
+            v.s.menus.at(purchase).items.size() == 1, "the purchase page retains ordinary buying with all extras off");
+        v.Call("PurchaseMenuHandler", {1, purchase, 0});
+        const auto& dispatch = v.s.engineCommands.at(0);
+        Check(dispatch.player == 1 && dispatch.command == "buy" && dispatch.arg1.empty() &&
+            dispatch.arg2.empty() && dispatch.menuDestroyed, "ordinary purchase opens the native buy menu");
         Check(v.s.commands.empty()&&v.s.edits==0&&v.s.requests==0&&v.s.replays==0&&v.s.votes==0,
             "purchase root cannot mutate saved settings or submit administrative actions");
         v.Call("PlayerMenuHandler",{1,root,0});Check(v.s.engineCommands.size()==1,"late duplicate root selection cannot buy again");
@@ -235,7 +262,7 @@ void RootCases()
         Check(menu.handler == "PurchaseMenuHandler" && menu.items.size() == 4 && v.s.engineCommands.empty(),
             "ordinary player sees standard buying and three configured boxes");
         const std::array<std::string_view, 4> keys{"", "cof", "cs16", "csol"};
-        const std::array<std::string_view, 4> quotes{"", "3000", "6000", "9000"};
+        const std::array<std::string_view, 4> quotes{"", "3000", "6000", "30000"};
         v.s.blindBoxCvars[1] = 3500;
         v.Call("PurchaseMenuHandler", {1, purchase, item});
         const auto& command = v.s.engineCommands.at(0);
@@ -247,11 +274,72 @@ void RootCases()
     }
     {
         VM v;
-        v.s.blindBoxCvars = {1, 3000, 3000, 9000};
+        v.s.blindBoxCvars = {1, 3000, 3000, 30000};
         v.Call("CommandChooseTeam", {1});
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        Check(v.s.menus.at(v.s.shown).items.size() == 1, "invalid price ordering hides the blind boxes");
+        v.Call("PurchaseMenuHandler", {1, v.s.shown, 0});
         Check(v.s.engineCommands.size() == 1 && v.s.engineCommands.front().command == "buy",
             "invalid price ordering keeps the normal buy entry usable");
+    }
+    for (int item : {4, -3})
+    {
+        VM v;
+        v.s.flags = 0;
+        v.s.blindBoxCvars[0] = 1;
+        v.s.nightEquipmentCvars[0] = 1;
+        v.s.ammoRefillCvars[0] = 1;
+        v.Call("CommandChooseTeam", {1});
+        v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        const int purchase = v.s.shown;
+        const auto& menu = v.s.menus.at(purchase);
+        Check(menu.items.size() == 6 && menu.perPage == 0 && menu.exitMode == 2 &&
+            v.s.menuNames.at(purchase).at(4) == "关闭" &&
+            menu.items.at(4).first == "补满主副武器弹药  $2000" &&
+            menu.items.at(5).first == "永夜照明装备",
+            "all six entries and the forced close action share one purchase page");
+        v.s.ammoRefillCvars[1] = 2500;
+        v.Call("PurchaseMenuHandler", {1, purchase, item});
+        if (item >= 0)
+        {
+            const auto& command = v.s.engineCommands.at(0);
+            Check(command.command == "csol_ammo_refill" && command.arg1 == "2000" &&
+                command.arg2.empty() && command.menuDestroyed, "the refill passes exactly the displayed quote");
+            v.Call("PurchaseMenuHandler", {1, purchase, item});
+            Check(v.s.engineCommands.size() == 1, "a retired ammo offer cannot submit twice");
+        }
+        else
+            Check(menu.destroyed && v.s.engineCommands.empty(), "close ends the menu without buying anything");
+    }
+    for (int item = 0; item < 3; ++item)
+    {
+        VM v;
+        v.s.flags = 0;
+        v.s.blindBoxCvars[0] = 1;
+        v.s.nightEquipmentCvars[0] = 1;
+        v.Call("CommandChooseTeam", {1});
+        v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        const int purchase = v.s.shown;
+        Check(v.s.menus.at(purchase).items.at(4).first == "永夜照明装备", "the ordinary player can open the lighting shop");
+        v.Call("PurchaseMenuHandler", {1, purchase, 4});
+        const int lighting = v.s.shown;
+        const auto& menu = v.s.menus.at(lighting);
+        Check(menu.items.size() == 3 && menu.items.at(0).first == "提灯  $1500" &&
+            menu.items.at(1).first == "照明弹  $300" && v.s.engineCommands.empty(), "the lighting menu displays both configured prices");
+        v.s.nightEquipmentCvars[2] = 350;
+        v.Call("PurchaseMenuHandler", {1, lighting, item});
+        if (item < 2)
+        {
+            const auto& command = v.s.engineCommands.at(0);
+            Check(command.command == "csol_light" && command.arg1 == (item == 0 ? "cof_lantern" : "cof_flare") &&
+                command.arg2 == (item == 0 ? "1500" : "300") && command.menuDestroyed,
+                "the lighting menu submits the price displayed at opening");
+            v.Call("PurchaseMenuHandler", {1, lighting, item});
+            Check(v.s.engineCommands.size() == 1, "a late lighting menu callback does not dispatch a second purchase");
+        }
+        else
+            Check(v.s.engineCommands.empty() && v.s.shown != lighting &&
+                v.s.menus.at(v.s.shown).items.front().second == "buy", "lighting back returns to the purchase page");
     }
 }
 bool CompleteUtf8(std::string_view text)
@@ -325,7 +413,10 @@ void Cases()
 {
     {VM v;v.s.flags=0;Check(v.Call("CommandChooseTeam",{1})==1,"joined ordinary Scenario player gets M homepage");
         const auto& menu=v.s.menus.at(v.s.shown);Check(menu.items.size()==1&&menu.handler=="PlayerMenuHandler","ordinary homepage has player actions and no server management");
-        v.Call("PlayerMenuHandler",{1,v.s.shown,0});Check(v.s.edits==0&&v.s.engineCommands.size()==1&&v.s.engineCommands[0].command=="buy","root purchase dispatches the real fixed native buy command without settings edits");}
+        v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
+        v.Call("PurchaseMenuHandler", {1, v.s.shown, 0});
+        Check(v.s.edits == 0 && v.s.engineCommands.size() == 1 && v.s.engineCommands.front().command == "buy",
+            "the ordinary purchase entry opens the native buy menu without settings edits");}
     for(int mode=0;mode!=3;++mode){VM v;if(mode==0)v.s.joining=1;else if(mode==1)v.s.mode=1;else v.s.connected=false;
         Check(v.Call("CommandChooseTeam",{1})==0&&v.s.shown==-1,"initial selection other mode and disconnect retain native M");}
     {VM v;v.Call("CommandChooseTeam",{1});const int menu=v.s.shown;

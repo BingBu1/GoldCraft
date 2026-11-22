@@ -12,7 +12,7 @@ constexpr Item CofItem(guest::cof::arsenal::Id id, const char* alias)
 {
     const auto& item = *guest::cof::arsenal::Find(id);
     return {static_cast<std::uint16_t>(id), item.category, alias, item.title, alias, item.price,
-        item.Melee() ? WeaponSlot::Melee : WeaponSlot::ByCategory};
+        item.Melee() ? WeaponSlot::Melee : WeaponSlot::ByCategory, WeaponSource::Cof};
 }
 constexpr Item items[]{
     CofItem(guest::cof::arsenal::Browning,"cof_browning"),
@@ -23,39 +23,40 @@ constexpr Item items[]{
     CofItem(guest::cof::arsenal::Pickaxe,"cof_sledgehammer"),
     CofItem(guest::cof::arsenal::Switchblade,"cof_switchblade"),
     // Authored guest placement/price, separate from original CSO item records.
-    {896,1,"cof_glock","客串武器·Glock 19","cof_glock",650},
-    {897,1,"cof_p345","客串武器·P345","cof_p345",800},
-    {898,1,"cof_revolver","客串武器·Taurus .357","cof_revolver",1300},
-    {899,1,"cof_vp70","客串武器·VP70","cof_vp70",1100},
-    {220,1,"tknifeex2","三重战术飞刀","tknifeex2",30},
-    {130,1,"skull1","噬魂SKULL-1","skull1",1200},
-    {312,1,"skull2","噬血狂袭SKULL-2","skull2",1550},
+    {896,1,"cof_glock","客串武器·Glock 19","cof_glock",650,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {897,1,"cof_p345","客串武器·P345","cof_p345",800,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {898,1,"cof_revolver","客串武器·Taurus .357","cof_revolver",1300,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {899,1,"cof_vp70","客串武器·VP70","cof_vp70",1100,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {220,1,"tknifeex2","三重战术飞刀","tknifeex2",30,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {130,1,"skull1","噬魂SKULL-1","skull1",1200,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {312,1,"skull2","噬血狂袭SKULL-2","skull2",1550,WeaponSlot::ByCategory,WeaponSource::Csol},
     {1,1,"p228","P228","p228",0},{10,1,"elites","双持精英","elites",0},
     {11,1,"fn57","Five-seveN","fn57",0},{16,1,"usp","USP","usp",0},
     {17,1,"glock","Glock 18","glock18",0},{26,1,"deagle","沙漠之鹰","deagle",0},
     {5,2,"xm1014","XM1014","xm1014",0},{21,2,"m3","M3","m3",0},
-    {203,2,"balrog11","龙炎Balrog-Ⅺ","balrog11",5750},
-    {904,2,"cof_shotgun","客串武器·Remington 870","cof_shotgun",3000},
+    {203,2,"balrog11","龙炎Balrog-Ⅺ","balrog11",5750,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {904,2,"cof_shotgun","客串武器·Remington 870","cof_shotgun",3000,WeaponSlot::ByCategory,WeaponSource::Cof},
     {7,3,"mac10","MAC-10","mac10",0},{12,3,"ump45","UMP45","ump45",0},
-    {900,3,"cof_tmp","客串武器·MP9","cof_tmp",2000},
-    {901,3,"cof_mp5","客串武器·MP5A3","cof_mp5",2400},
-    {902,4,"cof_m16","客串武器·M16","cof_m16",3100},
-    {903,4,"cof_g43","客串武器·G43","cof_g43",3500},
-    {905,4,"cof_famas","客串武器·FAMAS G2","cof_famas",3200},
-    {142,3,"skull3","喋血SKULL-3","skull3",4000},
+    {900,3,"cof_tmp","客串武器·MP9","cof_tmp",2000,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {901,3,"cof_mp5","客串武器·MP5A3","cof_mp5",2400,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {902,4,"cof_m16","客串武器·M16","cof_m16",3100,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {903,4,"cof_g43","客串武器·G43","cof_g43",3500,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {905,4,"cof_famas","客串武器·FAMAS G2","cof_famas",3200,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {142,3,"skull3","喋血SKULL-3","skull3",4000,WeaponSlot::ByCategory,WeaponSource::Csol},
     {19,3,"mp5","MP5","mp5",0},{23,3,"tmp","TMP","tmp",0},{30,3,"p90","P90","p90",0},
     {3,4,"scout","Scout","scout",0},{8,4,"aug","AUG","aug",0},{13,4,"sg550","SG550","sg550",0},
     {14,4,"galil","Galil","galil",0},{15,4,"famas","FAMAS","famas",0},{18,4,"awp","AWP","awp",0},
     {22,4,"m4a1","M4A1","m4a1",0},{24,4,"g3sg1","G3SG1","g3sg1",0},
     {27,4,"sg552","SG552","sg552",0},{28,4,"ak47","AK-47","ak47",0},
-    {112,4,"skull5","死亡骑士SKULL-5","skull5",6000},
-    {20,5,"m249","M249","m249",0},{197,5,"k3","K3","k3",4750},
+    {112,4,"skull5","死亡骑士SKULL-5","skull5",6000,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {20,5,"m249","M249","m249",0},{197,5,"k3","K3","k3",4750,WeaponSlot::ByCategory,WeaponSource::Csol},
     // Original IGBuyMenuMgr: mode 15 has no override for IDs 96 or 203.
-    {96,5,"m249ex","碎魂者SKULL-7","m249ex",9000},
-    {144,8,"cannon","黑龙炮","cannon",4100},{725,8,"beamgun","赤血龙骧","beamgun",6100},
-    {726,8,"beamgunle","御天绝影","beamgunle",6100},
-    {guest::cof::light::Lantern.id,8,"cof_lantern",guest::cof::light::Lantern.title,"cof_lantern",guest::cof::light::Lantern.price},
-    {guest::cof::light::Flare.id,8,"cof_flare",guest::cof::light::Flare.title,"cof_flare",guest::cof::light::Flare.price},
+    {96,5,"m249ex","碎魂者SKULL-7","m249ex",9000,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {144,8,"cannon","黑龙炮","cannon",4100,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {725,8,"beamgun","赤血龙骧","beamgun",6100,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {726,8,"beamgunle","御天绝影","beamgunle",6100,WeaponSlot::ByCategory,WeaponSource::Csol},
+    {guest::cof::light::Lantern.id,8,"cof_lantern",guest::cof::light::Lantern.title,"cof_lantern",guest::cof::light::Lantern.price,WeaponSlot::ByCategory,WeaponSource::Cof},
+    {guest::cof::light::Flare.id,8,"cof_flare",guest::cof::light::Flare.title,"cof_flare",guest::cof::light::Flare.price,WeaponSlot::ByCategory,WeaponSource::Cof},
     {1001,8,"vest","防弹衣","kevlar",650},{1002,8,"vesthelm","防弹衣与头盔","assaultsuit",1000},
     {1003,8,"hegren","高爆手雷","hegrenade",300},{1004,8,"flash","闪光弹","flashbang",200},
     {1005,8,"sgren","烟雾弹","smokegrenade",300},
@@ -65,8 +66,8 @@ constexpr Item items[]{
     // Original CSOL equips knives from the inventory; the HW 40-byte knife
     // records (380D48C8/380D49B8) are not 0x30 price records. The human chose
     // $0 on 2026-11-04 until an original purchase price is found.
-    {1022,9,"dragonsword","青龙偃月刀","dragonsword",0,WeaponSlot::Melee},
-    {1023,9,"skullaxe","旋风SKULL-9","skullaxe",0,WeaponSlot::Melee},
+    {1022,9,"dragonsword","青龙偃月刀","dragonsword",0,WeaponSlot::Melee,WeaponSource::Csol},
+    {1023,9,"skullaxe","旋风SKULL-9","skullaxe",0,WeaponSlot::Melee,WeaponSource::Csol},
     {2001,6,"primammo","主武器弹药","",0},{2002,7,"secammo","副武器弹药","",0}
 };
 using Value=rapidjson::Value;

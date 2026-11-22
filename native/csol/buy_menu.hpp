@@ -23,9 +23,12 @@ struct Packet {Kind kind{};std::uint16_t request{},id{};std::int32_t price{},bal
 std::array<std::uint8_t,MessageBytes> Encode(const Packet& packet);
 bool Decode(std::span<const std::uint8_t> bytes,Packet& packet);
 enum class WeaponSlot : std::uint8_t { ByCategory, Primary, Secondary, Melee };
+// Authored provenance for custom reward pools; category/team tabs are UI data.
+enum class WeaponSource : std::uint8_t { CounterStrike, Cof, Csol };
 struct Item {
     std::uint16_t id;int category;const char* alias;const char* name;const char* image;int extendedPrice;
     WeaponSlot slot{WeaponSlot::ByCategory};
+    WeaponSource source{WeaponSource::CounterStrike};
 };
 // Purchase IDs share a namespace with extended weapons. A high weapon ID is
 // not an equipment-array index (the two CSOL knife bridges use 1022/1023).
