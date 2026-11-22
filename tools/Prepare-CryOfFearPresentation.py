@@ -207,7 +207,7 @@ def prepare(original_root, baseline_root, output, weapon='glock'):
         raise ValueError('Guest author definition is missing or unsupported')
     ident, original_id, clip, reserve, price, ammo_price, ammo_count = map(int, match.groups()[:7])
     classname, ammunition, title = match.groups()[7:]
-    expected=(905,23,'weapon_cof_famas','556Nato',30) if famas else (904,4,'weapon_cof_shotgun','buckshot',5) if shotgun else (903,26,'weapon_cof_g43','762Nato',10) if g43 else (902,9,'weapon_cof_m16','556Nato',20) if m16 else (901,27,'weapon_cof_mp5','cof_mp5',30) if mp5 else (900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
+    expected=(905,23,'weapon_cof_famas','556Nato',35) if famas else (904,4,'weapon_cof_shotgun','buckshot',5) if shotgun else (903,26,'weapon_cof_g43','762Nato',10) if g43 else (902,9,'weapon_cof_m16','556Nato',20) if m16 else (901,27,'weapon_cof_mp5','cof_mp5',30) if mp5 else (900,14,'weapon_cof_tmp','cof_tmp',30) if tmp else (899,19,'weapon_cof_vp70','cof_vp70',18) if vp70 else (898,21,'weapon_cof_revolver','cof_revolver',5) if revolver else (897,7,'weapon_cof_p345','cof_p345',8) if p345 else (896,3,'weapon_cof_glock','cof_glock',15)
     if (ident, original_id, classname, ammunition, clip) != expected:
         raise ValueError('Unreviewed host/original guest identity')
     shop = read(ROOT/'native/csol/buy_menu.cpp').decode('utf8')

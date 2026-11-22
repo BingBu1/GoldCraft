@@ -31,6 +31,8 @@ struct BallisticsEffects
     // the bubble sprite. IDs are runtime values, never original process offsets.
     int customDecalMessage;
     int bubbleModel;
+    // Set by the scenario 870 owner only. Pistol rays never consume this predicate.
+    bool (*pierceZombie)(CBaseEntity&) noexcept {};
 };
 
 struct BallisticsCall

@@ -293,6 +293,51 @@ void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
     }
 }
 
+void CCSOLScenarioMonster::ApplyCofMeleeControl(const Vector& direction, float pushSpeed, float staggerSeconds)
+{
+    if (!m_pool || !m_pool->Borrowed(*this) || pev->deadflag != DEAD_NO || pev->health <= 0) return;
+    const auto lease = m_pool->Lease(*this);
+    auto& control = m_host.cofMelee;
+    if (control.lease != lease) control = {};
+    control.lease = lease;
+    const float now = gpGlobals->time;
+    const float length = direction.Length2D();
+    if (pushSpeed > 0 && length > 0) {
+        pev->velocity.x = direction.x * (pushSpeed / length);
+        pev->velocity.y = direction.y * (pushSpeed / length);
+        control.pushUntil = now + .35f;
+        control.recovery = std::max(control.recovery, staggerSeconds);
+    } else {
+        pev->velocity.x = pev->velocity.y = 0;
+        control.staggerUntil = std::max(control.staggerUntil, now + std::max(control.recovery, staggerSeconds));
+        control.pushUntil = control.recovery = 0;
+    }
+    // Wake the behavior to observe an early stop against a wall, even on a slow AI tick.
+    if (pev->nextthink <= 0 || pev->nextthink > now + .03f) pev->nextthink = now + .03f;
+}
+
+bool CCSOLScenarioMonster::UpdateCofMeleeControl(float now)
+{
+    auto& control = m_host.cofMelee;
+    if (!control.lease) return false;
+    if (pev->deadflag != DEAD_NO || pev->health <= 0 || !m_pool || m_pool->Lease(*this) != control.lease) {
+        control = {};
+        return false;
+    }
+    if (control.pushUntil > 0) {
+        const float speedSquared = pev->velocity.x * pev->velocity.x + pev->velocity.y * pev->velocity.y;
+        if (now < control.pushUntil && speedSquared > 1.f) return true;
+        control.staggerUntil = std::max(control.staggerUntil, now + control.recovery);
+        control.pushUntil = control.recovery = 0;
+    }
+    if (now >= control.staggerUntil) {
+        control = {};
+        return false;
+    }
+    pev->velocity.x = pev->velocity.y = 0;
+    return true;
+}
+
 void CCSOLScenarioMonster::BehaviorThink()
 {
     CSOLScenarioSdkScope scope(CSOL_ScenarioOwnerRules(m_pool));
@@ -330,6 +375,12 @@ void CCSOLScenarioMonster::BehaviorThink()
             return true;
         };
         if (report()) return;
+        if (m_host.cofMelee.lease && UpdateCofMeleeControl(gpGlobals->time)) {
+            const auto& control = m_host.cofMelee;
+            const float end = control.pushUntil > 0 ? control.pushUntil : control.staggerUntil;
+            pev->nextthink = std::min(end, gpGlobals->time + .03f);
+            return;
+        }
         behavior->Think(*this);
         report();
     }
@@ -363,6 +414,7 @@ void CCSOLScenarioMonster::Touch(CBaseEntity* other)
             pool->Borrowed(*this) && pool->Lease(*this) == lease && m_behavior == behavior &&
             m_touchComponents && (!other || target.Get<CBaseEntity>());
     };
+    if (m_host.cofMelee.lease && UpdateCofMeleeControl(gpGlobals->time)) return;
     behavior->Touch(*this, other);
     if (!current()) return;
     for (std::size_t i = 0; i < m_touchComponents->size(); ++i)

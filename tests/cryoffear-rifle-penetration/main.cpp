@@ -209,6 +209,18 @@ void Run(const char* profile)
         fire(damage, material);
         Expect(targets[0]->applied == std::vector<int>{int(damage.shot)} && targets[1]->applied.empty() && traces == 1, "native caliber penetration distance stops subsequent targets");
     }
+    for (const int walls : {6, 7}) {
+        reset();
+        for (int i = 0; i < walls; ++i) {
+            targets[i]->pev->solid = SOLID_BSP;
+            surfaces.push_back({targets[i], 80.f + 50.f * i, 1.f, 'W'});
+        }
+        surfaces.push_back({targets[walls], 80.f + 50.f * walls, 1.f, 'F'});
+        fire({1500, 3, 7}, CSRifleMaterial::Rifle762);
+        Expect(targets[walls]->applied.empty() == (walls == 7), "hunting rifle six-wall limit");
+        if (walls == 6) Expect(targets[walls]->levels == std::vector<int>{6} &&
+            targets[walls]->applied.front() > 0, "target beyond sixth wall takes native material damage");
+    }
     g_ReGameHookchains.m_CBaseEntity_FireBullets3.unregisterHook(Native);
     g_ReGameHookchains.m_IsPenetrableEntity.unregisterHook(Penetrable);
     engine.reset();

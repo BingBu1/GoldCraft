@@ -19,6 +19,7 @@
 #include "../scenario/core/game_rules_gate.h"
 #include "../scenario/core/scenario_runtime.h"
 #include "../scenario/core/scenario_session.h"
+#include "../scenario/monsters/scenario_monster_pool.h"
 #include "../custom/action_stamina.h"
 #include "native/guest/cof/catalog.hpp"
 #include "native/guest/cof/admission.hpp"
@@ -345,6 +346,13 @@ bool PrepareShotgun(void* context,const ShotgunResources& resources,ShotgunPrepa
 {
     auto& map=*static_cast<Map*>(context);
     if(!Current(&map)||!map.ready||!map.effects.FillPrepared(resources,output))return false;
+    output.ballistics.pierceZombie = [](CBaseEntity& entity) noexcept {
+        auto* monster = dynamic_cast<CCSOLScenarioMonster*>(&entity);
+        return monster && monster->Pool() && monster->Pool()->Borrowed(*monster) &&
+            monster->pev->deadflag == DEAD_NO && monster->pev->health > 0 &&
+            monster->pev->solid != SOLID_BSP && monster->pev->takedamage != DAMAGE_NO &&
+            !(monster->pev->effects & EF_NODRAW) && !(monster->pev->flags & (FL_KILLME | FL_DORMANT));
+    };
     output.pushbackReady=g_engfuncs.pfnFindEntityInSphere&&g_engfuncs.pfnMakeVectors&&
         g_engfuncs.pfnPlaybackEvent&&g_engfuncs.pfnEmitSound;
     return Current(&map);

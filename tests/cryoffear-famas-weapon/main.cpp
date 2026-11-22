@@ -3,6 +3,7 @@
 #include "native/guest/cof/server/famas_weapon.hpp"
 #include "native/guest/cof/server/player_think.hpp"
 #include "native/guest/cof/catalog.hpp"
+#include "native/csol/server/custom/weapon_mastery.h"
 #include <array>
 #include <bit>
 #include <cmath>
@@ -20,6 +21,10 @@ CBotManager* TheBots{};
 bool g_bAllowedCSBot{};
 CGameRules* g_pGameRules{};
 const Vector g_vecZero{};
+// This fixture exercises base capacities and timings for a player without a mastery bonus.
+float CSOL_MasteryReloadTime(const CBasePlayerWeapon&, float duration) { return duration; }
+void CSOL_MasteryScaleGuestShot(const CBasePlayerWeapon&, float, float&, float*, float*) {}
+
 
 namespace
 {
@@ -416,7 +421,7 @@ int main(int argc,char** argv)
     }
     {
         FamasWeapon fresh;ItemInfo info{};
-        Check(fresh.GetItemInfo(&info)&&info.iId==905&&info.iMaxClip==30&&info.iMaxAmmo1==150&&
+        Check(fresh.GetItemInfo(&info)&&info.iId==905&&info.iMaxClip==35&&info.iMaxAmmo1==150&&
             info.iSlot==0&&info.iPosition==5&&!std::strcmp(info.pszName,"weapon_cof_famas")&&
             !std::strcmp(info.pszAmmo1,"556Nato")&&fresh.iItemSlot()==PRIMARY_WEAPON_SLOT);
         Check(!fresh.GetItemInfo(nullptr)&&!fresh.IsPistol()&&!fresh.UseDecrement());
@@ -436,13 +441,13 @@ int main(int argc,char** argv)
         pickup.ConfigureColdHost({nullptr, Current, ColdPrepare, ColdOwner, ColdInventory});
         pickup.Precache();
         weapon.m_iClip = 0;
-        pickup.m_iDefaultAmmo = 35;
+        pickup.m_iDefaultAmmo = 40;
         Check(pickup.AddDuplicate(&weapon) && pickup.m_iDefaultAmmo == 0);
-        Check(weapon.m_iClip == 30 && weapon.m_iPrimaryAmmoType == RifleAmmoSlot);
+        Check(weapon.m_iClip == 35 && weapon.m_iPrimaryAmmoType == RifleAmmoSlot);
         Check(player.m_rgAmmo[RifleAmmoSlot] == limit - 7 && player.m_rgAmmo[BoxAmmoSlot] == 81);
         pickup.m_iClip = 10;
         Check(pickup.AddDuplicate(&weapon) && player.m_rgAmmo[RifleAmmoSlot] == limit);
-        Check(weapon.m_iClip == 30 && player.m_rgAmmo[BoxAmmoSlot] == 81);
+        Check(weapon.m_iClip == 35 && player.m_rgAmmo[BoxAmmoSlot] == 81);
     }
     // Continuous automatic fire ignores the previous secondary cooldown and
     // does not require a new pressed edge for each round.
@@ -462,7 +467,7 @@ int main(int argc,char** argv)
             events[at+3]==Bits(2.5F)&&events[at+4]==Bits(3.25F))postRecoil=true;
     Check(postRecoil);
     // ID23 refills without reserve consumption or the ordinary observer.
-    for(int reserve:{0,150,32000})for(int clip:{0,5})
+    for(int reserve:{0,150,32000})for(int clip:{0,5,30,34})
     {
         Initialize();Ready();weapon.m_iClip=clip;player.m_rgAmmo[RifleAmmoSlot]=reserve;
         events.clear();weapon.Reload();
@@ -470,7 +475,7 @@ int main(int argc,char** argv)
         Check(SawView(clip?5:6)&&weapon.m_iClip==0&&State().loading&&State().action==2&&
             Bits(State().ownerAttack)==Bits(10.F+duration));
         globals.time=std::nextafter(State().ownerAttack,INFINITY);events.clear();weapon.ItemPostFrame();
-        Check(weapon.m_iClip==30&&player.m_rgAmmo[RifleAmmoSlot]==reserve&&!State().loading);
+        Check(weapon.m_iClip==35&&player.m_rgAmmo[RifleAmmoSlot]==reserve&&!State().loading);
         globals.time+=.01F;weapon.ItemPostFrame();Check(State().action==0);
     }
     Initialize();Ready();weapon.m_iClip=75;weapon.Reload();
@@ -490,9 +495,9 @@ int main(int argc,char** argv)
         Ready(12);player.pev->button=0;weapon.Reload();
         Check(State().loading&&weapon.m_iClip==0);
         globals.time=std::nextafter(State().ownerAttack,INFINITY);weapon.ItemPostFrame();
-        Check(!State().loading&&weapon.m_iClip==30&&weapon.CanDeploy());
+        Check(!State().loading&&weapon.m_iClip==35&&weapon.CanDeploy());
         weapon.Holster();Check(SawView(3)||absent);
-        Check(weapon.Deploy());Ready(20);weapon.PrimaryAttack();Check(weapon.m_iClip==29);
+        Check(weapon.Deploy());Ready(20);weapon.PrimaryAttack();Check(weapon.m_iClip==34);
     }
     Initialize();backends.firstEquip=nullptr;backends.playerAnimation=nullptr;backends.playerThink=nullptr;
     Check(weapon.Bind(player,prepared,backends)==FamasStatus::Ready&&weapon.Deploy());

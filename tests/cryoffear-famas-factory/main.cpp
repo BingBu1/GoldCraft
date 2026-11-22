@@ -19,7 +19,7 @@ using FactoryColdHost=FamasColdHost;
 constexpr auto InstallFactory=InstallFamasFactory;
 constexpr auto ResetFactory=ResetFamasFactory;
 constexpr auto CreateFactory=CreateFamas;
-constexpr int FactoryHostId=905, FactoryDefaultAmmo=30;
+constexpr int FactoryHostId=905, FactoryDefaultAmmo=35;
 constexpr const char* FactoryName="Famas";
 
 std::vector<void*> allocations;

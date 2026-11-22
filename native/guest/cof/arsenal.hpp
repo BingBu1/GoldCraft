@@ -13,6 +13,7 @@ struct Definition
     const char *ammo;
     int clip, reserve, ammoPrice;
     const char *view, *player, *world, *card, *art, *ammoArt;
+    int ammoPurchaseCount{};
     constexpr bool Melee() const { return hudSlot == 2; }
 };
 
@@ -22,11 +23,11 @@ inline constexpr std::array Items{
     Definition{Browning,"browning","weapon_cof_browning","客串武器·Browning HP 9mm",1,750,1,4,"9mm",13,130,30,
         "models/guest/cof/browning/v_browning.mdl", "models/guest/cof/browning/p_browning.mdl",
         "models/guest/cof/browning/w_browning.mdl", "gfx/csol/buy/cof_browning.tga",
-        "resource/csol/hud/v1/cof_browning_weapon.tga", "resource/csol/hud/v1/cof_browning_ammo.tga"},
-    Definition{Rifle,"rifle","weapon_cof_rifle","客串武器·Hunting Rifle",4,3500,0,14,"762Nato",5,50,50,
+        "resource/csol/hud/v1/cof_browning_weapon.tga", "resource/csol/hud/v1/cof_browning_ammo.tga",13},
+    Definition{Rifle,"rifle","weapon_cof_rifle","客串武器·Hunting Rifle",4,3500,0,14,"762Nato",10,50,50,
         "models/guest/cof/rifle/v_rifle.mdl", "models/guest/cof/rifle/p_rifle.mdl",
         "models/guest/cof/rifle/w_rifle.mdl", "gfx/csol/buy/cof_rifle.tga",
-        "resource/csol/hud/v1/cof_rifle_weapon.tga", "resource/csol/hud/v1/cof_rifle_ammo.tga"},
+        "resource/csol/hud/v1/cof_rifle_weapon.tga", "resource/csol/hud/v1/cof_rifle_ammo.tga",5},
     Definition{Axe,"axe","weapon_cof_axe","客串武器·斧头",9,0,2,3,nullptr,-1,-1,0,
         "models/guest/cof/axe/v_axe.mdl", "models/guest/cof/axe/p_axe.mdl",
         "models/guest/cof/axe/w_axe.mdl", "gfx/csol/buy/cof_axe.tga",

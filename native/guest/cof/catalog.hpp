@@ -88,7 +88,7 @@ inline constexpr std::array<FirearmDefinition,FirearmKeys.size()> Firearms=[] {
         "weapon_cof_shotgun","buckshot","客串武器·Remington 870",
         "models/guest/cof/shotgun/v_shotgun.mdl","models/guest/cof/shotgun/p_shotgun.mdl",
         "models/guest/cof/shotgun/w_shotgun.mdl"};
-    result[static_cast<unsigned>(Firearm::Famas)]={Firearm::Famas,905,23,30,150,3200,60,30,
+    result[static_cast<unsigned>(Firearm::Famas)]={Firearm::Famas,905,23,35,150,3200,60,30,
         "weapon_cof_famas","556Nato","客串武器·FAMAS G2",
         "models/guest/cof/famas/v_famas.mdl","models/guest/cof/famas/p_famas.mdl",
         "models/guest/cof/famas/w_famas.mdl"};

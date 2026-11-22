@@ -18,6 +18,7 @@ struct FamasControlHost
     bool (*current)(void*) noexcept {};
     float (*time)(void*) noexcept {};
     bool (*event)(void*, const FamasControlEvent&) noexcept {};
+    int clipCapacity{30}; // Original CoF capacity. The scenario supplies its catalog capacity.
 };
 enum class FamasControlResult : unsigned char
 {

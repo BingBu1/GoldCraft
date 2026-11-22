@@ -4,6 +4,8 @@
 #include <array>
 
 class CBasePlayer;
+class CBaseEntity;
+struct TraceResult;
 namespace guest::cof
 {
 enum class MeleeWorld : unsigned char { Multiplayer, UnsupportedSingleplayer };
@@ -17,6 +19,9 @@ struct PistolMeleeRequest
     // Explicit snapshot of original 10226489; no inferred drug/status semantics.
     bool quietAudio;
     MeleeWorld world;
+    float reach{32.f};
+    void (*customHit)(void*, CBaseEntity&, const Vector&, TraceResult&) noexcept {};
+    void* hitContext{};
 };
 using PistolMeleeSamples = std::array<const char*, 8>;
 inline constexpr PistolMeleeSamples OriginalPistolMeleeSamples{

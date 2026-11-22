@@ -2,6 +2,7 @@
 // Actual SDK types and production adapter. Only engine/entity edges are controlled.
 #include "precompiled.h"
 #include "native/guest/cof/server/ballistics.hpp"
+#include "native/csol/server/custom/body_stains.h"
 
 #include <array>
 #include <bit>
@@ -127,6 +128,13 @@ void Initialize()
 bool Current(void*) noexcept { return valid; }
 }
 
+// Body-stain rendering is an independent observer. Record the actual target callback here.
+CSOLBodyStainShot::CSOLBodyStainShot(CBaseEntity*, const Vector&, const CBasePlayerItem*) noexcept {}
+CSOLBodyStainShot::~CSOLBodyStainShot() = default;
+void CSOLBodyStainShot::TraceAttack(CBaseEntity* target, entvars_t* attacker, float damage,
+    const Vector& direction, TraceResult* trace, int flags) const
+{ target->TraceAttack(attacker, damage, direction, trace, flags); }
+
 // Controlled SDK call boundaries, never replacements for the production types.
 void ClearMultiDamage() { Event(1); gMultiDamage = {}; }
 void ApplyMultiDamage(entvars_t* inflictor, entvars_t* attacker)
@@ -201,7 +209,7 @@ void NativePenetrationChecks()
         Check(nativeShot.source==shot.source&&shot.direction==Vector(.7f,.2f,-.1f));
         for(int i=0;i<3;++i)Check(Bits(nativeShot.source[i]+nativeShot.direction[i]*8192)==endpoint[i]);
         Check(result.spread==original.spread&&gMultiDamage.amount==123&&gMultiDamage.type==456);
-        for(const auto material:{CSRifleMaterial::Rifle556,CSRifleMaterial::Rifle762})for(int count:{3,5,32})
+        for(const auto material:{CSRifleMaterial::Rifle556,CSRifleMaterial::Rifle762})for(int count:{3,5,7,32})
         {
             const auto before=nativeShot.calls;
             const auto rifle=FireCSRifleBallistics(targets[1],shot,fx,call,count,material);
@@ -260,6 +268,40 @@ void NativePenetrationChecks()
 
 // Compare an external weapon's measured cones against exact original trace
 // endpoints. Exercise both production backends for every supplied seed.
+void ScenarioPelletChecks()
+{
+    using namespace guest::cof;
+    const PistolBallistics shot{{0,0,0},{1,0,0},{0,0,0},{0,1,0},{0,0,1},
+        47,45,false,PistolPlayerHits::OriginalCooperativeSkipPlayers,PistolSource::NormalMuzzle};
+    const BallisticsEffects effects{77,13,[](CBaseEntity& entity) noexcept { return Index(entity.pev) >= 2; }};
+    static int wallAfter;
+    for (wallAfter = 0; wallAfter <= 4; ++wallAfter) {
+        Initialize();
+        players = water = cancelTrace = cancelEvent = recycleEvent = 0;
+        valid = true;
+        events.clear();
+        g_engfuncs.pfnTraceLine = [](const float* start,const float* end,int,edict_t* skip,TraceResult* trace) {
+            // Four zombies in a row. A world brush can stand before any one of them.
+            const int next = Index(skip) + 1;
+            Check(next >= 2 && next <= 5 && end[0] == 2048.f);
+            *trace = {};
+            trace->pHit = &edicts[next == wallAfter + 2 ? 0 : next];
+            trace->vecEndPos = Vector(25.f * next, 0, 0);
+            trace->flFraction = (trace->vecEndPos.x - start[0]) / (end[0] - start[0]);
+        };
+        const auto result = FireShotgunBallistics(targets[1],shot,effects,{Current,nullptr});
+        Check(result.status == BallisticsStatus::Fired);
+        int hits[6]{};
+        for (std::size_t at=0; at<events.size(); at+=events[at+1]+2) {
+            if (events[at]!=3) continue;
+            Check(events[at+4]==Bits(45.f));
+            ++hits[events[at+2]];
+        }
+        for (int i=2;i<=5;++i) Check(hits[i]==(i<wallAfter+2 && i<5 ? 8 : 0));
+        Check(hits[0] == (wallAfter < 3 ? 8 : 0));
+    }
+}
+
 int CheckRays(std::istream& input)
 {
     using namespace guest::cof;
@@ -303,6 +345,7 @@ int main(int argc, char** argv)
     if (argc==2 && std::string_view(argv[1])=="--rays") return CheckRays(std::cin);
     if (argc != 3) return 1;
     NativePenetrationChecks();
+    ScenarioPelletChecks();
     Initialize();
     std::ifstream input(argv[1]), expected(argv[2]);
     if (!input || !expected) return 1;

@@ -340,7 +340,7 @@ def main():
             if args.include_shotgun:
                 expected.append((904, 'shotgun', 5))
             if args.include_famas:
-                expected.append((905, 'famas', 30))
+                expected.append((905, 'famas', 35))
             if args.light_equipment:
                 if result['menu']['menu'] != pair.EQUIPMENT_MENU:
                     raise ValueError('The equipment regression requires the active equipment catalogue')

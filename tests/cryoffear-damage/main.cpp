@@ -239,12 +239,16 @@ int main(int argc, char** argv)
     if (!shippedV7) return 3;
     const std::string v7Json{std::istreambuf_iterator<char>(shippedV7),{}};
     Check(config.Parse(v7Json,error) && config.Find(Firearm::Famas) &&
-        *config.Find(Firearm::Famas)==ScenarioDamage{70,120,3}, "Shipped ten-gun balance rejected");
+        *config.Find(Firearm::Famas)==ScenarioDamage{80,120,3}, "Shipped ten-gun balance rejected");
+    Check(*config.Find(Firearm::Revolver)==ScenarioDamage{550,120,5} &&
+        *config.Find(Firearm::G43)==ScenarioDamage{800,120,3} &&
+        *config.Find(Firearm::M16)==ScenarioDamage{100,120,3} &&
+        *config.Find(Firearm::Shotgun)==ScenarioDamage{45,25}, "Current scenario firearm damage");
     const auto* famas=FindFirearm(Firearm::Famas);
-    Check(famas && famas->hostId==905 && famas->originalId==23 && famas->clip==30 &&
+    Check(famas && famas->hostId==905 && famas->originalId==23 && famas->clip==35 &&
         famas->reserve==150 && famas->price==3200 && famas->ammunitionPrice==60 && famas->ammunitionCount==30,
         "FAMAS metadata or ammunition purchase changed");
-    for (const auto& bad : {Changed(v7Json,"\"famas\"","\"m16\""), Changed(v7Json,"\"shot\": 70","\"shot\": -1")})
+    for (const auto& bad : {Changed(v7Json,"\"famas\"","\"m16\""), Changed(v7Json,"\"shot\": 80","\"shot\": -1")})
     {
         Check(!config.Parse(bad,error),"Malformed ten-gun balance accepted");
         for (const auto& firearm : Firearms)

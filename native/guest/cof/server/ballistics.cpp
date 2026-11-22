@@ -217,15 +217,34 @@ BallisticsResult FireOriginalBallistics(CBaseEntity& shooter, const PistolBallis
             }
         }
 
-        if (trace.flFraction != 1.0f)
+        edict_t* pierced[2]{};
+        unsigned layers = 0;
+        float travelledFraction = 0;
+        while (trace.flFraction != 1.0f)
         {
             auto* const target = CBaseEntity::Instance(trace.pHit);
             if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
             const EntityHandle<CBaseEntity> targetHandle(target);
+            if (layers && (!trace.pHit || trace.pHit == pierced[0] || trace.pHit == pierced[1])) break;
+            // Decide at contact, while a lethal hit still identifies a live zombie.
+            bool through = false;
+            if constexpr (Pellets == 8)
+                through = layers < 2 && target && effects.pierceZombie && effects.pierceZombie(*target);
+            const auto impact = trace.vecEndPos;
+            auto* const hitEdict = trace.pHit;
             if (target && shot.damage != 0)
             {
                 stainShot.TraceAttack(target, inflictor, static_cast<float>(shot.damage), direction, &trace, PistolDamageBits);
                 if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+            }
+            if (through) {
+                pierced[layers++] = hitEdict;
+                travelledFraction += (1.f - travelledFraction) * trace.flFraction;
+                // Start at the contact plane and ignore only this body. Even a thin brush
+                // immediately behind it is visible to the next engine trace.
+                UTIL_TraceLine(impact, end, dont_ignore_monsters, hitEdict, &trace);
+                if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
+                continue;
             }
             if (target && targetHandle.Get<CBaseEntity>() != target) return {BallisticsStatus::Cancelled, result};
             // Original customdecal only supports world BSP, not brush entities.
@@ -237,7 +256,9 @@ BallisticsResult FireOriginalBallistics(CBaseEntity& shooter, const PistolBallis
                 WorldImpact(trace, effects);
                 if (!Current(call, owner)) return {BallisticsStatus::Cancelled, result};
             }
+            break;
         }
+        if (layers) trace.flFraction = travelledFraction + (1.f - travelledFraction) * trace.flFraction;
         if (!BubbleTrail(shot.source, trace, effects, call, owner, Distance))
             return {BallisticsStatus::Cancelled, result};
     }

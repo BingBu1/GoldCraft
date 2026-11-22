@@ -3,6 +3,7 @@
 #include "famas_weapon.hpp"
 #include "player_think.hpp"
 #include "../famas_reload.hpp"
+#include "../catalog.hpp"
 #include "../m16_control.hpp" // Shared original1011D560 input dispatcher only.
 #include <bit>
 
@@ -25,6 +26,7 @@ goldcraft::scenario::GuestProfile FamasWeapon::ScenarioGuestProfile() const noex
 
 namespace
 {
+constexpr int MagazineCapacity = FindFirearm(Firearm::Famas)->clip;
 bool Finite(const Vector& v) noexcept
 {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
@@ -237,7 +239,7 @@ void FamasWeapon::Spawn()
     transitions_ = {};
     actionDeadline_ = emptyDeadline_ = wearDeadline_ = 0;
     reserveHud_ = wearMaximum_ = wear_ = 0;
-    m_iDefaultAmmo = 30;
+    m_iDefaultAmmo = MagazineCapacity;
     spreadIncrement_ = .15F;
     static_assert(std::bit_cast<std::uint32_t>(.15F) == 1041865114U);
     m_iSecondaryAmmoType = -1;
@@ -261,7 +263,7 @@ void FamasWeapon::Spawn()
     m_iId = FamasHostId;
     m_pPlayer = nullptr;
     m_iPrimaryAmmoType = 0;
-    m_iDefaultAmmo = pev->health > 0 ? static_cast<int>(pev->health) : 30;
+    m_iDefaultAmmo = pev->health > 0 ? static_cast<int>(pev->health) : MagazineCapacity;
     m_iClip = pev->health == -2 ? -666 : 0;
     pev->renderfx = 99;
     SET_MODEL(edict(), STRING(prepared_.worldModelString));
@@ -290,7 +292,7 @@ int FamasWeapon::GetItemInfo(ItemInfo* info)
     info->pszAmmo1 = Ammunition;
     info->iMaxAmmo1 = 150;
     info->iMaxAmmo2 = -1;
-    info->iMaxClip = 30;
+    info->iMaxClip = MagazineCapacity;
     info->iId = m_iId = FamasHostId;
     info->iSlot = FamasHudSlot;
     info->iPosition = FamasHudPosition;
@@ -425,7 +427,7 @@ int FamasWeapon::ExtractAmmo(CBasePlayerWeapon* weapon)
     int amount = m_iDefaultAmmo;
     if (target->m_iClip == 0)
     {
-        const int ready = amount < 30 ? amount : 30;
+        const int ready = std::min(amount, MagazineCapacity);
         target->m_iClip = ready;
         amount -= ready;
     }
@@ -674,7 +676,7 @@ void FamasWeapon::Holster(int)
 FamasControlHost FamasWeapon::ControlHost(ActionBridge& bridge) noexcept {
     return {&bridge, [](void* p) noexcept {
         return Current(&static_cast<ActionBridge*>(p)->lease);
-    }, [](void*) noexcept { return gpGlobals->time; }, ControlEvent};
+    }, [](void*) noexcept { return gpGlobals->time; }, ControlEvent, MagazineCapacity};
 }
 
 bool FamasWeapon::ControlEvent(void* context, const FamasControlEvent& event) noexcept
@@ -1003,7 +1005,7 @@ void FamasWeapon::ItemPostFrame()
     if (action_.loading)
     {
         MagazineReload reload{action_.clip,action_.reserve,action_.ownerAttack,true};
-        const auto committed=CommitFamasReload(reload,30,0,gpGlobals->time);
+        const auto committed=CommitFamasReload(reload,MagazineCapacity,0,gpGlobals->time);
         if (committed.status==ReloadCommitStatus::Invalid) {status_=FamasStatus::InvalidInput; return;}
         action_.clip=reload.clip; action_.reserve=reload.reserve; action_.loading=reload.loading;
         WriteAmmo();

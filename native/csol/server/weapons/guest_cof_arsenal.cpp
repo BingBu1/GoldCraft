@@ -2,6 +2,8 @@
 #include "precompiled.h"
 #include "guest_cof_arsenal.hpp"
 #include "guest_cof_melee.hpp"
+#include "melee_trace.h"
+#include "../scenario/monsters/scenario_monster_pool.h"
 #include "guest_cof_pushback.hpp"
 #include "weapon_call_guard.h"
 #include "weapon_slots.h"
@@ -108,7 +110,12 @@ bool LoadDamage(const rapidjson::Value& group,const Definition& def,Prepared& ou
     if(!read("primary",out.shot,0,1000000))return false;
     if(def.id==Branch || def.id==Switchblade || def.id==Rifle)
         if(!read("secondary",out.secondary,0,1000000))return false;
-    return def.id!=Rifle || read("penetration",out.penetration,3,32);
+    if (def.id != Rifle) return true;
+    if (!row.HasMember("wallLayers")) return read("penetration", out.penetration, 3, 32);
+    int layers{};
+    if (!read("wallLayers", layers, 2, 31)) return false;
+    out.penetration = layers + 1; // FireBullets3 consumes a contact for the target after the walls.
+    return true;
 }
 bool PrepareItem(const Definition& def,const CSOLScenarioSdkScope& scope)
 {
@@ -228,6 +235,56 @@ protected:
     int life{};
 };
 
+constexpr float UnitsPerMetre = 39.37f;
+struct HandAttack {
+    float reach, halfAngleCosine, pushSpeed, stagger;
+    bool sector;
+};
+
+constexpr HandAttack HandAttackFor(Id id, bool reverse, bool punch)
+{
+    // Half-angle cosines for total arcs of 60, 180, 45 and 30 degrees.
+    switch (id) {
+    case Axe: return {2.8f * UnitsPerMetre, .8660254f, 0, 0, true};
+    case Branch: return {(punch ? 1.8f : 2.f) * UnitsPerMetre, 0, 500, 1.f, !punch};
+    case Nightstick: return {1.5f * UnitsPerMetre, 0, 200, .5f, false};
+    case Pickaxe: return {3.f * UnitsPerMetre, 0, 0, 1.5f, true};
+    case Switchblade: return {(reverse ? 1.f : 1.5f) * UnitsPerMetre,
+        reverse ? .96592583f : .92387953f, 0, 0, true};
+    default: return {};
+    }
+}
+
+void HandContact(CBasePlayer& owner, CBaseEntity& target, const Vector& start, const Vector& direction,
+    TraceResult& trace, float damage, int flags, const HandAttack& attack, CSOLWeaponCall& call)
+{
+    const EHANDLE victim(&target);
+    auto* monster = dynamic_cast<CCSOLScenarioMonster*>(&target);
+    auto* pool = monster ? monster->Pool() : nullptr;
+    const auto lease = pool ? pool->Lease(*monster) : 0;
+    const auto current = [&] {
+        return call.Current() && victim.Get<CBaseEntity>() == &target &&
+            (!pool || (monster->Pool() == pool && pool->Borrowed(*monster) && pool->Lease(*monster) == lease));
+    };
+    const Vector impactDirection = direction;
+    const float health = target.pev->health;
+    struct RestoreDamage {
+        MULTIDAMAGE saved;
+        ~RestoreDamage() { gMultiDamage = saved; }
+    } restore{gMultiDamage};
+    ClearMultiDamage();
+    if (!current()) return;
+    CSOLBodyStainShot swing(&owner, start, owner.m_pActiveItem);
+    swing.TraceAttack(&target, owner.pev, damage, impactDirection, &trace, flags);
+    if (!current()) return;
+    ApplyMultiDamage(owner.pev, owner.pev);
+    if (attack.stagger && pool && current() && target.pev->health < health && target.pev->health > 0) {
+        Vector away = target.Center() - owner.pev->origin;
+        if (away.x == 0 && away.y == 0) away = impactDirection;
+        monster->ApplyCofMeleeControl(away, attack.pushSpeed, attack.stagger);
+    }
+}
+
 class HandWeapon : public ArsenalWeapon
 {
     enum class Contact { None, Swing, Punch };
@@ -312,7 +369,16 @@ public:
             const auto action=contact;contact=Contact::None;
             if(action==Contact::Punch){
                 const PistolMeleeEffects fx{shakeMessage,true,Recoil,&call,csol::server::cof::P345MeleeSamples};
-                PistolWeaponMelee(*m_pPlayer,{Resources(Branch).secondary,false,MeleeWorld::Multiplayer},fx,{Current,&call});
+                const auto attack = HandAttackFor(Branch, false, true);
+                const int damage = Resources(Branch).secondary;
+                struct Punch { CBasePlayer& owner; CSOLWeaponCall& call; HandAttack attack; int damage; }
+                    punch{*m_pPlayer, call, attack, damage};
+                PistolWeaponMelee(*m_pPlayer, {damage, false, MeleeWorld::Multiplayer, attack.reach,
+                    [](void* context, CBaseEntity& target, const Vector& direction, TraceResult& trace) noexcept {
+                        auto& hit = *static_cast<Punch*>(context);
+                        HandContact(hit.owner, target, hit.owner.GetGunPosition(), direction, trace,
+                            float(hit.damage), 0x04001000, hit.attack, hit.call);
+                    }, &punch}, fx, {Current, &call});
             }else Strike(call);
             if(!call.Current())return;
         }
@@ -337,46 +403,57 @@ void HandWeapon::Strike(CSOLWeaponCall& call)
     if(id==Pickaxe && !PickaxeStamina(true))return;
     UTIL_MakeVectors(owner.pev->v_angle);
     const Vector direction=gpGlobals->v_forward, start=owner.GetGunPosition();
-    const Vector end=start+direction*(id==Axe || id==Branch ? 40.F : 32.F);
-    if(!call.Current())return;
+    const auto attack = HandAttackFor(id, reverse, false);
+    const Vector end = start + direction * attack.reach;
+    if (!call.Current()) return;
     TraceResult trace{};
-    UTIL_TraceLine(start,end,dont_ignore_monsters,owner.edict(),&trace);
-    if(!call.Current())return;
-    // Nightstick consumes the hull result. The other four original callbacks
-    // trace a hull on a line miss and then return without applying damage.
-    if(trace.flFraction>=1){
-        UTIL_TraceHull(start,end,dont_ignore_monsters,head_hull,owner.edict(),&trace);
-        if(!call.Current())return;
-        if(id!=Nightstick)trace.flFraction=1;
-    }
-    EHANDLE victim(trace.pHit);
+    UTIL_TraceLine(start, end, dont_ignore_monsters, owner.edict(), &trace);
+    if (!call.Current()) return;
+    if (trace.flFraction >= 1 && id == Nightstick)
+        UTIL_TraceHull(start, end, dont_ignore_monsters, head_hull, owner.edict(), &trace);
+    if (!call.Current()) return;
+    const EHANDLE first(trace.pHit);
     if(id==Nightstick || (id==Switchblade && reverse))Sound(owner,Sounds[id-Browning][0]);
     if(!call.Current())return;
     if(id==Pickaxe)Recoil(&call,owner,Vector(-4,1,8));
     if(id==Nightstick)Recoil(&call,owner,Vector(-3,-8,0));
     if(id==Switchblade)Recoil(&call,owner,reverse?Vector(-4,1,0):Vector(2,-5,0));
-    if(trace.flFraction>=1 || !call.Current())return;
-    auto* target=victim.Get<CBaseEntity>();
-    bool flesh=false;
-    if(target){
-        const auto damage=(id==Switchblade && reverse)?Resources(id).secondary:Resources(id).shot;
-        // Preserve the caller's damage accumulator across nested game-DLL callbacks.
-        struct RestoreDamage {
-            MULTIDAMAGE saved;
-            ~RestoreDamage() { gMultiDamage = saved; }
-        } restore{gMultiDamage};
-        const int flags = id == Pickaxe ? 0x0d001000 : 0x04001000;
-        ClearMultiDamage();
-        const CSOLBodyStainShot swing(&owner, start, this);
-        swing.TraceAttack(target, owner.pev, float(damage), direction, &trace, flags);
-        if(!call.Current() || victim.Get<CBaseEntity>()!=target){ClearMultiDamage();return;}
-        ApplyMultiDamage(owner.pev,owner.pev);
-        if(!call.Current())return;
-        if(victim.Get<CBaseEntity>()==target){
-            const auto kind=target->Classify();
-            flesh=kind!=CLASS_NONE && kind!=CLASS_MACHINE;
+    if (!call.Current()) return;
+    const int damage = (id == Switchblade && reverse) ? Resources(id).secondary : Resources(id).shot;
+    const int flags = id == Pickaxe ? 0x0d001000 : 0x04001000;
+    bool contact = trace.flFraction < 1, flesh = false;
+    const auto strike = [&](CBaseEntity& target, const Vector& hitDirection, TraceResult& hit) {
+        const int kind = target.Classify();
+        flesh |= kind != CLASS_NONE && kind != CLASS_MACHINE;
+        contact = true;
+        if (call.Current()) HandContact(owner, target, start, hitDirection, hit, float(damage), flags, attack, call);
+    };
+    if (auto* target = first.Get<CBaseEntity>(); contact && target) strike(*target, direction, trace);
+    if (attack.sector) {
+        const Vector horizontal = Vector(direction.x, direction.y, 0).Normalize();
+        int cursor = 0;
+        while (call.Current()) {
+            edict_t* found = g_engfuncs.pfnFindEntityInSphere(cursor ? INDEXENT(cursor) : nullptr, start, attack.reach);
+            if (!call.Current() || FNullEnt(found)) break;
+            const int index = ENTINDEX(found);
+            if (index <= cursor || index >= gpGlobals->maxEntities) break;
+            cursor = index;
+            auto* other = CBaseEntity::Instance(found);
+            if (!other || other == &owner || found == first.Get() || other->pev->takedamage == DAMAGE_NO ||
+                (other->pev->flags & (FL_KILLME | FL_DORMANT))) continue;
+            TraceResult hit{};
+            const EHANDLE candidate(other);
+            const bool touches = CSOL_TraceMeleeTarget(*other, owner, start, direction, horizontal,
+                attack.reach, attack.halfAngleCosine,
+                [](CBaseEntity& entity, const Vector& origin, float) { return entity.BodyTarget(origin); }, hit);
+            if (!call.Current()) return;
+            if (!touches || candidate.Get<CBaseEntity>() != other) continue;
+            const Vector displacement = hit.vecEndPos - start;
+            if (DotProduct(displacement, displacement) > attack.reach * attack.reach) continue;
+            strike(*other, displacement.Normalize(), hit);
         }
     }
+    if (!contact) return;
     if(!call.Current())return;
     const char* hit{};int pitch=100;
     if(id==Axe || id==Branch){
@@ -548,7 +625,7 @@ class HuntingRifle final : public Gun
     }
     void BeginReload()
     {
-        if(m_iClip>=5 || !HasReserve())return;
+        if(m_iClip>=Info().clip || !HasReserve())return;
         cancelReload=false;Schedule(Action::Reload,.66F);Lock(1);SendWeaponAnim(4,0);
     }
     void Step(CSOLWeaponCall& call)
@@ -563,14 +640,14 @@ class HuntingRifle final : public Gun
             m_pPlayer->pev->viewmodel=Resources(Rifle).scope;break;
         case Action::StartReload: BeginReload();break;
         case Action::Reload:
-            if(cancelReload || m_iClip>=5 || !HasReserve()){
+            if(cancelReload || m_iClip>=Info().clip || !HasReserve()){
                 cancelReload=false;Lock(.66F);SendWeaponAnim(6,0);
             }else{
                 Schedule(Action::Insert,.3F);Lock(.83F);SendWeaponAnim(5,0);
             }
             break;
         case Action::Insert:
-            if(m_iClip<5 && HasReserve()){
+            if(m_iClip<Info().clip && HasReserve()){
                 ++m_iClip;--m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType];
                 Sound(*m_pPlayer,RifleSounds[3],95+RANDOM_LONG(0,10));
             }
@@ -630,7 +707,7 @@ public:
     }
     void Reload() override
     {
-        if(!Deployed() || action!=Action::Ready || m_flNextPrimaryAttack>0 || m_iClip>=5 || !HasReserve())return;
+        if(!Deployed() || action!=Action::Ready || m_flNextPrimaryAttack>0 || m_iClip>=Info().clip || !HasReserve())return;
         if(scoped){
             CSOLWeaponCall call(*this);
             ZoomOut();if(!call.Current())return;

@@ -95,7 +95,8 @@ def main():
             response = out / (name + '.rsp')
             response.write_text(subprocess.list2cmdline(job[1:]), 'utf-8')
             launched = [job[0], '@' + str(response)]
-        result = subprocess.run(launched, cwd=sdk.SDK_CWD, env=env, capture_output=True, timeout=240)
+        result = subprocess.run(launched, cwd=sdk.SDK_CWD, env=env, capture_output=True,
+                                timeout=900 if name == 'link' else 240)
         log = (result.stdout + result.stderr).decode('utf-8', errors='replace')
         (out / (name + '.log')).write_text(log, 'utf-8')
         record['steps'].append(dict(name=name, command=job, exit=result.returncode, seconds=time.monotonic() - started))

@@ -46,6 +46,10 @@ struct CSOLMonsterHostState
     // User-authorized kick stagger. A reused slot must not inherit this lease.
     std::uint64_t humanKickLease{};
     float humanKickUntil{};
+    struct {
+        std::uint64_t lease{};
+        float pushUntil{}, recovery{}, staggerUntil{};
+    } cofMelee;
     float enhancedUntil{-1.0f};
     // CSOL entvars +1EC: armor cap/proportion denominator. Ordinary attribute
     // setup writes armorvalue only; Golden's positive override writes both.
@@ -126,6 +130,8 @@ public:
     const csol::scenario::MonsterType* Type() const { return m_type; }
     CCSOLMonsterAnimation& Animation() { return m_animation; }
     CSOLMonsterSpeedState& SpeedState() { return *m_speed; }
+    void ApplyCofMeleeControl(const Vector& direction, float pushSpeed, float staggerSeconds);
+    bool UpdateCofMeleeControl(float now);
     CSOLMonsterHostState& HostState() { return m_host; }
     CSOLMonsterGaitState& GaitState() { return m_gait; }
     std::shared_ptr<CCSOLMonsterEffects> DamageEffects() const { return m_damageEffects; }

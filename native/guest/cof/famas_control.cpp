@@ -62,7 +62,7 @@ FamasControlResult StartFamasMagazineReload(MagazineActionState& state,
     if (!std::isfinite(now) || !std::isfinite(state.primary) || state.clip < 0)
         return FamasControlResult::InvalidInput;
     // Host skill capacity can exceed the original physical thirty rounds.
-    if (state.clip >= 30 || state.primary > now || state.action == 1 ||
+    if (state.clip >= host.clipCapacity || state.primary > now || state.action == 1 ||
         state.action > 2 || state.special || state.pendingReload) return FamasControlResult::Ineligible;
     if (state.aiming)
     {

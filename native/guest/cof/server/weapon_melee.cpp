@@ -114,7 +114,7 @@ MeleeStatus CheckPistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest
 {
     if (request.world != MeleeWorld::Multiplayer) return MeleeStatus::UnsupportedWorld;
     if (!player.pev || !gpGlobals || gpGlobals->maxClients < 1 || gpGlobals->maxClients > MAX_CLIENTS ||
-        !call.current || request.damage < 0 || !Finite(player.pev->v_angle) || !Finite(player.pev->origin))
+        !call.current || request.damage < 0 || !std::isfinite(request.reach) || request.reach <= 0 || !Finite(player.pev->v_angle) || !Finite(player.pev->origin))
         return MeleeStatus::InvalidInput;
     if (!effects.soundsReady || !ValidPistolMeleeSamples(effects.samples) ||
         !effects.recoil || effects.shakeMessage < 64 || effects.shakeMessage > 255)
@@ -145,8 +145,8 @@ MeleeStatus PistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest& req
     const Vector source = player.GetGunPosition();
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
     if (!Finite(source) || !Finite(gpGlobals->v_forward)) return MeleeStatus::InvalidInput;
-    const Vector end{source.x + gpGlobals->v_forward.x * 32.0f,
-        source.y + gpGlobals->v_forward.y * 32.0f, source.z + gpGlobals->v_forward.z * 32.0f};
+    const Vector end{source.x + gpGlobals->v_forward.x * request.reach,
+        source.y + gpGlobals->v_forward.y * request.reach, source.z + gpGlobals->v_forward.z * request.reach};
     TraceResult trace{};
     UTIL_TraceLine(source, end, dont_ignore_monsters, ownerEdict, &trace);
     if (!Current(call, owner)) return MeleeStatus::Cancelled;
@@ -173,12 +173,16 @@ MeleeStatus PistolWeaponMelee(CBasePlayer& player, const PistolMeleeRequest& req
     bool shortDuration = false;
     if (target)
     {
-        ClearMultiDamage();
-        if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
-        const CSOLBodyStainShot stain(&player, source, player.m_pActiveItem);
-        stain.TraceAttack(target, player.pev, static_cast<float>(request.damage), gpGlobals->v_forward, &trace, DamageFlags);
-        if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
-        ApplyMultiDamage(player.pev, player.pev);
+        if (request.customHit) {
+            request.customHit(request.hitContext, *target, gpGlobals->v_forward, trace);
+        } else {
+            ClearMultiDamage();
+            if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
+            const CSOLBodyStainShot stain(&player, source, player.m_pActiveItem);
+            stain.TraceAttack(target, player.pev, static_cast<float>(request.damage), gpGlobals->v_forward, &trace, DamageFlags);
+            if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
+            ApplyMultiDamage(player.pev, player.pev);
+        }
         if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;
         const int first = target->Classify();
         if (!Current(call, owner) || targetHandle.Get<CBaseEntity>() != target) return MeleeStatus::Cancelled;

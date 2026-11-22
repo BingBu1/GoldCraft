@@ -1,9 +1,9 @@
 {
-  "browning": { "primary": 10 },
-  "rifle": { "primary": 70, "secondary": 3, "penetration": 3 },
-  "axe": { "primary": 55 },
-  "branch": { "primary": 10, "secondary": 5 },
+  "browning": { "primary": 100 },
+  "rifle": { "primary": 1500, "secondary": 3, "wallLayers": 6 },
+  "axe": { "primary": 350 },
+  "branch": { "primary": 150, "secondary": 5 },
   "nightstick": { "primary": 11 },
-  "sledgehammer": { "primary": 45 },
-  "switchblade": { "primary": 6, "secondary": 9 }
+  "sledgehammer": { "primary": 400 },
+  "switchblade": { "primary": 100, "secondary": 250 }
 }
