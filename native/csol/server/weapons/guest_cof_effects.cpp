@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "guest_cof_effects.hpp"
+#include "guest_cof_recoil.hpp"
 #include "weapons.h"
 #include "native/guest/cof/catalog.hpp"
 #include "native/guest/cof/particle_protocol.hpp"
@@ -135,7 +136,7 @@ bool GlockEffects::Prepare(ResourceAuthority authority, const GlockResources& re
 std::uint32_t GlockEffects::Capabilities() const noexcept
 {
     if (!Current()) return 0;
-    std::uint32_t result{};
+    std::uint32_t result = Bit(GlockEffect::Recoil) | Bit(GlockEffect::Shake) | Bit(GlockEffect::ShotState);
     if (policy_.nativeMultiplayer && policy_.noCustomClothing)
         result |= Bit(GlockEffect::DeployPrelude) | Bit(GlockEffect::FirstDraw) | Bit(GlockEffect::Tutorial);
     if (g_engfuncs.pfnMessageBegin && g_engfuncs.pfnMessageEnd && g_engfuncs.pfnWriteByte &&
@@ -143,14 +144,11 @@ std::uint32_t GlockEffects::Capabilities() const noexcept
         result |= Bit(GlockEffect::InventoryChanged) | Bit(GlockEffect::ReserveHud) | Bit(GlockEffect::ViewAnimation);
     if (MessageId(presentation_)) result |= Bit(GlockEffect::Aim);
     if (MessageId(control_))
-        result |= Bit(GlockEffect::DeployReset) | Bit(GlockEffect::Body) | Bit(GlockEffect::ShotState);
+        result |= Bit(GlockEffect::DeployReset) | Bit(GlockEffect::Body);
     if (MessageId(particle_)) result |= Bit(GlockEffect::Gunsmoke);
     if (MessageId(sound_)) result |= Bit(GlockEffect::FireSound);
-    if (MessageId(shake_)) result |= Bit(GlockEffect::Shake);
     if (resources_.events[0] && g_engfuncs.pfnPlaybackEvent && g_engfuncs.pfnIndexOfEdict)
         result |= Bit(GlockEffect::FireEvent);
-    if (resources_.events[1] && g_engfuncs.pfnPlaybackEvent)
-        result |= Bit(GlockEffect::Recoil);
     return result;
 }
 bool GlockEffects::FillPrepared(const GlockResources& resources, GlockPrepared& prepared) noexcept
@@ -178,8 +176,10 @@ std::uint32_t GlockEffects::P345Capabilities() const noexcept
 bool GlockEffects::FillPrepared(const P345Resources& resources,P345Prepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
-    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
-    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.melee.shakeMessage = shake_;
+    prepared.melee.recoil = MeleeRecoil;
+    prepared.melee.context = this;
     prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     return Current();
@@ -195,8 +195,10 @@ std::uint32_t GlockEffects::VP70Capabilities() const noexcept
 bool GlockEffects::FillPrepared(const VP70Resources& resources,VP70Prepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
-    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
-    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.melee.shakeMessage = shake_;
+    prepared.melee.recoil = MeleeRecoil;
+    prepared.melee.context = this;
     prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     return Current();
@@ -213,8 +215,10 @@ std::uint32_t GlockEffects::TMPCapabilities() const noexcept
 bool GlockEffects::FillPrepared(const TMPResources& resources,TMPPrepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
-    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
-    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.melee.shakeMessage = shake_;
+    prepared.melee.recoil = MeleeRecoil;
+    prepared.melee.context = this;
     prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     return Current();
@@ -226,8 +230,10 @@ std::uint32_t GlockEffects::MP5Capabilities() const noexcept
 bool GlockEffects::FillPrepared(const MP5Resources& resources,TMPPrepared& prepared) noexcept
 {
     if(!Current()||resources.generation!=authority_.generation||resources.events!=resources_.events)return false;
-    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
-    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.melee.shakeMessage = shake_;
+    prepared.melee.recoil = MeleeRecoil;
+    prepared.melee.context = this;
     prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     return Current();
@@ -298,8 +304,10 @@ bool GlockEffects::FillPrepared(const RevolverResources& resources,RevolverPrepa
 {
     const auto capabilities=RevolverCapabilities(resources);
     if(!capabilities)return false;
-    prepared.ballistics.customDecalMessage=decal_;prepared.melee.shakeMessage=shake_;
-    prepared.melee.recoil=MeleeRecoil;prepared.melee.context=this;
+    prepared.ballistics.customDecalMessage=decal_;
+    prepared.melee.shakeMessage = shake_;
+    prepared.melee.recoil = MeleeRecoil;
+    prepared.melee.context = this;
     prepared.world=MeleeWorld::Multiplayer;prepared.particleReady=MessageId(particle_);
     prepared.deployPreludeReady=policy_.nativeMultiplayer&&policy_.noCustomClothing;
     prepared.cylinderReady=(capabilities&(1u<<unsigned(RevolverEffect::Cylinder)))!=0;
@@ -393,6 +401,7 @@ bool GlockEffects::SynchronizeSelection(CBasePlayer& player) noexcept
     const auto original=item?OriginalWeapon(*item):0;
     if(!original)return Release(player,call);
     if(item->m_pPlayer!=&player)return false;
+    RecoverFirearmRecoil(*item, player.pev->button, gpGlobals->time);
     if(original!=9)return true;
     const auto slot=Slot(player);if(!slot)return false;
     auto& client=clients_[slot];
@@ -790,6 +799,7 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         weapon.SendWeaponAnim(event.value, 0);
         return Active(&lease);
     case GlockEffect::DeployReset:
+        ResetFirearmRecoil(weapon);
         return SendWeaponDeploy(player, control_, control) == ControlStatus::Sent && Active(&lease);
     case GlockEffect::Body:
         return event.value >= 0 && event.value <= 255 &&
@@ -816,12 +826,18 @@ bool GlockEffects::DispatchWeapon(const WeaponResources& resources,const OwnerBi
         return Active(&lease);
     }
     case GlockEffect::Recoil:
-        return Sent(CooperativeViewRecoil(player, event.first, resources.events[1], call));
     case GlockEffect::Shake:
-        return Sent(ShakePlayers({player.pev->origin, event.a, event.b, event.c, float(event.value)}, shake_, call).status);
+        // The CoF action reports these presentation events before shot
+        // completion. Apply the host recoil once the shot is confirmed below.
+        return true;
     case GlockEffect::ShotState:
-        return event.a == (originalWeapon==4?5.F:originalWeapon==26?6.F:(originalWeapon==14||originalWeapon==27||originalWeapon==23)?1.0F:originalWeapon==21?4.0F:3.0F) &&
-            SendShotState(player,static_cast<std::uint8_t>(event.a),control_,control)==ControlStatus::Sent;
+        if (player.m_pActiveItem != &weapon ||
+            event.a != (originalWeapon==4?5.F:originalWeapon==26?6.F:(originalWeapon==14||originalWeapon==27||originalWeapon==23)?1.0F:originalWeapon==21?4.0F:3.0F))
+            return false;
+        // The old wire operation changes the client's absolute aim. The
+        // native punch is already carried in UpdateClientData.
+        ApplyFirearmRecoil(weapon);
+        return Active(&lease);
     case GlockEffect::FireSound:
     {
         const PlaySfxRequest request{fireSound, {}, 0, 1, true, PlaySfxRules::Cooperative};

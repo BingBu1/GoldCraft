@@ -5,6 +5,7 @@
 #include "melee_trace.h"
 #include "../scenario/monsters/scenario_monster_pool.h"
 #include "guest_cof_pushback.hpp"
+#include "guest_cof_recoil.hpp"
 #include "weapon_call_guard.h"
 #include "weapon_slots.h"
 #include "primary_purchase.h"
@@ -482,18 +483,6 @@ protected:
         auto& owner=*m_pPlayer;
         const bool rifle=Identity()==Rifle;
         const auto& cfg=Resources(Identity());
-        const int kick = rifle ? (scoped ? 4 : 9) : 2;
-        const float yaw = static_cast<float>(RANDOM_LONG(-kick,kick));
-        const Vector impulse(yaw, rifle ? (scoped ? 3.F : 4.F) : 1.F, rifle ? (scoped ? 2.F : 4.F) : 1.F);
-        if (!call.Current()) return false;
-        Recoil(&call, owner, impulse);
-        if (!call.Current()) return false;
-        const bool duck = (owner.pev->flags & FL_DUCKING) != 0;
-        ScreenShakeRequest shake{owner.pev->origin, 5.F, .25F, .15F, 2.F};
-        if (rifle && scoped && duck) shake = {owner.pev->origin, 2.F, .1F, .1F, 2.F};
-        else if (rifle && !scoped && duck) shake = {owner.pev->origin, 5.F, .3F, .2F, 4.F};
-        else if (rifle && !scoped) shake = {owner.pev->origin, 7.F, .4F, .3F, 6.F};
-        ShakePlayers(shake, shakeMessage, {&call, Current});
         if (!call.Current()) return false;
         UTIL_MakeVectors(owner.pev->v_angle+owner.pev->punchangle);
         PistolBallistics shot{owner.GetGunPosition(),gpGlobals->v_forward,Vector(spread,spread,spread),
@@ -513,6 +502,7 @@ protected:
         const auto result=rifle ? FireCSRifleBallistics(owner,shot,impact,lease,cfg.penetration,CSRifleMaterial::Rifle762)
                                 : FirePistolBallistics(owner,shot,impact,lease);
         if(result.status!=BallisticsStatus::Fired || !call.Current())return false;
+        csol::server::cof::ApplyFirearmRecoil(*this);
         const auto& sample = Gunshots[Identity() - Browning];
         if (cfg.cooperativeAudio)
             SendPlaySfx(owner, {sample.localKey, {}, 0, 1, true, PlaySfxRules::Cooperative},

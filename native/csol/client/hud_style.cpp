@@ -444,7 +444,9 @@ void MoneyNumber(int value,float x,float y)
 void PaintMoney()
 {
     const float s=layout.scale;
-    const auto panel=hud::MoneyBackground(s,ScenarioHudLevel()>=0);
+    auto panel=hud::MoneyBackground(s,ScenarioHudLevel()>=0);
+    if (WeaponTextMenuVisible())
+        panel.x=std::max(0.f,screenWidth-panel.width-12*s);
     Art(hud::Art::MoneyBackground,panel);
     const double now=engine.GetClientTime?engine.GetClientTime():moneyChangedAt;
     const double age=std::isfinite(now) && now>=moneyChangedAt?now-moneyChangedAt:5;
@@ -459,14 +461,14 @@ void PaintMoney()
     for (unsigned i=0;i<color.size();++i)
         color[i]=int(int(255*(1-remaining)+accent[i]*remaining)*brightness);
     surface->DrawSetColor(color[0],color[1],color[2],255);
-    const float x=69*s,y=panel.y+5*s;
-    Sprite(art[unsigned(hud::Art::MoneyDollar)],51*s,y,18*s,18*s);
+    const float x=panel.x+69*s,y=panel.y+5*s;
+    Sprite(art[unsigned(hud::Art::MoneyDollar)],panel.x+51*s,y,18*s,18*s);
     MoneyNumber(money.amount,x,y);
     if (money.trackChange && age<2.5)
     {
         const float fade=float(int(std::clamp(1-age/2.5,0.0,1.0)*256))/255.f;
         surface->DrawSetColor(int(color[0]*fade),int(color[1]*fade),int(color[2]*fade),255);
-        Sprite(art[unsigned(money.delta>0?hud::Art::MoneyPlus:hud::Art::MoneyMinus)],56*s,y+27*s,13*s,18*s);
+        Sprite(art[unsigned(money.delta>0?hud::Art::MoneyPlus:hud::Art::MoneyMinus)],panel.x+56*s,y+27*s,13*s,18*s);
         MoneyNumber(money.delta>0?money.delta:-money.delta,x,y+27*s);
     }
     surface->DrawSetColor(255,255,255,255);
