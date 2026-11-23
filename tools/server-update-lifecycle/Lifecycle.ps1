@@ -1,10 +1,14 @@
+param([switch]$CsOnly)
+$script:updateServerRoles = [ordered]@{cs='cs/hlds.exe'}
+if (!$CsOnly) { $script:updateServerRoles['minecraft']='runtime/java/bin/java.exe' }
 # Shared by server patch installers. Uses the existing package's graceful
 # stop/start scripts; never kills a game or guesses a process by name alone.
 function Get-UpdateProcesses([string]$Root) {
-    $games=@((Under $Root 'cs/hlds.exe'),(Under $Root 'runtime/java/bin/java.exe'))
+    $games = @(foreach ($image in $script:updateServerRoles.Values) { Under $Root $image })
     $scripts=Under $Root 'scripts'
     $hosts=@('Run-Server.ps1','Start-Servers.ps1','Start-Scenario.ps1','Stop-Servers.ps1','Send-Console.ps1')
-    $filter="Name='hlds.exe' OR Name='java.exe' OR Name='powershell.exe' OR Name='pwsh.exe'"
+    $processNames = @('powershell.exe','pwsh.exe') + @($games | ForEach-Object { [IO.Path]::GetFileName($_) })
+    $filter = ($processNames | ForEach-Object { "Name='$_'" }) -join ' OR '
     foreach($p in Get-CimInstance Win32_Process -Filter $filter -Property ProcessId,ParentProcessId,Name,ExecutablePath,CommandLine){
         if($p.ProcessId -eq $PID){continue}
         if($p.ExecutablePath -in $games){$p;continue}
@@ -36,7 +40,7 @@ function Get-UpdateRole([string]$Root,[string]$Role) {
             throw "Cannot verify the start time of the recorded $Role process."
         }
         if($started.ToUniversalTime().Ticks.ToString() -cne [string]$record.startTicks){return $null}
-        $expected=Under $Root $(if($Role -eq 'cs'){'cs/hlds.exe'}else{'runtime/java/bin/java.exe'})
+        $expected=Under $Root $script:updateServerRoles[$Role]
         if(!$process.Path -or ![string]::Equals((Plain $process.Path),$expected,[StringComparison]::OrdinalIgnoreCase)){
             throw "Unexpected $Role executable; no process was stopped."
         }
@@ -88,7 +92,7 @@ function Begin-ServerUpdate([string]$Root,[switch]$NoRestart) {
         $state=Under $Root '.state'
         [IO.Directory]::CreateDirectory($state)|Out-Null
         $context.StartupGate=[IO.File]::Open((Under $state 'startup.lock'),'OpenOrCreate','ReadWrite','None')
-        foreach($role in @('cs','minecraft')){
+        foreach($role in $script:updateServerRoles.Keys){
             $record=Get-UpdateRole $Root $role
             if($record){$context.Roles+=@([pscustomobject]@{Name=$role;Before=$record})}
         }

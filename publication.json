@@ -4,6 +4,7 @@
     "tools/nightfall-hotfix/operator_update.py",
     "tools/nightfall-hotfix/OperatorSettings.ps1",
     "tests/nightfall-hotfix/operator-settings.ps1",
+    "tests/nightfall-hotfix/test_operator_package.py",
     "docs/release-20261123-cof.md",
     "docs/2026-11-23_交接-大灾变商店与战利品金币.md",
     "native/csol/server/persistence/pg_service.example.conf",

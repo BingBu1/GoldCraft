@@ -13,11 +13,11 @@ $root=Join-Path $PackageRoot 'cs'
 foreach($path in @('hlds.exe','swds.dll','cstrike/dlls/mp.dll','cstrike/maps/zs_deadend.bsp','cstrike/addons/amxmodx/plugins/goldcraft_game_mode.amxx')){
     if(!(Test-Path -LiteralPath (Join-Path $root $path) -PathType Leaf)){throw "Missing scenario file: $path"}
 }
-if($CheckOnly){Write-Host 'Native scenario configuration valid; no Minecraft process or dimension is required.';return}
+if($CheckOnly){Write-Host 'CS scenario configuration valid.';return}
 New-Item -ItemType Directory -Path $State -Force|Out-Null
 $gate=[IO.File]::Open((Join-Path $State 'startup.lock'),'OpenOrCreate','ReadWrite','None')
 try {
-    if((Get-RoleProcess 'cs') -or (Get-RoleProcess 'minecraft')){throw 'Use the original Stop.cmd before starting scenario mode.'}
+    if(Get-RoleProcess 'cs'){throw 'Use the original Stop.cmd before starting scenario mode.'}
     foreach($port in @($settings.csPort,$settings.steamPort)){
         $probe=New-Object Net.Sockets.UdpClient
         try{$probe.ExclusiveAddressUse=$true;$probe.Client.Bind((New-Object Net.IPEndPoint($address,[int]$port)))}finally{$probe.Dispose()}
@@ -35,7 +35,7 @@ try {
     $supervisor=Start-Process -FilePath $shell -ArgumentList $scenarioArguments -WorkingDirectory $PackageRoot -WindowStyle Hidden -PassThru
     $deadline=[DateTime]::UtcNow.AddSeconds(30)
     while([DateTime]::UtcNow -lt $deadline){
-        if(Get-RoleProcess 'cs'){Write-Host 'Native CS scenario started. Minecraft was not launched. Use original Stop.cmd to stop.';return}
+        if(Get-RoleProcess 'cs'){Write-Host 'CS scenario started. Use the original Stop.cmd to stop.';return}
         if($supervisor.HasExited){throw 'Scenario supervisor exited; inspect its console.'}
         Start-Sleep -Milliseconds 200
     }

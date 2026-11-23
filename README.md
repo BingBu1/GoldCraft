@@ -1,5 +1,12 @@
 # GoldCraft
 
+当前版本在 CS 1.6 上运行 CSOL 大灾变与 Cry of Fear（CoF）武器。服务端采用 ReHLDS、ReGameDLL_CS 和 AMX Mod X，玩家通过冰桑启动器获取配套的 MetaHookSv 插件。
+
+已有大灾变基础资源的服主可安装纯 CS 累计包 `20261123-CoF-R2`。将 ZIP 解压到服务器目录外的新文件夹，运行 `Update-Server.cmd`。当前开发优先处理 HTTP 下载、换图进度和窗口响应。[累计更新与验收](docs/release-20261123-cof.md) · [当前待办](TODO.md)
+
+<details>
+<summary>早期 SkyCraft 联动版本的构建、使用与验收记录</summary>
+
 把真实的 Minecraft 1.21.1 / NeoForge 玩法接入 Counter-Strike 1.6。CS 客户端使用 MetaHookSv 和 Renderer_AVX2，独立服务器使用 ReHLDS、ReGameDLL_CS、AMX Mod X 与 ReAPI。当前测试地图为 `cs_assault`（72 街仓库）。设计参考 [SkyCraft](https://github.com/chasmlol/SkyCraft)。
 
 项目正在开发。全部未完成事项集中在 [TODO](TODO.md)。1.21.1 正式运行环境已通过独立服务器与第三方 Mod 加载测试；升级后的图形客户端和完整多人玩法仍待验收。目前优先排查原生 CS 的人物可见性、原始鼠标输入和阴影回归，详见[原生回归记录](docs/NATIVE_REGRESSIONS.md)。本仓库提供必要源码、补丁、构建工具和说明，不包含游戏文件、Mod 成品、依赖、存档或运行日志。
@@ -62,3 +69,5 @@ Zombie Plague 5.0.8a 与 SyPB/API 1.50 已在 ReHLDS 中完成 24 Bot 的自主�
 | `tests`、`tools/Exercise-*` | 协议、事务、独立服务器与实际游戏回归 |
 
 工作原理见 [架构](docs/ARCHITECTURE.md)，测试范围与剩余工作见 [验证状态](docs/VALIDATION.md)。ReHLDS 是独立服务器引擎及共享逻辑参考，**不是 `hw.dll`**。上游许可和来源见 [第三方说明](THIRD_PARTY_NOTICES.md)。
+
+</details>

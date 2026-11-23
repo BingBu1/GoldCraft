@@ -29,6 +29,15 @@ def include_file(package: Path, files: dict, required: dict, name: str, source: 
     if (not re.fullmatch(r"[A-Za-z0-9_./ -]+", name) or
             any(part in ("", ".", "..") for part in name.split("/"))):
         raise ValueError("Invalid package destination: " + name)
+    if name.casefold() == HOST:
+        # Older packages can already have a copy in their extracted payload.
+        # Remove only that staging entry. The operator owns the installed host.
+        for path in {name, HOST, *files, *required}:
+            if path.casefold() == HOST:
+                (package / "payload" / path).unlink(missing_ok=True)
+                files.pop(path, None)
+                required.pop(path, None)
+        return
     if digest(source) != expected:
         raise ValueError("Release input changed: " + name)
     old = files.get(name) or required.get(name) or {}
@@ -54,6 +63,11 @@ def include_file(package: Path, files: dict, required: dict, name: str, source: 
     files[name] = dict(path=name, bytes=target.stat().st_size, sha256=expected, priorSha256=sorted(prior))
 
 
+def select_cs_lifecycle(text: str) -> str:
+    entry = ". (Join-Path $PSScriptRoot 'Lifecycle.ps1')"
+    return replace_once(text, entry + "\n", entry + " -CsOnly\n")
+
+
 def install_policy(package: Path, old: dict, new: dict) -> None:
     install = package / "Update-Server.ps1"
     text = install.read_text("utf-8-sig").replace("\r\n", "\n")
@@ -70,7 +84,7 @@ def install_policy(package: Path, old: dict, new: dict) -> None:
     text = text[:start] + """function Config-Path([string]$Name){return [bool](Get-OperatorPolicy $Name)}
 """ + text[end:]
     text = replace_once(text, "if($Name -ceq 'cs/cstrike/configs/guest/cof/scenario_damage.json'){return $true}",
-                        "if((Config-Path $Name) -or $Name -ceq 'cs/hlds.exe'){return $true}")
+                        "if(Config-Path $Name){return $true}")
     text = replace_once(text, "    $result=@(foreach($row in $manifest.files){", """    $script:configurationBytes=@{}
     $result=@(foreach($row in $manifest.files){""")
     text = replace_once(text, "        if($before -ceq $row.sha256){continue}", """        if($before -ceq $row.sha256){continue}
@@ -87,8 +101,10 @@ def install_policy(package: Path, old: dict, new: dict) -> None:
     new_rows = {r["path"]: r for r in new["files"] + new["requiredBaseline"]}
     for name in ("cs/swds.dll", "cs/filesystem_stdio.dll", "cs/cstrike/dlls/mp.dll"):
         text = replace_once(text, f"'{name}'='{old_rows[name]['sha256']}'", f"'{name}'='{new_rows[name]['sha256']}'")
-    text = replace_once(text, "$pins=@{", "$pins=@{\n    'cs/hlds.exe'='" + new_rows[HOST]["sha256"] + "'")
+    if any(path.casefold() == HOST for path in new_rows):
+        raise ValueError("CS host launcher must stay outside the update manifest")
+    text = select_cs_lifecycle(text)
     text = replace_once(text, "Mode 2 / zs_deadend ready. Ports, HTTP settings, passwords, admins, database and Minecraft preserved.",
-                        "Existing mode, maps, ports, HTTP settings, passwords, admins and Minecraft configuration preserved.")
+                        "Existing CS mode, maps, ports, HTTP settings, passwords and admins preserved.")
     install.write_text(text + "\n", "utf-8-sig", newline="\n")
     shutil.copyfile(HERE / "OperatorSettings.ps1", package / "OperatorSettings.ps1")
