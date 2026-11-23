@@ -62,6 +62,18 @@ try {
     $result = $utf8.GetString($configurationBytes[$arsenal]) | ConvertFrom-Json
     Assert-Case ($result.rifle.penetration -eq 11 -and $result.rifle.PSObject.Properties.Name -cnotcontains 'wallLayers' -and
         $result.rifle.primary -eq 123 -and $result.axe.primary -eq 350) 'Keep custom penetration while adding missing arsenal entries'
+    $oldArsenal = '{"rifle":{"primary":123,"secondary":7,"penetration":11},"nightstick":{"primary":11}}'
+    $row = Trial $arsenal ($utf8.GetBytes($oldArsenal))
+    $bytes = $configurationBytes[$arsenal]
+    $result = $utf8.GetString($bytes) | ConvertFrom-Json
+    Assert-Case ($result.nightstick.primary -eq 200 -and $result.rifle.primary -eq 123 -and
+        $result.rifle.penetration -eq 11) 'Upgrade the former Nightstick default in a custom table'
+    Assert-Case ($null -eq (Trial $arsenal $bytes)) 'Keep the migrated arsenal unchanged on reinstallation'
+
+    $result.nightstick.primary = 177
+    $custom = $result | ConvertTo-Json -Depth 16
+    Assert-Case (($custom | ConvertFrom-Json).nightstick.primary -eq 177 -and
+        $null -eq (Trial $arsenal ($utf8.GetBytes($custom)))) 'Keep a deliberately customized Nightstick damage'
 } finally {
     if ((Plain $work) -cne $work -or [IO.Path]::GetDirectoryName($work) -cne (Under $root 'build')) {
         throw 'Unexpected test directory'

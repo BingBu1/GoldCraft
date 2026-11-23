@@ -8,21 +8,53 @@
         },
         "time_cycle": {
             "enabled": false,
-            "comment": "正午与黄昏按秒推进，之后保持永夜；BGM资源由服务端另验。",
+            "comment": "即时开关时间阶段；开启从正午开始，关闭恢复地图环境；配套资源须已预载。",
             "values": {
                 "midday_seconds": {
                     "value": 180,
-                    "comment": "正午持续秒数；之后进入黄昏。"
+                    "comment": "正午持续秒数；即时调整当前正午剩余时间，保留已过时间。"
                 },
                 "dusk_seconds": {
                     "value": 120,
-                    "comment": "黄昏持续秒数；之后永久保持夜间。"
+                    "comment": "黄昏持续秒数；即时调整当前黄昏剩余时间，阶段不倒退。"
+                },
+                "dusk_light_level": {
+                    "value": 105,
+                    "comment": "黄昏光照字符的ASCII值，97最暗到122最亮；默认105为原版i档。"
+                },
+                "night_light_level": {
+                    "value": 98,
+                    "comment": "永夜最终光照档，不得高于黄昏；按用户要求默认98为更暗b档，99保留原版c档。"
+                },
+                "light_step_seconds": {
+                    "value": 2.5,
+                    "comment": "永夜逐次降低一档的间隔秒数；默认原版2.5，超时不追赶多档。"
+                },
+                "night_fog_density": {
+                    "value": 0.000699999975040555,
+                    "comment": "永夜最暗档的雾密度；0关闭。默认原版float位型3A378034。"
+                },
+                "night_fog_color": {
+                    "value": 65793,
+                    "comment": "雾颜色的十进制RGB打包值0xRRGGBB；默认65793对应原版(1,1,1)。"
+                },
+                "night_fog_start": {
+                    "value": 100.0,
+                    "comment": "标准Fog接口起始距离，默认原版100，须小于结束距离。"
+                },
+                "night_fog_end": {
+                    "value": 2000.0,
+                    "comment": "标准Fog接口结束距离，默认原版2000，须大于起始距离。"
+                },
+                "night_fog_skybox": {
+                    "value": 1,
+                    "comment": "雾是否影响天空盒：0否，1是；默认原版1。"
                 }
             }
         },
         "blind_box": {
             "enabled": true,
-            "comment": "CoF/CS1.6/CSOL三档盲盒在全图使用CS金钱购买。pools设置每把武器的相对权重，0停用。",
+            "comment": "CoF/CS1.6/CSOL三档盲盒在全图使用CS金钱购买，获得的枪械和投掷飞刀满弹交付。pools设置每把武器的相对权重，0停用。",
             "values": {
                 "blind_box_price_1": {
                     "value": 3000,
@@ -244,19 +276,19 @@
             }
         },
         "mastery": {
-            "enabled": false,
-            "comment": "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。",
+            "enabled": true,
+            "comment": "下次载图启用。本图熟练度默认100/500/1000，晋升时显示Tips。一档换弹，二档进一步加快换弹并增加伤害，三档再提高射速和伤害。",
             "values": {
                 "mastery_threshold_1": {
                     "value": 100,
                     "comment": "本图累计熟练度第一档阈值。"
                 },
                 "mastery_threshold_2": {
-                    "value": 200,
+                    "value": 500,
                     "comment": "本图累计熟练度第二档阈值，严格大于第一档。"
                 },
                 "mastery_threshold_3": {
-                    "value": 300,
+                    "value": 1000,
                     "comment": "本图累计熟练度第三档阈值，严格大于第二档。"
                 },
                 "mastery_reload_1": {
@@ -303,7 +335,7 @@
                 },
                 "walk_speed": {
                     "value": null,
-                    "comment": "已停用的旧固定走速；启用前须置null，原版按武器速度乘0.5。"
+                    "comment": "旧固定走速字段，须为null。步行限速见walk_speed_multiplier。"
                 },
                 "jump_cost": {
                     "value": null,
@@ -324,6 +356,10 @@
                 "sprint_cost_per_unit": {
                     "value": 0.1,
                     "comment": "绝命档案按水平实际位移扣费，每GoldSrc单位体力；默认原版0.1，非每秒。"
+                },
+                "walk_speed_multiplier": {
+                    "value": 0.8,
+                    "comment": "黄昏和永夜站姿步行上限相对当前武器地速的倍率，1为全速，当前地图即时生效。"
                 }
             }
         },
@@ -332,22 +368,8 @@
             "comment": "僵尸受击后保留随机模型血迹，近距离枪击将血溅到射手手臂及手持枪械。血迹持续到对应实体离开本图，关闭时隐藏。",
             "values": {
                 "blood_splash_radius": {
-                    "value": 128,
-                    "comment": "血迹溅到射手的最大距离，单位为GoldSrc长度单位。0只在僵尸模型上显示。"
-                }
-            }
-        },
-        "zombie_gibs": {
-            "enabled": true,
-            "comment": "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。",
-            "values": {
-                "zombie_gib_chance": {
-                    "value": 2,
-                    "comment": "普通击杀的爆尸概率（%）。"
-                },
-                "zombie_gib_melee_head_chance": {
-                    "value": 50,
-                    "comment": "近战武器命中头部并击杀时的爆尸概率（%）。"
+                    "value": 128.0,
+                    "comment": "血迹溅到攻击者的最大距离，默认128单位，0只在僵尸模型上显示。"
                 }
             }
         },
@@ -437,6 +459,177 @@
                 }
             }
         },
+        "night_player_lights": {
+            "enabled": true,
+            "comment": "永夜全员互见随身光；客户端管理灯池与跟随，服务器仅同步阶段和配置。自定义默认开启。",
+            "values": {
+                "night_player_light_radius": {
+                    "value": 128.0,
+                    "comment": "随身光半径，GoldSrc单位16至512；自定义默认128，客户端更新位置。"
+                },
+                "night_player_light_brightness": {
+                    "value": 48,
+                    "comment": "随身光亮度0至255，0熄灭；自定义默认48，保留永夜黑暗和雾。"
+                },
+                "night_player_light_color": {
+                    "value": 16777215,
+                    "comment": "随身光RGB颜色十进制0至16777215；自定义默认16777215为白色。"
+                }
+            }
+        },
+        "zombie_gibs": {
+            "enabled": true,
+            "comment": "开启僵尸爆尸。玩家击杀普通僵尸或精英时喷出4到5块碎片，尸体立即消失。当前地图即时生效。",
+            "values": {
+                "zombie_gib_chance": {
+                    "value": 2,
+                    "comment": "普通击杀的爆尸概率（%）。"
+                },
+                "zombie_gib_melee_head_chance": {
+                    "value": 50,
+                    "comment": "近战武器命中头部并击杀时的爆尸概率（%）。"
+                }
+            }
+        },
+        "weapon_cleaning": {
+            "enabled": true,
+            "comment": "允许在购买系统清洗手臂和全部随身武器。",
+            "values": {
+                "weapon_cleaning_price": {
+                    "value": 30,
+                    "comment": "清洗费用，使用CS金钱。"
+                }
+            }
+        },
+        "weapon_permit": {
+            "enabled": true,
+            "comment": "付费在任意地点选购一把CS1.6或CoF武器，含武器费用。",
+            "values": {
+                "weapon_permit_price": {
+                    "value": 16000,
+                    "comment": "一次武器选购的总费用，使用CS金钱。"
+                }
+            }
+        },
+        "cof_start": {
+            "enabled": true,
+            "comment": "首次发默认装备和同图重玩时按weights分别抽取CoF主枪、副枪、近战。权重为相对整数，0停抽，省略默认为1。",
+            "values": {
+                "cof_start_reserve_min": {
+                    "value": 200,
+                    "comment": "开局枪械每种备弹的随机下限。"
+                },
+                "cof_start_reserve_max": {
+                    "value": 400,
+                    "comment": "开局枪械每种备弹的随机上限，受弹药容量限制。"
+                }
+            },
+            "weights": {
+                "cof_glock": 1,
+                "cof_p345": 1,
+                "cof_revolver": 1,
+                "cof_vp70": 1,
+                "cof_tmp": 1,
+                "cof_mp5": 1,
+                "cof_m16": 1,
+                "cof_g43": 1,
+                "cof_shotgun": 1,
+                "cof_famas": 1,
+                "cof_browning": 1,
+                "cof_rifle": 1,
+                "cof_axe": 1,
+                "cof_branch": 1,
+                "cof_nightstick": 1,
+                "cof_sledgehammer": 1,
+                "cof_switchblade": 1
+            }
+        },
+        "zombie_speed_cap": {
+            "enabled": true,
+            "comment": "限制普通僵尸主动地面移动，地图施加的推力可超过限制。",
+            "values": {
+                "zombie_speed_limit": {
+                    "value": 200.0,
+                    "comment": "正午和黄昏的普通僵尸地速上限。"
+                },
+                "night_zombie_speed_limit": {
+                    "value": 220.0,
+                    "comment": "永夜的普通僵尸地速上限。"
+                }
+            }
+        },
+        "zombie_kill_money_cap": {
+            "enabled": true,
+            "comment": "普通僵尸的直接击杀奖励使用此上限，BOSS和精英发放完整奖励。",
+            "values": {
+                "zombie_kill_money_limit": {
+                    "value": 50,
+                    "comment": "每次直接击杀普通僵尸的CS金钱上限。"
+                }
+            }
+        },
+        "loot_coins": {
+            "enabled": true,
+            "comment": "本人拾取专属战利品箱时获得独立金币，M首页显示余额。",
+            "values": {
+                "loot_coins_min_1": {
+                    "value": 1,
+                    "comment": "入门战利品箱金币下限。"
+                },
+                "loot_coins_max_1": {
+                    "value": 10,
+                    "comment": "入门战利品箱金币上限。"
+                },
+                "loot_coins_min_2": {
+                    "value": 10,
+                    "comment": "普通战利品箱金币下限。"
+                },
+                "loot_coins_max_2": {
+                    "value": 50,
+                    "comment": "普通战利品箱金币上限。"
+                },
+                "loot_coins_min_3": {
+                    "value": 25,
+                    "comment": "困难战利品箱金币下限。"
+                },
+                "loot_coins_max_3": {
+                    "value": 100,
+                    "comment": "困难战利品箱金币上限。"
+                },
+                "loot_coins_min_4": {
+                    "value": 50,
+                    "comment": "噩梦战利品箱金币下限。"
+                },
+                "loot_coins_max_4": {
+                    "value": 200,
+                    "comment": "噩梦战利品箱金币上限。"
+                },
+                "loot_coins_min_5": {
+                    "value": 100,
+                    "comment": "地狱战利品箱金币下限。"
+                },
+                "loot_coins_max_5": {
+                    "value": 350,
+                    "comment": "地狱战利品箱金币上限。"
+                },
+                "loot_coins_min_6": {
+                    "value": 150,
+                    "comment": "炼狱战利品箱金币下限。"
+                },
+                "loot_coins_max_6": {
+                    "value": 600,
+                    "comment": "炼狱战利品箱金币上限。"
+                },
+                "loot_coins_min_7": {
+                    "value": 250,
+                    "comment": "炼狱Ⅰ战利品箱金币下限。"
+                },
+                "loot_coins_max_7": {
+                    "value": 1000,
+                    "comment": "炼狱Ⅰ战利品箱金币上限。"
+                }
+            }
+        },
         "night_equipment": {
             "enabled": true,
             "comment": "允许玩家在永夜期间购买提灯和照明弹。",
@@ -460,6 +653,11 @@
                     "comment": "主副武器一次满弹的CS金钱总价。已有满弹无需扣款。"
                 }
             }
+        },
+        "ordinary_purchase": {
+            "enabled": false,
+            "comment": "允许大灾变玩家在买区直接购买及自动或重复购买。默认全图禁用，M菜单的独立商品仍按各自规则购买。",
+            "values": {}
         }
     }
 }

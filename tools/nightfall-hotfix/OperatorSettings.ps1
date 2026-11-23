@@ -80,6 +80,10 @@ function Merge-ArsenalSettings($Current,$Defaults) {
             }
             $valid=if ($key -ceq 'wallLayers') {Test-WeaponNumber $row.$key 2 31 $true} else {Test-WeaponNumber $row.$key 0 1000000 $true}
             if (!$valid) {throw "Invalid $($gun.Name).$key"}
+            if ($gun.Name -ceq 'nightstick' -and $key -ceq 'primary' -and $row.$key -eq 11 -and $field.Value -eq 200) {
+                $row.$key=$field.Value
+                $changed=$true
+            }
         }
     }
     if ($changed) {return $Current}
