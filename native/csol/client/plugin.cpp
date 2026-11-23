@@ -434,6 +434,7 @@ static int VidInit()
     ClearScene();
     // A video mode change does not re-send the server's sign-on definitions.
     // Keep inventory until SynchronizeSession observes an actual session change.
+    ResetTextMenuPaint();
     WeaponVideoInit();
     StatusIconsVideoInit();
     DamageDisplayVideoInit();
@@ -535,6 +536,7 @@ static void CreateMove(float frame, usercmd_t* cmd, int active)
 }
 static int Redraw(float time, int intermission)
 {
+    ResetTextMenuPaint();
     CacheParticleHudTime(time);
     const int result = WeaponRedraw(time, intermission);
     DrawStatusIcons(time);

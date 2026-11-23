@@ -19,7 +19,7 @@ namespace csol::client {
 enum class OverlayLayer : unsigned char
 {
     WallStatus, HudStyle, ScenarioKill, ScenarioUpgrades, CharacterSkills, HumanKick, ChallengePhase, Stamina, BossHealth,
-    ScenarioAbilities, ScenarioRoundHud, ScenarioRespawnUi, CharacterMenu, BuyMenu, MapVote, Count
+    ScenarioAbilities, ScenarioRoundHud, ScenarioRespawnUi, TextMenu, CharacterMenu, BuyMenu, MapVote, Count
 };
 
 namespace overlay_detail {
@@ -50,4 +50,5 @@ inline void PaintQueuedOverlays()
 
 void InitializeOverlayCompositor();
 void ShutdownOverlayCompositor();
+void ResetTextMenuPaint();
 }

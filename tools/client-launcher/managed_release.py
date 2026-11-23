@@ -58,6 +58,7 @@ STARTUP_SYMBOLS = {
         'CSOL_StudioRead': ('function', 0x1c80f0),
     }),
     'client': ('124d6034a6b28b40', {
+        'GoldCraftTextMenu_Draw': ('function', 0x5c7f0),
         'GoldCraftSniperScope_Draw': ('function', 0x64f90),
         'GoldCraftCofInput_CreateMove': ('function', 0x5b320),
         'GoldCraftCofInput_MaximumSlot': ('global', 0x1179d8),

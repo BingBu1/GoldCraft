@@ -1,13 +1,51 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
 #include "overlay_layers.hpp"
+#include "scenario/core/scenario_upgrades.hpp"
+#include "weapons/weapon_inventory.hpp"
 #include <IVGUI2Extension.h>
+#include <utility>
 
 namespace csol::client
 {
 namespace
 {
 IVGUI2Extension* extension{};
+bool gameUiVisible{};
+
+using NativeMenuDraw = int (__thiscall *)(void*, float);
+NativeMenuDraw originalMenuDraw{};
+hook_t* menuDrawHook{};
+struct MenuPaint
+{
+    void* menu{};
+    float time{};
+} pendingMenuPaint;
+
+bool MenuPaintAllowed()
+{
+    return !gameUiVisible && !(engine.Con_IsVisible && engine.Con_IsVisible());
+}
+
+void PaintTextMenu()
+{
+    const auto paint = std::exchange(pendingMenuPaint, {});
+    if (paint.menu && WeaponTextMenuVisible() && MenuPaintAllowed())
+        originalMenuDraw(paint.menu, paint.time);
+}
+
+int __fastcall QueueTextMenu(void* menu, void*, float time)
+{
+    if (!overlay_detail::active || !ResourceReadsAllowed() || !WeaponTextMenuVisible() ||
+        ScenarioHudLevel() < 0 || !MenuPaintAllowed())
+        return originalMenuDraw(menu, time);
+
+    // Host CHudMenu::Draw returns 1. Preserve its layout, lifetime and text
+    // renderer by calling it once after the gameplay HUD paints.
+    pendingMenuPaint = {menu, time};
+    QueueOverlayPaint(OverlayLayer::TextMenu, PaintTextMenu);
+    return 1;
+}
 
 class Compositor final : public IVGUI2Extension_BaseUICallbacks
 {
@@ -17,17 +55,29 @@ public:
     int GetAltitude() const override { return 1; }
     void Initialize(CreateInterfaceFn*, int) override {}
     void Start(cl_enginefuncs_s*, int) override {}
-    void Shutdown() override { overlay_detail::queued = {}; overlay_detail::active = false; }
+    void Shutdown() override
+    {
+        ResetTextMenuPaint();
+        overlay_detail::queued = {};
+        overlay_detail::active = false;
+    }
     void Key_Event(int&, int&, const char*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceAppProc(void*&, void*&, VGUI2Extension_CallbackContext*) override {}
     void CallEngineSurfaceWndProc(void*&, unsigned int&, unsigned int&, long&, VGUI2Extension_CallbackContext*) override {}
     void Paint(int&, int&, int&, int&, VGUI2Extension_CallbackContext* context) override
     { if (context->IsPost) PaintQueuedOverlays(); }
-    void HideGameUI(VGUI2Extension_CallbackContext*) override {}
-    void ActivateGameUI(VGUI2Extension_CallbackContext*) override {}
+    void HideGameUI(VGUI2Extension_CallbackContext* context) override
+    { if (context->IsPost) gameUiVisible = false; }
+    void ActivateGameUI(VGUI2Extension_CallbackContext* context) override
+    { if (!context->IsPost) gameUiVisible = true; }
     void HideConsole(VGUI2Extension_CallbackContext*) override {}
     void ShowConsole(VGUI2Extension_CallbackContext*) override {}
 } compositor;
+}
+
+void ResetTextMenuPaint()
+{
+    pendingMenuPaint = {};
 }
 
 void InitializeOverlayCompositor()
@@ -42,6 +92,15 @@ void InitializeOverlayCompositor()
         if (!extension) return;
         extension->RegisterBaseUICallbacks(&compositor);
     }
+    gameUiVisible = false;
+    if (!menuDrawHook)
+    {
+        void* address{};
+        if (api->ResolveGameSymbol(api->GetClientBase(), "GoldCraftTextMenu_Draw",
+                MH_GAMESYMBOL_KIND_FUNCTION, &address) == MH_GAMESYMBOL_OK && address)
+            menuDrawHook = api->InlineHook(address, reinterpret_cast<void*>(QueueTextMenu),
+                reinterpret_cast<void**>(&originalMenuDraw));
+    }
     overlay_detail::active = true;
 }
 
@@ -53,5 +112,12 @@ void ShutdownOverlayCompositor()
     overlay_detail::queued = {};
     overlay_detail::active = false;
     extension = nullptr;
+    ResetTextMenuPaint();
+    if (menuDrawHook)
+    {
+        api->UnHook(menuDrawHook);
+        menuDrawHook = nullptr;
+        originalMenuDraw = nullptr;
+    }
 }
 }
