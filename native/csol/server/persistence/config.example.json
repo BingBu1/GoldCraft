@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "service": "goldcraft",
+  "hostAddress": "",
+  "ledger": "",
+  "outboxDirectory": "outbox",
+  "connectTimeoutMilliseconds": 4000,
+  "queryTimeoutMilliseconds": 4000,
+  "itemBindings": []
+}

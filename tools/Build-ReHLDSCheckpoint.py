@@ -20,6 +20,8 @@ def main():
     for key in ('build','output','environment','compiler-dir','msbuild'):p.add_argument('--'+key,type=Path,required=True)
     p.add_argument('--jobs',type=int,default=2,choices=range(1,17))
     p.add_argument('--windows-sdk',default='10.0.26100.0')
+    p.add_argument('--steam-approval', action='store_true',
+                   help='Expose verified Steam identities to GameDLL persistence')
     a=p.parse_args();cache=a.build.resolve(strict=True);out=a.output.resolve()
     if not cache.is_relative_to(ROOT/'build') or not out.is_relative_to(ROOT/'build') or out.exists():
         raise ValueError('Existing workspace cache and fresh receipt directory required')
@@ -48,6 +50,7 @@ def main():
         '/p:ForceImportBeforeCppTargets='+str(ROOT/'native/engine/GoldCraftEngine.targets'),
         '/p:ForceImportAfterCppTargets='+str(cache/'Build-Isolated.targets'),'/p:GoldCraftRoot='+str(ROOT),
         '/p:GoldCraftResourceSyncV4=true','/p:OutDir='+str(cache)+'/',
+        '/p:GoldCraftSteamApproval='+str(a.steam_approval).lower(),
         '/p:PreBuildEventUseInBuild=false','/p:PostBuildEventUseInBuild=false','/p:MultiProcessorCompilation=false',
         '/p:UseMultiToolTask=true','/p:EnforceProcessCountAcrossBuilds=true',
         '/p:MultiProcMaxCount='+str(a.jobs),'/p:CL_MPCount='+str(a.jobs),'/nr:false']
