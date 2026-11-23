@@ -799,7 +799,8 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         }
         monster = CurrentAlive(call, state);
         if (!monster) return;
-        if (monster->HostState().frozenRemaining <= 0)
+        const bool meleeControl = host.cofMelee.lease && monster->UpdateCofMeleeControl(gpGlobals->time);
+        if (host.frozenRemaining <= 0 && !meleeControl)
         {
             const auto behavior = services->Deaths().BeginBehavior(*monster);
             if (!Step(call, state, behavior.has_value(), "ordinary behavior death scope failed")) return;
@@ -846,7 +847,7 @@ void CCSOLOrdinaryMonsterBehavior::Think(CCSOLScenarioMonster& entity)
         state->spawn->updateAt = gpGlobals->time + 0.1f;
         monster = CurrentAlive(call, state);
         if (!monster) return;
-        if (monster->HostState().frozenRemaining <= 0 &&
+        if (monster->HostState().frozenRemaining <= 0 && !monster->HostState().cofMelee.lease &&
             !CSOL_HumanKickMonsterStaggered(*monster, gpGlobals->time) &&
             !UpdateBehavior(call, state, *services)) return;
         if (!CurrentAlive(call, state)) return;
@@ -875,6 +876,9 @@ void CCSOLOrdinaryMonsterBehavior::Touch(CCSOLScenarioMonster& entity, CBaseEnti
     if (!monster) return;
     const auto skill = monster->HostState().activeSkill;
     if (skill != 9 && skill != 12) return; // Original mode15 ordinary early return.
+    const auto& meleeControl = monster->HostState().cofMelee;
+    if (meleeControl.lease == state->lease &&
+        (meleeControl.pushUntil > 0 || gpGlobals->time < meleeControl.staggerUntil)) return;
     const auto enemyPlayer = [&](CBaseEntity& receiver)
     {
         // Native CS keeps player team in m_iTeam, not entvars.team.

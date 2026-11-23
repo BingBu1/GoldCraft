@@ -11,6 +11,7 @@
 #include "../core/scenario_session.h"
 #include "../../damage_notice.h"
 #include "scenario_monster_ordinary.h"
+#include "scenario_monster_factory.h"
 #include "../../../scenario/monsters/monster_impact.hpp"
 
 #include <algorithm>
@@ -295,7 +296,8 @@ void CCSOLScenarioMonster::Killed(entvars_t* attacker, int gib)
 
 void CCSOLScenarioMonster::ApplyCofMeleeControl(const Vector& direction, float pushSpeed, float staggerSeconds)
 {
-    if (!m_pool || !m_pool->Borrowed(*this) || pev->deadflag != DEAD_NO || pev->health <= 0) return;
+    if (!m_pool || !m_pool->Borrowed(*this) || !m_type || !CSOL_AppliesOrdinaryMonsterPhaseRules(*m_type) ||
+        pev->deadflag != DEAD_NO || pev->health <= 0 || m_host.frozenRemaining > 0) return;
     const auto lease = m_pool->Lease(*this);
     auto& control = m_host.cofMelee;
     if (control.lease != lease) control = {};
@@ -305,15 +307,15 @@ void CCSOLScenarioMonster::ApplyCofMeleeControl(const Vector& direction, float p
     if (pushSpeed > 0 && length > 0) {
         pev->velocity.x = direction.x * (pushSpeed / length);
         pev->velocity.y = direction.y * (pushSpeed / length);
-        control.pushUntil = now + .35f;
+        // The native melee path leaves engine physics in charge of displacement
+        // and gives navigation up to one second before it can overwrite velocity.
+        control.pushUntil = now + 1.0f;
         control.recovery = std::max(control.recovery, staggerSeconds);
     } else {
         pev->velocity.x = pev->velocity.y = 0;
         control.staggerUntil = std::max(control.staggerUntil, now + std::max(control.recovery, staggerSeconds));
         control.pushUntil = control.recovery = 0;
     }
-    // Wake the behavior to observe an early stop against a wall, even on a slow AI tick.
-    if (pev->nextthink <= 0 || pev->nextthink > now + .03f) pev->nextthink = now + .03f;
 }
 
 bool CCSOLScenarioMonster::UpdateCofMeleeControl(float now)
@@ -330,12 +332,9 @@ bool CCSOLScenarioMonster::UpdateCofMeleeControl(float now)
         control.staggerUntil = std::max(control.staggerUntil, now + control.recovery);
         control.pushUntil = control.recovery = 0;
     }
-    if (now >= control.staggerUntil) {
-        control = {};
-        return false;
-    }
-    pev->velocity.x = pev->velocity.y = 0;
-    return true;
+    if (now < control.staggerUntil) return true;
+    control = {};
+    return false;
 }
 
 void CCSOLScenarioMonster::BehaviorThink()
@@ -375,12 +374,6 @@ void CCSOLScenarioMonster::BehaviorThink()
             return true;
         };
         if (report()) return;
-        if (m_host.cofMelee.lease && UpdateCofMeleeControl(gpGlobals->time)) {
-            const auto& control = m_host.cofMelee;
-            const float end = control.pushUntil > 0 ? control.pushUntil : control.staggerUntil;
-            pev->nextthink = std::min(end, gpGlobals->time + .03f);
-            return;
-        }
         behavior->Think(*this);
         report();
     }
@@ -414,7 +407,6 @@ void CCSOLScenarioMonster::Touch(CBaseEntity* other)
             pool->Borrowed(*this) && pool->Lease(*this) == lease && m_behavior == behavior &&
             m_touchComponents && (!other || target.Get<CBaseEntity>());
     };
-    if (m_host.cofMelee.lease && UpdateCofMeleeControl(gpGlobals->time)) return;
     behavior->Touch(*this, other);
     if (!current()) return;
     for (std::size_t i = 0; i < m_touchComponents->size(); ++i)
@@ -813,6 +805,7 @@ CCSOLScenarioMonster* CCSOLMonsterPool::Acquire(const csol::scenario::MonsterTyp
     ++m_category[priority];
     if (previousType) *previousType = monster->m_type;
     monster->m_type = &type;
+    monster->m_host.cofMelee = {};
     monster->m_typeId = type.id;
     monster->m_spawnPoint = point;
     monster->m_behaviorReady = false;
@@ -841,6 +834,7 @@ bool CCSOLMonsterPool::BeginDeath(CCSOLScenarioMonster& monster, float freeAt,
     monster.pev->takedamage = DAMAGE_NO;
     monster.pev->deadflag = DEAD_DEAD;
     monster.pev->solid = SOLID_NOT;
+    monster.m_host.cofMelee = {};
     monster.SetThink(&CCSOLScenarioMonster::FreeThink);
     monster.pev->nextthink = freeAt;
     return true;

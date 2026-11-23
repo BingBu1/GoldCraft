@@ -9,15 +9,23 @@ void CheckPush(CCSOLScenarioMonster& monster, float speed, float recovery, bool 
 {
     const float start = gpGlobals->time;
     monster.pev->velocity = Vector(0, 0, -5);
+    monster.pev->nextthink = start + .1f;
     monster.ApplyCofMeleeControl(Vector(3, 4, 120), speed, recovery);
+    Check(monster.pev->nextthink == start + .1f, "a hit keeps the ordinary think schedule");
     Check(std::abs(monster.pev->velocity.Length2D() - speed) < .001f, "requested horizontal speed");
     Check(monster.pev->velocity.z == -5, "push preserves vertical velocity");
     Check(monster.UpdateCofMeleeControl(start + .01f), "AI held during horizontal push");
-    const float stopped = start + (hitWall ? .05f : .35f);
-    if (hitWall) monster.pev->velocity.x = monster.pev->velocity.y = 0;
-    Check(monster.UpdateCofMeleeControl(stopped), "stagger starts at wall contact or push timeout");
-    Check(monster.pev->velocity.Length2D() == 0 && monster.pev->velocity.z == -5, "stopped without lifting");
+    const float stopped = start + (hitWall ? .05f : 1.f);
+    if (hitWall)
+        monster.pev->velocity.x = monster.pev->velocity.y = 0;
+    else
+        Check(monster.UpdateCofMeleeControl(start + .36f), "native movement can continue past the old forced stop");
+    const Vector engineVelocity = monster.pev->velocity;
+    Check(monster.UpdateCofMeleeControl(stopped), "stagger starts at wall contact or the movement deadline");
+    Check(monster.pev->velocity == engineVelocity, "stagger leaves engine velocity intact");
+    monster.pev->velocity = Vector(15, -10, -5);
     Check(monster.UpdateCofMeleeControl(stopped + recovery - .01f), "full recovery follows the stop");
+    Check(monster.pev->velocity == Vector(15, -10, -5), "map impulse survives the stagger");
     Check(!monster.UpdateCofMeleeControl(stopped + recovery), "AI released at recovery deadline");
     gpGlobals->time = stopped + recovery + 1;
 }
@@ -39,6 +47,7 @@ int main()
         Require(monster && pool.Borrowed(*monster), "actual leased monster");
         monster->pev->health = 5000;
         monster->pev->deadflag = DEAD_NO;
+        const int initialChecks = checks;
         gpGlobals->time = 10;
         for (bool wall : {false, true}) {
             CheckPush(*monster, 500, 1, wall);
@@ -50,12 +59,24 @@ int main()
         Check(monster->pev->velocity == Vector(), "pickaxe stops immediately");
         Check(monster->UpdateCofMeleeControl(now + 1.49f), "pickaxe holds for 1.5 seconds");
         Check(!monster->UpdateCofMeleeControl(now + 1.5f), "pickaxe releases AI at 1.5 seconds");
+        monster->HostState().frozenRemaining = .1f;
+        monster->ApplyCofMeleeControl(Vector(1, 0, 0), 500, 1);
+        Check(!monster->HostState().cofMelee.lease && monster->pev->velocity == Vector(),
+              "CoF hit does not add control to a frozen monster");
+        monster->HostState().frozenRemaining = 0;
+        type.skill = 1000;
+        monster->ApplyCofMeleeControl(Vector(1, 0, 0), 500, 1);
+        Check(!monster->HostState().cofMelee.lease && monster->pev->velocity == Vector(),
+              "CoF hit leaves special monster movement to its owner");
+        type.skill = 11;
         monster->ApplyCofMeleeControl(Vector(1, 0, 0), 500, 1);
         monster->pev->health = 0;
         Check(!monster->UpdateCofMeleeControl(now + .01f) && !monster->HostState().cofMelee.lease,
               "death retires the previous control state");
+        const int behaviorChecks = checks - initialChecks;
         pool.Shutdown();
-        std::cout << "checks=" << checks << " failures=" << failures << std::endl;
+        std::cout << "behaviorChecks=" << behaviorChecks << " checks=" << checks
+                  << " failures=" << failures << std::endl;
         return failures ? 1 : 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << std::endl;
