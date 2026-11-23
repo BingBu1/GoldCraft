@@ -36,6 +36,7 @@ int main(int argc, char** argv)
         {engine, "CSOL_StudioNativeCall", MH_GAMESYMBOL_KIND_PATCH, 0x240559},
         {engine, "CSOL_StudioReadCall", MH_GAMESYMBOL_KIND_PATCH, 0x24038b},
         {engine, "CSOL_StudioRead", MH_GAMESYMBOL_KIND_FUNCTION, 0x1c80f0},
+        {client, "GoldCraftTextMenu_Draw", MH_GAMESYMBOL_KIND_FUNCTION, 0x5c7f0},
         {client, "GoldCraftSniperScope_Draw", MH_GAMESYMBOL_KIND_FUNCTION, 0x64f90},
         {client, "GoldCraftCofInput_CreateMove", MH_GAMESYMBOL_KIND_FUNCTION, 0x5b320},
         {client, "GoldCraftCofInput_MaximumSlot", MH_GAMESYMBOL_KIND_GLOBAL, 0x1179d8},

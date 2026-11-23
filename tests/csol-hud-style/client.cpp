@@ -34,6 +34,7 @@ std::set<int> selectionEmpty;
 csol::hud_style::WeaponState state{};
 csol::Character character{};
 bool haveCharacter=true;
+bool textMenuVisible{};
 void Check(bool value,const char* text,std::source_location at=std::source_location::current())
 {++checks;if(!value){++failures;std::cerr<<"FAIL "<<at.line()<<' '<<text<<'\n';}}
 void Log(const char*,...){}
@@ -300,6 +301,17 @@ void ExerciseMoney()
     Check(std::any_of(capture.quads.begin(),capture.quads.end(),[](const auto& q)
         {return q.texture==moneyDigits[7].id&&q.x==82&&q.y==200&&q.right==95&&q.bottom==218;}),"four-digit account reserves original five-cell field");
     const auto stable=MoneyQuads();
+#ifndef CSOL_INVENTORY_TEST
+    textMenuVisible=true;Draw();
+    const auto shifted=MoneyQuads();
+    Check(HudStyleMoneyVisible() && shifted.size()==stable.size() &&
+        std::equal(stable.begin(),stable.end(),shifted.begin(),[](const auto& before,const auto& after)
+        {return before.texture==after.texture && after.x-before.x==screenWidth-203 &&
+            after.y==before.y && after.right<=screenWidth;}),
+        "AMXX text menu shifts the account and all its glyphs away from its rows");
+    textMenuVisible=false;Draw();
+    Check(SameMoneyGeometry(stable),"closing the text menu restores the account anchor");
+#endif
     const auto savedState=state;const auto savedDefinition=definition.name;
     state.id=999;Draw();Check(!HudStyleWeaponVisible()&&SameMoneyGeometry(stable),"money stays fixed when weapon message precedes selection preparation");
     PrepareSelection();Draw();Check(SameMoneyGeometry(stable),"unknown weapon cannot move money panel");
@@ -524,6 +536,7 @@ const WeaponDefinition* FindWeaponDefinition(int id)
 WeaponSelectionView WeaponSelectionForHud(){return {fixture::selectionPending,fixture::selectionItems};}
 void SetWeaponSelectionHudVisible(bool visible){fixture::selectionHudOwner=visible;}
 void SetWeaponSelectionHudAvailable(bool){}
+bool WeaponTextMenuVisible(){return fixture::textMenuVisible;}
 bool WeaponHasAmmo(int id){return !fixture::selectionEmpty.contains(id);}
 int WeaponReserveAmmo(int type){const auto it=fixture::selectionReserve.find(type);return it==fixture::selectionReserve.end()?0:it->second;}
 const WeaponDefinition* FindWeaponTitleDefinition(int id)
