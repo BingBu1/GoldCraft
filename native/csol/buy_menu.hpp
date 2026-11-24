@@ -36,6 +36,7 @@ constexpr bool IsStockEquipment(int id) { return id >= 1001 && id <= 1005; }
 constexpr bool IsEquipment(int id) { return IsStockEquipment(id) || guest::cof::light::Find(id); }
 constexpr bool IsAmmunition(int id) { return id == 2001 || id == 2002; }
 constexpr bool IsWeapon(const Item& item) { return !IsEquipment(item.id) && !IsAmmunition(item.id); }
+constexpr bool IsDirectPurchaseItem(const Item& item) { return item.source != WeaponSource::Csol; }
 constexpr int RebuySlot(const Item& item)
 {
     if (!IsWeapon(item)) return item.id == 1002 ? 1001 : int(item.id);

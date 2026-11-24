@@ -98,6 +98,35 @@ void LoseFocus(unsigned message)
  void* window{};unsigned wparam{};long lparam{};VGUI2Extension_CallbackContext context{};
  overlay.CallEngineSurfaceWndProc(window,message,wparam,lparam,&context);
 }
+void DirectPurchaseFilter()
+{
+ Fresh();
+ constexpr int csolRifle = 112, csolKnife = 1022, stockRifle = 22;
+ Check(!offers.contains(csolRifle) && !offers.contains(csolKnife) && offers.contains(stockRifle),
+       "an older server's CSOL offers do not enter the ordinary client catalog");
+ for (const int section : {4, 9})
+ {
+  category = section;
+  const auto& rows = Rows();
+  Check(std::all_of(rows.begin(), rows.end(), [](const Item* item) { return IsDirectPurchaseItem(*item); }),
+        "firearm and knife categories only contain direct-purchase weapons");
+ }
+ query = L"skull";
+ rowsCategory = -2;
+ Check(Rows().empty(), "text search cannot find CSOL weapons");
+ const auto saved = favoriteStrings[team - 1];
+ favoriteStrings[team - 1] = "112,1022,22,0,0,0,0,0";
+ cvars[team - 1].string = favoriteStrings[team - 1].data();
+ LoadFavorites();
+ Check(!favorites[0] && !favorites[1] && favorites[2] == stockRifle,
+       "old favorites hide CSOL entries and retain allowed stock entries");
+ favoriteStrings[team - 1] = saved;
+ cvars[team - 1].string = favoriteStrings[team - 1].data();
+ LoadFavorites();
+ Purchase(*Find(csolRifle));
+ Check(visible && commands.empty(), "direct dispatch rejects a filtered item");
+}
+
 void StateTests(){
  Fresh();visible=false;capability=false;oldBuy=[](){++nativeBuys;};const auto nativeBefore=nativeBuys;OpenMenu(true);Check(!visible&&nativeBuys==nativeBefore+1,"ordinary server falls back through chained native buy");
  Deliver(Kind::Capability);OpenMenu(false);Check(visible&&!catalogReady&&request==8&&commands.size()==1,"capable open requests authoritative catalog");OpenMenu(false);Check(!visible,"buy toggle closes visible menu");
@@ -293,6 +322,8 @@ void NativeControls(){
  Check(!detailPanel->IsVisible()&&!descriptionPanel->IsVisible(),"native detail initially hidden before any valid hover");
  int textItem=0,tableItem=0;size_t longest=0;
  for(const auto& [id,info]:presentation.weaponInfo.items){
+   const auto* item = Find(id);
+   if (!item || !IsDirectPurchaseItem(*item) || !InTeamList(*item, team)) continue;
    if(info.table&&!*info.table){const auto found=infoItems.find(id);if(found!=infoItems.end()&&found->second.description.size()>longest){textItem=id;longest=found->second.description.size();}}
    else if(info.table&&*info.table&&!tableItem)tableItem=id;
  }
@@ -491,7 +522,7 @@ void* RegisterResourceFont(void*&,const char*,const char*,std::span<const std::b
 }
 int main(int argc,char** argv){
  if(argc!=2)return 2;fixture::resources=argv[1];fixture::Setup();
- try{fixture::Check(csol::client::Load(),"complete actual client loads real buy resource and TGA codec");fixture::Check(csol::client::presentation.normalizedLayout,"normalized schema parsed");fixture::StateTests();fixture::WindowFocusTests();fixture::RebuyTests();fixture::RefreshTests();fixture::HotPath();fixture::NativeControls();fixture::SearchFocus();}
+ try{fixture::Check(csol::client::Load(),"complete actual client loads real buy resource and TGA codec");fixture::Check(csol::client::presentation.normalizedLayout,"normalized schema parsed");fixture::DirectPurchaseFilter();fixture::StateTests();fixture::WindowFocusTests();fixture::RebuyTests();fixture::RefreshTests();fixture::HotPath();fixture::NativeControls();fixture::SearchFocus();}
  catch(const std::exception& e){++fixture::failures;std::cerr<<"EXCEPTION "<<e.what()<<'\n';}
  csol::client::extension=nullptr;csol::client::ResetBuyMenu();std::cout<<"checks="<<fixture::checks<<" failures="<<fixture::failures<<'\n';return fixture::failures?1:0;
 }

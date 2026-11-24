@@ -2,7 +2,7 @@
 
 当前版本在 CS 1.6 上运行 CSOL 大灾变与 Cry of Fear（CoF）武器。服务端采用 ReHLDS、ReGameDLL_CS 和 AMX Mod X，玩家通过冰桑启动器获取配套的 MetaHookSv 插件。
 
-已有大灾变基础资源的服主可安装纯 CS 累计包 `20261123-CoF-R3`。将 ZIP 解压到服务器目录外的新文件夹，运行 `Update-Server.cmd`。当前开发优先处理 HTTP 下载、换图进度和窗口响应。[累计更新与验收](docs/release-20261123-cof.md) · [当前待办](TODO.md)
+已有大灾变基础资源的服主可安装纯 CS 累计包 `20261124-CoF-R4`。将 ZIP 解压到服务器目录外的新文件夹，运行 `Update-Server.cmd`。当前开发优先处理 HTTP 下载、换图进度和窗口响应。[累计更新与验收](docs/release-20261123-cof.md) · [当前待办](TODO.md)
 
 <details>
 <summary>早期 SkyCraft 联动版本的构建、使用与验收记录</summary>

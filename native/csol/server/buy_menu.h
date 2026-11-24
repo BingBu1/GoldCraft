@@ -9,6 +9,7 @@ void CSOL_PrepareBlindBoxPools(const csol::scenario::custom::Snapshot& settings)
 bool CSOL_PrecacheBuyMenu();
 bool CSOL_BuyMenuCommand(edict_s* entity,const char* command);
 void CSOL_ResetBuyMenu();
+bool CSOL_BlocksDirectWeaponPurchase(int weaponId);
 bool CSOL_CanBuyScenarioNativeWeapon(int playerTeam,int weaponId);
 // Original buy-zone enter/leave callbacks send ZBSVer2 opcode 16/17.
 void CSOL_BuyZoneHint(CBasePlayer* player,bool inside);

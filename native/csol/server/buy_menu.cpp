@@ -358,6 +358,7 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
         return;
     }
     if (!allowed() || !offerCurrent() || player.m_iAccount < price) return;
+    const Item* melee{};
     const bool granted = Debit(player, state, price, sameBuyer, [&]
     {
         if (!allowed() || !offerCurrent() || !available(*primary) || !current()) return false;
@@ -369,6 +370,13 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
                 [](void* context) { return (*static_cast<decltype(pairCurrent)*>(context))(); }, &pairCurrent))
                 return false;
             RefillAmmo(player, true, {primary->id, secondary->id});
+            // The paid pair has committed. Draw a configured knife as a bonus.
+            if (allowed() && offerCurrent())
+            {
+                const auto* bonus = RollWeapon(pool, 3, available);
+                if (bonus && allowed() && offerCurrent() && DeliverReward(player, *bonus))
+                    melee = bonus;
+            }
         }
         else
         {
@@ -391,7 +399,9 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
     player.BuildRebuyStruct();
     if (!current()) return;
     char notice[200];
-    if (secondary)
+    if (melee)
+        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s、%s 和 %s\n", primary->name, secondary->name, melee->name);
+    else if (secondary)
         Q_snprintf(notice, sizeof(notice), "盲盒获得 %s 和 %s\n", primary->name, secondary->name);
     else
         Q_snprintf(notice, sizeof(notice), "盲盒获得 %s\n", primary->name);
@@ -402,7 +412,8 @@ template<class Current, class SameBuyer>
 Result Purchase(CBasePlayer& player, Client& state, const Item& item,
     const Current& current, const SameBuyer& sameBuyer, int quotedPrice = -1)
 {
-    if(!current()||!Eligible(&player)||!current()||!player.CanPlayerBuy(false)||!current())return Result::Unavailable;
+    if (!IsDirectPurchaseItem(item) || !current() || !Eligible(&player) || !current()) return Result::Unavailable;
+    if(!player.CanPlayerBuy(false)||!current())return Result::Unavailable;
     // The native weapon buyer already rejects owned guns. Its extension
     // delivery counterpart can replace them, so restore the original common
     // purchase gate here, before availability, balance and any debit/grant.
@@ -572,6 +583,12 @@ void CSOL_RebuyMeleeSelected(CBasePlayer& player,int weaponId)
         state->knife=weaponId;
     }
 }
+bool CSOL_BlocksDirectWeaponPurchase(int weaponId)
+{
+    const auto* item = csol::buy::Find(weaponId);
+    return item && !csol::buy::IsDirectPurchaseItem(*item) && CSOL_UsesScenarioRules();
+}
+
 bool CSOL_Rebuy(CBasePlayer* player)
 {
     if(!CSOL_UsesScenarioRules())return false;
@@ -658,9 +675,6 @@ void CSOL_PrepareBlindBoxPools(const custom::Snapshot& settings)
             if (!entry.weight) continue;
             const auto* item = Find(entry.weapon);
             if (!item || !IsWeapon(*item) || item->source != sources[index]) continue;
-            // CSOL's current two secondary implementations share the same
-            // transaction used to undo a partially delivered two-slot box.
-            if (box.id == custom::BlindBox::Csol && RebuySlot(*item) == 3) continue;
             pool.rewards[pool.count++] = {item, entry.weight};
         }
     }
@@ -760,6 +774,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
         player->m_iMenu=Menu_OFF;
         Send({Kind::Begin,request,0,0,player->m_iAccount,Result::Available,2},player);
         for(const auto& item:Catalog()){
+            if (!IsDirectPurchaseItem(item)) continue;
             if(!equipmentCatalog && guest::cof::light::Find(item.id))continue;
             if(!arsenalCatalog && guest::cof::arsenal::Find(item.id))continue;
             if(!current())return true;
@@ -773,6 +788,11 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     if(state.request!=request)return true;
     if(state.purchased){Send(state.last,player);return true;}
     const auto* item=Find(id);if(!item)return true;
+    if (!IsDirectPurchaseItem(*item))
+    {
+        Send({Kind::Result, request, id, 0, player->m_iAccount, Result::Unavailable, 2}, player);
+        return true;
+    }
     const int price=Price(player,*item);
     const Result result=Purchase(*player,state,*item,current,sameBuyer);
     if(!current())return true;

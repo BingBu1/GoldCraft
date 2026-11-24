@@ -573,7 +573,7 @@ index 70cdd7d..4ad0af7 100644
  	float SetBoneController(int iController, float flValue = 0.0f);
  	void InitBoneControllers();
 diff --git a/regamedll/dlls/client.cpp b/regamedll/dlls/client.cpp
-index daee11d..4ab3cfe 100644
+index daee11d..cc1179d 100644
 --- a/regamedll/dlls/client.cpp
 +++ b/regamedll/dlls/client.cpp
 @@ -1,4 +1,34 @@
@@ -861,6 +861,15 @@ index daee11d..4ab3cfe 100644
  	bool bHasHelmet = (pPlayer->m_iKevlar == ARMOR_VESTHELM);
  	bool bEnoughMoney = false;
  
+@@ -1594,7 +1691,7 @@ LINK_HOOK_CHAIN(CBaseEntity *, BuyWeaponByWeaponID, (CBasePlayer *pPlayer, Weapo
+ 
+ CBaseEntity *EXT_FUNC __API_HOOK(BuyWeaponByWeaponID)(CBasePlayer *pPlayer, WeaponIdType weaponID)
+ {
+-	if (!pPlayer->CanPlayerBuy(true))
++	if (CSOL_BlocksDirectWeaponPurchase(weaponID) || !pPlayer->CanPlayerBuy(true))
+ 		return nullptr;
+ 
+ #ifdef REGAMEDLL_ADD
 @@ -1655,6 +1752,9 @@ LINK_HOOK_VOID_CHAIN(HandleMenu_ChooseAppearance, (CBasePlayer *pPlayer, int slo
  
  void EXT_FUNC __API_HOOK(HandleMenu_ChooseAppearance)(CBasePlayer *pPlayer, int slot)

@@ -308,6 +308,9 @@ struct Fixture {
   Check(packets.size()==count,"replay emits no catalog or purchase responses");}
  void Buy(int token,int id){Require(Command({"csol_buy_menu",std::to_string(token)}),"actual catalog command");
   Require(Command({"csol_buy",std::to_string(token),std::to_string(id)}),"actual admitted ordinary purchase");}
+ void Grant(int id) {
+  Require(CSOL_DeliverScenarioWeapon(player, id), "trusted scenario grant delivers the real CSOL weapon");
+ }
  Packet Last(){Packet result;Require(!packets.empty()&&Decode(packets.back(),result),"real CSOBuy result decodes");return result;}
  ~Fixture(){
   if(hooks){
@@ -359,7 +362,7 @@ void FailedCapture(Fixture& f){
  Check(p.m_rebuyStruct.m_primaryAmmo==17,"native Build consumer updates same authoritative snapshot");
  const auto saved=p.m_rebuyStruct;f.Ammo(*primary)=9;p.m_iAccount=16000;int suppressed{};
  f.intermediate=[&](CBasePlayer& value){value.BuildRebuyStruct();if(Equal(value.m_rebuyStruct,saved))++suppressed;};
- f.Buy(2,1022);f.intermediate={};
+ f.Buy(2,WEAPON_KNIFE);f.intermediate={};
  Check(f.Last().result==Result::Success&&suppressed>0,"real internal knife delivery reenters Build without overwriting snapshot");
  Check(p.m_rebuyStruct.m_primaryWeapon==WEAPON_M4A1&&p.m_rebuyStruct.m_primaryAmmo==9,
   "ordinary successful transaction captures after guarded delivery returns");
@@ -384,8 +387,8 @@ void Ordinary(Fixture& f){
   "ordinary equipment helper retains actual armor purchase and common tail");
  f.Buy(4,1004);Check(f.Last().result==Result::Success&&f.Grenade("Flashbang")==1&&p.m_rebuyStruct.m_flashbang==1,
   "ordinary grenade helper retains native quantity and snapshot update");
- f.Buy(5,1022);Check(f.Last().result==Result::Success&&p.m_rgpPlayerItems[KNIFE_SLOT]&&
-  p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==1022,"ordinary extension helper still delivers real free knife");
+ f.Buy(5,WEAPON_KNIFE);Check(f.Last().result==Result::Success&&p.m_rgpPlayerItems[KNIFE_SLOT]&&
+  p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==WEAPON_KNIFE,"ordinary shop still delivers the default knife");
  p.m_iAccount=0;f.Buy(6,WEAPON_AWP);Check(f.Last().result==Result::Insufficient&&
   p.m_rebuyStruct.m_primaryWeapon==WEAPON_M4A1,"ordinary insufficient purchase preserves real held snapshot");
 }
@@ -401,7 +404,7 @@ void Order(Fixture& f){
  p.m_iKevlar=ARMOR_NONE;p.pev->armorvalue=0;
  f.Grenade("HEGrenade")=f.Grenade("Flashbang")=f.Grenade("SmokeGrenade")=0;
  p.m_rebuyStruct={WEAPON_M4A1,2,WEAPON_USP,2,1,2,1,1,1,ARMOR_VESTHELM};
- CSOL_RebuyMeleeSelected(p,1022);const auto saved=p.m_rebuyStruct;
+ CSOL_RebuyMeleeSelected(p,WEAPON_KNIFE);const auto saved=p.m_rebuyStruct;
  f.rejectWeapon=true;f.rejectItem=MENU_SLOT_ITEM_FLASHGREN;
  int suppressed{};f.intermediate=[&](CBasePlayer& value){value.BuildRebuyStruct();if(Equal(value.m_rebuyStruct,saved))++suppressed;};
  f.events.clear();const bool printing=g_bClientPrintEnable;f.Replay("rebuy_in");f.intermediate={};
@@ -409,7 +412,7 @@ void Order(Fixture& f){
  if(CollapsedAmmo(f.events)!=expected){for(const auto& event:f.events)std::cerr<<"ORDER "<<event<<'\n';}
  Check(CollapsedAmmo(f.events)==expected,"original fixed primary/ammo/defuser/armor/HE/flash/smoke/secondary/ammo/NVG/knife order");
  Check(std::count(f.events.begin(),f.events.end(),"item:3")==2,"fixed grenade difference attempts continue even when each flash purchase fails");
- Check(p.m_rgpPlayerItems[KNIFE_SLOT]&&p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==1022,"normal weapon/grenade failures do not block later free knife");
+ Check(p.m_rgpPlayerItems[KNIFE_SLOT]&&p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==WEAPON_KNIFE,"ordinary failures do not block the default knife");
  Check(f.Ammo(*primary)>2&&f.Ammo(*secondary)>2,"native ammo purchase fills real capacity instead of writing saved count");
  Check(Equal(p.m_rebuyStruct,saved)&&suppressed>0,"intermediate real purchase callbacks cannot replace replay snapshot");
  Check(g_bClientPrintEnable==printing,"replay restores prior native message-print state");
@@ -417,10 +420,10 @@ void Order(Fixture& f){
 
 void Insufficient(Fixture& f){
  auto& p=*f.player;p.m_rebuyStruct={WEAPON_AWP,0,WEAPON_DEAGLE,0,1,2,1,1,1,ARMOR_VESTHELM};
- p.m_iAccount=0;CSOL_RebuyMeleeSelected(p,1022);const auto before=p.m_iAccount;const auto packets=f.packets.size();p.Rebuy();
+ p.m_iAccount=0;CSOL_RebuyMeleeSelected(p,WEAPON_KNIFE);const auto before=p.m_iAccount;const auto packets=f.packets.size();p.Rebuy();
  Check(f.packets.size()==packets,"native player Rebuy diverts to synchronous scenario replay without catalog/results");
  Check(p.m_iAccount==before&&f.debits==std::vector<int>{0},"each insufficient paid item fails independently while free knife debits zero");
- Check(p.m_rgpPlayerItems[KNIFE_SLOT]&&p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==1022,
+ Check(p.m_rgpPlayerItems[KNIFE_SLOT]&&p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==WEAPON_KNIFE,
   "insufficient primary/secondary/armor/grenades still reaches free knife");
 }
 
@@ -469,23 +472,15 @@ std::vector<CBasePlayerWeapon*> Inventory(CBasePlayer& player,int slot){
  return result;
 }
 
-void OwnedKnife(Fixture& f){
- f.Buy(65000,1022);
- Require(f.Last().result==Result::Success&&f.player->m_rgpPlayerItems[KNIFE_SLOT]&&
-  f.player->m_rgpPlayerItems[KNIFE_SLOT]->m_iId==1022,"real initial knife purchase supplies the original replay tail");
-}
-
 std::size_t Charges(const Fixture& f){
  return std::count_if(f.debits.begin(),f.debits.end(),[](int amount){return amount<0;});
 }
 
 void OwnedGun(Fixture& f,const std::string& kind){
- // Original MP1140D853..D959 rejects the actual ID in every non-knife chain
- // before its balance/debit path. Original rebuy still issues that purchase.
- auto& p=*f.player;OwnedKnife(f);
+ auto& p=*f.player;
  const int id=kind=="cannon"?CSOL_WEAPON_CANNON:kind=="k3"?CSOL_WEAPON_K3:CSOL_WEAPON_TKNIFEEX2;
  const int slot=kind=="tknife"?PISTOL_SLOT:PRIMARY_WEAPON_SLOT;
- f.Buy(1,id);Require(f.Last().result==Result::Success,"initial real extended gun purchase succeeds");
+ f.Grant(id);
  auto guns=Inventory(p,slot);Require(guns.size()==1&&guns.front()->m_iId==id,"real purchase owns exact extended gun");
  auto* gun=guns.front();if(p.m_pActiveItem!=gun)Require(p.SwitchWeapon(gun),"real owned gun becomes active");
  ItemInfo info{};Require(gun->GetItemInfo(&info)&&info.iMaxAmmo1>0,"real gun capacity available");
@@ -508,19 +503,18 @@ void OwnedGun(Fixture& f,const std::string& kind){
   "owned firearm replay preserves clip, reserve, shots and actual cooldowns");
  Check(Equal(p.m_rebuyStruct,saved),"owned firearm failures retain the native replay snapshot");
  if(kind=="tknife")Check(f.gunAmmoCalls==ammoCalls+3,"owned tknife retains each real forced ammo attempt at full reserve");
- f.Buy(2,id);Check(f.Last().result==Result::Failed&&f.Last().request==2&&p.m_iAccount==account,
-  "new normal-menu token rejects an already owned extended gun rather than replaying an old success receipt");
+ f.Buy(2,id);Check(f.Last().result==Result::Unavailable&&f.Last().request==2&&p.m_iAccount==account,
+  "an already owned CSOL gun is unavailable to a new ordinary purchase");
  p.m_iAccount=0;f.Buy(3,id);
- Check(f.Last().result==Result::Failed&&f.Last().balance==0&&p.m_iAccount==0,
-  "actual ownership failure precedes insufficient funds at zero balance");
+ Check(f.Last().result==Result::Unavailable&&f.Last().balance==0&&p.m_iAccount==0,
+  "the CSOL exclusion also applies with zero funds");
  Check(identity.Get<CBaseEntity>()==gun&&Inventory(p,slot)==guns&&gun->m_iClip==clip&&
   f.engine.allocations==allocations&&f.adds==adds&&f.removes==removes&&f.deploys==deploys&&Charges(f)==debits,
   "ordinary same-gun refusals also preserve actual weapon identity and avoid delivery callbacks");
 }
 
 void OwnedSkull3(Fixture& f){
- auto& p=*f.player;OwnedKnife(f);f.Buy(1,csol::skull3::Id);
- Require(f.Last().result==Result::Success,"real shop purchase creates SKULL3 pair");
+ auto& p=*f.player;f.Grant(csol::skull3::Id);
  const auto guns=Inventory(p,PRIMARY_WEAPON_SLOT);CBasePlayerWeapon *single{},*dual{};
  for(auto* gun:guns){if(gun->m_iId==csol::skull3::Id)single=gun;if(gun->m_iId==csol::skull3::DualId)dual=gun;}
  Require(guns.size()==2&&single&&dual&&CSOL_IsSkull3(*single)&&CSOL_IsSkull3(*dual),"actual shop grants both concrete SKULL3 entity types");
@@ -547,17 +541,17 @@ void OwnedSkull3(Fixture& f){
  Check(p.m_iAccount==account&&Charges(f)==debits&&f.engine.allocations==allocations&&
   f.adds==adds&&f.removes==removes&&f.deploys==deploys,"owned SKULL3 pair is neither charged nor rebuilt");
  Check(Equal(p.m_rebuyStruct,saved),"paired owned-gun refusals do not replace native snapshot");
- f.Buy(2,csol::skull3::Id);Check(f.Last().result==Result::Failed&&p.m_iAccount==account,
-  "normal new-token SKULL3 purchase finds retained A while D is active");
- p.m_iAccount=0;f.Buy(3,csol::skull3::Id);Check(f.Last().result==Result::Failed&&p.m_iAccount==0,
-  "SKULL3 ownership refusal also precedes zero-balance failure");
+ f.Buy(2,csol::skull3::Id);Check(f.Last().result==Result::Unavailable&&p.m_iAccount==account,
+  "a direct SKULL3 request is unavailable while the paired D is active");
+ p.m_iAccount=0;f.Buy(3,csol::skull3::Id);Check(f.Last().result==Result::Unavailable&&p.m_iAccount==0,
+  "the direct SKULL3 request remains unavailable with zero balance");
  Check(singleIdentity.Get<CBaseEntity>()==single&&dualIdentity.Get<CBaseEntity>()==dual&&
   Inventory(p,PRIMARY_WEAPON_SLOT)==guns&&f.engine.allocations==allocations&&Charges(f)==debits,
   "normal duplicate SKULL3 commands retain both actual purchased entities");
 }
 
 void OwnedChain(Fixture& f){
- auto& p=*f.player;f.Buy(1,CSOL_WEAPON_CANNON);Require(f.Last().result==Result::Success,"real initial cannon purchase for chain test");
+ auto& p=*f.player;f.Grant(CSOL_WEAPON_CANNON);
  auto* cannon=dynamic_cast<CBasePlayerWeapon*>(p.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]);Require(cannon,"real cannon exists");
  auto* head=dynamic_cast<CBasePlayerWeapon*>(p.GiveNamedItem("weapon_m4a1"));
  Require(head&&p.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]==head&&head->m_pNext==cannon&&
@@ -566,16 +560,16 @@ void OwnedChain(Fixture& f){
  const int allocations=f.engine.allocations,adds=f.adds,removes=f.removes,deploys=f.deploys;const auto debits=f.debits.size();
  cannon->m_iClip=3;cannon->m_flNextPrimaryAttack=1050;
  f.Buy(2,CSOL_WEAPON_CANNON);
- Check(f.Last().result==Result::Failed&&p.m_iAccount==account,"ordinary purchase scans beyond a different inventory head for matching actual ID");
+ Check(f.Last().result==Result::Unavailable&&p.m_iAccount==account,"a CSOL item remains unavailable behind a stock inventory head");
  p.m_iAccount=0;f.Buy(3,CSOL_WEAPON_CANNON);
- Check(f.Last().result==Result::Failed&&p.m_iAccount==0,"non-head ownership takes precedence over insufficient funds");
+ Check(f.Last().result==Result::Unavailable&&p.m_iAccount==0,"the same direct request is unavailable at zero balance");
  Check(identity.Get<CBaseEntity>()==cannon&&Inventory(p,PRIMARY_WEAPON_SLOT)==guns&&cannon->m_iClip==3&&cannon->m_flNextPrimaryAttack==1050&&
   f.engine.allocations==allocations&&f.adds==adds&&f.removes==removes&&f.deploys==deploys&&f.debits.size()==debits,
   "non-head refusal cannot debit, replace inventory or reset held cannon state");
 }
 
 void OwnedContinue(Fixture& f){
- auto& p=*f.player;OwnedKnife(f);f.Buy(1,CSOL_WEAPON_K3);Require(f.Last().result==Result::Success,"real K3 purchase for ammo/equipment continuation");
+ auto& p=*f.player;f.Grant(CSOL_WEAPON_K3);
  auto* gun=dynamic_cast<CBasePlayerWeapon*>(p.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]);Require(gun,"actual owned K3 exists");
  f.Ammo(*gun)=40;p.m_iKevlar=ARMOR_VESTHELM;p.pev->armorvalue=100;f.Grenade("Flashbang")=1;p.BuildRebuyStruct();
  const auto saved=p.m_rebuyStruct;f.Ammo(*gun)=0;p.m_iKevlar=ARMOR_NONE;p.pev->armorvalue=0;f.Grenade("Flashbang")=0;
@@ -591,7 +585,7 @@ void OwnedContinue(Fixture& f){
   std::find(f.removedIds.begin()+removed,f.removedIds.end(),CSOL_WEAPON_K3)==f.removedIds.end(),
   "owned-gun failure continues purchases without rebuilding the existing K3");
  Check(f.Ammo(*gun)==capacity&&p.m_iKevlar==ARMOR_VESTHELM&&f.Grenade("Flashbang")==1&&
-  CollapsedAmmo(f.events)==std::vector<std::string>{"ammo:1","item:2","item:3","knife"},
+  CollapsedAmmo(f.events)==std::vector<std::string>{"ammo:1","item:2","item:3"},
   "same-gun refusal still reaches real native ammo refill, armor and grenade in original order");
  Check(p.m_iAccount==account-expectedCost&&std::count(f.debits.begin(),f.debits.end(),-Find(CSOL_WEAPON_K3)->extendedPrice)==0,
   "continuation charges exactly actual ammo boxes and equipment with no gun purchase debit");
@@ -604,7 +598,7 @@ void OwnedContinue(Fixture& f){
 }
 
 void Knife(Fixture& f){
- auto& p=*f.player;f.Buy(1,1022);Require(f.Last().result==Result::Success,"real first sword purchase succeeds");
+ auto& p=*f.player;f.Grant(1022);
  auto* sword=dynamic_cast<CBasePlayerWeapon*>(p.m_rgpPlayerItems[KNIFE_SLOT]);Require(sword,"real sword entity owned");
  const auto service=f.runtime->session->Weapons();const auto life=f.runtime->players->Find(EHANDLE(&p));
  Require(service&&life,"real metadata owner and player generation");
@@ -632,17 +626,17 @@ void Knife(Fixture& f){
   before.prediction.pendingAnimation==after.prediction.pendingAnimation&&before.prediction.pendingTime==after.prediction.pendingTime&&
   packedBefore.m_iWeaponState==packedAfter.m_iWeaponState&&packedBefore.fuser1==packedAfter.fuser1&&packedBefore.fuser2==packedAfter.fuser2,
   "same-knife replay preserves actual pending attack, prediction, Think and cooldowns");
- Check(service->PaintType(*sword)==81&&service->Parts(*sword)==std::array<std::uint32_t,2>{31,32},
-  "same-knife replay executes real common metadata tail instead of no-op success");
+ Check(service->PaintType(*sword)==81,
+  "rebuy still refreshes the already held CSOL knife's paint metadata");
  Check(Equal(p.m_rebuyStruct,saved),"knife common tail does not overwrite guarded full snapshot");
  // The successful independent setter remains live while Build is suppressed.
  p.m_bIsInRebuy=true;CSOL_RebuyMeleeSelected(p,1023);p.BuildRebuyStruct();p.m_bIsInRebuy=false;
- f.Replay();Check(p.m_rgpPlayerItems[KNIFE_SLOT]&&p.m_rgpPlayerItems[KNIFE_SLOT]->m_iId==1023,
-  "independent knife selection updates replay record through full-snapshot native guard");
+ f.Replay();Check(p.m_rgpPlayerItems[KNIFE_SLOT]==sword && f.engine.allocations==allocations,
+  "rebuy cannot grant a different CSOL knife from a recorded selection");
 }
 
 void Paint(Fixture& f){
- auto& p=*f.player;f.Buy(1,1022);Require(f.Last().result==Result::Success,"real initial sword grant for paint-tail regression");
+ auto& p=*f.player;f.Grant(1022);
  auto* sword=dynamic_cast<CBasePlayerWeapon*>(p.m_rgpPlayerItems[KNIFE_SLOT]);Require(sword,"actual initial owned sword");
  auto service=f.runtime->session->Weapons();const auto life=f.runtime->players->Find(EHANDLE(&p));
  Require(service&&life,"actual paint authority and current player generation");
@@ -677,13 +671,12 @@ void Paint(Fixture& f){
  f.Replay();Check(service->PaintType(*sword)==0&&preserved(),"missing paint map entry clears only paint and preserves prior parts/attacks");
  Require(service->ReplaceSelectionMetadata(p,life->generation,{{4000,65},{4016,91},{4010,92}},{{483,{51,52}},{363,{61,62}}}),
   "distinct latest selection metadata before failed alternative purchase");
- CSOL_RebuyMeleeSelected(p,1023);f.rejectDeployId=1023;bool changed{};
- f.intermediate=[&](CBasePlayer& current){if(!changed){changed=true;CSOL_RebuyMeleeSelected(current,1022);}};
- f.events.clear();f.Replay();f.intermediate={};f.rejectDeployId=0;
- Check(changed&&f.deploys>deployed&&identity.Get<CBaseEntity>()==sword&&p.m_rgpPlayerItems[KNIFE_SLOT]==sword,
-  "real rejected axe deployment retains old sword while independent setter changes current selection");
- Check(service->PaintType(*sword)==91&&preserved(),
-  "failed knife purchase still paints retained sword using current selected directory4016 instead of attempted4010");
+ CSOL_RebuyMeleeSelected(p,1023);
+ f.events.clear();f.Replay();
+ Check(f.events.empty()&&f.deploys==deployed&&identity.Get<CBaseEntity>()==sword&&p.m_rgpPlayerItems[KNIFE_SLOT]==sword,
+  "rebuying a recorded CSOL axe leaves the existing sword and deploy state intact");
+ Check(service->PaintType(*sword)==92&&preserved(),
+  "the held weapon receives the paint-only refresh for the current selection");
  Check(Equal(p.m_rebuyStruct,RebuyStruct{}),"paint tail and failed purchase do not overwrite empty native snapshot");
  // Reset again gives a genuine FF snapshot. With no owned knife the tail
  // must neither materialize a default knife nor mutate the detached sword.
@@ -697,7 +690,7 @@ void Paint(Fixture& f){
 
 void Stale(Fixture& f,const std::string& kind){
  auto& p=*f.player;f.Own("weapon_m4a1",PRIMARY_WEAPON_SLOT,WEAPON_M4A1);
- p.m_rebuyStruct={WEAPON_M4A1,0,WEAPON_USP,0,0,0,0,0,0,ARMOR_NONE};CSOL_RebuyMeleeSelected(p,1022);
+ p.m_rebuyStruct={WEAPON_M4A1,0,WEAPON_USP,0,0,0,0,0,0,ARMOR_NONE};CSOL_RebuyMeleeSelected(p,WEAPON_KNIFE);
  const auto saved=p.m_rebuyStruct;const int account=p.m_iAccount;f.rejectWeapon=true;
  f.transition=[&]{
   if(kind=="death"){p.pev->health=0;p.pev->deadflag=DEAD_DEAD;}
@@ -722,7 +715,8 @@ void Stale(Fixture& f,const std::string& kind){
  }
 }
 
-void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindBox, bool nightShop, bool skullBox)
+void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindBox, bool nightShop,
+ std::string_view group)
 {
  Require(std::filesystem::create_directory(directory), "purchase SDK uses a fresh game directory");
  const auto config = directory / "cstrike/addons/goldcraft/config";
@@ -734,9 +728,10 @@ void PreparePurchaseSettings(const std::filesystem::path& directory, bool blindB
  "cof":{"comment":"","weapons":[{"weapon":"cof_glock","weight":1}]},
  "cs16":{"comment":"","weapons":[{"weapon":"m4a1","weight":2},{"weapon":"usp","weight":5},
  {"weapon":"knife","weight":0},{"weapon":"cannon","weight":99},{"weapon":"unknown_alias","weight":99}]},
- "csol":{"comment":"","weapons":[{"weapon":")" << (skullBox ? "skull3" : "k3") <<
-     R"(","weight":1},{"weapon":"tknifeex2","weight":1}]}
- }})";
+ "csol":{"comment":"","weapons":[{"weapon":")" << (group == "blind-skull3" ? "skull3" : "k3") <<
+     R"(","weight":1},{"weapon":"tknifeex2","weight":1},{"weapon":"skullaxe","weight":0})"
+     << (group.starts_with("blind-csol-melee") ? R"(,{"weapon":"dragonsword","weight":2})" : "")
+     << "]}}}";
  if (nightShop)
  {
   environment_test::LoadProvider();
@@ -777,7 +772,7 @@ void BlindBox(Fixture& fixture, std::string_view group)
    fixture.Ammo(*weapon) == weapon->iMaxAmmo1();
  };
  nextRoll = 2;
- if (group == "blind-csol" || group == "blind-csol-rollback" || group == "blind-cof" || group == "blind-skull3")
+ if (group == "blind-csol" || group == "blind-csol-rollback" || group.starts_with("blind-csol-melee") || group == "blind-cof" || group == "blind-skull3")
  {
   player.m_signals.Update();
   Require(!player.CanPlayerBuy(false), "fixture buyer has left the native buy zone");
@@ -837,6 +832,28 @@ void BlindBox(Fixture& fixture, std::string_view group)
   open("csol", "30000");
   Check(player.m_iAccount == 32000 && draws == 2 && fixture.debits.size() == 1,
    "the box takes no second payment when either slot has no remaining eligible reward");
+ }
+ else if (group.starts_with("blind-csol-melee"))
+ {
+  const bool alreadyOwned = group == "blind-csol-melee-owned";
+  const bool rejectBonus = group == "blind-csol-melee-rollback";
+  if (alreadyOwned) fixture.Grant(1022);
+  if (rejectBonus) fixture.rejectDeployId = 1022;
+  const auto* oldKnife = player.m_rgpPlayerItems[KNIFE_SLOT];
+  nextRoll = 1;
+  player.m_iAccount = 32000;
+  open("csol", "30000");
+  Check(owns(PRIMARY_WEAPON_SLOT, CSOL_WEAPON_K3) && owns(PISTOL_SLOT, CSOL_WEAPON_TKNIFEEX2) &&
+        full(player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT]) && full(player.m_rgpPlayerItems[PISTOL_SLOT]),
+        "the guaranteed primary and secondary arrive full");
+  Check(player.m_iAccount == 2000 && fixture.debits == std::vector<int>{-30000},
+        "the paid pair settles exactly once regardless of the bonus");
+  if (alreadyOwned || rejectBonus)
+   Check(player.m_rgpPlayerItems[KNIFE_SLOT] == oldKnife && draws == (alreadyOwned ? 2 : 3),
+         "an owned or failed melee bonus preserves the current knife");
+  else
+   Check(owns(KNIFE_SLOT, 1022) && draws == 3 && maximum == 2,
+         "the eligible melee bonus uses its configured weight and skips zero-weight weapons");
  }
  else if (group == "blind-skull3")
  {
@@ -1074,7 +1091,8 @@ int main(int argc,char** argv){
    const bool blindBox = group.starts_with("blind-");
    const bool nightShop = group == "night-shop";
    const auto resourcePath = std::filesystem::absolute(argv[2]);
-   rebuy_test::PreparePurchaseSettings(std::filesystem::absolute(argv[0]).parent_path() / (group + "-game"), blindBox, nightShop, group == "blind-skull3");
+   rebuy_test::PreparePurchaseSettings(std::filesystem::absolute(argv[0]).parent_path() / (group + "-game"),
+    blindBox, nightShop, group);
    rebuy_test::Fixture f(resourcePath, group == "blind-cof", nightShop);
    if (nightShop) rebuy_test::NightShop(f);
    else if (blindBox) rebuy_test::BlindBox(f, group);

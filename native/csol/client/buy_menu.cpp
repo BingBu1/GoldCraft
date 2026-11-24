@@ -105,7 +105,15 @@ void PrepareImages();
 void PrepareDetailControls();
 void UpdateDetail();
 void SuspendInput();
-void LoadFavorites(){favorites=ParseFavorites(favoriteCvars[team-1]?favoriteCvars[team-1]->string:"");}
+void LoadFavorites()
+{
+    favorites = ParseFavorites(favoriteCvars[team-1] ? favoriteCvars[team-1]->string : "");
+    for (auto& id : favorites)
+    {
+        if (const auto* item = Find(id); item && !IsDirectPurchaseItem(*item))
+            id = 0;
+    }
+}
 void SaveFavorites(){const auto text=SerializeFavorites(favorites);engine.Cvar_Set(favoriteCvars[team-1]->name,text.c_str());}
 std::wstring Wide(const std::string& text){int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),nullptr,0);if(n<=0)return{};std::wstring s(n,L'\0');MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.data(),int(text.size()),s.data(),n);return s;}
 bool Focused(){DWORD pid{};GetWindowThreadProcessId(GetForegroundWindow(),&pid);return pid==GetCurrentProcessId();}
@@ -202,14 +210,14 @@ const std::vector<const Item*>& Rows()
 {
     if(rowsCategory!=category){visibleRows.clear();visibleRows.reserve(Catalog().size());rowsCategory=category;
         auto needle=query;std::transform(needle.begin(),needle.end(),needle.begin(),std::towlower);
-        for(const auto& item:Catalog())if((arsenalCatalog || !guest::cof::arsenal::Find(item.id)) && (equipmentCatalog || !guest::cof::light::Find(item.id)) && InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
+        for(const auto& item:Catalog())if(IsDirectPurchaseItem(item) && (arsenalCatalog || !guest::cof::arsenal::Find(item.id)) && (equipmentCatalog || !guest::cof::light::Find(item.id)) && InTeamList(item,team)&&!IsAmmunition(item.id)&&(query.empty()?item.category==category:true)){
             if(needle.empty()||searchNames.at(item.id).find(needle)!=std::wstring::npos)visibleRows.push_back(&item);
         }}
     return visibleRows;
 }
 void Purchase(const Item& item)
 {
-    if(!visible||!catalogReady)return;
+    if (!visible || !catalogReady || !IsDirectPurchaseItem(item)) return;
     auto it=offers.find(item.id);if(it==offers.end()||it->second.result!=Result::Available){status=L"此商品当前不可购买";return;}
     if(balance<it->second.price){status=L"金钱不足";return;}
     submittedPurchases[request]=item.id;
@@ -267,7 +275,13 @@ int Receive(const char*,int size,void* data)
     if(balance!=p.balance){balance=p.balance;balanceText=std::to_wstring(balance);}
     switch(p.kind){
     case Kind::Begin:offers.clear();catalogReady=false;break;
-    case Kind::Item:offers[p.id]=p;priceText[p.id]=L"$"+std::to_wstring(p.price);break;
+    case Kind::Item:
+        if (const auto* item = Find(p.id); item && IsDirectPurchaseItem(*item))
+        {
+            offers[p.id] = p;
+            priceText[p.id] = L"$" + std::to_wstring(p.price);
+        }
+        break;
     case Kind::End:catalogReady=true;status=L"";break;
     default:break;
     }
@@ -333,7 +347,8 @@ void PrepareImages()
     PrepareImage(presentation.weaponInfo.background);PrepareImage(presentation.weaponInfo.divider);
     for(const auto& [id,image]:presentation.weaponInfo.grades)PrepareImage(image);
     for(const auto& image:presentation.weaponInfo.scroll.slider)PrepareImage(image);
-    for(const auto& [id,image]:presentation.images)PrepareImage(image);
+    for (const auto& [id, image] : presentation.images)
+        if (const auto* item = Find(id); item && IsDirectPurchaseItem(*item)) PrepareImage(image);
 }
 void ImagePixels(const MenuTexture& image,const menu::Rect& r,int alpha=255)
 {

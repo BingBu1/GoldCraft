@@ -18,7 +18,7 @@ namespace
 constexpr std::array<BlindBoxDescriptor, BlindBoxCount> BoxRows{{
     {BlindBox::Cof, Setting::BlindBoxPrice1, "cof", "CoF武器盲盒；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。"},
     {BlindBox::CounterStrike, Setting::BlindBoxPrice2, "cs16", "CS1.6武器盲盒；同类有效武器按权重抽取，无可领取武器时不扣钱。"},
-    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。"}
+    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。启用并有可领取的近战武器时，按配置权重额外抽取一把。"}
 }};
 constexpr std::string_view CofDefaults[]{"cof_glock", "cof_p345", "cof_revolver", "cof_vp70", "cof_tmp", "cof_mp5", "cof_m16", "cof_g43", "cof_shotgun"};
 constexpr std::string_view CsDefaults[]{"p228", "elites", "fn57", "usp", "glock", "deagle", "xm1014", "m3",
@@ -178,6 +178,17 @@ bool ReadEntries(const rapidjson::Value& object, Draft& draft, bool comments, Er
     for (const auto& member : object.GetObject())
     {
         const std::string_view key(member.name.GetString(), member.name.GetStringLength());
+        if constexpr (FeatureKeys)
+        {
+            // Older operator files retained the retired whole-map purchase lock.
+            if (key == "ordinary_purchase")
+            {
+                if (retired++) return Fail(error, key, "duplicate feature identity");
+                if (comments ? !member.value.IsString() : !member.value.IsBool())
+                    return Fail(error, key, "invalid legacy purchase setting");
+                continue;
+            }
+        }
         const auto id = [&]
         {
             if constexpr (FeatureKeys) return FindFeature(key);
@@ -250,9 +261,22 @@ bool ReadGrouped(const rapidjson::Value& object, Draft& draft, Error& error)
 {
     if (!object.IsObject()) return Fail(error, "features", "expected an object");
     std::array<bool, FeatureCount> seen{};
+    bool retiredPurchase{};
     for (const auto& member : object.GetObject())
     {
         const std::string_view key(member.name.GetString(), member.name.GetStringLength());
+        if (key == "ordinary_purchase")
+        {
+            if (retiredPurchase) return Fail(error, key, "duplicate feature identity");
+            retiredPurchase = true;
+            const auto& group = member.value;
+            if (!Fields(group, std::array<std::string_view, 3>{"enabled", "comment", "values"}, key, error))
+                return false;
+            if (!group["enabled"].IsBool() || !group["comment"].IsString() ||
+                !group["values"].IsObject() || group["values"].MemberCount())
+                return Fail(error, key, "invalid legacy purchase setting");
+            continue;
+        }
         const auto feature = FindFeature(key);
         if (!feature) return Fail(error, key, "unknown feature identity");
         const auto index = static_cast<std::size_t>(*feature);
