@@ -83,6 +83,7 @@ void GuestCofAdmissionFrame() noexcept
     GuestCofCrosshairFrame();
     if (!Owner() || !connection || !protocol || !weaponMask) return;
     const auto current = connection->generation();
+    if (ResourceReadsAllowed()) ApplyGuestCofAimDefault(current);
     const auto effect = GuestCofEffectsResourceSerial();
     if (current != generation || effect != resources)
     {

@@ -37,11 +37,16 @@ void Queue(const char* name, std::uint64_t life, std::optional<std::uint32_t> re
     ++sent;
     engine.pfnClientCmd(text.data());
 }
+const custom::StandaloneInputGrant* ActiveSprintGrant() noexcept
+{
+    if (!Owner() || !initialized || !commandsReady || !engine.pfnClientCmd) return nullptr;
+    const auto* grant = authority.Current();
+    return grant && grant->enabled ? grant : nullptr;
+}
 bool Dispatch(int state)
 {
-    if (!Owner() || !initialized || !commandsReady || !engine.pfnClientCmd) return false;
-    const auto* grant = authority.Current();
-    if (!grant || !grant->enabled) return false;
+    const auto* grant = ActiveSprintGrant();
+    if (!grant) return false;
     const auto life = grant->life;
     return sprint.Dispatch(state, [life](const char* name)
     {
@@ -128,6 +133,7 @@ void InitializeStandaloneMovementInput()
     commandsReady = stockCommands && previousDown && previousUp && installed(previousDown) && installed(previousUp);
     initialized = true;
 }
+bool StandaloneSprintAvailable() noexcept { return ActiveSprintGrant() != nullptr; }
 void ResetStandaloneMovementInput()
 {
     if (!Owner()) return;

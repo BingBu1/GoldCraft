@@ -9,10 +9,13 @@
 #include "../../native/csol/buy_menu.hpp"
 #include "../../native/include/goldcraft/connection_api.h"
 #include "../../native/guest/cof/admission.hpp"
+#include <VGUI/IGameUIFuncs.h>
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <demo_api.h>
 #include <fstream>
+#include <keydefs.h>
 #include <map>
 #include <thread>
 #include <usercmd.h>
@@ -43,8 +46,36 @@ GuestCofResourceState resources;
 csol::WeaponCurrent current;
 std::map<std::string, cmd_function_t> commands;
 const char* commandKey="1";
+int scenarioLevel{-1};
+bool demoPlayback{};
+const char* mouse3{};
+unsigned bindingReads{},defaultBinds{};
 void Check(bool okay,int line){++checks;if(!okay){++failures;std::printf("FAIL %d\n",line);}}
 #define CHECK(...) Check((__VA_ARGS__),__LINE__)
+struct BindingKeys final : IGameUIFuncs
+{
+    const char* Key_BindingForKey(int key) override { CHECK(key==K_MOUSE3);++bindingReads;return mouse3; }
+    bool IsKeyDown(const char*,bool&) override { return false; }
+    const char* Key_NameForKey(int) override { return nullptr; }
+    vgui::KeyCode GetVGUI2KeyCodeForBind(const char*) override { return {}; }
+    void GetVideoModes(vmode_s**,int*) override {}
+    void GetCurrentVideoMode(int*,int*,int*) override {}
+    void GetCurrentRenderer(char*,int,int*) override {}
+    bool IsConnectedToVACSecureServer() override { return false; }
+    int Key_KeyStringToKeyNum(const char*) override { return -1; }
+} bindingKeys;
+IBaseInterface* BindingFactory(const char* name,int*)
+{
+    CHECK(!std::strcmp(name,VENGINE_GAMEUIFUNCS_VERSION));
+    return &bindingKeys;
+}
+int Bind(const char* command)
+{
+    CHECK(!std::strcmp(command,"bind MOUSE3 +cof_aim\n"));
+    ++defaultBinds;
+    mouse3="+cof_aim";
+    return 1;
+}
 std::uint64_t Generation(){return generation;}
 cvar_t* Lookup(const char* name){if(!std::strcmp(name,"cof_w2"))return &extensionMask;if(!std::strcmp(name,"cof_weapons"))return &weaponMask;CHECK(!std::strcmp(name,"cof_protocol"));return &protocol;}
 cvar_t* Register(const char*,const char*,int){CHECK(false);return nullptr;}
@@ -81,6 +112,7 @@ void WeaponInventoryCreateMove(float,usercmd_t* cmd,int)
 bool CharacterMenuVisible(){return visible;}
 bool BuyMenuVisible(){return buyVisible;}
 bool ScenarioMapVoteVisible(){return voteVisible;}
+int ScenarioHudLevel(){return scenarioLevel;}
 // This fixture supplies no standalone sprint or recovery input.
 void ReleaseStandaloneMovementInput(){}
 void BossImpactCreateMove(int){}
@@ -143,10 +175,21 @@ int main(int argc,char** argv)
     CHECK(buy.weaponInfo.items.at(896).table==false&&buy.weaponInfo.items.at(896).grade==std::array<int,3>{-1,-1,-1});
     const auto paths=csol::buy::Resources(buy);CHECK(std::find(paths.begin(),paths.end(),"gfx/csol/buy/cof_glock.tga")!=paths.end());
     metahook_api_t table{};api=&table;table.FindCmd=Find;
+    table.GetEngineFactory=[]()->CreateInterfaceFn{return BindingFactory;};
+    demo_api_t demo{};demo.IsPlayingback=[]{return int(demoPlayback);};
+    engine.pDemoAPI=&demo;engine.pfnClientCmd=Bind;
     engine.pfnGetCvarPointer=Lookup;engine.pfnRegisterVariable=Register;engine.Cvar_SetValue=Publish;
     engine.Cmd_Argv=Arg;engine.pfnAddCommand=Add;
     protocol.flags=weaponMask.flags=extensionMask.flags=FCVAR_USERINFO;view.health=100;current.id=896;current.state=1;
     CHECK(InitializeGuestCofInput()&&GuestCofInputReady());
+    ApplyGuestCofAimDefault(1);CHECK(!bindingReads&&!defaultBinds);
+    scenarioLevel=0;demoPlayback=true;
+    ApplyGuestCofAimDefault(1);CHECK(!bindingReads&&!defaultBinds);
+    demoPlayback=false;ApplyGuestCofAimDefault(0);CHECK(!bindingReads&&!defaultBinds);
+    ApplyGuestCofAimDefault(1);CHECK(bindingReads==1&&defaultBinds==1&&std::string_view(mouse3)=="+cof_aim");
+    mouse3=nullptr;ResetGuestCofInput();ApplyGuestCofAimDefault(1);CHECK(bindingReads==1&&!mouse3);
+    mouse3="+voicerecord";ApplyGuestCofAimDefault(2);CHECK(bindingReads==2&&defaultBinds==1&&std::string_view(mouse3)=="+voicerecord");
+    mouse3="";ApplyGuestCofAimDefault(3);CHECK(bindingReads==3&&defaultBinds==2);
     CHECK(!(Input().buttons&IN_CANCEL));
     Press();CHECK(Input().buttons&IN_CANCEL);CHECK(Input().buttons&IN_CANCEL);
     Press();Release();CHECK(!(Input().buttons&IN_CANCEL));
@@ -169,7 +212,9 @@ int main(int argc,char** argv)
     resources.studioAndRecoilPrepared=resources.decalsPrepared=true;
     resources.weapons=guest::cof::PistolCapability(guest::cof::Pistol::Glock);
     InitializeGuestCofAdmission(&provider);CHECK(!GuestCofAdmitted()&&protocol.value==0);
+    mouse3=nullptr;
     GuestCofAdmissionFrame();CHECK(GuestCofAdmitted()&&protocol.value==1&&menuLoads==1);
+    CHECK(defaultBinds==3&&std::string_view(mouse3)=="+cof_aim");
     engine.SetViewAngles=ChainAngles;
     usercmd_t chain{};
     Press();CreateMove(.01f,&chain,1);CHECK((chain.buttons&IN_CANCEL)&&nativeMoves==1);

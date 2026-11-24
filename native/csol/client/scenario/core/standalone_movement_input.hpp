@@ -5,6 +5,7 @@
 namespace csol::client
 {
 void InitializeStandaloneMovementInput();
+bool StandaloneSprintAvailable() noexcept;
 void ResetStandaloneMovementInput();
 void ShutdownStandaloneMovementInput();
 void StandaloneMovementInputDiagnostics(std::ostream& out);

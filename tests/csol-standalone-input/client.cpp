@@ -128,6 +128,7 @@ int main()
     engine.Cmd_Argv = [](int) -> char* { Check(false, "original standalone input never parses a physical key number"); return nullptr; };
     InitializeStandaloneMovementInput();
     InitializeStandaloneMovementInput();
+    Check(!StandaloneSprintAvailable(), "HUD does not offer sprint before an authoritative grant");
     input_test::down.function(); input_test::up.function();
     Check(input_test::downCalls == 1 && input_test::upCalls == 1 && !input_test::queues,
         "ordinary CS without grant keeps both original speed callbacks");
@@ -143,6 +144,7 @@ int main()
     input_test::Send({8, 2, true}); input_test::Send({7, 1, true});
     Check(!authority.Current(), "foreign life and pre-probe revision cannot activate input");
     input_test::Send({7, 2, true});
+    Check(StandaloneSprintAvailable(), "HUD reads the same enabled grant as native input");
     input_test::up.function();
     Check(input_test::upCalls == 2 && !input_test::queues, "initial state0 release falls through as in original");
     input_test::onQueue = [] { Check(sprint.State() == 1, "state is committed before command-buffer callback"); };
@@ -163,6 +165,7 @@ int main()
     Check(sprint.State() == 0 && input_test::queues == 4 && input_test::downCalls == 4,
         "two keydowns and one release retain original one-state behavior, not CoF two-key ownership");
     input_test::Send({7, 4, false}); input_test::Send({7, 5, true});
+    Check(!StandaloneSprintAvailable(), "HUD withdraws the offer when that grant is revoked");
     input_test::down.function();
     Check(input_test::queues == 4 && input_test::downCalls == 5, "retired policy continues ordinary native input");
     input_test::Activate(8); input_test::down.function();

@@ -2,10 +2,14 @@
 #include "../runtime.hpp"
 #include "guest_cof_input.hpp"
 #include "weapon_inventory.hpp"
+#include "../scenario/core/scenario_upgrades.hpp"
 #include "../../../guest/cof/catalog.hpp"
 #include "../../../guest/cof/arsenal.hpp"
+#include <VGUI/IGameUIFuncs.h>
 #include <charconv>
 #include <cstring>
+#include <demo_api.h>
+#include <keydefs.h>
 #include <usercmd.h>
 #include <in_buttons.h>
 
@@ -15,6 +19,8 @@ namespace
 {
 DWORD ownerThread{};
 std::array<int, 2> keys{};
+IGameUIFuncs* bindings{};
+std::uint64_t aimDefaultConnection{};
 bool installed{}, pressed{};
 bool Owner() noexcept { return ownerThread && ownerThread == GetCurrentThreadId(); }
 bool Held() noexcept { return keys[0] || keys[1]; }
@@ -59,8 +65,11 @@ bool InitializeGuestCofInput() noexcept
     if (ownerThread && !Owner()) return false;
     ownerThread = GetCurrentThreadId();
     installed = false; keys = {}; pressed = false;
+    bindings = nullptr;
     if (!api || !api->FindCmd || !engine.pfnAddCommand || !engine.Cmd_Argv) return false;
     installed = Command("+cof_aim", Down) && Command("-cof_aim", Up);
+    const auto factory = installed && api->GetEngineFactory ? api->GetEngineFactory() : nullptr;
+    if (factory) bindings = static_cast<IGameUIFuncs*>(factory(VENGINE_GAMEUIFUNCS_VERSION, nullptr));
     return installed;
 }
 void ResetGuestCofInput() noexcept { if (Owner()) { keys = {}; pressed = false; } }
@@ -68,8 +77,21 @@ void ShutdownGuestCofInput() noexcept
 {
     if (!Owner()) return;
     ResetGuestCofInput(); installed = false; ownerThread = 0;
+    bindings = nullptr;
+    aimDefaultConnection = 0;
 }
 bool GuestCofInputReady() noexcept { return Owner() && installed; }
+void ApplyGuestCofAimDefault(std::uint64_t connection) noexcept
+{
+    if (!connection || connection == aimDefaultConnection || !bindings || !GuestCofInputReady() ||
+        !engine.pfnClientCmd || ScenarioHudLevel() < 0 || (engine.pDemoAPI && engine.pDemoAPI->IsPlayingback()))
+        return;
+
+    // A respawn may refresh scenario state but must preserve a mid-map unbind.
+    aimDefaultConnection = connection;
+    const auto* binding = bindings->Key_BindingForKey(K_MOUSE3);
+    if (!binding || !*binding) engine.pfnClientCmd("bind MOUSE3 +cof_aim\n");
+}
 void GuestCofCreateMove(usercmd_s* command, int active, bool admitted) noexcept
 {
     if (!GuestCofInputReady()) return;
