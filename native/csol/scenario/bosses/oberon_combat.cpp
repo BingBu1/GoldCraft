@@ -54,6 +54,14 @@ float InverseLength(float square)
 
 std::array<float, 2> Forward(float yaw) { return {Cosine(yaw), Cosine(yaw - 90.0f)}; }
 
+std::array<float, 2> HorizontalForward(float pitch, float yaw)
+{
+    // XY components of MP 115300B0.
+    const auto forward = Forward(yaw);
+    const float scale = Cosine(pitch);
+    return {scale * forward[0], scale * forward[1]};
+}
+
 std::optional<Hit> Sector(const BossSkillRow& row, const Position& boss,
     float minimumZ, float feetZ, float yaw, const Position& target)
 {

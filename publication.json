@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-24_修复-刀锋战蝗碰墙停滞-report.md",
+    "native/csol/scenario/bosses/boss_room_wall.hpp",
+    "patches/csol-grasshopper-room-wall.patch",
     "tools/nightfall-hotfix/operator_update.py",
     "tools/nightfall-hotfix/OperatorSettings.ps1",
     "tests/nightfall-hotfix/operator-settings.ps1",

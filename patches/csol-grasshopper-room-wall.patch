@@ -1,0 +1,67 @@
+--- a/native/csol/server/scenario/core/scenario_season5_entities.h
++++ b/native/csol/server/scenario/core/scenario_season5_entities.h
+@@ -2,6 +2,7 @@
+ #pragma once
+ #include "cbase.h"
+ #include "triggers.h"
++#include "../../../scenario/bosses/boss_room_wall.hpp"
+ 
+ #include <array>
+ #include <bitset>
+@@ -192,6 +193,7 @@
+ class CCSOLBossRoomWall final : public CBaseEntity
+ {
+ public:
++    int Classify() override { return csol::scenario::boss_room_wall::Classification; }
+     void Spawn() override;
+     void Restart() override { Spawn(); }
+     void EXPORT ToggleUse(CBaseEntity* activator, CBaseEntity* caller, USE_TYPE type, float value);
+--- a/native/csol/server/scenario/bosses/scenario_grasshopper.cpp
++++ b/native/csol/server/scenario/bosses/scenario_grasshopper.cpp
+@@ -21,6 +21,7 @@
+ #include "hostage/hostage.h"
+ #include "../../../scenario/monsters/monster_appearances.hpp"
+ #include "../../../scenario/bosses/oberon_combat.hpp"
++#include "../../../scenario/bosses/boss_room_wall.hpp"
+ #include "../../../scenario/bosses/zombi_boss.hpp"
+ #include <algorithm>
+ #include <bit>
+@@ -1165,9 +1166,14 @@
+             return;
+         const int classification = other->Classify();
+         if (!(other = live())) return;
+-        // Classify 38 has no host producer, so its blocked/angle branch is unreachable.
+-        if (classification != 38 && MapIs(runtime, 265) && !player && classification != 17 &&
+-            Current(call, state)->pev->sequence == 9) state->blocked = true;
++        monster = Current(call, state);
++        if (classification == csol::scenario::boss_room_wall::Classification)
++        {
++            state->blocked = csol::scenario::boss_room_wall::BlocksGrasshopper(
++                other->pev->angles.x, other->pev->angles.y, monster->pev->angles.x, monster->pev->angles.y);
++        }
++        else if (MapIs(runtime, 265) && !player && classification != 17 && monster->pev->sequence == 9)
++            state->blocked = true;
+         if (player)
+         {
+             if (gpGlobals->time <= state->contactUntil &&
+--- a/native/csol/server/scenario/bosses/scenario_grasshopper_entities.cpp
++++ b/native/csol/server/scenario/bosses/scenario_grasshopper_entities.cpp
+@@ -13,6 +13,7 @@
+ #include "../core/game_rules_gate.h"
+ #include "../../../scenario/bosses/zombi_boss.hpp"
+ #include "../../../scenario/bosses/grasshopper.hpp"
++#include "../../../scenario/bosses/boss_room_wall.hpp"
+ #include "../../../cso_tent.hpp"
+ 
+ #include <algorithm>
+@@ -486,8 +487,8 @@
+     }
+     other = target.Get<CBaseEntity>();
+     if (!other) return;
+-    // Classify 38 has no host producer; only IsBSPModel reaches this branch.
+-    if ((other->IsBSPModel() || other->Classify() == 38) && gpGlobals->time > m_tossAt)
++    if ((other->IsBSPModel() || other->Classify() == csol::scenario::boss_room_wall::Classification) &&
++        gpGlobals->time > m_tossAt)
+     {
+         pev->movetype = MOVETYPE_NOCLIP;
+         Blast();

@@ -18,6 +18,7 @@ struct Hit
 // supplies team/alive/lease gates and keeps each attack's callback order.
 float InverseLength(float square);
 std::array<float, 2> Forward(float yaw);
+std::array<float, 2> HorizontalForward(float pitch, float yaw);
 std::optional<Hit> Sector(const BossSkillRow&, const Position& boss,
     float minimumZ, float feetZ, float yaw, const Position& target);
 std::optional<Hit> Cylinder(const BossSkillRow&, const Position& boss,
