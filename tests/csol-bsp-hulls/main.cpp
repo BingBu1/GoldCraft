@@ -69,6 +69,17 @@ void ParserCases()
         "original early-map player spawn fallback selects scenario profile");
     Check(csol::bsp::HasScenarioEntities("{classname zbstrigger_spawn}{classname zs_safezone}"),
         "actual later-map spawn and safe-zone pair selects scenario profile");
+    for (const auto* objective : {"boss_room", "zs_destination"})
+    {
+        const std::string name(objective);
+        Check(csol::bsp::HasScenarioEntities("{classname " + name + "}{classname zbstrigger_spawn}"),
+            "external-spawn chapters select the scenario hull in either entity order");
+        Check(!csol::bsp::HasScenarioEntities("{classname " + name + "}"), "a standalone objective is insufficient");
+        Check(!csol::bsp::HasScenarioEntities("{classname zbstrigger_spawn}{classname info_target target " + name + "}"),
+            "an objective name in a target field is insufficient");
+        Check(!csol::bsp::HasScenarioEntities("{classname zbstrigger_spawn}{classname " + name + "}trailing"),
+            "malformed trailing entities reject the new pair");
+    }
     for(const auto* text:{"", "{}", "{classname worldspawn}", "{classname playerspawn}",
         "{classname zombiespawn}", "{classname info_player_deathmatch}{classname zombiespawn}",
         "{classname zbstrigger_spawn}", "{classname zs_safezone}",
@@ -186,6 +197,25 @@ void MapCases(const char* path,bool expectedScenario)
             Check(Query(model,box.mins.data(),box.maxs.data(),floorPoint,zero,nullptr,&hull)==CONTENTS_EMPTY&&hull==2,
                 "each actual catalog large Boss bbox uses corrected hull and leaves arena floor");
         }
+    }
+    if (std::string_view(model.name) == "maps/zs_evacuate3.bsp")
+    {
+        const float bossMins[]{-55, -55, -36}, bossMaxs[]{55, 55, 150};
+        const float landed[]{3271.968f, -2496.968f, 100.031f};
+        const float belowFloor[]{landed[0], landed[1], 99.0f};
+        std::array<float,3> offset;
+        int hull{};
+        Check(Query(model, bossMins, bossMaxs, landed, zero, &offset, &hull) == CONTENTS_EMPTY &&
+            hull == 2 && offset == std::array<float,3>{0,0,-54}, "Grasshopper can reach the original meteor impact height");
+        Check(Query(model, bossMins, bossMaxs, belowFloor, zero) == CONTENTS_SOLID, "the arena still has a solid floor");
+        model_t stock = model;
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            stock.hulls[2].clip_mins[axis] = -32;
+            stock.hulls[2].clip_maxs[axis] = 32;
+        }
+        Check(Query(stock, bossMins, bossMaxs, landed, zero) == CONTENTS_SOLID,
+            "stock large hull blocks the recorded meteor landing spot");
     }
     if(!inlineModels.empty())
     {

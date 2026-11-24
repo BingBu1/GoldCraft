@@ -83,11 +83,11 @@ inline HullBounds ScenarioHullForMap(std::string_view modelName)
 // incidental text in messages/comments cannot change a stock map's hulls.
 inline bool HasScenarioEntities(std::string_view entities)
 {
-    bool players = false, monsters = false, triggeredSpawns = false, safeZones = false;
+    bool players = false, monsters = false, triggeredSpawns = false, scenarioObjective = false;
     for (;;)
     {
         const auto open = detail::Next(entities);
-        if (open.kind == detail::Kind::End) return (players && monsters) || (triggeredSpawns && safeZones);
+        if (open.kind == detail::Kind::End) return (players && monsters) || (triggeredSpawns && scenarioObjective);
         if (open.kind != detail::Kind::Open) return false;
         std::string_view classname;
         for (;;)
@@ -102,10 +102,10 @@ inline bool HasScenarioEntities(std::string_view entities)
         // Early survival maps use the original standard-player-spawn fallback.
         players |= classname == "playerspawn" || classname == "info_player_start";
         monsters |= classname == "zombiespawn";
-        // Later scenario maps (including allout1 and multiboss) use these
-        // paired spawn/safe-zone entities instead of the first-season schema.
+        // SP-file chapters pair checkpoint spawns with a safe zone, a
+        // destination (Evacuate 1), or a boss room (Evacuate 3).
         triggeredSpawns |= classname == "zbstrigger_spawn";
-        safeZones |= classname == "zs_safezone";
+        scenarioObjective |= classname == "zs_safezone" || classname == "zs_destination" || classname == "boss_room";
     }
 }
 
