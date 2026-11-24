@@ -1,6 +1,9 @@
 {
   "format": 1,
   "files": [
+    "patches/csotools-nar-compat.patch",
+    "docs/2026-11-24_修复-中文解包器兼容重打包NAR.md",
+    "tests/csotools-nar/Check.cs",
     "docs/2026-11-24_修复-灾变中键机瞄与疾跑键提示-report.md",
     "docs/2026-11-24_修复-灾难先兆可破坏墙颜色-report.md",
     "docs/2026-11-24_修复-刀锋战蝗碰墙停滞-report.md",

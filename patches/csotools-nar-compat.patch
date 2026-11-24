@@ -1,0 +1,349 @@
+diff --git a/CSOToolLib/NexonArchive.cs b/CSOToolLib/NexonArchive.cs
+index 008659e07ac444190d4f63654e3d3e1e5877cc1f..181159c1e4ebdb2a57bde7de145ad6aee463cea6 100644
+--- a/CSOToolLib/NexonArchive.cs
++++ b/CSOToolLib/NexonArchive.cs
+@@ -8,6 +8,10 @@ namespace Nexon.CSO
+ {
+ 	public sealed class NexonArchive : IDisposable
+ 	{
++		private const int NarSignature = 0x0052414E;
++		private const int OriginalVersion = 0x01000000;
++		private const int NarToolsVersion = 0x4F30D5BD;
++
+ 		internal Stream Stream
+ 		{
+ 			get
+@@ -30,7 +34,16 @@ namespace Nexon.CSO
+ 			{
+ 				throw new InvalidOperationException("The archive must be disposed before it can be loaded again.");
+ 			}
+-			this.Load(new FileStream(fileName, FileMode.Open, writable ? FileAccess.ReadWrite : FileAccess.Read, FileShare.Read), writable);
++			FileStream input = new FileStream(fileName, FileMode.Open, writable ? FileAccess.ReadWrite : FileAccess.Read, FileShare.Read);
++			try
++			{
++				this.Load(input, writable);
++			}
++			catch
++			{
++				input.Close();
++				throw;
++			}
+ 		}
+ 
+ 		public void Load(Stream stream, bool writable)
+@@ -55,38 +68,44 @@ namespace Nexon.CSO
+ 			{
+ 				throw new InvalidOperationException("The archive must be disposed before it can be loaded again.");
+ 			}
+-			int headerSize;
+ 			byte[] header;
++			bool repacked;
++			long directoryOffset;
+ 			lock (stream)
+ 			{
+-				stream.Position = 0L;
+-				this.stream = stream;
+-				BinaryReader reader = new BinaryReader(this.stream);
+-				if (reader.ReadInt32() != 5390670)
++				if (stream.Length < 16)
+ 				{
+-					throw new InvalidDataException("NAR file signature is invalid.");
++					throw new InvalidDataException("NAR file is not long enough to be valid.");
+ 				}
+-				if (reader.ReadInt32() != 16777216)
++				stream.Position = 0;
++				BinaryReader reader = new BinaryReader(stream);
++				if (reader.ReadInt32() != NarSignature)
+ 				{
+-					throw new InvalidDataException("NAR file version is invalid.");
++					throw new InvalidDataException("NAR file signature is invalid.");
+ 				}
+-				if (this.stream.Length < 16L)
++				int version = reader.ReadInt32();
++				repacked = version == NarToolsVersion;
++				if (!repacked && version != OriginalVersion)
+ 				{
+-					throw new InvalidDataException("NAR file is not long enough to be valid.");
++					throw new InvalidDataException("NAR file version is invalid.");
+ 				}
+-				this.stream.Seek(-4L, SeekOrigin.End);
+-				if (reader.ReadInt32() != 5390670)
++				stream.Seek(-8, SeekOrigin.End);
++				int headerSize = reader.ReadInt32() ^ 0x4076551F;
++				if (reader.ReadInt32() != (repacked ? 0 : NarSignature))
+ 				{
+ 					throw new InvalidDataException("NAR end file signature is invalid.");
+ 				}
+-				this.stream.Seek(-8L, SeekOrigin.Current);
+-				headerSize = (reader.ReadInt32() ^ 1081496863);
+-				if (this.stream.Length < (long)(headerSize + 16))
++				directoryOffset = stream.Length - 8L - headerSize;
++				if (headerSize <= 0 || directoryOffset < 8)
+ 				{
+-					throw new InvalidDataException("NAR file is not long enough to be valid.");
++					throw new InvalidDataException("NAR directory size is invalid.");
+ 				}
+-				this.stream.Seek((long)(-4 - headerSize), SeekOrigin.Current);
++				stream.Position = directoryOffset;
+ 				header = reader.ReadBytes(headerSize);
++				if (header.Length != headerSize)
++				{
++					throw new EndOfStreamException();
++				}
+ 			}
+ 			for (int i = 0; i < header.Length; i++)
+ 			{
+@@ -94,17 +113,18 @@ namespace Nexon.CSO
+ 				int num = i;
+ 				array[num] ^= NexonArchive.HeaderXor[i & 15];
+ 			}
+-			using (MemoryStream decompressedHeaderStream = new MemoryStream(headerSize))
++			using (MemoryStream decompressedHeaderStream = new MemoryStream(header.Length))
+ 			{
+ 				BZip2.Decompress(new MemoryStream(header, false), decompressedHeaderStream);
+ 				byte[] decompressedHeader = decompressedHeaderStream.ToArray();
+-				this.LoadHeader(decompressedHeader);
++				this.fileEntries.AddRange(this.ReadDirectory(decompressedHeader, directoryOffset, repacked));
+ 			}
++			this.stream = stream;
+ 		}
+ 
+-		private void LoadHeader(byte[] header)
++		private List<NexonArchiveFileEntry> ReadDirectory(byte[] header, long directoryOffset, bool repacked)
+ 		{
+-			if (header.Length < 4)
++			if (header.Length < 20)
+ 			{
+ 				throw new InvalidDataException("NAR header is invalid.");
+ 			}
+@@ -113,32 +133,45 @@ namespace Nexon.CSO
+ 			{
+ 				throw new InvalidDataException("NAR header version is invalid.");
+ 			}
+-			if (header.Length < 16)
+-			{
+-				throw new InvalidDataException("NAR header is invalid.");
+-			}
+-			BitConverter.ToInt32(header, 4);
+-			BitConverter.ToInt32(header, 8);
+-			BitConverter.ToInt32(header, 12);
+ 			int directoryCount = BitConverter.ToInt32(header, 16);
+-			if (directoryCount < 0)
++			if (directoryCount < 0 || directoryCount > (header.Length - 20) / 26)
+ 			{
+-				throw new InvalidDataException("Directory entry count is too large.");
++				throw new InvalidDataException("NAR directory entry count is invalid.");
+ 			}
++			List<NexonArchiveFileEntry> entries = new List<NexonArchiveFileEntry>(directoryCount);
++			NexonArchiveFileEntry license = null;
++			NexonArchiveFileEntry alias = null;
+ 			int entryOffset = 20;
+ 			for (int i = 0; i < directoryCount; i++)
+ 			{
+ 				NexonArchiveFileEntry fileEntry = new NexonArchiveFileEntry(this);
+-				entryOffset += fileEntry.Load(header, entryOffset);
+-				this.fileEntries.Add(fileEntry);
++				entryOffset += fileEntry.Load(header, entryOffset, directoryOffset);
++				if (repacked)
++				{
++					if (fileEntry.Path == "/LICENSE")
++						license = fileEntry;
++					else if (fileEntry.Path == "//LICENSE")
++						alias = fileEntry;
++					fileEntry.PrepareRepackedPath();
++				}
++				entries.Add(fileEntry);
++			}
++			// nar-tools can list the encoded license twice with different storage flags.
++			if (alias != null && alias.IsLicenseAliasOf(license))
++			{
++				entries.Remove(alias);
+ 			}
++			return entries;
+ 		}
+ 
+ 		public void Close()
+ 		{
+ 			this.fileEntries.Clear();
+-			this.stream.Close();
+-			this.stream = null;
++			if (this.stream != null)
++			{
++				this.stream.Close();
++				this.stream = null;
++			}
+ 		}
+ 
+ 		public void Dispose()
+diff --git a/CSOToolLib/NexonArchiveFileDecoderStream.cs b/CSOToolLib/NexonArchiveFileDecoderStream.cs
+index a3d832773b8fb82d4d97d37d6c4c3b17bf129f3f..4546fabcf45e9f7d93f52f4d74a3c774bfc288d2 100644
+--- a/CSOToolLib/NexonArchiveFileDecoderStream.cs
++++ b/CSOToolLib/NexonArchiveFileDecoderStream.cs
+@@ -1,15 +1,14 @@
+ ﻿using System;
+ using System.IO;
+-using System.Text;
+ 
+ namespace Nexon.CSO
+ {
+ 	internal sealed class NexonArchiveFileDecoderStream : Stream
+ 	{
+-		public NexonArchiveFileDecoderStream(Stream stream, string path)
++		public NexonArchiveFileDecoderStream(Stream stream, uint seed)
+ 		{
+ 			this.baseStream = stream;
+-			this.GenerateKey(path);
++			this.GenerateKey(seed);
+ 		}
+ 
+ 		public override bool CanRead
+@@ -56,19 +55,18 @@ namespace Nexon.CSO
+ 			}
+ 		}
+ 
+-		private static uint PythonHash(byte[] data)
++		internal static uint HashPath(byte[] data, int offset, int length)
+ 		{
+ 			uint hash = 0u;
+-			for (int i = 0; i < data.Length; i++)
++			for (int i = offset; i < offset + length; i++)
+ 			{
+ 				hash = (hash * 1000003u ^ (uint)data[i]);
+ 			}
+-			return hash ^ (uint)data.Length;
++			return hash ^ (uint)length;
+ 		}
+ 
+-		private void GenerateKey(string path)
++		private void GenerateKey(uint seed)
+ 		{
+-			uint seed = NexonArchiveFileDecoderStream.PythonHash(Encoding.ASCII.GetBytes(path));
+ 			for (int i = 0; i < 16; i++)
+ 			{
+ 				seed = seed * 1103515245u + 12345u;
+diff --git a/CSOToolLib/NexonArchiveFileDecompressStream.cs b/CSOToolLib/NexonArchiveFileDecompressStream.cs
+index 6f2900064d28e9612ba67fef620ea6cfb3884ef0..7eb7170a7ded88b3cf2b1db285813a3fec171b61 100644
+--- a/CSOToolLib/NexonArchiveFileDecompressStream.cs
++++ b/CSOToolLib/NexonArchiveFileDecompressStream.cs
+@@ -117,10 +117,7 @@ namespace Nexon.CSO
+ 			{
+ 				return 0;
+ 			}
+-			if (this.baseStream.Position >= this.baseStream.Length)
+-			{
+-				return 0;
+-			}
++			// A final back-reference may still have output after the input reaches EOF.
+ 			if (this.Position >= this.Length)
+ 			{
+ 				return 0;
+diff --git a/CSOToolLib/NexonArchiveFileEntry.cs b/CSOToolLib/NexonArchiveFileEntry.cs
+index c09a251bf12a519ff218e659daba634561aa0ca6..044b515595d9fde24f58cce3be383ac6843a88e7 100644
+--- a/CSOToolLib/NexonArchiveFileEntry.cs
++++ b/CSOToolLib/NexonArchiveFileEntry.cs
+@@ -49,26 +49,54 @@ namespace Nexon.CSO
+ 			return new DateTime((long)epoch * 10000000L + 621355968000000000L);
+ 		}
+ 
+-		internal int Load(byte[] header, int offset)
++		internal int Load(byte[] header, int offset, long directoryOffset)
+ 		{
+-			int result;
+-			try
+-			{
+-				int pathSize = (int)BitConverter.ToUInt16(header, offset);
+-				this.path = Encoding.ASCII.GetString(header, offset + 2, pathSize);
+-				this.storedType = (NexonArchiveFileEntryType)BitConverter.ToInt32(header, offset + 2 + pathSize);
+-				this.offset = (long)((ulong)BitConverter.ToUInt32(header, offset + 2 + pathSize + 4));
+-				this.storedSize = (long)BitConverter.ToInt32(header, offset + 2 + pathSize + 8);
+-				this.extractedSize = (long)BitConverter.ToInt32(header, offset + 2 + pathSize + 12);
+-				this.lastModifiedTime = NexonArchiveFileEntry.FromEpoch(BitConverter.ToInt32(header, offset + 2 + pathSize + 16));
+-				this.checksum = BitConverter.ToUInt32(header, offset + 2 + pathSize + 20);
+-				result = 2 + pathSize + 24;
+-			}
+-			catch (ArgumentOutOfRangeException ex)
++			const int fixedSize = 26; // path length, then six 32-bit fields after the path
++			if (header.Length - offset < fixedSize)
++				throw new InvalidDataException("NAR file entry is incomplete.");
++			int pathSize = BitConverter.ToUInt16(header, offset);
++			if (pathSize == 0 || pathSize > header.Length - offset - fixedSize)
++				throw new InvalidDataException("NAR file entry path is invalid.");
++			int pathOffset = offset + 2;
++			int fields = pathOffset + pathSize;
++			this.path = PathEncoding.GetString(header, pathOffset, pathSize);
++			this.storedType = (NexonArchiveFileEntryType)BitConverter.ToInt32(header, fields);
++			this.offset = BitConverter.ToUInt32(header, fields + 4);
++			this.storedSize = BitConverter.ToInt32(header, fields + 8);
++			this.extractedSize = BitConverter.ToInt32(header, fields + 12);
++			this.lastModifiedTime = FromEpoch(BitConverter.ToInt32(header, fields + 16));
++			this.checksum = BitConverter.ToUInt32(header, fields + 20);
++			if (this.offset < 8 || this.storedSize < 0 || this.extractedSize < 0 ||
++			    this.offset + this.storedSize > directoryOffset)
++				throw new InvalidDataException("NAR file data lies outside the archive payload.");
++			if (this.storedType != NexonArchiveFileEntryType.Raw)
++				this.pathSeed = NexonArchiveFileDecoderStream.HashPath(header, pathOffset, pathSize);
++			return fixedSize + pathSize;
++		}
++
++		internal bool IsLicenseAliasOf(NexonArchiveFileEntry license)
++		{
++			return license != null && license.storedType == NexonArchiveFileEntryType.Encoded &&
++				this.storedType == NexonArchiveFileEntryType.EncodedAndCompressed &&
++				this.offset == license.offset && this.storedSize == license.storedSize &&
++				this.extractedSize == license.extractedSize && this.checksum == license.checksum;
++		}
++
++		internal void PrepareRepackedPath()
++		{
++			// The Windows extractor passes Path directly to its tree and file APIs.
++			string relative = this.path.TrimStart('/');
++			int extraSlashes = this.path.Length - relative.Length - 1;
++			relative = relative.Replace("%", "%25").Replace("?", "%3F");
++			if (extraSlashes > 0)
++				relative = this.path.Substring(1, extraSlashes).Replace("/", "%2F") + relative;
++			foreach (string component in relative.Split('/'))
+ 			{
+-				throw new InvalidDataException("NAR file entry is invalid.", ex);
++				if (component.Length == 0 || component.EndsWith(".", StringComparison.Ordinal) ||
++				    component.EndsWith(" ", StringComparison.Ordinal) || component.IndexOfAny(InvalidNameChars) >= 0)
++					throw new InvalidDataException("Invalid NAR extraction path: " + this.path);
+ 			}
+-			return result;
++			this.path = relative;
+ 		}
+ 
+ 		public long Extract(Stream outputStream)
+@@ -95,10 +123,10 @@ namespace Nexon.CSO
+ 				case NexonArchiveFileEntryType.Raw:
+ 					break;
+ 				case NexonArchiveFileEntryType.Encoded:
+-					readStream = new NexonArchiveFileDecoderStream(readStream, this.path);
++					readStream = new NexonArchiveFileDecoderStream(readStream, this.pathSeed);
+ 					break;
+ 				case NexonArchiveFileEntryType.EncodedAndCompressed:
+-					readStream = new NexonArchiveFileDecompressStream(new NexonArchiveFileDecoderStream(readStream, this.path), this.extractedSize);
++					readStream = new NexonArchiveFileDecompressStream(new NexonArchiveFileDecoderStream(readStream, this.pathSeed), this.extractedSize);
+ 					break;
+ 				default:
+ 					throw new NotSupportedException("Unsupported file storage type: " + this.storedType + ".");
+@@ -113,6 +141,8 @@ namespace Nexon.CSO
+ 						outputStream.Write(buffer, 0, length);
+ 						totalLength += (long)length;
+ 					}
++					if (totalLength != this.extractedSize)
++						throw new InvalidDataException("Extracted size does not match the NAR entry: " + this.path);
+ 					result = totalLength;
+ 				}
+ 			}
+@@ -138,7 +168,11 @@ namespace Nexon.CSO
+ 
+ 		private NexonArchive archive;
+ 
++		private static readonly Encoding PathEncoding = Encoding.GetEncoding(949);
++		private static readonly char[] InvalidNameChars = System.IO.Path.GetInvalidFileNameChars();
++
+ 		private string path;
++		private uint pathSeed;
+ 
+ 		private NexonArchiveFileEntryType storedType;
+ 
