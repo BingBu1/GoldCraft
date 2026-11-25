@@ -2,6 +2,7 @@
 #include "precompiled.h"
 #include "game_rules_gate.h"
 #include "../../custom/body_stains.h"
+#include "scenario_chapter_carry.h"
 #include "human_kick.h"
 #include "../../custom/gameplay_settings.h"
 #include "../../custom/action_stamina.h"
@@ -1022,6 +1023,33 @@ public:
         m_replaySettings = std::move(settings);
         return true;
     }
+    // trigger_nextmap 108ED0C0 runs "zs_nextmap <map>", passing the maplist ID
+    // to CSO's room service. The host changes level to that row's file.
+    bool RequestChapterMap(int mapId)
+    {
+        if (!Ready() || m_bGameOver || m_restarting || m_completing || m_applyingFinish ||
+            !g_engfuncs.pfnLoadFileForMe || !g_engfuncs.pfnFreeFile) return false;
+        std::string name;
+        {
+            int length{};
+            const auto release = g_engfuncs.pfnFreeFile;
+            std::unique_ptr<unsigned char, decltype(release)> bytes(
+                g_engfuncs.pfnLoadFileForMe("resource/maplist.csv", &length), release);
+            if (!Ready() || !bytes || length <= 0 || length > 8 * 1024 * 1024) return false;
+            csol::scenario::MapCatalog catalog;
+            csol::scenario::ConfigError error;
+            if (!csol::scenario::ReadMapCatalog(
+                std::string_view(reinterpret_cast<const char*>(bytes.get()), length), catalog, error)) return false;
+            const auto* row = catalog.Find(mapId);
+            if (!row) return false;
+            name = row->fileName;
+        }
+        if (!Ready()) return false;
+        // 108285E0: rules vt44C (10824EE0) saves the carry-over table
+        // before the "map <name> 1" command is issued.
+        CSOL_ChapterCarryCapture(*m_runtime);
+        return Ready() && ChangeScenarioMap(name.c_str(), mapId);
+    }
     void ScenarioRestartRound()
     {
         if (!Ready() || m_restarting || m_completing || m_applyingFinish ||
@@ -1133,6 +1161,9 @@ public:
         }
         if (!ownerCurrent() || runtime->eliteManager != elites ||
             session->Map().RoundGeneration() != previousRound + 1) return;
+        // 10826860 resets the round, then rules vt450 (108253B0) applies the
+        // chapter carry-over world state once.
+        CSOL_ChapterCarryRoundStarted();
         const auto eliteServices = runtime->eliteServices;
         if (!eliteServices || !eliteServices->BeginRound(now, eliteError, replay != nullptr))
         {
@@ -1290,10 +1321,10 @@ public:
         };
         // A host replay creates all new upgrade records in slot order. Do not
         // mistake later slots for late joiners. Ordinary stage changes retain
-        // each record's consumed entry gate. No restored-progress producer is
-        // installed here; connection alone does not mean original +33B1=true.
+        // each record's consumed entry gate.
+        // 108246C0 sets +33B1 when a chapter carry-over snapshot exists.
         const csol::scenario::JoinLevelContext joining{
-            IsGameStarted() && !(m_restarting && m_bCompleteReset), false, gpGlobals->time};
+            IsGameStarted() && !(m_restarting && m_bCompleteReset), CSOL_ChapterCarryPending(player), gpGlobals->time};
         const bool joined = current() && players &&
             players->ApplyJoinLevel(handle, session->JoinLevelRatio(), joining);
         if (!current()) return true;
@@ -1980,7 +2011,9 @@ public:
         }
     }
 private:
-    bool ChangeScenarioMap(const char* name)
+    // selectedId: the vote row's numeric ID. maplist names some files twice
+    // (zs_decoy 113 and 197), so a file name alone cannot select the row.
+    bool ChangeScenarioMap(const char* name, std::optional<int> selectedId = {})
     {
         if (!Ready() || m_bGameOver || !name || !csol::scenario::map_vote::ValidMapName(name) ||
             !g_engfuncs.pfnLoadFileForMe || !g_engfuncs.pfnFreeFile ||
@@ -2004,10 +2037,18 @@ private:
         csol::scenario::MapCatalog catalog;
         csol::scenario::ConfigError error;
         int subtype{};
-        if (!csol::scenario::ReadMapCatalog(
-                std::string_view(reinterpret_cast<const char*>(bytes.get()), length), catalog, error) ||
-            !catalog.ResolveScenarioType(name, subtype, error) || !catalog.UniqueMapId(name) ||
-            !CCSOLScenarioGameplay::SupportsMap(name, subtype)) return false;
+        const bool read = csol::scenario::ReadMapCatalog(
+            std::string_view(reinterpret_cast<const char*>(bytes.get()), length), catalog, error);
+        if (!read) return false;
+        if (selectedId)
+        {
+            const auto* row = catalog.Find(*selectedId);
+            if (!row || row->fileName != name) return false;
+            subtype = row->scenarioType;
+        }
+        else if (!catalog.ResolveScenarioType(name, subtype, error) || !catalog.UniqueMapId(name)) return false;
+        if (!CCSOLScenarioGameplay::SupportsMap(name, subtype)) return false;
+        const auto mapId = selectedId ? *selectedId : *catalog.UniqueMapId(name);
         bytes.reset();
         if (!current()) return false;
         const bool exists = IS_MAP_VALID(const_cast<char*>(name)) != FALSE;
@@ -2017,6 +2058,8 @@ private:
         m_phase = Phase::Complete;
         m_flRestartRoundTime = 0;
         m_bGameOver = true;
+        // The next map's catalog lookup reads this selection.
+        CVAR_SET_STRING("csol_scenario_map_id", std::to_string(mapId).c_str());
         CHANGE_LEVEL(const_cast<char*>(name), nullptr);
         return true;
     }
@@ -2621,6 +2664,8 @@ void CSOL_RejectGameRules(const char* reason)
 CGameRules* CSOL_CreateGameRules()
 {
     rejection = {};
+    // 11433D70 drops an already-applied chapter carry-over table first.
+    CSOL_ChapterCarryRulesCreated();
     // The standalone training path has no multiplayer plugin policy.
     if (!gpGlobals->deathmatch) return new CHalfLifeTraining;
     const int mode = CSOL_LockedGameMode();
@@ -3319,7 +3364,7 @@ bool CSOL_ScenarioHeGrenadeCreated(CBaseEntity& grenade)
 bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
 {
     CSOLScenarioSdkScope scope;
-    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() ||
+    if (!scope.Scenario() || !scope.Current() ||
         (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer ||
         !CSOL_K3EmptyMonsterKillCallbacks(weapon)) return false;
     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
@@ -3331,7 +3376,7 @@ bool CSOL_ScenarioSetMeleeIdentity(CBasePlayerWeapon& weapon)
 {
     CSOLScenarioSdkScope scope;
     const auto item = CSOL_MeleeSelectionItem(weapon);
-    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() || !item ||
+    if (!scope.Scenario() || !scope.Current() || !item ||
         (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer) return false;
     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
     const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
@@ -3413,6 +3458,23 @@ bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player)
     if (sdkScope.Scenario() && !sdkScope.Current()) return true;
     auto* scenario = dynamic_cast<CCSOLScenarioRules*>(&rules);
     return scenario && scenario->PrepareSpawn(player);
+}
+
+void CSOL_ScenarioFinishDefaultEquipment(CBasePlayer& player)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current()) return;
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(sdk.Rules());
+    if (!rules) return;
+    const EHANDLE handle(&player);
+    const int spawns = player.m_iNumSpawns;
+
+    // Spawn 114EF060 -> 10826140 runs after equipment. The host also
+    // prepares the CoF owner in CBasePlayer::Spawn before entering this tail.
+    if (!sdk.Current() || handle.Get<CBasePlayer>() != &player || player.m_iNumSpawns != spawns ||
+        player.m_bJustConnected || player.has_disconnected || player.m_iTeam != CT || !player.IsAlive()) return;
+    if (const auto runtime = rules->Runtime())
+        CSOL_ChapterCarryRestore(*runtime, player, rules->IsGameStarted());
 }
 
 CSOLScenarioDefaultPrimary CSOL_ScenarioGiveDefaultPrimary(CBasePlayer& player)
@@ -3587,4 +3649,13 @@ bool CSOL_PrepareRejectedPlayer(edict_t* entity)
     if (!player) return false;
     CSOL_HoldRejectedPlayer(*player);
     return true;
+}
+
+bool CSOL_RequestScenarioChapterMap(int mapId)
+{
+    CSOLScenarioSdkScope scope;
+    if (!scope.Scenario() || !scope.Current() || CSOL_LockedGameMode() != 2 ||
+        !CSOL_GameModeIsolationReady() || CSOL_RulesRejected()) return false;
+    auto* rules = dynamic_cast<CCSOLScenarioRules*>(scope.Rules());
+    return rules && rules->RequestChapterMap(mapId);
 }

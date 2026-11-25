@@ -455,6 +455,14 @@ std::shared_ptr<CSOLScenarioPlayerRuntimeState> CCSOLScenarioPlayerRuntime::Ensu
     return state;
 }
 
+bool CCSOLScenarioPlayerRuntime::HasCharacterClass(const EHANDLE& player) const
+{
+    if (!Active()) return false;
+    const auto state = Resolve(player);
+    // classId is assigned only after Prepare verified the character class.
+    return state && state->classId >= 0;
+}
+
 bool CCSOLScenarioPlayerRuntime::Prepare(CBasePlayer& player)
 {
     auto keepAlive = shared_from_this();

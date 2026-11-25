@@ -656,6 +656,9 @@ public:
     // (unless room NoRibbon), then sends MPToCL124. No account grant occurs here.
     bool ClassifyKill(CSOLMonsterDeathCall& call, int kind,
         csol::scenario::AnnounceCandidates& output, csol::scenario::ConfigError& error);
+    // MP108F4FA0 counts a ZS player record only with character +21E2 and the
+    // class definition +A0 resolved. The host equivalent is a resolved class.
+    bool HasCharacterClass(const EHANDLE& player) const;
     bool Active() const;
     // Pure cached values, usable after RequestClose has revoked entity access.
     std::vector<CSOLScenarioPlayerStatistics> StatisticsSnapshot() const;

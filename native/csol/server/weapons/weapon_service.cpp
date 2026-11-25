@@ -408,19 +408,22 @@ public:
         const auto* info = CSOL_ItemInfo(weapon);
         const bool human=scenario ? (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy()) : CSOL_ZombieHuman(player);
         return WeaponName(weapon) && player && player->IsAlive() && human &&
-            CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
-            (!guest::cof::arsenal::Find(weapon) || (scenario && CSOL_CofArsenalReady(*player,weapon))) &&
-            (!guest::cof::FindFirearm(weapon) || (scenario&&CSOL_GuestCofCanUse(*player,weapon))) &&
-            !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
+            info && info->pszName && ExtendedReady(*player, weapon, scenario);
+    }
+    static bool ExtendedReady(CBasePlayer& player, int weapon, bool scenario)
+    {
+        return CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(&player) && !player.HasShield() &&
+            (!guest::cof::arsenal::Find(weapon) || (scenario && CSOL_CofArsenalReady(player, weapon))) &&
+            (!guest::cof::FindFirearm(weapon) || (scenario && CSOL_GuestCofCanUse(player, weapon))) &&
+            (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
             (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready()) &&
             (weapon != csol::m249ex::Id || CSOL_M249EXReady()) &&
             (weapon != csol::skull1::Id || CSOL_Skull1Ready()) &&
             (weapon != csol::skull2::Id || CSOL_Skull2Ready()) &&
-            (weapon != csol::skull3::Id || CSOL_Skull3Ready()) &&
+            (!csol::skull3::IsWeapon(weapon) || CSOL_Skull3Ready()) &&
             (weapon != csol::skull5::Id || CSOL_Skull5Ready()) &&
             (weapon != csol::balrog11::Id || CSOL_Balrog11Ready()) &&
-            (!csol::melee::IsWeapon(weapon) ||
-                CSOL_MeleeReady(weapon));
+            (!csol::melee::IsWeapon(weapon) || CSOL_MeleeReady(weapon));
     }
     int Buy(int index, int weapon) override
     {
@@ -550,6 +553,56 @@ bool CSOL_ZombieMode() { return zombieMode; }
 bool CSOL_CanDeliverScenarioWeapon(CBasePlayer* player,int weapon)
 {
     return player && CSOL_ScenarioCanBuy() && WeaponService{}.CanDeliver(player->entindex(),weapon,true);
+}
+bool CSOL_RestoreScenarioWeapon(CBasePlayer* player, int weapon)
+{
+    CSOLScenarioSdkScope sdk;
+    if (!sdk.Scenario() || !sdk.Current() || !player || player->m_iTeam != CT ||
+        player->has_disconnected || !player->IsAlive()) return false;
+
+    // MP 114D9BD0 -> 114D8550 grants each saved, available ID through the
+    // item path. The current map's purchase window is irrelevant to a spawn.
+    const auto* info = CSOL_ItemInfo(weapon);
+    if (!info || !info->pszName || info->iId != weapon ||
+        (CSOL_ExtendedWeapon(weapon) && !WeaponService::ExtendedReady(*player, weapon, true))) return false;
+    WeaponPurchaseGuard guard(player->entindex());
+    if (!guard.Allowed()) return false;
+
+    const EHANDLE owner(player);
+    const int spawns = player->m_iNumSpawns;
+    const auto current = [&] {
+        return sdk.Current() && owner.Get<CBasePlayer>() == player &&
+            !player->has_disconnected && player->m_iNumSpawns == spawns && player->IsAlive();
+    };
+    const auto name = ALLOC_STRING(info->pszName);
+    if (!current()) return false;
+    auto* entity = CREATE_NAMED_ENTITY(name);
+    if (!current() || FNullEnt(entity)) return false;
+    const EHANDLE item(entity);
+    entity->v.origin = player->pev->origin;
+    entity->v.spawnflags |= SF_NORESPAWN;
+    // CoF firearms expose immediate acquisition only for one-shot grants.
+    if (guest::cof::FindFirearm(weapon)) entity->v.iuser4 = 1;
+    const int spawned = DispatchSpawn(entity);
+    const auto failed = [&] {
+        if (sdk.Current())
+            if (auto* unowned = item.Get<CBaseEntity>(); unowned && !unowned->pev->owner &&
+                !(unowned->pev->flags & FL_KILLME))
+                UTIL_Remove(unowned);
+        return false;
+    };
+    if (!current()) return failed();
+    auto* gun = dynamic_cast<CBasePlayerWeapon*>(item.Get<CBaseEntity>());
+    if (spawned < 0 || !gun || (gun->pev->flags & FL_KILLME) || gun->m_iId != weapon) return failed();
+    if (weapon == CSOL_WEAPON_K3 && !CSOL_ScenarioSetK3Identity(*gun)) return failed();
+    if ((weapon == WEAPON_KNIFE || csol::melee::IsWeapon(weapon)) &&
+        !CSOL_ScenarioSetMeleeIdentity(*gun)) return failed();
+    if (!current() || item.Get<CBaseEntity>() != gun) return failed();
+    DispatchTouch(item.Get(), owner.Get());
+    if (!current() || item.Get<CBaseEntity>() != gun || (gun->pev->flags & FL_KILLME) ||
+        gun->m_pPlayer != player || gun->pev->owner != owner.Get() ||
+        player->GetItemById(static_cast<WeaponIdType>(weapon)) != gun) return failed();
+    return true;
 }
 bool CSOL_DeliverScenarioWeapon(CBasePlayer* player,int weapon)
 {

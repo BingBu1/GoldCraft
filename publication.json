@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-25_修复-灾难先兆换章装备继承-report.md",
+    "patches/csol-evacuate-chapter-r4.patch",
     "patches/csotools-nar-compat.patch",
     "docs/2026-11-24_修复-中文解包器兼容重打包NAR.md",
     "tests/csotools-nar/Check.cs",

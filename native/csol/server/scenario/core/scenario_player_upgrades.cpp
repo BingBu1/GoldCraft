@@ -114,6 +114,26 @@ bool CCSOLScenarioPlayerUpgrades::Configure(int classId, std::uint8_t feature, b
     return published;
 }
 
+bool CCSOLScenarioPlayerUpgrades::RestoreProgress(
+    const std::array<csol::scenario::UpgradeAttribute, 5>& saved, int experience)
+{
+    auto keepAlive = shared_from_this();
+    if (m_busy || !Current() || m_classId < 0 || !m_progress.State()) return false;
+    Busy busy(m_busy);
+    m_error = {};
+    auto attributes = m_progress.State()->attributes;
+    for (std::size_t i = 0; i < attributes.size(); ++i)
+    {
+        attributes[i].level = saved[i].level;
+        attributes[i].cap = saved[i].cap;
+    }
+    const bool initialized = m_services->Initialize(m_wall->player, m_classId, attributes);
+    if (!Current()) return false;
+    if (!initialized) return Fail("scenario chapter upgrade restore failed");
+    if (!m_progress.Initialize(m_tables, m_classId, attributes, experience, m_error)) return false;
+    return PublishCurrent();
+}
+
 bool CCSOLScenarioPlayerUpgrades::Publish()
 {
     auto keepAlive = shared_from_this();

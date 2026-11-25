@@ -40,6 +40,10 @@ public:
         std::shared_ptr<CCSOLScenarioUpgradeServices> services,
         CCSOLScenarioMessages messages, float experienceRatio, std::uint64_t generation);
     bool Configure(int classId, std::uint8_t feature, bool elevenLevelLimit);
+    // Chapter carry-over (MP 108F7AF0): the configured character keeps its
+    // class while the saved per-attribute level/cap and experience return.
+    // Totals are the host's attribute sums; per-stat bonuses are recomputed.
+    bool RestoreProgress(const std::array<csol::scenario::UpgradeAttribute, 5>& attributes, int experience);
     void Invalidate();
     bool Publish();
     bool RefreshBonuses();

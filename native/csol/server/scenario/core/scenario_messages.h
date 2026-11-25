@@ -50,6 +50,10 @@ public:
     // Original Boss selection: MPToCL { BYTE27, BYTE7, SHORT id }. There is
     // no trailing string; the caller suppresses the -1 sentinel.
     bool SendBossSkillStart(std::int16_t id) const;
+    // trigger_nextmap 10828C30 / 10828980: MSG_ALL ZBSVer2 {29, BYTE inside,
+    // BYTE participants} and {30, BYTE seconds}.
+    bool SendChangeLevelZone(int inside, int participants) const;
+    bool SendChangeLevelTimer(int seconds) const;
     // Original rules354 visual subset: caller resolves one valid recipient
     // and rechecks its map/monster lease between packets.
     bool SendOberonHint(edict_s* recipient, const csol::oberon_hint::Event& event) const;

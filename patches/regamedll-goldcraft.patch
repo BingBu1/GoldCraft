@@ -2254,7 +2254,7 @@ index 3ccefc4..6c4a8b8 100644
  			MESSAGE_END();
  		}
 diff --git a/regamedll/dlls/player.cpp b/regamedll/dlls/player.cpp
-index 8a219ea..6cf20d3 100644
+index 8a219ea..41d5053 100644
 --- a/regamedll/dlls/player.cpp
 +++ b/regamedll/dlls/player.cpp
 @@ -27,6 +27,29 @@
@@ -3270,17 +3270,18 @@ index 8a219ea..6cf20d3 100644
  	m_iGaitsequence = 0;
  
  	m_flGaitframe = 0;
-@@ -6132,6 +6274,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
+@@ -6132,6 +6274,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(Spawn)()
  	for (i = 0; i < COMMANDS_TO_TRACK; i++)
  		m_flLastCommandTime[i] = -1;
  
 +	GoldCraft_PlayerSpawn(edict());
 +	CSOL_GuestCofSpawned(*this);
++	CSOL_ScenarioFinishDefaultEquipment(*this);
 +
  #ifdef REGAMEDLL_FIXES
  	// everything that comes after this, this spawn of the player a the game.
  	if (m_bJustConnected)
-@@ -6273,7 +6418,7 @@ void CBasePlayer::Reset()
+@@ -6273,7 +6419,7 @@ void CBasePlayer::Reset()
  #endif
  
  	CheckStartMoney();
@@ -3289,7 +3290,7 @@ index 8a219ea..6cf20d3 100644
  
  	MESSAGE_BEGIN(MSG_ALL, gmsgScoreInfo);
  		WRITE_BYTE(ENTINDEX(edict()));
-@@ -6365,19 +6510,24 @@ void CBasePlayer::SelectItem(const char *pstr)
+@@ -6365,19 +6511,24 @@ void CBasePlayer::SelectItem(const char *pstr)
  	auto pItem = GetItemByName(pstr);
  	if (!pItem || pItem == m_pActiveItem)
  		return;
@@ -3314,7 +3315,7 @@ index 8a219ea..6cf20d3 100644
  
  	m_pLastItem = m_pActiveItem;
  	m_pActiveItem = pItem;
-@@ -6389,7 +6539,9 @@ void CBasePlayer::SelectItem(const char *pstr)
+@@ -6389,7 +6540,9 @@ void CBasePlayer::SelectItem(const char *pstr)
  	UpdateShieldCrosshair(true);
  
  	m_pActiveItem->Deploy();
@@ -3324,7 +3325,7 @@ index 8a219ea..6cf20d3 100644
  
  	ResetMaxSpeed();
  }
-@@ -6414,18 +6566,23 @@ void CBasePlayer::SelectLastItem()
+@@ -6414,18 +6567,23 @@ void CBasePlayer::SelectLastItem()
  
  	if (!m_pLastItem || m_pLastItem == m_pActiveItem)
  		return;
@@ -3348,7 +3349,7 @@ index 8a219ea..6cf20d3 100644
  
  	if (HasShield())
  	{
-@@ -6439,7 +6596,9 @@ void CBasePlayer::SelectLastItem()
+@@ -6439,7 +6597,9 @@ void CBasePlayer::SelectLastItem()
  	SWAP(m_pActiveItem, m_pLastItem);
  
  	m_pActiveItem->Deploy();
@@ -3358,7 +3359,7 @@ index 8a219ea..6cf20d3 100644
  
  	UpdateShieldCrosshair(true);
  
-@@ -6506,6 +6665,7 @@ void CSprayCan::Think()
+@@ -6506,6 +6666,7 @@ void CSprayCan::Think()
  	UTIL_TraceLine(pev->origin, pev->origin + gpGlobals->v_forward * 128, ignore_monsters, pev->owner, &tr);
  
  	// No customization present.
@@ -3366,7 +3367,7 @@ index 8a219ea..6cf20d3 100644
  	if (nFrames == -1)
  	{
  		UTIL_DecalTrace(&tr, DECAL_LAMBDA6);
-@@ -6664,7 +6824,8 @@ BOOL CBasePlayer::FlashlightIsOn()
+@@ -6664,7 +6825,8 @@ BOOL CBasePlayer::FlashlightIsOn()
  
  void CBasePlayer::FlashlightTurnOn()
  {
@@ -3376,7 +3377,7 @@ index 8a219ea..6cf20d3 100644
  		return;
  
  	if (pev->weapons & (1 << WEAPON_SUIT))
-@@ -6838,6 +6999,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ImpulseCommands)()
+@@ -6838,6 +7000,7 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ImpulseCommands)()
  		}
  		case 100:
  		{
@@ -3384,7 +3385,7 @@ index 8a219ea..6cf20d3 100644
  			// temporary flashlight for level designers
  			if (FlashlightIsOn())
  				FlashlightTurnOff();
-@@ -6887,8 +7049,8 @@ void CBasePlayer::CheatImpulseCommands(int iImpulse)
+@@ -6887,8 +7050,8 @@ void CBasePlayer::CheatImpulseCommands(int iImpulse)
  	{
  		case 101:
  #ifdef REGAMEDLL_ADD
@@ -3395,7 +3396,7 @@ index 8a219ea..6cf20d3 100644
  #else
  			AddAccount(16000);
  			ALERT(at_console, "Crediting %s with $16000\n", STRING(pev->netname));
-@@ -7152,34 +7314,38 @@ void CBasePlayer::HandleSignals()
+@@ -7152,34 +7315,38 @@ void CBasePlayer::HandleSignals()
  {
  	if (CSGameRules()->IsMultiplayer())
  	{
@@ -3453,7 +3454,7 @@ index 8a219ea..6cf20d3 100644
  			}
  		}
  
-@@ -7288,7 +7454,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(AddPlayerItem)(CBasePlayerItem *pItem)
+@@ -7288,7 +7455,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(AddPlayerItem)(CBasePlayerItem *pItem)
  			pev->gamestate = HITGROUP_SHIELD_ENABLED;
  
  		// should we switch to this item?
@@ -3462,7 +3463,7 @@ index 8a219ea..6cf20d3 100644
  		{
  			if (!m_bShieldDrawn)
  			{
-@@ -7341,6 +7507,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
+@@ -7341,6 +7508,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
  	if (pPrev == pItem)
  	{
  		m_rgpPlayerItems[pItem->iItemSlot()] = pItem->m_pNext;
@@ -3470,7 +3471,7 @@ index 8a219ea..6cf20d3 100644
  		return TRUE;
  	}
  
-@@ -7350,6 +7517,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
+@@ -7350,6 +7518,7 @@ BOOL EXT_FUNC CBasePlayer::__API_HOOK(RemovePlayerItem)(CBasePlayerItem *pItem)
  	if (pPrev)
  	{
  		pPrev->m_pNext = pItem->m_pNext;
@@ -3478,7 +3479,7 @@ index 8a219ea..6cf20d3 100644
  		return TRUE;
  	}
  
-@@ -7372,6 +7540,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7372,6 +7541,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  
  	if (iMax == -1)
  		iMax = MaxAmmoCarry(szName);
@@ -3486,7 +3487,7 @@ index 8a219ea..6cf20d3 100644
  
  	if (!g_pGameRules->CanHaveAmmo(this, szName, iMax))
  	{
-@@ -7383,6 +7552,18 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7383,6 +7553,18 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  	if (i < 0 || i >= MAX_AMMO_SLOTS)
  		return -1;
  
@@ -3505,7 +3506,7 @@ index 8a219ea..6cf20d3 100644
  	int iAdd = Q_min(iCount, iMax - m_rgAmmo[i]);
  	if (iAdd < 1)
  		return i;
-@@ -7390,7 +7571,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
+@@ -7390,7 +7572,7 @@ int EXT_FUNC CBasePlayer::__API_HOOK(GiveAmmo)(int iCount, const char *szName, i
  	m_rgAmmo[i] += iAdd;
  
  	// make sure the ammo messages have been linked first
@@ -3514,7 +3515,7 @@ index 8a219ea..6cf20d3 100644
  	{
  		// Send the message that ammo has been picked up
  		MESSAGE_BEGIN(MSG_ONE, gmsgAmmoPickup, nullptr, pev);
-@@ -7586,6 +7767,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
+@@ -7586,6 +7768,7 @@ LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateClientData)
  // reflecting all of the HUD state info.
  void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  {
@@ -3522,7 +3523,7 @@ index 8a219ea..6cf20d3 100644
  	if (m_fInitHUD)
  	{
  		m_fInitHUD = FALSE;
-@@ -7696,6 +7878,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7696,6 +7879,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  #endif
  	}
  
@@ -3533,7 +3534,7 @@ index 8a219ea..6cf20d3 100644
  	if (m_iHideHUD != m_iClientHideHUD)
  	{
  		MESSAGE_BEGIN(MSG_ONE, gmsgHideWeapon, nullptr, pev);
-@@ -7746,28 +7932,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7746,28 +7933,25 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  		gDisplayTitle = FALSE;
  	}
  
@@ -3570,7 +3571,7 @@ index 8a219ea..6cf20d3 100644
  		MESSAGE_END();
  	}
  
-@@ -7855,6 +8038,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
+@@ -7855,6 +8039,8 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateClientData)()
  	}
  
  	SendAmmoUpdate();
@@ -3579,7 +3580,7 @@ index 8a219ea..6cf20d3 100644
  
  	// Update all the items
  	for (int i = 0; i < MAX_ITEM_TYPES; i++)
-@@ -8124,6 +8309,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
+@@ -8124,6 +8310,10 @@ void EXT_FUNC CBasePlayer::__API_HOOK(ResetMaxSpeed)()
  	}
  
  	pev->maxspeed = speed;
@@ -3590,7 +3591,7 @@ index 8a219ea..6cf20d3 100644
  }
  
  LINK_HOOK_CLASS_CHAIN(bool, CBasePlayer, HintMessageEx, (const char *pMessage, float duration, bool bDisplayIfPlayerDead, bool bOverride), pMessage, duration, bDisplayIfPlayerDead, bOverride)
-@@ -8146,6 +8335,8 @@ bool EXT_FUNC CBasePlayer::HintMessage(const char *pMessage, BOOL bDisplayIfPlay
+@@ -8146,6 +8336,8 @@ bool EXT_FUNC CBasePlayer::HintMessage(const char *pMessage, BOOL bDisplayIfPlay
  
  Vector CBasePlayer::GetAutoaimVector(float flDelta)
  {
@@ -3599,7 +3600,7 @@ index 8a219ea..6cf20d3 100644
  	Vector vecSrc;
  	BOOL m_fOldTargeting;
  	Vector angles;
-@@ -8165,6 +8356,7 @@ Vector CBasePlayer::GetAutoaimVector(float flDelta)
+@@ -8165,6 +8357,7 @@ Vector CBasePlayer::GetAutoaimVector(float flDelta)
  	{
  		if (m_fOldTargeting != m_fOnTarget)
  			m_pActiveItem->UpdateItemInfo();
@@ -3607,7 +3608,7 @@ index 8a219ea..6cf20d3 100644
  	}
  	else
  		m_fOnTarget = FALSE;
-@@ -8199,6 +8391,7 @@ Vector CBasePlayer::GetAutoaimVector(float flDelta)
+@@ -8199,6 +8392,7 @@ Vector CBasePlayer::GetAutoaimVector(float flDelta)
  		if (m_vecAutoAim.x != m_lastx || m_vecAutoAim.y != m_lasty)
  		{
  			SET_CROSSHAIRANGLE(ENT(pev), -m_vecAutoAim.x, m_vecAutoAim.y);
@@ -3615,7 +3616,7 @@ index 8a219ea..6cf20d3 100644
  
  			m_lastx = m_vecAutoAim.x;
  			m_lasty = m_vecAutoAim.y;
-@@ -8217,10 +8410,13 @@ Vector CBasePlayer::AutoaimDeflection(Vector &vecSrc, float flDist, float flDelt
+@@ -8217,10 +8411,13 @@ Vector CBasePlayer::AutoaimDeflection(Vector &vecSrc, float flDist, float flDelt
  
  void CBasePlayer::ResetAutoaim()
  {
@@ -3629,7 +3630,7 @@ index 8a219ea..6cf20d3 100644
  	}
  	m_fOnTarget = FALSE;
  }
-@@ -8257,6 +8453,7 @@ void CBasePlayer::InitStatusBar()
+@@ -8257,6 +8454,7 @@ void CBasePlayer::InitStatusBar()
  {
  	m_flStatusBarDisappearDelay = 0.0f;
  	m_SbarString0[0] = '\0';
@@ -3637,7 +3638,7 @@ index 8a219ea..6cf20d3 100644
  }
  
  LINK_HOOK_CLASS_VOID_CHAIN2(CBasePlayer, UpdateStatusBar)
-@@ -8284,6 +8481,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
+@@ -8284,6 +8482,9 @@ void EXT_FUNC CBasePlayer::__API_HOOK(UpdateStatusBar)()
  
  	UTIL_TraceLine(vecSrc, vecEnd, dont_ignore_monsters, edict(), &tr);
  
@@ -3647,7 +3648,7 @@ index 8a219ea..6cf20d3 100644
  	if (tr.flFraction != 1.0f)
  	{
  		if (!FNullEnt(tr.pHit))
-@@ -8474,17 +8674,26 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8474,17 +8675,26 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			return nullptr;
  		}
  
@@ -3677,7 +3678,7 @@ index 8a219ea..6cf20d3 100644
  		UTIL_MakeVectors(pev->angles);
  
  #ifndef REGAMEDLL_FIXES
-@@ -8530,8 +8739,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8530,8 +8740,6 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			}
  		}
  
@@ -3686,7 +3687,7 @@ index 8a219ea..6cf20d3 100644
  		Vector vecOrigin   = pev->origin + gpGlobals->v_forward * 10;
  		Vector vecAngles   = pev->angles;
  		Vector vecVelocity = gpGlobals->v_forward * 300 + gpGlobals->v_forward * 100;
-@@ -8543,6 +8750,7 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
+@@ -8543,6 +8751,7 @@ CBaseEntity *EXT_FUNC CBasePlayer::__API_HOOK(DropPlayerItem)(const char *pszIte
  			bPackAmmo = true;
  #endif
  
@@ -3694,7 +3695,7 @@ index 8a219ea..6cf20d3 100644
  		CWeaponBox *pWeaponBox = CreateWeaponBox(pWeapon, this,
  			modelname,
  			vecOrigin,
-@@ -8795,28 +9003,36 @@ void CBasePlayer::UpdateShieldCrosshair(bool draw)
+@@ -8795,28 +9004,36 @@ void CBasePlayer::UpdateShieldCrosshair(bool draw)
  
  BOOL CBasePlayer::SwitchWeapon(CBasePlayerItem *pWeapon)
  {
@@ -3731,7 +3732,7 @@ index 8a219ea..6cf20d3 100644
  
  	if (HasShield())
  	{
-@@ -9671,6 +9887,9 @@ bool IsPrimaryWeaponClass(int classId)
+@@ -9671,6 +9888,9 @@ bool IsPrimaryWeaponClass(int classId)
  
  bool IsPrimaryWeaponId(int id)
  {
@@ -3741,7 +3742,7 @@ index 8a219ea..6cf20d3 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -9689,6 +9908,9 @@ bool IsSecondaryWeaponClass(int classId)
+@@ -9689,6 +9909,9 @@ bool IsSecondaryWeaponClass(int classId)
  
  bool IsSecondaryWeaponId(int id)
  {
@@ -3751,7 +3752,7 @@ index 8a219ea..6cf20d3 100644
  	int classId = WEAPONCLASS_NONE;
  	const char *alias = WeaponIDToAlias(id);
  
-@@ -10123,6 +10345,7 @@ void CBasePlayer::PostAutoBuyCommandProcessing(AutoBuyInfoStruct *commandInfo, b
+@@ -10123,6 +10346,7 @@ void CBasePlayer::PostAutoBuyCommandProcessing(AutoBuyInfoStruct *commandInfo, b
  
  void CBasePlayer::BuildRebuyStruct()
  {
@@ -3759,7 +3760,7 @@ index 8a219ea..6cf20d3 100644
  	if (m_bIsInRebuy)
  	{
  		// if we are in the middle of a rebuy, we don't want to update the buy struct.
-@@ -10196,6 +10419,7 @@ void CBasePlayer::BuildRebuyStruct()
+@@ -10196,6 +10420,7 @@ void CBasePlayer::BuildRebuyStruct()
  
  void CBasePlayer::Rebuy()
  {
@@ -3767,7 +3768,7 @@ index 8a219ea..6cf20d3 100644
  	char *fileData = m_rebuyString;
  	char *token;
  
-@@ -10569,11 +10793,11 @@ void CBasePlayer::RemoveBomb()
+@@ -10569,11 +10794,11 @@ void CBasePlayer::RemoveBomb()
  	}
  
  	if (RemovePlayerItem(pBomb)) {
@@ -3781,7 +3782,7 @@ index 8a219ea..6cf20d3 100644
  			m_iHideHUD |= HIDEHUD_WEAPONS;
  		}
  #endif
-@@ -10752,7 +10976,7 @@ bool EXT_FUNC CBasePlayer::__API_HOOK(GetIntoGame)()
+@@ -10752,7 +10977,7 @@ bool EXT_FUNC CBasePlayer::__API_HOOK(GetIntoGame)()
  		m_iAccount = 0;
  #endif
  		CheckStartMoney();

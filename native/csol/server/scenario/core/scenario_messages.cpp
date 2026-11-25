@@ -470,6 +470,33 @@ bool CCSOLScenarioMessages::SendBossSkillStart(std::int16_t message) const
     return true;
 }
 
+bool CCSOLScenarioMessages::SendChangeLevelZone(int inside, int participants) const
+{
+    if (g_scenarioMessageOpen || !m_upgradeMessageId || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_upgradeMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ALL, id);
+    WRITE_BYTE(29);
+    WRITE_BYTE(inside);
+    WRITE_BYTE(participants);
+    MESSAGE_END();
+    return true;
+}
+
+bool CCSOLScenarioMessages::SendChangeLevelTimer(int seconds) const
+{
+    if (g_scenarioMessageOpen || !m_upgradeMessageId || !g_engfuncs.pfnMessageBegin ||
+        !g_engfuncs.pfnMessageEnd || !g_engfuncs.pfnWriteByte) return false;
+    const int id = m_upgradeMessageId;
+    const ScenarioMessageScope scope;
+    MESSAGE_BEGIN(MSG_ALL, id);
+    WRITE_BYTE(30);
+    WRITE_BYTE(seconds);
+    MESSAGE_END();
+    return true;
+}
+
 bool CCSOLScenarioMessages::SendBossParticipation(edict_t* recipient, int rank,
     int playerIndex, std::int32_t hundreds, int percent) const
 {

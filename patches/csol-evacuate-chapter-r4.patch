@@ -1,0 +1,300 @@
+diff --git a/external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp b/external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp
+--- a/external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp
++++ b/external/ReGameDLL_CS/regamedll/dlls/multiplay_gamerules.cpp
+@@ -3911,8 +3911,6 @@
+ 	pPlayer->pev->weapons |= (1 << WEAPON_SUIT);
+ 	pPlayer->OnSpawnEquip();
+ 	pPlayer->SetPlayerModel(false);
+-	// CSOL MP114EF060 -> rules vt2A8: chapter carry-over after equipment.
+-	CSOL_ScenarioFinishSpawn(*this, *pPlayer);
+ 
+ #ifdef REGAMEDLL_ADD
+ 	pPlayer->m_iAutoWepSwitch = iAutoWepSwitch;
+diff --git a/native/csol/server/scenario/core/game_rules_gate.cpp b/native/csol/server/scenario/core/game_rules_gate.cpp
+--- a/native/csol/server/scenario/core/game_rules_gate.cpp
++++ b/native/csol/server/scenario/core/game_rules_gate.cpp
+@@ -3717,7 +3717,7 @@
+ bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon)
+ {
+     CSOLScenarioSdkScope scope;
+-    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() ||
++    if (!scope.Scenario() || !scope.Current() ||
+         (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer ||
+         !CSOL_K3EmptyMonsterKillCallbacks(weapon)) return false;
+     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+@@ -3729,7 +3729,7 @@
+ {
+     CSOLScenarioSdkScope scope;
+     const auto item = CSOL_MeleeSelectionItem(weapon);
+-    if (!scope.Scenario() || !scope.Current() || !CSOL_ScenarioCanBuy() || !item ||
++    if (!scope.Scenario() || !scope.Current() || !item ||
+         (weapon.pev->flags & FL_KILLME) || weapon.pev->owner || weapon.m_pPlayer) return false;
+     const auto* rules = dynamic_cast<const CCSOLScenarioRules*>(scope.Rules());
+     const auto weapons = rules ? rules->Runtime()->session->Weapons() : nullptr;
+@@ -3813,23 +3813,22 @@
+     return scenario && scenario->PrepareSpawn(player);
+ }
+ 
+-void CSOL_ScenarioFinishSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player)
+-{
+-    // Spawn 114EF060 -> rules vt2A8 (10826140) after the equipment stage.
+-    CSOLScenarioSdkScope sdkScope(&rules);
+-    if (!sdkScope.Scenario() || !sdkScope.Current()) return;
+-    auto* scenario = dynamic_cast<CCSOLScenarioRules*>(&rules);
+-    if (!scenario || player.m_bJustConnected || player.m_iTeam != CT || !player.IsAlive()) return;
+-    const auto runtime = scenario->Runtime();
+-    if (runtime) CSOL_ChapterCarryRestore(*runtime, player, rules.IsGameStarted());
+-}
+-
+ void CSOL_ScenarioFinishDefaultEquipment(CBasePlayer& player)
+ {
+     CSOLScenarioSdkScope sdk;
+     if (!sdk.Scenario() || !sdk.Current()) return;
+-    if (auto* rules = dynamic_cast<CCSOLScenarioRules*>(sdk.Rules()))
+-        rules->FinishDefaultEquipment(player, sdk);
++    auto* rules = dynamic_cast<CCSOLScenarioRules*>(sdk.Rules());
++    if (!rules) return;
++    const EHANDLE handle(&player);
++    const int spawns = player.m_iNumSpawns;
++    rules->FinishDefaultEquipment(player, sdk);
++
++    // Spawn 114EF060 -> 10826140 runs after equipment. The host also
++    // prepares the CoF owner in CBasePlayer::Spawn before entering this tail.
++    if (!sdk.Current() || handle.Get<CBasePlayer>() != &player || player.m_iNumSpawns != spawns ||
++        player.m_bJustConnected || player.has_disconnected || player.m_iTeam != CT || !player.IsAlive()) return;
++    if (const auto runtime = rules->Runtime())
++        CSOL_ChapterCarryRestore(*runtime, player, rules->IsGameStarted());
+ }
+ 
+ CSOLScenarioDefaultPrimary CSOL_ScenarioGiveDefaultPrimary(CBasePlayer& player)
+diff --git a/native/csol/server/scenario/core/game_rules_gate.h b/native/csol/server/scenario/core/game_rules_gate.h
+--- a/native/csol/server/scenario/core/game_rules_gate.h
++++ b/native/csol/server/scenario/core/game_rules_gate.h
+@@ -144,14 +144,12 @@
+ bool CSOL_CompleteScenarioMonsterClearPoint(CSOLMonsterDeathCall& call,
+     csol::scenario::ConfigError& error);
+ bool CSOL_ScenarioHeGrenadeCreated(CBaseEntity& grenade);
+-// Purchase-only source identity, applied to the new unowned K3 before Touch.
++// Bind the scenario source identity to a new unowned K3 before Touch.
+ bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon);
+ int CSOL_ScenarioProjectileSource(const CBaseEntity& entity);
+ bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules);
+ bool CSOL_ScenarioCheckWinConditions(CHalfLifeMultiplay& rules);
+ bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player);
+-// End of CHalfLifeMultiplay::PlayerSpawn: chapter carry-over restore.
+-void CSOL_ScenarioFinishSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player);
+ // Only the primary block of GiveDefaultItems, after its native inventory
+ // reset. Cancellation must stop the caller before any more equipment access.
+ enum class CSOLScenarioDefaultPrimary { Native, Granted, Cancelled };
+diff --git a/native/csol/server/scenario/core/scenario_chapter_carry.cpp b/native/csol/server/scenario/core/scenario_chapter_carry.cpp
+--- a/native/csol/server/scenario/core/scenario_chapter_carry.cpp
++++ b/native/csol/server/scenario/core/scenario_chapter_carry.cpp
+@@ -1,11 +1,13 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #include "precompiled.h"
+ #include "scenario_chapter_carry.h"
++#include "game_rules_gate.h"
+ #include "scenario_runtime.h"
+ #include "scenario_session.h"
+ #include "scenario_player_runtime.h"
+ #include "scenario_player_upgrades.h"
+ #include "../../weapons/weapon_service.h"
++#include "../../weapons/weapon_slots.h"
+ 
+ #include <algorithm>
+ #include <array>
+@@ -113,40 +115,55 @@
+ void CSOL_ChapterCarryRestore(CCSOLScenarioRuntime& runtime, CBasePlayer& player, bool gameStarted)
+ {
+     // 10826140
+-    const auto found = table.find(Key(player));
++    if (table.empty()) return;
++    CSOLScenarioSdkScope sdk;
++    if (!sdk.Current() || runtime.Closing()) return;
++    const EHANDLE handle(&player);
++    const int spawns = player.m_iNumSpawns;
++    const auto current = [&] {
++        return sdk.Current() && !runtime.Closing() && handle.Get<CBasePlayer>() == &player &&
++            !player.has_disconnected && player.m_iNumSpawns == spawns && player.IsAlive();
++    };
++    const int key = Key(player);
++    if (!current()) return;
++    const auto found = table.find(key);
+     if (found == table.end()) return;
+     const Snapshot snapshot = found->second;
+-    const EHANDLE handle(&player);
++    int missingWeapon{};
+     // 114D9A20: money (114EA380), frags, deaths.
+     player.AddAccount(snapshot.money - player.m_iAccount, RT_NONE, true); // host: keep the HUD in sync
+-    if (handle.Get<CBaseEntity>() != &player) return;
++    if (!current()) return;
+     player.pev->frags = static_cast<float>(snapshot.frags);
+     player.m_iDeaths = snapshot.deaths;
+     if (!snapshot.dead)
+     {
+-        player.pev->health = static_cast<float>(snapshot.health);
++        player.pev->health = std::fmax(1.0f, static_cast<float>(snapshot.health));
+         player.pev->armorvalue = static_cast<float>(snapshot.armor);
+         player.pev->armortype = static_cast<float>(snapshot.armorType);
+         player.m_iKevlar = static_cast<ArmorType>(snapshot.kevlar);
+         // 114D9BD0: RemoveAllItems(0), then each saved weapon; the clip is
+         // not restored (a3 = 0), the ammo block is copied afterwards.
+         player.RemoveAllItems(FALSE);
+-        if (handle.Get<CBaseEntity>() != &player) return;
++        if (!current()) return;
+         for (const int weapon : snapshot.weapons)
+         {
+-            CSOL_RestoreScenarioWeapon(&player, weapon);
+-            if (handle.Get<CBaseEntity>() != &player) return;
++            if (!CSOL_RestoreScenarioWeapon(&player, weapon) && !missingWeapon) missingWeapon = weapon;
++            if (!current()) return;
+         }
+         std::copy(snapshot.ammo.begin(), snapshot.ammo.end(), std::begin(player.m_rgAmmo));
++        CSOL_UpdateWeaponInventory(&player);
++        if (!current()) return;
+     }
+     // 108F7AF0
+     if (snapshot.upgrades && runtime.session)
+         if (const auto players = runtime.session->Players())
+             if (const auto state = players->Upgrades(handle))
+                 state->RestoreProgress(snapshot.attributes, snapshot.experience);
+-    if (handle.Get<CBaseEntity>() != &player) return;
++    if (!current()) return;
+     // Spawn tail: health = max(1, restored health).
+     player.pev->health = std::fmax(1.0f, player.pev->health);
+     // Consumed once the game has started, for a non-bot player.
+-    if (gameStarted && !player.IsBot()) table.erase(Key(player));
++    if (gameStarted && !player.IsBot()) table.erase(key);
++    if (missingWeapon)
++        ALERT(at_warning, "[CSOL] Scenario chapter could not restore weapon ID %d\n", missingWeapon);
+ }
+diff --git a/native/csol/server/weapons/weapon_service.cpp b/native/csol/server/weapons/weapon_service.cpp
+--- a/native/csol/server/weapons/weapon_service.cpp
++++ b/native/csol/server/weapons/weapon_service.cpp
+@@ -408,44 +408,26 @@
+         const auto* info = CSOL_ItemInfo(weapon);
+         const bool human=scenario ? (player && player->m_iTeam==CT && CSOL_ScenarioCanBuy()) : CSOL_ZombieHuman(player);
+         return WeaponName(weapon) && player && player->IsAlive() && human &&
+-            CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(player) && info && info->pszName &&
+-            (!guest::cof::arsenal::Find(weapon) || (scenario && CSOL_CofArsenalReady(*player,weapon))) &&
+-            (!guest::cof::FindFirearm(weapon) || (scenario&&CSOL_GuestCofCanUse(*player,weapon))) &&
+-            !player->HasShield() && (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
++            info && info->pszName && ExtendedReady(*player, weapon, scenario);
++    }
++    static bool ExtendedReady(CBasePlayer& player, int weapon, bool scenario)
++    {
++        return CSOL_WeaponsReady() && CSOL_CanUseExtendedWeapons(&player) && !player.HasShield() &&
++            (!guest::cof::arsenal::Find(weapon) || (scenario && CSOL_CofArsenalReady(player, weapon))) &&
++            (!guest::cof::FindFirearm(weapon) || (scenario && CSOL_GuestCofCanUse(player, weapon))) &&
++            (weapon != CSOL_WEAPON_CANNON || CSOL_CannonReady()) &&
+             (weapon != CSOL_WEAPON_K3 || CSOL_K3Ready()) &&
+             (weapon != csol::m249ex::Id || CSOL_M249EXReady()) &&
+             (weapon != csol::skull1::Id || CSOL_Skull1Ready()) &&
+             (weapon != csol::skull2::Id || CSOL_Skull2Ready()) &&
+-            (weapon != csol::skull3::Id || CSOL_Skull3Ready()) &&
++            (!csol::skull3::IsWeapon(weapon) || CSOL_Skull3Ready()) &&
+             (weapon != csol::skull5::Id || CSOL_Skull5Ready()) &&
+             (weapon != csol::balrog11::Id || CSOL_Balrog11Ready()) &&
+-            (!csol::melee::IsWeapon(weapon) ||
+-                CSOL_MeleeReady(weapon));
++            (!csol::melee::IsWeapon(weapon) || CSOL_MeleeReady(weapon));
+     }
+     int Buy(int index, int weapon) override
+     {
+         return Deliver(index,weapon,false);
+-    }
+-    int Restore(int index, int weapon)
+-    {
+-        if (!CanDeliver(index, weapon, true)) return 0;
+-        WeaponPurchaseGuard guard(index);
+-        if(!guard.Allowed())return 0;
+-        auto* player = Player(index);
+-        if(const auto* item=guest::cof::arsenal::Find(weapon))
+-            return item->Melee() ? CSOL_DeliverMeleeWeapon(*player,weapon) : CSOL_GiveCofArsenalGun(*player,weapon);
+-        if(guest::cof::FindFirearm(weapon))return CSOL_DeliverGuestCof(*player,weapon);
+-        if (weapon==WEAPON_KNIFE || csol::melee::IsWeapon(weapon)) return CSOL_DeliverMeleeWeapon(*player,weapon);
+-        if(weapon==csol::m249ex::Id || weapon==csol::balrog11::Id || weapon==csol::skull1::Id || weapon==csol::skull2::Id || weapon==csol::skull3::Id || weapon==csol::skull5::Id)
+-            return CSOL_DeliverSkullBalrog(*player,weapon);
+-        if(weapon==CSOL_WEAPON_K3) return DeliverScenarioK3(*player);
+-        if (CSOL_HasWeapon(player, weapon)) return 1;
+-        const char* name = WeaponName(weapon);
+-        auto* entity = player->GiveNamedItemEx(name);
+-        auto* added = player->GetItemById(static_cast<WeaponIdType>(weapon));
+-        if (!entity || added != entity || !added->IsWeapon()) return 0;
+-        CSOL_UpdateWeaponInventory(player);
+-        return 1;
+     }
+     int Deliver(int index, int weapon, bool scenario)
+     {
+@@ -572,9 +554,55 @@
+ {
+     return player && CSOL_ScenarioCanBuy() && WeaponService{}.CanDeliver(player->entindex(),weapon,true);
+ }
+-bool CSOL_RestoreScenarioWeapon(CBasePlayer* player,int weapon)
+-{
+-    return player && WeaponService{}.Restore(player->entindex(),weapon);
++bool CSOL_RestoreScenarioWeapon(CBasePlayer* player, int weapon)
++{
++    CSOLScenarioSdkScope sdk;
++    if (!sdk.Scenario() || !sdk.Current() || !player || player->m_iTeam != CT ||
++        player->has_disconnected || !player->IsAlive()) return false;
++
++    // MP 114D9BD0 -> 114D8550 grants each saved, available ID through the
++    // item path. The current map's purchase window is irrelevant to a spawn.
++    const auto* info = CSOL_ItemInfo(weapon);
++    if (!info || !info->pszName || info->iId != weapon ||
++        (CSOL_ExtendedWeapon(weapon) && !WeaponService::ExtendedReady(*player, weapon, true))) return false;
++    WeaponPurchaseGuard guard(player->entindex());
++    if (!guard.Allowed()) return false;
++
++    const EHANDLE owner(player);
++    const int spawns = player->m_iNumSpawns;
++    const auto current = [&] {
++        return sdk.Current() && owner.Get<CBasePlayer>() == player &&
++            !player->has_disconnected && player->m_iNumSpawns == spawns && player->IsAlive();
++    };
++    const auto name = ALLOC_STRING(info->pszName);
++    if (!current()) return false;
++    auto* entity = CREATE_NAMED_ENTITY(name);
++    if (!current() || FNullEnt(entity)) return false;
++    const EHANDLE item(entity);
++    entity->v.origin = player->pev->origin;
++    entity->v.spawnflags |= SF_NORESPAWN;
++    // CoF firearms expose immediate acquisition only for one-shot grants.
++    if (guest::cof::FindFirearm(weapon)) entity->v.iuser4 = 1;
++    const int spawned = DispatchSpawn(entity);
++    const auto failed = [&] {
++        if (sdk.Current())
++            if (auto* unowned = item.Get<CBaseEntity>(); unowned && !unowned->pev->owner &&
++                !(unowned->pev->flags & FL_KILLME))
++                UTIL_Remove(unowned);
++        return false;
++    };
++    if (!current()) return failed();
++    auto* gun = dynamic_cast<CBasePlayerWeapon*>(item.Get<CBaseEntity>());
++    if (spawned < 0 || !gun || (gun->pev->flags & FL_KILLME) || gun->m_iId != weapon) return failed();
++    if (weapon == CSOL_WEAPON_K3 && !CSOL_ScenarioSetK3Identity(*gun)) return failed();
++    if ((weapon == WEAPON_KNIFE || csol::melee::IsWeapon(weapon)) &&
++        !CSOL_ScenarioSetMeleeIdentity(*gun)) return failed();
++    if (!current() || item.Get<CBaseEntity>() != gun) return failed();
++    DispatchTouch(item.Get(), owner.Get());
++    if (!current() || item.Get<CBaseEntity>() != gun || (gun->pev->flags & FL_KILLME) ||
++        gun->m_pPlayer != player || gun->pev->owner != owner.Get() ||
++        player->GetItemById(static_cast<WeaponIdType>(weapon)) != gun) return failed();
++    return true;
+ }
+ bool CSOL_DeliverScenarioWeapon(CBasePlayer* player,int weapon)
+ {
+diff --git a/native/csol/server/weapons/weapon_service.h b/native/csol/server/weapons/weapon_service.h
+--- a/native/csol/server/weapons/weapon_service.h
++++ b/native/csol/server/weapons/weapon_service.h
+@@ -9,7 +9,6 @@
+ // Delivery only; the C++ scenario shop validates eligibility and charges money.
+ bool CSOL_CanDeliverScenarioWeapon(CBasePlayer* player, int weapon);
+ bool CSOL_DeliverScenarioWeapon(CBasePlayer* player, int weapon);
+-// Chapter carry-over restore (MP 114D9BD0): after RemoveAllItems, each saved
+-// weapon is granted like GiveNamedItem. Unlike Deliver it neither drops other
+-// items in the same slot nor selects the weapon.
++// Chapter carry-over restore (MP 114D9BD0): grant a saved weapon through
++// native pickup. Sibling items in the same slot can coexist.
+ bool CSOL_RestoreScenarioWeapon(CBasePlayer* player, int weapon);

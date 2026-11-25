@@ -126,6 +126,9 @@ bool CSOL_ScenarioSkillReload(CBasePlayerWeapon& weapon);
 void CSOL_ScenarioPlayerSkillDied(CBasePlayer& player);
 bool CSOL_ScenarioSkillMaximumHealth(CBasePlayer& player, float base, float& maximum);
 std::shared_ptr<CCSOLScenarioRuntime> CSOL_ScenarioRuntimeForAccess(const CSOLScenarioEntityAccess* access);
+// trigger_nextmap: change to the maplist row ("zs_nextmap <id>") of the
+// current scenario chain. False when the row or its gameplay is unavailable.
+bool CSOL_RequestScenarioChapterMap(int mapId);
 std::uint32_t CSOL_ScenarioPassMask(int playerIndex);
 
 // Called inside ReGameDLL's existing ReAPI original-function wrappers. A
@@ -138,7 +141,7 @@ bool CSOL_ReadScenarioDamageScale(const CCSOLScenarioMap& map, float& value);
 bool CSOL_CompleteScenarioMonsterClearPoint(CSOLMonsterDeathCall& call,
     csol::scenario::ConfigError& error);
 bool CSOL_ScenarioHeGrenadeCreated(CBaseEntity& grenade);
-// Purchase-only source identity, applied to the new unowned K3 before Touch.
+// Bind the scenario source identity to a new unowned K3 before Touch.
 bool CSOL_ScenarioSetK3Identity(CBasePlayerWeapon& weapon);
 int CSOL_ScenarioProjectileSource(const CBaseEntity& entity);
 bool CSOL_ScenarioRestartRound(CHalfLifeMultiplay& rules);
@@ -148,6 +151,7 @@ bool CSOL_ScenarioPrepareSpawn(CHalfLifeMultiplay& rules, CBasePlayer& player);
 // reset. Cancellation must stop the caller before any more equipment access.
 enum class CSOLScenarioDefaultPrimary { Native, Granted, Cancelled };
 CSOLScenarioDefaultPrimary CSOL_ScenarioGiveDefaultPrimary(CBasePlayer& player);
+void CSOL_ScenarioFinishDefaultEquipment(CBasePlayer& player);
 bool CSOL_ScenarioCanRespawn(CHalfLifeMultiplay& rules, CBasePlayer& player, bool& allowed);
 bool CSOL_ScenarioTeamFull(CHalfLifeMultiplay& rules, int team, bool& full);
 bool CSOL_ScenarioHoldSpawn(CBasePlayer& player);
