@@ -4388,7 +4388,7 @@ index 63282c0..f3a3de6 100644
  	if (pev->team == UNASSIGNED || pev->team == pPlayer->m_iTeam)
  	{
 diff --git a/regamedll/dlls/util.cpp b/regamedll/dlls/util.cpp
-index e0ffed5..23c46f8 100644
+index e0ffed5..743a17c 100644
 --- a/regamedll/dlls/util.cpp
 +++ b/regamedll/dlls/util.cpp
 @@ -1,4 +1,10 @@
@@ -4461,7 +4461,29 @@ index e0ffed5..23c46f8 100644
  }
  
  BOOL UTIL_ShouldShowBlood(int color)
-@@ -1449,15 +1474,28 @@ void UTIL_BubbleTrail(Vector from, Vector to, int count)
+@@ -1105,15 +1130,16 @@ void UTIL_BloodDecalTrace(TraceResult *pTrace, int bloodColor)
+ }
+ 
+ void UTIL_DecalTrace(TraceResult *pTrace, int decalNumber)
++{
++	if (decalNumber >= 0)
++		UTIL_DecalTraceByIndex(pTrace, gDecals[decalNumber].index);
++}
++
++void UTIL_DecalTraceByIndex(TraceResult *pTrace, int index)
+ {
+ 	short entityIndex;
+-	int index;
+ 	int message;
+ 
+-	if (decalNumber < 0)
+-		return;
+-
+-	index = gDecals[decalNumber].index;
+ 	if (index < 0 || pTrace->flFraction == 1.0f)
+ 		return;
+ 
+@@ -1449,15 +1475,28 @@ void UTIL_BubbleTrail(Vector from, Vector to, int count)
  
  void UTIL_Remove(CBaseEntity *pEntity)
  {
@@ -4491,7 +4513,7 @@ index e0ffed5..23c46f8 100644
  
  	pEntity->pev->solid = SOLID_NOT;
  	pEntity->pev->flags |= FL_KILLME;
-@@ -1495,6 +1533,8 @@ void UTIL_RestartOther(const char *szClassname)
+@@ -1495,6 +1534,8 @@ void UTIL_RestartOther(const char *szClassname)
  	CBaseEntity *pEntity = nullptr;
  	while ((pEntity = UTIL_FindEntityByClassname(pEntity, szClassname)))
  	{
@@ -4500,7 +4522,7 @@ index e0ffed5..23c46f8 100644
  		pEntity->Restart();
  
  #ifdef REGAMEDLL_ADD
-@@ -1523,7 +1563,7 @@ void UTIL_ResetEntities()
+@@ -1523,7 +1564,7 @@ void UTIL_ResetEntities()
  		if ((caps & FCAP_MUST_RELEASE) == FCAP_MUST_RELEASE)
  			UTIL_Remove(pEntity);
  
@@ -4509,6 +4531,18 @@ index e0ffed5..23c46f8 100644
  			pEntity->Restart();
  	}
  }
+diff --git a/regamedll/dlls/util.h b/regamedll/dlls/util.h
+index f96be66..5c347fa 100644
+--- a/regamedll/dlls/util.h
++++ b/regamedll/dlls/util.h
+@@ -266,6 +266,7 @@ void UTIL_BloodDrips(const Vector &origin, int color, int amount);
+ Vector UTIL_RandomBloodVector();
+ void UTIL_BloodDecalTrace(TraceResult *pTrace, int bloodColor);
+ void UTIL_DecalTrace(TraceResult *pTrace, int decalNumber);
++void UTIL_DecalTraceByIndex(TraceResult *pTrace, int index);
+ void UTIL_PlayerDecalTrace(TraceResult *pTrace, int playernum, int decalNumber, BOOL bIsCustom);
+ void UTIL_GunshotDecalTrace(TraceResult *pTrace, int decalNumber, bool ClientOnly, entvars_t *pShooter);
+ void UTIL_Sparks(const Vector &position);
 diff --git a/regamedll/dlls/weapons.cpp b/regamedll/dlls/weapons.cpp
 index 6663e2e..b1184f2 100644
 --- a/regamedll/dlls/weapons.cpp

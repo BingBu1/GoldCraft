@@ -27,6 +27,7 @@ namespace
 // GoldSrc messages run on the server thread. Keep the open-packet guard outside
 // a map-owned object: a message hook can reset/replace that object before End.
 bool g_scenarioMessageOpen{};
+std::array<int, 2> g_gibSplashDecals{-1, -1};
 void WriteRawFloat(float value) { WRITE_LONG(std::bit_cast<std::int32_t>(value)); }
 struct ScenarioMessageScope
 {
@@ -90,6 +91,10 @@ bool CCSOLScenarioMessages::Register()
     m_respawnTextMessageId = respawnText;
     m_respawnHintMessageId = respawnHint;
     m_valueSyncMessageId = valueSync;
+    // The engine has already loaded its base decal catalog at startup.
+    g_gibSplashDecals = g_engfuncs.pfnDecalIndex
+        ? std::array{DECAL_INDEX("{bigblood1"), DECAL_INDEX("{bigblood2")}
+        : std::array{-1, -1};
     return true;
 }
 
@@ -1246,7 +1251,7 @@ void SendGibBurstBlood(const Vector& origin, const CSOLMonsterEffectGuard& guard
     const EHANDLE previousHit(previous.pHit);
     std::array<Vector, 13> marked{};
     std::size_t marks{};
-    const auto stain = [&](TraceResult& hit)
+    const auto stain = [&](TraceResult& hit, int largeDecal)
     {
         if (!IsGibDecalHit(hit)) return;
         for (std::size_t i = 0; i < marks; ++i)
@@ -1255,17 +1260,20 @@ void SendGibBurstBlood(const Vector& origin, const CSOLMonsterEffectGuard& guard
             if (DotProduct(delta, delta) < 16.0f * 16.0f) return;
         }
         marked[marks++] = hit.vecEndPos;
-        UTIL_BloodDecalTrace(&hit, BLOOD_COLOR_RED);
+        if (largeDecal >= 0 && largeDecal < 512)
+            UTIL_DecalTraceByIndex(&hit, largeDecal);
+        else
+            UTIL_BloodDecalTrace(&hit, BLOOD_COLOR_RED);
     };
 
     TraceResult down{};
     UTIL_TraceLine(origin, origin - Vector(0, 0, 128), ignore_monsters, nullptr, &down);
     if (!guard.Current()) return;
     const float depth = IsGibDecalHit(down) ? origin.z - down.vecEndPos.z + 8.0f : 72.0f;
-    stain(down);
+    stain(down, g_gibSplashDecals[0]);
 
-    // Alternate near and far marks on the floor, with four shallower rays
-    // for nearby walls. Every mark must have a clear path from the burst.
+    // Overlap the native large decals at the blast center. The rays with
+    // longer reach place smaller splashes and find nearby walls.
     constexpr float diagonal = 0.70710678f;
     const Vector directions[]{
         {1, 0, 0}, {diagonal, diagonal, 0}, {0, 1, 0}, {-diagonal, diagonal, 0},
@@ -1279,17 +1287,19 @@ void SendGibBurstBlood(const Vector& origin, const CSOLMonsterEffectGuard& guard
         if (!guard.Current()) return;
         const auto& axis = directions[i];
         const Vector direction(axis.x * cosine - axis.y * sine, axis.x * sine + axis.y * cosine, 0);
+        const bool core = i % 4 == 0;
+        const float reach = core ? 32.0f : (i % 2 == 0 ? 58.0f : 132.0f);
         TraceResult hit{};
-        UTIL_TraceLine(origin, origin + direction * (i % 2 == 0 ? 64.0f : 132.0f) -
+        UTIL_TraceLine(origin, origin + direction * reach -
             Vector(0, 0, depth), ignore_monsters, nullptr, &hit);
         if (!guard.Current()) return;
-        stain(hit);
+        stain(hit, core ? g_gibSplashDecals[1] : -1);
         if (i % 2 != 0) continue;
         if (!guard.Current()) return;
         UTIL_TraceLine(origin, origin + direction * 144.0f + Vector(0, 0, 12),
             ignore_monsters, nullptr, &hit);
         if (!guard.Current()) return;
-        stain(hit);
+        stain(hit, -1);
     }
     if (!guard.Current()) return;
     gpGlobals->trace_fraction = previous.flFraction;
