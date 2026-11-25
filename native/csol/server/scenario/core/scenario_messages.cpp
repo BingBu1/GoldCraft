@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "precompiled.h"
 #include "scenario_messages.h"
+#include "scenario_zombie_gibs.h"
 #include "../../damage_numbers.h"
 #include "../../../scenario/core/scenario_abilities.hpp"
 #include "../../../scenario/monsters/scenario_monster_effects.hpp"
@@ -1219,6 +1220,196 @@ bool CCSOLScenarioMessages::SendTeddyTentacleShake(edict_s* recipient) const
     return true;
 }
 
+namespace
+{
+bool ZombieGibBloodEnabled()
+{
+    return g_Language != LANGUAGE_GERMAN && UTIL_ShouldShowBlood(BLOOD_COLOR_RED);
+}
+
+bool IsGibDecalHit(const TraceResult& hit)
+{
+    return !hit.fAllSolid && !hit.fStartSolid && hit.flFraction < 1.0f && hit.pHit &&
+        !hit.pHit->free && !(hit.pHit->v.flags & FL_KILLME) &&
+        (hit.pHit->v.solid == SOLID_BSP || hit.pHit->v.movetype == MOVETYPE_PUSHSTEP);
+}
+
+void SendGibBurstBlood(const Vector& origin, const CSOLMonsterEffectGuard& guard)
+{
+    if (g_pGameRules && g_sModelIndexBloodSpray && g_sModelIndexBloodDrop)
+        UTIL_BloodDrips(origin, BLOOD_COLOR_RED, 80);
+    if (!g_engfuncs.pfnTraceLine || !guard.Current()) return;
+
+    // Leave the killing attack's engine trace in place after these visual rays.
+    const auto previous = UTIL_GetGlobalTrace();
+    const int traceFlags = gpGlobals->trace_flags;
+    const EHANDLE previousHit(previous.pHit);
+    std::array<Vector, 13> marked{};
+    std::size_t marks{};
+    const auto stain = [&](TraceResult& hit)
+    {
+        if (!IsGibDecalHit(hit)) return;
+        for (std::size_t i = 0; i < marks; ++i)
+        {
+            const auto delta = hit.vecEndPos - marked[i];
+            if (DotProduct(delta, delta) < 16.0f * 16.0f) return;
+        }
+        marked[marks++] = hit.vecEndPos;
+        UTIL_BloodDecalTrace(&hit, BLOOD_COLOR_RED);
+    };
+
+    TraceResult down{};
+    UTIL_TraceLine(origin, origin - Vector(0, 0, 128), ignore_monsters, nullptr, &down);
+    if (!guard.Current()) return;
+    const float depth = IsGibDecalHit(down) ? origin.z - down.vecEndPos.z + 8.0f : 72.0f;
+    stain(down);
+
+    // Alternate near and far marks on the floor, with four shallower rays
+    // for nearby walls. Every mark must have a clear path from the burst.
+    constexpr float diagonal = 0.70710678f;
+    const Vector directions[]{
+        {1, 0, 0}, {diagonal, diagonal, 0}, {0, 1, 0}, {-diagonal, diagonal, 0},
+        {-1, 0, 0}, {-diagonal, -diagonal, 0}, {0, -1, 0}, {diagonal, -diagonal, 0}
+    };
+    const float yaw = g_engfuncs.pfnRandomFloat ? RANDOM_FLOAT(0.0f, 6.2831853f) : 0.0f;
+    const float cosine = std::cos(yaw);
+    const float sine = std::sin(yaw);
+    for (std::size_t i = 0; i < std::size(directions); ++i)
+    {
+        if (!guard.Current()) return;
+        const auto& axis = directions[i];
+        const Vector direction(axis.x * cosine - axis.y * sine, axis.x * sine + axis.y * cosine, 0);
+        TraceResult hit{};
+        UTIL_TraceLine(origin, origin + direction * (i % 2 == 0 ? 64.0f : 132.0f) -
+            Vector(0, 0, depth), ignore_monsters, nullptr, &hit);
+        if (!guard.Current()) return;
+        stain(hit);
+        if (i % 2 != 0) continue;
+        if (!guard.Current()) return;
+        UTIL_TraceLine(origin, origin + direction * 144.0f + Vector(0, 0, 12),
+            ignore_monsters, nullptr, &hit);
+        if (!guard.Current()) return;
+        stain(hit);
+    }
+    if (!guard.Current()) return;
+    gpGlobals->trace_fraction = previous.flFraction;
+    gpGlobals->trace_allsolid = static_cast<float>(previous.fAllSolid);
+    gpGlobals->trace_startsolid = static_cast<float>(previous.fStartSolid);
+    gpGlobals->trace_inopen = static_cast<float>(previous.fInOpen);
+    gpGlobals->trace_inwater = static_cast<float>(previous.fInWater);
+    gpGlobals->trace_endpos = previous.vecEndPos;
+    gpGlobals->trace_plane_normal = previous.vecPlaneNormal;
+    gpGlobals->trace_plane_dist = previous.flPlaneDist;
+    gpGlobals->trace_ent = previousHit.Get();
+    gpGlobals->trace_hitgroup = previous.iHitgroup;
+    gpGlobals->trace_flags = traceFlags;
+}
+
+#ifdef REGAMEDLL_API
+string_t g_zombieGibClass{};
+int g_zombieGibsAlive{};
+
+class CCSOLZombieGib final : public CGib
+{
+public:
+    int ObjectCaps() override { return CGib::ObjectCaps() | FCAP_MUST_RELEASE; }
+    void OnCreate() override { ++g_zombieGibsAlive; }
+    void OnDestroy() override { --g_zombieGibsAlive; }
+
+    void StainImpact(edict_t* surface)
+    {
+        if (!m_cBloodDecals || (pev->flags & FL_KILLME) || g_scenarioMessageOpen) return;
+        auto hit = UTIL_GetGlobalTrace();
+        if (hit.pHit != surface || !IsGibDecalHit(hit)) return;
+        // Resting pieces can touch the same plane repeatedly on consecutive
+        // physics ticks. Preserve distinct marks on a floor and adjacent wall.
+        const auto delta = hit.vecEndPos - m_lastMark;
+        if (m_marked && DotProduct(delta, delta) < 16.0f * 16.0f &&
+            DotProduct(hit.vecPlaneNormal, m_lastNormal) > 0.9f) return;
+        if (!ZombieGibBloodEnabled()) return;
+        m_marked = true;
+        m_lastMark = hit.vecEndPos;
+        m_lastNormal = hit.vecPlaneNormal;
+        --m_cBloodDecals;
+        const ScenarioMessageScope scope;
+        UTIL_BloodDecalTrace(&hit, BLOOD_COLOR_RED);
+    }
+
+private:
+    Vector m_lastMark{}, m_lastNormal{};
+    bool m_marked{};
+};
+
+bool SpawnBloodGibs(const Vector& origin, CSOLZombieGibModels models, int count,
+    const CSOLMonsterEffectGuard& guard)
+{
+    constexpr int maxLivePieces = 40;
+    if (g_zombieGibsAlive + count > maxLivePieces || !g_engfuncs.pfnCreateEntity ||
+        !g_engfuncs.pfnPvAllocEntPrivateData || !g_engfuncs.pfnSetModel ||
+        !g_engfuncs.pfnSetSize || !g_engfuncs.pfnSetOrigin || !g_engfuncs.pfnRandomFloat) return false;
+    const auto names = CSOL_ScenarioGibModelNames({models.flesh, models.skull, models.legBone}, count);
+    if (!names[0]) return false;
+
+    std::array<EHANDLE, 5> pieces{};
+    const float rotation = RANDOM_FLOAT(0.0f, 6.2831853f);
+    for (int i = 0; i < count && guard.Current(); ++i)
+    {
+        const bool skull = i == 0 && names[1];
+        const bool bone = i == 1 && names[2];
+        auto* edict = CREATE_ENTITY();
+        if (!edict || !guard.Current()) break;
+        pieces[i] = EHANDLE(edict);
+        auto* gib = GetClassPtr<CCSGib>(reinterpret_cast<CCSOLZombieGib*>(&edict->v));
+        if (!guard.Current() || pieces[i].Get() != edict || (edict->v.flags & FL_KILLME)) break;
+        gib->pev->origin = origin;
+        gib->Spawn(names[skull ? 1 : bone ? 2 : 0]);
+        if (!guard.Current() || pieces[i].Get() != edict || (edict->v.flags & FL_KILLME)) break;
+
+        // A non-solid bounce still sweeps against BSP. GoldSrc links it into
+        // the visibility leaves without linking it into solids or triggers.
+        MAKE_STRING_CLASS("csol_zombie_gib", gib->pev);
+        g_zombieGibClass = gib->pev->classname;
+        gib->pev->solid = SOLID_NOT;
+        gib->SetTouch(nullptr);
+        gib->m_bloodColor = BLOOD_COLOR_RED;
+        gib->m_cBloodDecals = 3;
+        gib->SetThink(&CBaseEntity::SUB_Remove);
+        gib->pev->nextthink = gpGlobals->time + 3.0f;
+        const float yaw = rotation + (6.2831853f / static_cast<float>(count)) * static_cast<float>(i);
+        const float speed = RANDOM_FLOAT(115.0f, 215.0f);
+        gib->pev->velocity = {std::cos(yaw) * speed, std::sin(yaw) * speed,
+            RANDOM_FLOAT(155.0f, 240.0f) + (skull ? 32.0f : 0.0f)};
+        gib->pev->avelocity = {RANDOM_FLOAT(100.0f, 220.0f), RANDOM_FLOAT(120.0f, 300.0f), 0};
+        SET_ORIGIN(edict, origin);
+        if (!guard.Current() || pieces[i].Get() != edict || (edict->v.flags & FL_KILLME)) break;
+        if (i + 1 == count) return true;
+    }
+
+    // An allocation or engine callback can retire a piece during setup.
+    // Remove the partial group before falling back to the temporary models.
+    if (guard.Current())
+        for (auto& piece : pieces)
+            if (auto* gib = piece.Get<CBaseEntity>()) UTIL_Remove(gib);
+    return false;
+}
+#endif
+}
+
+bool CSOL_ZombieGibImpact(edict_t* surface, edict_t* moving)
+{
+#ifdef REGAMEDLL_API
+    if (g_zombieGibsAlive && moving && !moving->free && moving->v.classname == g_zombieGibClass)
+    {
+        if (auto* gib = dynamic_cast<CCSOLZombieGib*>(GET_PRIVATE<CBaseEntity>(moving)))
+        {
+            gib->StainImpact(surface);
+            return true;
+        }
+    }
+#endif
+    return false;
+}
+
 bool CCSOLScenarioMessages::SendZombieGibs(const Vector& origin, CSOLZombieGibModels models,
     int count, const CSOLMonsterEffectGuard& guard) const
 {
@@ -1233,7 +1424,18 @@ bool CCSOLScenarioMessages::SendZombieGibs(const Vector& origin, CSOLZombieGibMo
         !csol::cso_tent::detail::Coord(origin.z, z) ||
         (models.skull && !csol::cso_tent::detail::Coord(origin.z + 16.0f, skullZ))) return false;
 
+    if (!guard.Current()) return false;
     const ScenarioMessageScope scope;
+    const bool blood = gpGlobals && g_engfuncs.pfnCVarGetFloat && g_engfuncs.pfnRandomLong &&
+        ZombieGibBloodEnabled();
+#ifdef REGAMEDLL_API
+    if (blood && SpawnBloodGibs(origin, models, count, guard))
+    {
+        SendGibBurstBlood(origin, guard);
+        return guard.Current();
+    }
+#endif
+    if (!guard.Current()) return false;
     const auto emit = [&](int model, int pieces, std::int16_t height, const Vector& extent,
                           int lift, int spread)
     {
@@ -1264,7 +1466,8 @@ bool CCSOLScenarioMessages::SendZombieGibs(const Vector& origin, CSOLZombieGibMo
         --count;
     }
     emit(models.flesh, count, z, {30, 30, 32}, 195, 18);
-    return true;
+    if (blood && guard.Current()) SendGibBurstBlood(origin, guard);
+    return guard.Current();
 }
 
 bool CCSOLScenarioMessages::SendTeddyTentacleDebris(const float* origin, int modelIndex, int count) const

@@ -199,20 +199,21 @@ index 16ad768..4b5e6cc 100644
  				pBot->m_attacker = nullptr;
  
 diff --git a/regamedll/dlls/cbase.cpp b/regamedll/dlls/cbase.cpp
-index e6edc87..34a0c57 100644
+index e6edc87..2762418 100644
 --- a/regamedll/dlls/cbase.cpp
 +++ b/regamedll/dlls/cbase.cpp
-@@ -1,4 +1,9 @@
+@@ -1,4 +1,10 @@
  #include "precompiled.h"
 +#include "../../../../native/csol/server/custom/body_stains.h"
 +#include "../../../../native/csol/server/weapons/guest_cof_host.hpp"
 +#include "../../../../native/server/bridge.h"
 +#include "../../../../native/csol/server/scenario/core/game_rules_gate.h"
 +#include "../../../../native/csol/server/scenario/core/scenario_breakable_guard.h"
++#include "../../../../native/csol/server/scenario/core/scenario_zombie_gibs.h"
  
  DLL_FUNCTIONS gFunctionTable =
  {
-@@ -314,6 +319,25 @@ C_DLLEXPORT int GetNewDLLFunctions(NEW_DLL_FUNCTIONS *pFunctionTable, int *inter
+@@ -314,6 +320,25 @@ C_DLLEXPORT int GetNewDLLFunctions(NEW_DLL_FUNCTIONS *pFunctionTable, int *inter
  
  int DispatchSpawn(edict_t *pent)
  {
@@ -238,7 +239,7 @@ index e6edc87..34a0c57 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pent);
  	if (pEntity)
  	{
-@@ -321,6 +345,7 @@ int DispatchSpawn(edict_t *pent)
+@@ -321,6 +346,7 @@ int DispatchSpawn(edict_t *pent)
  		pEntity->pev->absmin = pEntity->pev->origin - Vector(1, 1, 1);
  		pEntity->pev->absmax = pEntity->pev->origin + Vector(1, 1, 1);
  		pEntity->Spawn();
@@ -246,7 +247,7 @@ index e6edc87..34a0c57 100644
  
  		// Try to get the pointer again, in case the spawn function deleted the entity.
  		// UNDONE: Spawn() should really return a code to ask that the entity be deleted, but
-@@ -329,7 +354,9 @@ int DispatchSpawn(edict_t *pent)
+@@ -329,7 +355,9 @@ int DispatchSpawn(edict_t *pent)
  
  		if (pEntity)
  		{
@@ -257,19 +258,20 @@ index e6edc87..34a0c57 100644
  			{
  				// return that this entity should be deleted
  				return -1;
-@@ -394,6 +421,11 @@ void DispatchKeyValue(edict_t *pentKeyvalue, KeyValueData *pkvd)
+@@ -394,6 +422,12 @@ void DispatchKeyValue(edict_t *pentKeyvalue, KeyValueData *pkvd)
  // while it builds the graph
  void DispatchTouch(edict_t *pentTouched, edict_t *pentOther)
  {
 +	CSOLScenarioSdkScope scope;
 +	if (!scope.Current()) return;
 +	if (CSOL_RulesRejected()) return;
++	if (CSOL_ZombieGibImpact(pentTouched, pentOther)) return;
 +    GoldCraft_EntityTouched(pentTouched,pentOther);
 +	if (!scope.Current()) return;
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pentTouched);
  	CBaseEntity *pOther = GET_PRIVATE<CBaseEntity>(pentOther);
  
-@@ -403,6 +435,9 @@ void DispatchTouch(edict_t *pentTouched, edict_t *pentOther)
+@@ -403,6 +437,9 @@ void DispatchTouch(edict_t *pentTouched, edict_t *pentOther)
  
  void DispatchUse(edict_t *pentUsed, edict_t *pentOther)
  {
@@ -279,7 +281,7 @@ index e6edc87..34a0c57 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pentUsed);
  	CBaseEntity *pOther = GET_PRIVATE<CBaseEntity>(pentOther);
  
-@@ -412,6 +447,13 @@ void DispatchUse(edict_t *pentUsed, edict_t *pentOther)
+@@ -412,6 +449,13 @@ void DispatchUse(edict_t *pentUsed, edict_t *pentOther)
  
  void DispatchThink(edict_t *pent)
  {
@@ -293,7 +295,7 @@ index e6edc87..34a0c57 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pent);
  
  	if (pEntity)
-@@ -419,6 +461,7 @@ void DispatchThink(edict_t *pent)
+@@ -419,6 +463,7 @@ void DispatchThink(edict_t *pent)
  		if (pEntity->IsDormant())
  		{
  			ALERT(at_error, "Dormant entity %s is thinking!!\n", STRING(pEntity->pev->classname));
@@ -301,7 +303,7 @@ index e6edc87..34a0c57 100644
  		}
  
  		pEntity->Think();
-@@ -427,6 +470,9 @@ void DispatchThink(edict_t *pent)
+@@ -427,6 +472,9 @@ void DispatchThink(edict_t *pent)
  
  void DispatchBlocked(edict_t *pentBlocked, edict_t *pentOther)
  {
@@ -311,7 +313,7 @@ index e6edc87..34a0c57 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pentBlocked);
  	CBaseEntity *pOther = GET_PRIVATE<CBaseEntity>(pentOther);
  
-@@ -633,17 +679,18 @@ void SaveReadFields(SAVERESTOREDATA *pSaveData, const char *pname, void *pBaseDa
+@@ -633,17 +681,18 @@ void SaveReadFields(SAVERESTOREDATA *pSaveData, const char *pname, void *pBaseDa
  
  BOOL CBaseEntity::TakeHealth(float flHealth, int bitsDamageType)
  {
@@ -333,7 +335,7 @@ index e6edc87..34a0c57 100644
  	}
  
  	return TRUE;
-@@ -651,7 +698,8 @@ BOOL CBaseEntity::TakeHealth(float flHealth, int bitsDamageType)
+@@ -651,7 +700,8 @@ BOOL CBaseEntity::TakeHealth(float flHealth, int bitsDamageType)
  
  bool CBaseEntity::CanTakeHealth(float flHealth) const
  {
@@ -343,7 +345,7 @@ index e6edc87..34a0c57 100644
  		return false;
  
  	return true;
-@@ -745,8 +793,10 @@ TYPEDESCRIPTION	CBaseEntity::m_SaveData[] =
+@@ -745,8 +795,10 @@ TYPEDESCRIPTION	CBaseEntity::m_SaveData[] =
  
  int CBaseEntity::Save(CSave &save)
  {
@@ -354,7 +356,7 @@ index e6edc87..34a0c57 100644
  		return save.WriteFields("BASE", this, m_SaveData, ARRAYSIZE(m_SaveData));
  	}
  
-@@ -755,10 +805,13 @@ int CBaseEntity::Save(CSave &save)
+@@ -755,10 +807,13 @@ int CBaseEntity::Save(CSave &save)
  
  int CBaseEntity::Restore(CRestore &restore)
  {
@@ -368,7 +370,7 @@ index e6edc87..34a0c57 100644
  	}
  
  	if (pev->modelindex != 0 && !FStringNull(pev->model))
-@@ -770,10 +823,13 @@ int CBaseEntity::Restore(CRestore &restore)
+@@ -770,10 +825,13 @@ int CBaseEntity::Restore(CRestore &restore)
  		maxs = pev->maxs;
  
  		PRECACHE_MODEL((char *)STRING(pev->model));
@@ -382,7 +384,7 @@ index e6edc87..34a0c57 100644
  	}
  
  	return status;
-@@ -1036,6 +1092,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
+@@ -1036,6 +1094,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
  		pevAttacker = pev;
  	}
  
@@ -390,7 +392,7 @@ index e6edc87..34a0c57 100644
  	ClearMultiDamage();
  	gMultiDamage.type = (DMG_BULLET | DMG_NEVERGIB);
  
-@@ -1101,7 +1158,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
+@@ -1101,7 +1160,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
  
  			if (iDamage)
  			{
@@ -399,7 +401,7 @@ index e6edc87..34a0c57 100644
  				TEXTURETYPE_PlaySound(&tr, vecSrc, vecEnd, iBulletType);
  				DecalGunshot(&tr, iBulletType, false, pev, false);
  			}
-@@ -1112,27 +1169,27 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
+@@ -1112,27 +1171,27 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
  				switch (iBulletType)
  				{
  				case BULLET_PLAYER_MP5:
@@ -433,7 +435,7 @@ index e6edc87..34a0c57 100644
  
  					if (!tracer)
  					{
-@@ -1142,7 +1199,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
+@@ -1142,7 +1201,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
  					break;
  				case BULLET_NONE:
  					flDamage = 50;
@@ -442,7 +444,7 @@ index e6edc87..34a0c57 100644
  					TEXTURETYPE_PlaySound(&tr, vecSrc, vecEnd, iBulletType);
  
  					// only decal glass
-@@ -1152,7 +1209,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
+@@ -1152,7 +1211,7 @@ void CBaseEntity::__API_HOOK(FireBullets)(ULONG cShots, VectorRef vecSrc, Vector
  					}
  					break;
  				default:
@@ -451,7 +453,7 @@ index e6edc87..34a0c57 100644
  					break;
  				}
  			}
-@@ -1184,6 +1241,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
+@@ -1184,6 +1243,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
  		pevAttacker = pev;
  	}
  
@@ -459,7 +461,7 @@ index e6edc87..34a0c57 100644
  	ClearMultiDamage();
  	gMultiDamage.type = (DMG_BULLET | DMG_NEVERGIB);
  
-@@ -1245,7 +1303,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
+@@ -1245,7 +1305,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
  		{
  			CBaseEntity *pEntity = CBaseEntity::Instance(tr.pHit);
  			float flDamage = ((1 - tr.flFraction) * iDamage);
@@ -468,7 +470,7 @@ index e6edc87..34a0c57 100644
  		}
  
  		// make bullet trails
-@@ -1257,7 +1315,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
+@@ -1257,7 +1317,7 @@ void CBaseEntity::__API_HOOK(FireBuckshots)(ULONG cShots, VectorRef vecSrc, Vect
  
  bool EXT_FUNC IsPenetrableEntity_default(Vector &vecSrc, Vector &vecEnd, entvars_t *pevAttacker, edict_t *pHit)
  {
@@ -477,7 +479,7 @@ index e6edc87..34a0c57 100644
  }
  
  
-@@ -1360,6 +1418,7 @@ VectorRef CBaseEntity::__API_HOOK(FireBullets3)(VectorRef vecSrc, VectorRef vecD
+@@ -1360,6 +1420,7 @@ VectorRef CBaseEntity::__API_HOOK(FireBullets3)(VectorRef vecSrc, VectorRef vecD
  
  	float flDamageModifier = 0.5;
  
@@ -485,7 +487,7 @@ index e6edc87..34a0c57 100644
  	int iStartPenetration = iPenetration;
  	while (iPenetration != 0)
  	{
-@@ -1465,7 +1524,7 @@ VectorRef CBaseEntity::__API_HOOK(FireBullets3)(VectorRef vecSrc, VectorRef vecD
+@@ -1465,7 +1526,7 @@ VectorRef CBaseEntity::__API_HOOK(FireBullets3)(VectorRef vecSrc, VectorRef vecD
  			vecEnd = vecSrc + (vecDir * flDistance);
  
  			pEntity->SetDmgPenetrationLevel(iStartPenetration - iPenetrationCur);
@@ -494,7 +496,7 @@ index e6edc87..34a0c57 100644
  			iCurrentDamage *= flDamageModifier;
  		}
  		else
-@@ -1611,11 +1670,17 @@ void CBaseEntity::SUB_FadeOut()
+@@ -1611,11 +1672,17 @@ void CBaseEntity::SUB_FadeOut()
  
  void OnGameShutdown()
  {
@@ -512,7 +514,7 @@ index e6edc87..34a0c57 100644
  	CBaseEntity *pEntity = GET_PRIVATE<CBaseEntity>(pEnt);
  	if (!pEntity)
  		return;
-@@ -1624,21 +1689,40 @@ void OnFreeEntPrivateData(edict_t *pEnt)
+@@ -1624,21 +1691,40 @@ void OnFreeEntPrivateData(edict_t *pEnt)
  	// FIXED: Ensure this item will be removed from the owner player's inventory 'm_rgpPlayerItems[]'
  	// to avoid dangling pointers
  	CBasePlayerItem *pItem = dynamic_cast<CBasePlayerItem *>(pEntity);
