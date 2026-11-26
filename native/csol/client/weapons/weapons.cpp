@@ -631,6 +631,21 @@ void ResetWeapons(bool forgetRegistration)
     // Clearing only our fields leaves the stock slot commands hidden as well.
     ApplyNativeWeaponVisibility();
 }
+int AtAttackKnifeHudId()
+{
+    return at_attack::giantKnifeSelected ? at_attack::StockKnifeId : 0;
+}
+
+int AtAttackFuel()
+{
+    return at_attack::fuel;
+}
+
+void ClearAtAttackFuel()
+{
+    at_attack::fuel = -1;
+}
+
 void ShutdownWeapons()
 {
     at_attack::Reset();

@@ -37,7 +37,7 @@ TITLE_KEYS = {
     # HW 38312AD8+10 -> #CSO_SKULL3; 379ED940/379EAAB0 consume this field.
     'skull3d': 'skull3',
 }
-VERIFIED_COMMON_KNIVES = frozenset(('dragonsword', 'skullaxe'))
+VERIFIED_COMMON_KNIVES = frozenset(('dragonsword', 'skullaxe', 'giantknife'))
 VERIFIED_COMMON_WEAPONS = frozenset(('tknifeex2', 'cannon', 'k3', 'beamgun', 'beamgunle',
     'm249ex', 'balrog11', 'skull1', 'skull2', 'skull3', 'skull3d', 'skull5')) | VERIFIED_COMMON_KNIVES
 
@@ -273,14 +273,18 @@ def catalog_weapons(data):
     match = re.search(r'constexpr Item items\[\]\s*\{(.*?)\n\};', data.decode('utf-8-sig'), re.S)
     if not match:
         raise ValueError('Missing buy::Catalog items declaration')
-    rows = re.findall(r'\{\s*(\d+),\s*(\d+),\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)",\s*(\d+)\s*(?:,\s*WeaponSlot::Melee\s*)?\}', match[1])
-    if len(rows) != match[1].count('{'):
+    # Lights use named catalog fields in their initializers; their cards, like
+    # CofItem entries, are exported by the corresponding guest resource tool.
+    body = re.sub(r'\{\s*guest::cof::light::\w+\.id,[^{}]*,\s*WeaponSource::Cof\s*\}', '', match[1])
+    rows = re.findall(
+        r'\{\s*(\d+),\s*(\d+),\s*"([^"]*)",\s*"([^"]*)",\s*"([^"]*)",\s*(\d+)'
+        r'\s*(?:,\s*WeaponSlot::(?:Melee|ByCategory)\s*)?(?:,\s*WeaponSource::(Csol|Cof)\s*)?\}', body)
+    if len(rows) != body.count('{'):
         raise ValueError('Unsupported buy::Catalog row syntax')
     names = []
-    for ident, category, alias, title, icon, price in rows:
-        # Authored foreign-game art is supplied by its own resource exporter.
-        # It has no original CSO translation or weapon/knife table identity.
-        if (int(ident), alias) == (896, 'cof_glock'):
+    for ident, category, alias, title, icon, price, source in rows:
+        # Guest art has no original CSO translation or weapon table identity.
+        if source == 'Cof' or (int(ident), alias) == (896, 'cof_glock'):
             continue
         if int(category) in (6, 7) or alias in ('vest', 'vesthelm'):
             continue
@@ -391,6 +395,9 @@ def prepare(source, output, stock_source=None):
             if name in VERIFIED_COMMON_KNIVES else
             sprite_rows(common(f'sprites/weapon_{name}.txt') if atlas_root == source else
                 read(atlas_root/f'sprites/weapon_{name}.txt'), {'weapon','weapon_s','ammo','ammo2'}))
+        if name == 'giantknife':
+            # Original client 02A26E60 applies the weapon row after the knife table.
+            rows.update(sprite_rows(common(f'sprites/weapon_knife_{name}.txt'), {'weapon'}))
         item = dict(name='weapon_' + name, title=title)
         for kind, dimensions in (('weapon', (170,45)), ('ammo', (24,24)), ('ammo2', (24,24))):
             row = rows.get((kind, 640))

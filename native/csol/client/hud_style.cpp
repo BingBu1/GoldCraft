@@ -6,6 +6,7 @@
 #include "hud_style.hpp"
 #include "user_message_chain.hpp"
 #include "weapons/weapon_inventory.hpp"
+#include "weapons/weapons.hpp"
 #include "characters.hpp"
 #include "scenario/core/scenario_upgrades.hpp"
 #include "../image_codec.hpp"
@@ -60,6 +61,8 @@ struct SelectionCard
 };
 std::unordered_map<int,SelectionCard> selectionCards;
 std::array<SelectionCard*,WeaponIdLimit> preparedCards{};
+const std::string giantKnifeCardName{"weapon_giantknife"};
+SelectionCard giantKnifeCard;
 std::uint64_t cardsRevision=~std::uint64_t{};
 ULONGLONG cardsRetryAfter{};
 struct SelectionRow
@@ -73,7 +76,7 @@ struct SelectionRow
 };
 std::vector<SelectionRow> selectionRows;
 bool selectionReady{};
-int preparedSelection{},preparedEquipped{};
+int preparedSelection{},preparedEquipped{},preparedKnife{};
 std::uint64_t preparedSelectionRevision{};
 ULONGLONG listRetryAfter{};
 vgui::HFont titleFont{};
@@ -99,6 +102,16 @@ void ReleaseAmmoFrames(SelectionCard& card)
     for(unsigned i=1;i<card.ammoFrames.size();++i)Delete(card.ammoFrames[i]);
     card.ammoFrames={};
 }
+void ReleaseWeaponCard(SelectionCard& card)
+{
+    ReleaseAmmoFrames(card);
+    if (card.selectedImage.id == card.image.id) card.selectedImage = {};
+    Delete(card.image);
+    Delete(card.selectedImage);
+    Delete(card.ammo);
+    Delete(card.secondary);
+    card = {};
+}
 Texture Upload(const Image& image)
 {
     if (!image.Width || !image.Height || image.Width > 2048 || image.Height > 2048)
@@ -115,7 +128,8 @@ void ReleaseBase()
     for (unsigned i=0;i<unsigned(hud::Art::MoneyBackground);++i) Delete(art[i]);
     for (auto& texture : digits) Delete(texture);
     Delete(portrait);weaponImage=ammoImage=secondaryImage={};
-    for(auto& [id,card]:selectionCards){ReleaseAmmoFrames(card);Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);}
+    for (auto& [id,card] : selectionCards) ReleaseWeaponCard(card);
+    ReleaseWeaponCard(giantKnifeCard);
     preparedCards={};cardsRevision=~std::uint64_t{};cardsRetryAfter=0;
     selectionCards.clear();selectionRows.clear();selectionReady=false;preparedSelection=0;listRetryAfter=0;
     SetWeaponSelectionHudVisible(false);
@@ -239,22 +253,24 @@ void PrepareMoney()
 // Original x86 CHudAmmo 02A25500..02A25C49; current x64 18140FDC0.
 // Deploy publishes MPToCL83's player weapon identity (MP1153D7BB), holster
 // publishes -1 (11541B8C). CHudAmmo keeps that off-row before pending items.
-void PrepareWeaponCard(int id)
+void PrepareWeaponCard(int id, bool giantKnife = false)
 {
     const auto* definition=FindWeaponDefinition(id);
     if(!definition || !ValidWeaponId(id))return;
-    const auto image=catalog.weapons.find(definition->name);
+    const auto& name=giantKnife?giantKnifeCardName:definition->name;
+    const auto image=catalog.weapons.find(name);
     if(image==catalog.weapons.end())return;
     const auto* titleDefinition=FindWeaponTitleDefinition(id);
-    const auto title=titleDefinition?catalog.weapons.find(titleDefinition->name):catalog.weapons.end();
+    if(!titleDefinition)return;
+    const auto title=giantKnife?image:catalog.weapons.find(titleDefinition->name);
     if(title==catalog.weapons.end())return;
-    auto& card=selectionCards[id];
-    if(card.name!=definition->name)
+    auto& card=giantKnife?giantKnifeCard:selectionCards[id];
+    if(card.name!=name)
     {
-        ReleaseAmmoFrames(card);Delete(card.image);Delete(card.selectedImage);Delete(card.ammo);Delete(card.secondary);
-        card={};card.name=definition->name;
+        ReleaseWeaponCard(card);
+        card.name=name;
     }
-    preparedCards[id]=&card;
+    if(!giantKnife)preparedCards[id]=&card;
     try
     {
         if(card.titleId!=titleDefinition->id || card.titleSlot!=titleDefinition->slot)
@@ -301,7 +317,10 @@ void PrepareWeaponCard(int id)
         card.selectedAbsent=card.selectedKnown && image->second.selected.empty();
         if(!card.selectedImage.id && !image->second.selected.empty() && now>=card.selectedRetryAfter)
         {
-            card.selectedRetryAfter=now+5000;card.selectedImage=Load(image->second.selected.c_str());
+            // 02A5D130 supplies the same original image to both knife rows.
+            card.selectedRetryAfter=now+5000;
+            card.selectedImage=image->second.selected==image->second.weapon
+                ?card.image:Load(image->second.selected.c_str());
         }
     }
     catch(const std::exception& error)
@@ -310,11 +329,17 @@ void PrepareWeaponCard(int id)
         reported=true;
     }
 }
+const SelectionCard* PreparedWeaponCard(const WeaponDefinition& definition, int knife)
+{
+    if(definition.id==knife)return giantKnifeCard.equippedReady?&giantKnifeCard:nullptr;
+    const auto* card=preparedCards[definition.id];
+    return card && card->name==definition.name?card:nullptr;
+}
 void UsePreparedWeapon(int id, int ammoFrame = -1)
 {
     const auto* definition=FindWeaponDefinition(id);
-    const auto* card=ValidWeaponId(id)?preparedCards[id]:nullptr;
-    if(!definition || !card || card->name!=definition->name || !card->equippedReady)
+    const auto* card=definition?PreparedWeaponCard(*definition,AtAttackKnifeHudId()):nullptr;
+    if(!card || !card->equippedReady)
     {weaponImage=ammoImage=secondaryImage={};weaponName={};weaponTitle={};weaponTitleId=0;weaponTitleSlot=-1;return;}
     weaponImage=card->image;ammoImage=card->ammo;secondaryImage=card->secondary;
     if(ammoFrame==hud::HiddenAmmoFrame)ammoImage={};
@@ -324,10 +349,13 @@ void UsePreparedWeapon(int id, int ammoFrame = -1)
 void PrepareWeaponList()
 {
     const auto pending=WeaponSelectionForHud();
-    if(pending.selected==preparedSelection && weapon.id==preparedEquipped && pending.revision==preparedSelectionRevision &&
+    const int knife=AtAttackKnifeHudId();
+    if(pending.selected==preparedSelection && weapon.id==preparedEquipped && knife==preparedKnife &&
+        pending.revision==preparedSelectionRevision &&
         (selectionReady || GetTickCount64()<listRetryAfter))return;
     selectionRows.clear();selectionReady=false;preparedSelection=pending.selected;
     preparedEquipped=weapon.id;
+    preparedKnife=knife;
     preparedSelectionRevision=pending.revision;listRetryAfter=GetTickCount64()+5000;
     if(const auto* current=FindWeaponDefinition(weapon.id))
         selectionRows.push_back({.id=current->id,.expanded=true,.ammo1=current->ammo1,.ammo2=current->ammo2,
@@ -346,8 +374,8 @@ void PrepareWeaponList()
         const auto* next=it+1==pending.items.rend()?nullptr:FindWeaponDefinition(*(it+1));
         const bool first=!next || next->slot!=definition->slot;
         if(!expanded && definition->slot!=4 && !first)continue;
-        const auto* cached=preparedCards[definition->id];
-        if(!cached || cached->name!=definition->name){complete=false;continue;}
+        const auto* cached=PreparedWeaponCard(*definition,knife);
+        if(!cached){complete=false;continue;}
         const auto& card=*cached;
         const auto& texture=definition->id==pending.selected?card.selectedImage:card.image;
         const bool absentSelected=definition->id==pending.selected && card.selectedAbsent;
@@ -364,13 +392,17 @@ void PrepareSelection()
     static const std::string empty;
     const auto pending=WeaponSelectionForHud();
     const auto now=GetTickCount64();
-    if(cardsRevision!=pending.revision || now>=cardsRetryAfter)
+    const bool refresh=cardsRevision!=pending.revision || now>=cardsRetryAfter;
+    if(refresh)
     {
         cardsRevision=pending.revision;cardsRetryAfter=now+5000;
         // Definitions arrive at sign-on, before ownership/CurWeapon. Warm all
         // supported definitions here, so a later draw can switch with no I/O.
         for(int id=1;id<WeaponIdLimit;++id)PrepareWeaponCard(id);
     }
+    const int knife=AtAttackKnifeHudId();
+    if(knife && (refresh || !giantKnifeCard.equippedReady))
+        PrepareWeaponCard(knife,true);
     const int active=CurrentWeaponHudState().id;
     PrepareWeaponCard(active);UsePreparedWeapon(active);
     // Capacity is fixed outside draw even for a late pending/sentinel change.
@@ -742,9 +774,7 @@ void BeginHudStyle(int hidden,int intermission)
     // Only select immutable resources prepared by HUD_Frame. All supported
     // definitions were warmed there, including a CurWeapon arriving later.
     UsePreparedWeapon(weapon.id,weapon.ammoFrame);
-    const auto* definition=FindWeaponDefinition(weapon.id);
-    weaponVisible=!(hidden&1) && weapon.id>0 && definition && definition->name==weaponName &&
-        weaponImage.id && titleFont && !weaponTitle.empty() &&
+    weaponVisible=!(hidden&1) && weaponImage.id && !weaponTitle.empty() &&
         (weapon.kind==hud::AmmoKind::None || ammoImage.id);
     SetWeaponSelectionHudAvailable(weaponVisible);
     if(weaponVisible)PrepareWeaponList();
@@ -791,7 +821,8 @@ void HudStyleDiagnostics(std::ostream& out)
        <<" scale="<<layout.scale<<" additive="<<additiveSurface<<" draws="<<draws<<" rejected="<<rejected<<'\n';
     out<<"hudStyle interfaces surface="<<(surface!=nullptr)<<" schemes="<<(schemes!=nullptr)
        <<" extension="<<(extension!=nullptr)<<" font="<<titleFont<<" portrait="<<portrait.id
-       <<" weaponImage="<<weaponImage.id<<" ammoImage="<<ammoImage.id<<" secondaryImage="<<secondaryImage.id
+       <<" weaponImage="<<weaponImage.id<<" weaponCard="<<weaponName
+       <<" ammoImage="<<ammoImage.id<<" secondaryImage="<<secondaryImage.id
        <<" clip="<<weapon.clip<<" reserve="<<weapon.reserve<<" secondary="<<weapon.secondary<<'\n';
 }
 }

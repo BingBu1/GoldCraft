@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../../runtime.hpp"
+#include "../../resource_refresh.hpp"
 #include "../../overlay_layers.hpp"
 #include "../../user_message_chain.hpp"
+#include "../../weapons/weapons.hpp"
 #include "scenario_round_hud_client.hpp"
 #include "../../../scenario/core/scenario_round_hud.hpp"
 #include "../../../scenario/core/scenario_localization.hpp"
@@ -35,6 +37,25 @@ std::array<vgui::HFont, unsigned(hud::Font::Count)> fonts{};
 struct DialogueTexture { int id{}; float retryAfter{}; bool reported{}; };
 std::map<std::uint16_t, DialogueTexture> dialogueTextures;
 HANDLE privateFont{};
+struct FuelImage
+{
+    const char* path;
+    int width, height;
+};
+// client.dll 02845060 and 02851160 list the images in paint order.
+constexpr std::array FuelImages{
+    FuelImage{"resource/attackontitan/gasbg.tga", 359, 97},
+    FuelImage{"resource/attackontitan/gasleft.tga", 108, 97},
+    FuelImage{"resource/attackontitan/gasgauge.tga", 210, 16},
+    FuelImage{"resource/attackontitan/gaspoint.tga", 5, 20},
+};
+struct FuelHud
+{
+    std::array<int, FuelImages.size()> textures{};
+    std::array<wchar_t, 4> number{};
+    bool attempted{};
+    int value{-1}, gaugeWidth{}, pointerX{}, numberLength{}, numberX{}, numberY{};
+} fuelHud;
 pfnUserMsgHook previousMP{}, previousSync{}, previousInit{}, previousReset{}, previousHide{};
 bool prepared{}, catalogLoaded{}, requested{}, gameUI{}, console{};
 bool catalogReported{}, fontReported{};
@@ -142,14 +163,91 @@ void ReleaseDialogueImages()
         if (texture.id > 0) surface->DeleteTextureByID(texture.id);
     dialogueTextures.clear();
 }
+void ReleaseFuelImages()
+{
+    if (surface)
+        for (int texture : fuelHud.textures)
+            if (texture) surface->DeleteTextureByID(texture);
+    fuelHud = {};
+}
 void ReleaseImages()
 {
+    ReleaseFuelImages();
     if (surface) for (int texture : textures) if (texture) surface->DeleteTextureByID(texture);
     textures = {};
     imageReported = {};
     prepared = false;
     imageRetryAfter = 0;
     ReleaseDialogueImages();
+}
+bool PrepareFontFile()
+{
+    if (privateFont) return true;
+    try
+    {
+        const auto bytes = ReadResource(hud::FontPath);
+        DWORD count{};
+        privateFont = RegisterResourceFont(privateFont, hud::FontPath, "DFYuanW9-GB", bytes, &count);
+    }
+    catch (const std::exception& error)
+    {
+        if (!fontReported) engine.Con_DPrintf("CSOLSupport: scenario font: %s\n", error.what());
+        fontReported = true;
+    }
+    return privateFont != nullptr;
+}
+vgui::HFont PrepareFont(hud::Font style)
+{
+    auto& font = fonts[unsigned(style)];
+    if (font) return font;
+    constexpr int heights[]{33, 20, 24, 16, 14};
+    const auto candidate = surface->CreateFont();
+    if (candidate && surface->AddGlyphSetToFont(candidate, "DFYuanW9-GB", heights[unsigned(style)],
+        style == hud::Font::DefaultTitle ? 500 : 0, 0, 0, vgui::FONTFLAG_ANTIALIAS, 0, 0xffff))
+        font = candidate;
+    return font;
+}
+void PrepareFuelHud(int fuel)
+{
+    if (!surface || fuel < 0 || fuelHud.value == fuel) return;
+    if (!fuelHud.attempted)
+    {
+        try
+        {
+            for (std::size_t i = 0; i < FuelImages.size(); ++i)
+            {
+                const auto& resource = FuelImages[i];
+                const auto image = DecodeTGA(ReadResource(resource.path));
+                if (image.Width != resource.width || image.Height != resource.height)
+                    throw std::runtime_error(std::string("fuel HUD image dimensions changed: ") + resource.path);
+                int& texture = fuelHud.textures[i];
+                texture = surface->CreateNewTextureID(true);
+                if (!texture) throw std::runtime_error("cannot allocate fuel HUD texture");
+                surface->DrawSetTextureRGBA(texture, image.RGBA.data(), image.Width, image.Height, 1, true);
+            }
+            if (!PrepareFontFile() || !PrepareFont(hud::Font::Normal24))
+                throw std::runtime_error("cannot prepare Normal24");
+        }
+        catch (const std::exception& error)
+        {
+            ReleaseFuelImages();
+            engine.Con_DPrintf("CSOLSupport: at_attack fuel HUD: %s\n", error.what());
+        }
+        fuelHud.attempted = true;
+    }
+    if (!fuelHud.textures.front()) return;
+
+    // 0284EFAD uses the original single-precision update and truncates both results.
+    const float ratio = float(fuel) / 100.0f;
+    fuelHud.gaugeWidth = int(ratio * FuelImages[2].width);
+    fuelHud.pointerX = int(ratio * 209.0f + 106.0f);
+    fuelHud.numberLength = std::swprintf(fuelHud.number.data(), fuelHud.number.size(), L"%d", fuel);
+    const auto font = fonts[unsigned(hud::Font::Normal24)];
+    int wide{}, tall{};
+    surface->GetTextSize(font, fuelHud.number.data(), wide, tall);
+    fuelHud.numberX = 51 + (47 - wide) / 2;
+    fuelHud.numberY = 40 + (27 - tall) / 2;
+    fuelHud.value = fuel;
 }
 void Prepare()
 {
@@ -175,30 +273,9 @@ void Prepare()
             imageReported[i] = true;
         }
     }
-    if (!privateFont)
-    {
-        try
-        {
-            const auto bytes = ReadResource(hud::FontPath);
-            DWORD count{};
-            privateFont = AddFontMemResourceEx(const_cast<std::byte*>(bytes.data()), DWORD(bytes.size()), nullptr, &count);
-        }
-        catch (const std::exception& error)
-        {
-            if (!fontReported) engine.Con_DPrintf("CSOLSupport: scenario font: %s\n", error.what());
-            fontReported = true;
-        }
-    }
-    // The actual Chinese TrackerScheme font definitions, not Arial fallbacks.
-    constexpr int heights[]{33, 20, 24, 16, 14};
-    for (std::size_t i = 0; privateFont && i < fonts.size(); ++i)
-        if (!fonts[i])
-        {
-            const auto font = surface->CreateFont();
-            if (font && surface->AddGlyphSetToFont(font, "DFYuanW9-GB", heights[i],
-                i == unsigned(hud::Font::DefaultTitle) ? 500 : 0, 0, 0,
-                vgui::FONTFLAG_ANTIALIAS, 0, 0xffff)) fonts[i] = font;
-        }
+    if (PrepareFontFile())
+        for (std::size_t i = 0; i < fonts.size(); ++i)
+            PrepareFont(static_cast<hud::Font>(i));
     prepared = std::all_of(textures.begin(), textures.end(), [](int value) { return value != 0; }) &&
         std::all_of(fonts.begin(), fonts.end(), [](auto value) { return value != 0; });
 }
@@ -239,6 +316,23 @@ void TextureQuad(int texture, int x, int y, int width, int height, int alpha,
         {x+width,y+height,u1,1},{x,y+height,u0,1}};
     surface->DrawTexturedPolygon(vertices, 4);
 }
+void PaintFuelHud(int width, int height)
+{
+    if (fuelHud.value < 0 || AtAttackFuel() < 0) return;
+    const int x = width / 2 - 180, y = int(float(height) * 0.86f);
+    const auto& [background, left, gauge, pointer] = fuelHud.textures;
+    TextureQuad(background, x, y, FuelImages[0].width, FuelImages[0].height, 255);
+    TextureQuad(left, x, y, FuelImages[1].width, FuelImages[1].height, 255);
+    // 02C8E440 paints the full-sized image through its narrower panel clip.
+    TextureQuad(gauge, x + 108, y + 46, fuelHud.gaugeWidth, FuelImages[2].height, 255,
+        0.0f, float(fuelHud.gaugeWidth) / FuelImages[2].width);
+    TextureQuad(pointer, x + fuelHud.pointerX, y + 42, FuelImages[3].width, FuelImages[3].height, 255);
+    surface->DrawSetTextFont(fonts[unsigned(hud::Font::Normal24)]);
+    surface->DrawSetTextColor(182, 218, 255, 255);
+    surface->DrawSetTextPos(x + fuelHud.numberX, y + fuelHud.numberY);
+    surface->DrawPrintText(fuelHud.number.data(), fuelHud.numberLength);
+    surface->DrawFlushText();
+}
 void Quad(hud::Image image, int x, int y, int width, int height, int alpha = 255,
     float u0 = 0, float u1 = 1)
 {
@@ -269,6 +363,7 @@ void Paint()
     const auto* local = engine.GetLocalPlayer();
     const auto frame = state.Layout(width, local ? local->index : 0, frameTime);
     surface->PushMakeCurrent(root, false);
+    PaintFuelHud(width, height);
     for (unsigned i = 0; i < frame.count; ++i)
     {
         const auto& q = frame.quads[i];
@@ -409,16 +504,23 @@ void ResetScenarioRoundHud()
     state.Reset(); messages = {}; lines.clear(); localLines = {}; catalogLoaded = false;
     ReleaseDialogueImages(); catalogRetryAfter = 0; catalogReported = false;
     requested = false; hidden = 0; frameTime = 0;
+    fuelHud.value = -1;
+    fuelHud.attempted = fuelHud.textures.front() != 0;
 }
 void ScenarioRoundHudFrame()
 {
     if (state.Active()) { LoadCatalog(); Prepare(); }
     else if (catalogLoaded || std::any_of(localLines.begin(), localLines.end(), [](const auto& text) { return !text.empty(); })) Prepare();
     PrepareDialogueImages();
+    PrepareFuelHud(AtAttackFuel());
 }
-void ScenarioRoundHudVideoInit() { ReleaseImages(); }
+void ScenarioRoundHudVideoInit()
+{
+    ClearAtAttackFuel();
+    ReleaseImages();
+}
 void DrawScenarioRoundHud(float time, int intermission)
-{ frameTime = time; requested = !intermission && (state.Active() || catalogLoaded ||
+{ frameTime = time; requested = !intermission && (AtAttackFuel() >= 0 || state.Active() || catalogLoaded ||
     std::any_of(localLines.begin(), localLines.end(), [](const auto& text) { return !text.empty(); })); }
 bool ShowScenarioRoundHudText(unsigned channel, std::wstring_view text,
     const std::array<std::uint8_t, 3>& color)
