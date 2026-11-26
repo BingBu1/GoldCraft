@@ -28,13 +28,9 @@ constexpr char MapPath[] = "maps/at_attack.bsp";
 constexpr char GiantKnifeViewModel[] = "models/v_giantknife.mdl";
 constexpr int KnifeSelection = 20, FuelUpdate = 31;
 constexpr int GiantKnifeType = 38, StockKnifeId = 29, MaxFuel = 100;
-constexpr int HideAll = 1 << 2;
 pfnUserMsgHook previousKnife{}, previousFuel{}, previousInit{};
-const cvar_t* hudDraw{};
-SCREENINFO screen{};
 bool giantKnifeSelected{};
 int fuel = -1;
-char fuelLabel[sizeof("Fuel 100%")]{};
 
 bool OnAtAttack()
 {
@@ -60,11 +56,8 @@ int ReceiveFuel(const char* name, int size, void* bytes)
     if (packet && size == 2 && packet[0] == FuelUpdate && packet[1] <= MaxFuel)
     {
         SynchronizeSession();
-        if (OnAtAttack() && fuel != packet[1])
-        {
+        if (OnAtAttack())
             fuel = packet[1];
-            std::snprintf(fuelLabel, sizeof(fuelLabel), "Fuel %d%%", fuel);
-        }
     }
     return previousFuel ? previousFuel(name, size, bytes) : 1;
 }
@@ -87,15 +80,9 @@ int Init(const char* name, int size, void* bytes)
 
 void Install()
 {
-    hudDraw = engine.pfnGetCvarPointer ? engine.pfnGetCvarPointer("hud_draw") : nullptr;
     InstallChainedUserMessage("MPToCL", ReceiveKnife, previousKnife);
     InstallChainedUserMessage("ZBSVer2", ReceiveFuel, previousFuel);
     InstallChainedUserMessage("InitHUD", Init, previousInit);
-}
-
-void VideoInit()
-{
-    screen = {};
 }
 
 bool ServerDrivesKnife(const local_state_s& state)
@@ -105,36 +92,6 @@ bool ServerDrivesKnife(const local_state_s& state)
         return false;
     const auto* model = engine.hudGetModelByIndex(state.client.viewmodel);
     return model && model->type == mod_studio && _stricmp(model->name, GiantKnifeViewModel) == 0;
-}
-
-void DrawFuel(int hidden, int intermission)
-{
-    if (fuel < 0 || intermission || (hidden & HideAll) || view.health <= 0 || view.spectator ||
-        (hudDraw && hudDraw->value == 0) || !OnAtAttack())
-        return;
-    if (!screen.iWidth)
-    {
-        SCREENINFO info{};
-        info.iSize = sizeof(info);
-        if (!engine.pfnGetScreenInfo(&info) || info.iWidth <= 0 || info.iHeight <= 0)
-            return;
-        screen = info;
-    }
-
-    const int width = std::clamp(screen.iWidth / 5, 86, 180);
-    const int left = (screen.iWidth - width) / 2;
-    const int top = screen.iHeight - std::max(26, screen.iHeight / 14);
-    const int filled = width * fuel / MaxFuel;
-    engine.pfnFillRGBA(left, top, width, 4, 24, 38, 43, 220);
-    if (filled)
-        engine.pfnFillRGBA(left, top, filled, 4, 99, 211, 190, 255);
-
-    int x = left;
-    for (const unsigned char* c = reinterpret_cast<const unsigned char*>(fuelLabel); *c; ++c)
-    {
-        engine.pfnDrawCharacter(x, top - screen.iCharHeight - 3, *c, 226, 242, 237);
-        x += screen.charWidths[*c];
-    }
 }
 }
 
@@ -687,7 +644,6 @@ void ClearNativeWeaponSelection()
 }
 void WeaponVideoInit()
 {
-    at_attack::VideoInit();
     WeaponInventoryVideoInit();
     PickupHistoryVideoInit();
     WeaponModulesVideoInit();
@@ -764,7 +720,6 @@ int WeaponRedraw(float time,int intermission)
         item->drawHud(hidden,intermission,!HudStyleWeaponVisible());
     if(!HudStyleWeaponVisible())DrawMagazineAmmo(intermission);
     DrawHudStyle();
-    at_attack::DrawFuel(hidden, intermission);
     if(HudStyleWeaponVisible() || !Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
         (view.health<=0) || engine.pfnGetCvarFloat("hud_draw")==0)return result;
     const int width=digits[0].rect.right-digits[0].rect.left;
@@ -841,6 +796,8 @@ void WeaponDiagnostics(std::ostream& out)
         <<",\"numberX\":"<<hudLayout.numberX<<",\"numberY\":"<<hudLayout.numberY
         <<",\"iconX\":"<<hudLayout.iconX<<",\"iconY\":"<<hudLayout.iconY
         <<",\"moneyShiftDraws\":"<<shiftedMoneySprites<<",\"wideAmmoDraws\":"<<wideAmmoDraws<<'}';
+    out << ",\"atAttack\":{\"giantKnifeSelected\":" << at_attack::giantKnifeSelected
+        << ",\"fuel\":" << at_attack::fuel << '}';
     PickupHistoryDiagnostics(out);
     WeaponSelectionDiagnostics(out);
     SessionDiagnostics(out);
