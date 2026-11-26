@@ -1,0 +1,669 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000000000000000000000000000000000000..f79dbd7279049bbd4451474c1167ab859a3d82b0
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,18 @@
++cmake_minimum_required(VERSION 3.20)
++project(GoldSrcModelThumbnailProvider LANGUAGES CXX RC)
++
++set(src GoldSrcModelThumbnailProvider)
++add_library(model_thumbnail SHARED
++    ${src}/GoldSrcModelThumbnailProvider.cpp
++    ${src}/Renderer.cpp
++    ${src}/dllmain.cpp
++    ${src}/hlsdk/mathlib.cpp
++    ${src}/GoldSrcModelThumbnailProvider.rc
++    ${src}/GoldSrcModelThumbnailProvider.def)
++target_compile_features(model_thumbnail PRIVATE cxx_std_20)
++target_compile_definitions(model_thumbnail PRIVATE UNICODE _UNICODE)
++target_compile_options(model_thumbnail PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/fp:precise;/EHa>)
++target_link_libraries(model_thumbnail PRIVATE d3d11 dxgi dxguid shlwapi)
++set_target_properties(model_thumbnail PROPERTIES
++    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
++    OUTPUT_NAME "GoldSrcModelThumbnailProvider$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,64,32>")
+diff --git a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
+index e233d155b1f8857df290dd5267031c81e9505b05..b30e2d6315ffd24c173131360437e12ece9598a9 100644
+--- a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
++++ b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
+@@ -24,6 +24,9 @@
+ HRESULT RenderToBitmap(const std::wstring& filePath, UINT width, UINT height, HBITMAP* outBitmap);
+ 
+ 
++void DllAddRef();
++void DllRelease();
++
+ class CModelThumbProvider
+ 	: public IInitializeWithFile
+ 	, public IThumbnailProvider
+@@ -32,10 +35,12 @@ public:
+ 	CModelThumbProvider()
+ 		: _cRef(1)
+ 	{
++		DllAddRef();
+ 	}
+ 
+ 	virtual ~CModelThumbProvider()
+ 	{
++		DllRelease();
+ 	}
+ 
+ 	// IUnknown
+@@ -102,7 +107,10 @@ IFACEMETHODIMP CModelThumbProvider::Initialize(LPCWSTR pszFilePath, DWORD)
+ // IThumbnailProvider
+ IFACEMETHODIMP CModelThumbProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha)
+ {
+-	__try
++	if (!phbmp || !pdwAlpha) return E_POINTER;
++	*phbmp = nullptr;
++	*pdwAlpha = WTSAT_UNKNOWN;
++	try
+ 	{
+ 		if (cx < 64)
+ 			cx = 64;
+@@ -112,7 +120,11 @@ IFACEMETHODIMP CModelThumbProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_AL
+ 		if (FAILED(hr))
+ 			return hr;
+ 	}
+-	__except (EXCEPTION_EXECUTE_HANDLER)
++	catch (const std::bad_alloc&)
++	{
++		return E_OUTOFMEMORY;
++	}
++	catch (...)
+ 	{
+ 		return E_UNEXPECTED;
+ 	}
+diff --git a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj
+index a6c32f5be732387389e10d8e300defb7eb9a40ec..53bd90b5cd2bdf9740c19c802fb94b5ed442a761 100644
+--- a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj
++++ b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj
+@@ -158,6 +158,11 @@
+       <ModuleDefinitionFile>GoldSrcModelThumbnailProvider.def</ModuleDefinitionFile>
+     </Link>
+   </ItemDefinitionGroup>
++  <ItemDefinitionGroup>
++    <ClCompile>
++      <ExceptionHandling>Async</ExceptionHandling>
++    </ClCompile>
++  </ItemDefinitionGroup>
+   <ItemGroup>
+     <ClCompile Include="dllmain.cpp" />
+     <ClCompile Include="GoldSrcModelThumbnailProvider.cpp" />
+diff --git a/GoldSrcModelThumbnailProvider/Renderer.cpp b/GoldSrcModelThumbnailProvider/Renderer.cpp
+index 2501ed766347a0f18dcac1fac1d5e57a5c4d7a1f..3b1177881241eadad5a1adf11441461b878cfd0b 100644
+--- a/GoldSrcModelThumbnailProvider/Renderer.cpp
++++ b/GoldSrcModelThumbnailProvider/Renderer.cpp
+@@ -6,6 +6,8 @@
+ 
+ #include <memory>
+ #include <string>
++#include <mutex>
++#include <utility>
+ 
+ #include "StudioModelRenderer.hpp"
+ 
+@@ -23,33 +25,25 @@ class Renderer
+ {
+ private:
+ 
+-	UINT m_ViewWidth = 256;
+-	UINT m_ViewHeight = 256;
+-
+-	D3D_DRIVER_TYPE m_driverType = D3D_DRIVER_TYPE_NULL;
+-	D3D_FEATURE_LEVEL m_featureLevel = D3D_FEATURE_LEVEL_11_0;
++	UINT m_ViewWidth{};
++	UINT m_ViewHeight{};
+ 
+ 	ComPtr<ID3D11Device> m_D3DDevice;
+-	ComPtr<ID3D11Device1> m_D3DDevice1;
+ 	ComPtr<ID3D11DeviceContext> m_D3DDeviceContext;
+-	ComPtr<ID3D11DeviceContext1> m_D3DDeviceContext1;
+ 	ComPtr<ID3D11RenderTargetView> m_RenderTargetView;
+-	ComPtr<ID3D11Texture2D> m_DepthStencilTexture;
+ 	ComPtr<ID3D11DepthStencilView> m_DepthStencilView;
+ 	ComPtr<ID3D11RasterizerState> m_RasterizerState;
+-	ComPtr<ID3D11Debug> m_D3DDebug;
+ 
+ 	ComPtr<ID3D11Texture2D> m_RenderTargetTexture;
+ 	ComPtr<ID3D11Texture2D> m_BufferTexture;
+ 
+-	std::unique_ptr<D3DStudioModel> m_d3dStudioModel;
+-	std::unique_ptr<D3DStudioModelRenderer> m_d3dStudioModelRenderer;
+-
++	D3DStudioModelRenderer m_pipeline;
+ 
+-	HRESULT InitD3D()
++	HRESULT InitDevice()
+ 	{
+ 		HRESULT hr;
+ 
++		D3D_FEATURE_LEVEL featureLevel;
+ 		UINT createDeviceFlags = 0;
+ #ifdef _DEBUG
+ 		createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+@@ -61,7 +55,6 @@ private:
+ 			D3D_DRIVER_TYPE_WARP,
+ 			D3D_DRIVER_TYPE_REFERENCE,
+ 		};
+-		UINT numDriverTypes = ARRAYSIZE(driverTypes);
+ 
+ 		D3D_FEATURE_LEVEL featureLevels[] =
+ 		{
+@@ -72,17 +65,16 @@ private:
+ 		};
+ 		UINT numFeatureLevels = ARRAYSIZE(featureLevels);
+ 
+-		for (UINT driverTypeIndex = 0; driverTypeIndex < numDriverTypes; driverTypeIndex++)
++		for (auto driverType : driverTypes)
+ 		{
+-			m_driverType = driverTypes[driverTypeIndex];
+-			hr = D3D11CreateDevice(nullptr, m_driverType, nullptr, createDeviceFlags, featureLevels, numFeatureLevels,
+-				D3D11_SDK_VERSION, m_D3DDevice.ReleaseAndGetAddressOf(), &m_featureLevel, m_D3DDeviceContext.ReleaseAndGetAddressOf());
++			hr = D3D11CreateDevice(nullptr, driverType, nullptr, createDeviceFlags, featureLevels, numFeatureLevels,
++				D3D11_SDK_VERSION, m_D3DDevice.ReleaseAndGetAddressOf(), &featureLevel, m_D3DDeviceContext.ReleaseAndGetAddressOf());
+ 
+ 			if (hr == E_INVALIDARG)
+ 			{
+ 				// DirectX 11.0 platforms will not recognize D3D_FEATURE_LEVEL_11_1 so we need to retry without it
+-				hr = D3D11CreateDevice(nullptr, m_driverType, nullptr, createDeviceFlags, &featureLevels[1], numFeatureLevels - 1,
+-					D3D11_SDK_VERSION, m_D3DDevice.ReleaseAndGetAddressOf(), &m_featureLevel, m_D3DDeviceContext.ReleaseAndGetAddressOf());
++				hr = D3D11CreateDevice(nullptr, driverType, nullptr, createDeviceFlags, &featureLevels[1], numFeatureLevels - 1,
++					D3D11_SDK_VERSION, m_D3DDevice.ReleaseAndGetAddressOf(), &featureLevel, m_D3DDeviceContext.ReleaseAndGetAddressOf());
+ 			}
+ 
+ 			if (SUCCEEDED(hr))
+@@ -92,26 +84,48 @@ private:
+ 		if (FAILED(hr))
+ 			return hr;
+ 
+-#if _DEBUG
+-		hr = m_D3DDevice->QueryInterface(IID_PPV_ARGS(m_D3DDebug.ReleaseAndGetAddressOf()));
++		// Create rasterizer state
++		//
+ 
+-		if (FAILED(hr))
+-			return hr;
+-#endif
++		D3D11_RASTERIZER_DESC rasterDesc{};
++		rasterDesc.AntialiasedLineEnable = false;
++		rasterDesc.CullMode = D3D11_CULL_BACK;
++		rasterDesc.DepthBias = 0;
++		rasterDesc.DepthBiasClamp = 0.0f;
++		rasterDesc.DepthClipEnable = true;
++		rasterDesc.FillMode = D3D11_FILL_SOLID;
++		rasterDesc.FrontCounterClockwise = false;
++		rasterDesc.MultisampleEnable = false;
++		rasterDesc.ScissorEnable = false;
++		rasterDesc.SlopeScaledDepthBias = 0.0f;
+ 
+-		UINT m4xMsaaQuality;
+-		hr = m_D3DDevice->CheckMultisampleQualityLevels(DXGI_FORMAT_R8G8B8A8_UNORM, 4, &m4xMsaaQuality);
++		hr = m_D3DDevice->CreateRasterizerState(&rasterDesc, m_RasterizerState.ReleaseAndGetAddressOf());
+ 
+ 		if (FAILED(hr))
+ 			return hr;
+ 
+ 		//
++		// Use rasterizer state
++		//
++
++		m_D3DDeviceContext->RSSetState(m_RasterizerState.Get());
++
++		return m_pipeline.Init(m_D3DDevice.Get(), m_D3DDeviceContext.Get());
++	}
++
++	HRESULT ResizeTargets(UINT width, UINT height)
++	{
++		if (width == m_ViewWidth && height == m_ViewHeight)
++			return S_OK;
++
++		HRESULT hr;
++		ComPtr<ID3D11Texture2D> depthTexture;
+ 		// Create a texture as render target
+ 		//
+ 
+ 		D3D11_TEXTURE2D_DESC desc{};
+-		desc.Width = m_ViewWidth;
+-		desc.Height = m_ViewHeight;
++		desc.Width = width;
++		desc.Height = height;
+ 		desc.ArraySize = 1;
+ 		desc.SampleDesc.Count = 1;
+ 		desc.SampleDesc.Quality = 0;
+@@ -151,8 +165,8 @@ private:
+ 		//
+ 
+ 		D3D11_TEXTURE2D_DESC dstd{};
+-		dstd.Width = m_ViewWidth;
+-		dstd.Height = m_ViewHeight;
++		dstd.Width = width;
++		dstd.Height = height;
+ 		dstd.MipLevels = 1;
+ 		dstd.ArraySize = 1;
+ 		dstd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+@@ -163,7 +177,7 @@ private:
+ 		dstd.CPUAccessFlags = 0;
+ 		dstd.MiscFlags = 0;
+ 
+-		hr = m_D3DDevice->CreateTexture2D(&dstd, nullptr, m_DepthStencilTexture.ReleaseAndGetAddressOf());
++		hr = m_D3DDevice->CreateTexture2D(&dstd, nullptr, depthTexture.ReleaseAndGetAddressOf());
+ 
+ 		if (FAILED(hr))
+ 			return hr;
+@@ -177,7 +191,7 @@ private:
+ 		dsvd.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+ 		dsvd.Texture2D.MipSlice = 0;
+ 
+-		hr = m_D3DDevice->CreateDepthStencilView(m_DepthStencilTexture.Get(), 0, m_DepthStencilView.ReleaseAndGetAddressOf());
++		hr = m_D3DDevice->CreateDepthStencilView(depthTexture.Get(), 0, m_DepthStencilView.ReleaseAndGetAddressOf());
+ 
+ 		if (FAILED(hr))
+ 			return hr;
+@@ -193,33 +207,6 @@ private:
+ 
+ 		m_D3DDeviceContext->OMSetRenderTargets(ARRAYSIZE(renderTargetViews), renderTargetViews, m_DepthStencilView.Get());
+ 
+-		//
+-		// Create rasterizer state
+-		//
+-
+-		D3D11_RASTERIZER_DESC rasterDesc{};
+-		rasterDesc.AntialiasedLineEnable = false;
+-		rasterDesc.CullMode = D3D11_CULL_BACK;
+-		rasterDesc.DepthBias = 0;
+-		rasterDesc.DepthBiasClamp = 0.0f;
+-		rasterDesc.DepthClipEnable = true;
+-		rasterDesc.FillMode = D3D11_FILL_SOLID;
+-		rasterDesc.FrontCounterClockwise = false;
+-		rasterDesc.MultisampleEnable = false;
+-		rasterDesc.ScissorEnable = false;
+-		rasterDesc.SlopeScaledDepthBias = 0.0f;
+-
+-		hr = m_D3DDevice->CreateRasterizerState(&rasterDesc, m_RasterizerState.ReleaseAndGetAddressOf());
+-
+-		if (FAILED(hr))
+-			return hr;
+-
+-		//
+-		// Use rasterizer state
+-		//
+-
+-		m_D3DDeviceContext->RSSetState(m_RasterizerState.Get());
+-
+ 		//
+ 		// Finally, we setup the viewport
+ 		//
+@@ -229,62 +216,35 @@ private:
+ 		viewPort.TopLeftY = 0;
+ 		viewPort.MinDepth = 0.0f;
+ 		viewPort.MaxDepth = 1.0f;
+-		viewPort.Width = static_cast<FLOAT>(m_ViewWidth);
+-		viewPort.Height = static_cast<FLOAT>(m_ViewHeight);
++		viewPort.Width = static_cast<FLOAT>(width);
++		viewPort.Height = static_cast<FLOAT>(height);
+ 
+ 		m_D3DDeviceContext->RSSetViewports(1, &viewPort);
+ 
+-		//
+-		// Now the window is ready
+-		//
+-
+-		return hr;
+-	}
+-
+-
+-	void CleanD3D()
+-	{
+-		m_d3dStudioModelRenderer.reset();
+-		m_d3dStudioModel.reset();
+-
+-		m_RasterizerState.Reset();
+-		m_DepthStencilView.Reset();
+-		m_DepthStencilTexture.Reset();
+-		m_RenderTargetView.Reset();
+-		m_D3DDeviceContext1.Reset();
+-		m_D3DDevice1.Reset();
+-		m_D3DDeviceContext.Reset();
+-
+-		m_RenderTargetTexture.Reset();
+-		m_BufferTexture.Reset();
+-
+-#if _DEBUG
+-		if (m_D3DDebug)
+-		{
+-			OutputDebugString(TEXT("Dumping DirectX 11 live objects.\n"));
+-			m_D3DDebug->ReportLiveDeviceObjects(D3D11_RLDO_DETAIL);
+-			m_D3DDebug.Reset();
+-		}
+-#endif
+-
+-		m_D3DDevice.Reset();
++		m_ViewWidth = width;
++		m_ViewHeight = height;
++		m_pipeline.SetViewport(width, height);
++		return S_OK;
+ 	}
+ 
+ 
+-	void RenderFrame()
++	void RenderFrame(D3DStudioModel& model)
+ 	{
+ 		float clearColor[4] = { 0.2f, 0.5f, 0.698f, 1.0f };
+ 		m_D3DDeviceContext->ClearRenderTargetView(m_RenderTargetView.Get(), clearColor);
+ 		m_D3DDeviceContext->ClearDepthStencilView(m_DepthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+ 
+-		if (m_d3dStudioModel && m_d3dStudioModelRenderer)
+-		{
+-			m_d3dStudioModelRenderer->SetViewport(m_ViewWidth, m_ViewHeight);
+-			m_d3dStudioModelRenderer->SetModel(m_d3dStudioModel.get());
+-			m_d3dStudioModelRenderer->Draw();
+-		}
+-
+-		m_D3DDeviceContext->Flush();
++		m_pipeline.SetModel(&model);
++		m_pipeline.Draw();
++		m_pipeline.SetModel(nullptr);
++
++		// The immediate context holds references to the last mesh after DrawIndexed.
++		ID3D11Buffer* noVertex = nullptr;
++		UINT zero = 0;
++		m_D3DDeviceContext->IASetVertexBuffers(0, 1, &noVertex, &zero, &zero);
++		m_D3DDeviceContext->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
++		ID3D11ShaderResourceView* noTexture = nullptr;
++		m_D3DDeviceContext->PSSetShaderResources(0, 1, &noTexture);
+ 	}
+ 
+ 
+@@ -306,10 +266,6 @@ private:
+ 		if (bitmap == NULL)
+ 			return E_OUTOFMEMORY;
+ 
+-		auto size = width * height * 4;
+-
+-		memset(buffer, 0, size);
+-
+ 		auto srcPtr = reinterpret_cast<BYTE*>(data);
+ 		auto dstPtr = buffer;
+ 
+@@ -364,73 +320,53 @@ private:
+ 	}
+ 
+ 
+-	HRESULT LoadModel(const std::wstring& filePath)
+-	{
+-		HRESULT hr;
+-
+-		m_d3dStudioModelRenderer = std::make_unique<D3DStudioModelRenderer>();
+-		m_d3dStudioModel = std::make_unique<D3DStudioModel>();
+-
+-		hr = m_d3dStudioModelRenderer->Init(m_D3DDevice.Get(), m_D3DDeviceContext.Get());
+-
+-		if (FAILED(hr))
+-			return hr;
+-
+-		m_d3dStudioModel->Load(m_D3DDevice.Get(), filePath);
+-
+-		return S_OK;
+-	}
+-
+-
+ public:
+-
+-	HRESULT RenderToBitmap(const std::wstring& filePath, UINT width, UINT height, HBITMAP* outBitmap)
++	HRESULT Render(StudioModel& source, UINT width, UINT height, HBITMAP* out)
+ 	{
+-		HRESULT hr;
+-
+-		__try
++		if (!m_D3DDevice)
+ 		{
+-			if (filePath.empty())
+-				return E_UNEXPECTED;
+-
+-			if (width == 0 || height == 0)
+-				return E_UNEXPECTED;
+-
+-			m_ViewWidth = width;
+-			m_ViewHeight = height;
+-
+-			hr = InitD3D();
+-
+-			if (FAILED(hr))
+-				throw std::runtime_error("Failed to initialize D3D.");
+-
+-			hr = LoadModel(filePath);
+-
+-			if (FAILED(hr))
+-				throw std::runtime_error("Failed to load model.");
+-
+-			RenderFrame();
+-
+-			SaveImage(outBitmap);
+-
+-			CleanD3D();
+-
+-			return S_OK;
+-		}
+-		__except (EXCEPTION_EXECUTE_HANDLER)
+-		{
+-			CleanD3D();
+-			return E_UNEXPECTED;
++			const HRESULT hr = InitDevice();
++			if (FAILED(hr)) return hr;
+ 		}
++		const HRESULT hr = ResizeTargets(width, height);
++		if (FAILED(hr)) return hr;
+ 
+-		return E_UNEXPECTED;
++		D3DStudioModel model;
++		model.Upload(m_D3DDevice.Get(), source);
++		RenderFrame(model);
++		return SaveImage(out);
+ 	}
+ };
+ 
++namespace
++{
++	std::mutex rendererMutex;
++	// COM releases the device in DllCanUnloadNow, outside the loader lock.
++	Renderer* cachedRenderer{};
++}
+ 
+-HRESULT RenderToBitmap(const std::wstring& filePath, UINT width, UINT height, HBITMAP* outBitmap)
++void ReleaseThumbnailRenderer()
+ {
+-	auto renderer = std::make_unique<Renderer>();
++	Renderer* idle;
++	{
++		std::lock_guard lock(rendererMutex);
++		idle = std::exchange(cachedRenderer, nullptr);
++	}
++	delete idle;
++}
+ 
+-	return renderer->RenderToBitmap(filePath, width, height, outBitmap);
++HRESULT RenderToBitmap(const std::wstring& path, UINT width, UINT height, HBITMAP* out)
++{
++	if (path.empty() || !width || !height) return E_INVALIDARG;
++	StudioModel source;
++	source.LoadFromFile(path);
++	if (!source.GetStudioHeader()) return E_UNEXPECTED;
++
++	// Parsing is independent across apartments. Only the shared immediate context is serialized.
++	std::lock_guard lock(rendererMutex);
++	std::unique_ptr<Renderer> renderer(std::exchange(cachedRenderer, nullptr));
++	if (!renderer) renderer = std::make_unique<Renderer>();
++	const HRESULT hr = renderer->Render(source, width, height, out);
++	if (SUCCEEDED(hr)) cachedRenderer = renderer.release();
++	return hr;
+ }
+diff --git a/GoldSrcModelThumbnailProvider/StudioModelRenderer.hpp b/GoldSrcModelThumbnailProvider/StudioModelRenderer.hpp
+index 2c6e7b53ee90a20b9eda7a0736ab98665593144d..130e6b210dec83242fe6cf8812f11a826af8cb6c 100644
+--- a/GoldSrcModelThumbnailProvider/StudioModelRenderer.hpp
++++ b/GoldSrcModelThumbnailProvider/StudioModelRenderer.hpp
+@@ -8,6 +8,8 @@
+ #include <string>
+ #include <vector>
+ #include <algorithm>
++#include <bit>
++#include <unordered_map>
+ #include <chrono>
+ #include <fstream>
+ #include <filesystem>
+@@ -160,24 +162,22 @@ private:
+ 	}
+ 
+ 
+-	static uint32_t InsertVertex(std::vector<Vertex>& vertices, const Vertex& vertex)
++	// Match Vertex::operator==, including its first vertex/bone choice and signed zero.
++	struct VertexHash
+ 	{
+-		auto it = std::find_if(vertices.cbegin(), vertices.cend(), [&vertex](const auto& elem) {
+-			return elem == vertex;
+-		});
+-
+-		if (it != vertices.cend())
++		size_t operator()(const Vertex& v) const noexcept
+ 		{
+-			return static_cast<uint32_t>(it - vertices.cbegin());
++			uint32_t hash = 2166136261u;
++			for (float value : {v.Position.x, v.Position.y, v.Position.z,
++				v.Normal.x, v.Normal.y, v.Normal.z, v.TexCoord.x, v.TexCoord.y})
++				hash = (hash ^ (value == 0.0f ? 0u : std::bit_cast<uint32_t>(value))) * 16777619u;
++			return hash;
+ 		}
++	};
+ 
+-		vertices.push_back(vertex);
+-
+-		return static_cast<uint32_t>(vertices.size() - 1);
+-	}
+-
++	using VertexIndices = std::unordered_map<Vertex, uint32_t, VertexHash>;
+ 
+-	Mesh LoadMesh(mstudiomesh_t* studioMesh, mstudiomodel_t* studioModel, std::vector<Vertex>& vertices)
++	Mesh LoadMesh(mstudiomesh_t* studioMesh, mstudiomodel_t* studioModel, std::vector<Vertex>& vertices, VertexIndices& vertexIndices)
+ 	{
+ 		Mesh mesh{};
+ 		mesh.Indices.reserve(2048);
+@@ -221,7 +221,10 @@ private:
+ 				vert.TexCoord = VEC2{ s * tricmds[2] , t * tricmds[3] };
+ 				vert.Bone = studioVertexBones[tricmds[0]];
+ 
+-				indices.push_back(InsertVertex(vertices, vert));
++				const auto [entry, added] = vertexIndices.try_emplace(vert, static_cast<uint32_t>(vertices.size()));
++				if (added)
++					vertices.push_back(vert);
++				indices.push_back(entry->second);
+ 			}
+ 
+ 			if (strip)
+@@ -263,12 +266,13 @@ private:
+ 
+ 		if (studioModel->nummesh > 0)
+ 		{
++			VertexIndices vertexIndices;
+ 			model.Meshes.reserve(static_cast<size_t>(studioModel->nummesh));
+ 
+ 			for (int i = 0; i < studioModel->nummesh; i++)
+ 			{
+ 				auto studioMesh = GetPtr<mstudiomesh_t>(studioModel->meshindex) + i;
+-				auto mesh = LoadMesh(studioMesh, studioModel, model.Vertices);
++				auto mesh = LoadMesh(studioMesh, studioModel, model.Vertices, vertexIndices);
+ 				model.Meshes.push_back(std::move(mesh));
+ 			}
+ 		}
+@@ -1157,11 +1161,9 @@ private:
+ 
+ public:
+ 
+-	void Load(ID3D11Device* device, const std::wstring& filePath)
++	void Upload(ID3D11Device* device, StudioModel& model)
+ 	{
+-		m_StudioModel = std::make_unique<StudioModel>();
+-
+-		m_StudioModel->LoadFromFile(filePath);
++		m_StudioModel = &model;
+ 
+ 		const auto& studioBodyParts = m_StudioModel->GetBodyParts();
+ 
+@@ -1193,7 +1195,7 @@ public:
+ 
+ 	StudioModel* GetStudioModel() const
+ 	{
+-		return m_StudioModel.get();
++		return m_StudioModel;
+ 	}
+ 
+ 
+@@ -1211,7 +1213,7 @@ public:
+ 
+ private:
+ 
+-	std::unique_ptr<StudioModel> m_StudioModel;
++	StudioModel* m_StudioModel{};
+ 	std::vector<D3DBodyPart> m_BodyParts;
+ 	std::vector<D3DTexture> m_Textures;
+ };
+@@ -1583,17 +1585,18 @@ public:
+ 		// Update bone matrix
+ 		//
+ 
+-		m_Animating.SetStudioHeader(m_D3DStudioModel->GetStudioModel()->GetStudioHeader());
+-		m_Animating.SetStudioSequenceGroupHeaders(m_D3DStudioModel->GetStudioModel()->GetSequenceGroupHeaders());
+-		m_Animating.SetSequence(0);
+-		m_Animating.SetFrame(0);
+-		m_Animating.SetUpBones();
+-		auto boneTransforms = m_Animating.GetBoneTransforms();
++		StudioModelAnimating animating;
++		animating.SetStudioHeader(m_D3DStudioModel->GetStudioModel()->GetStudioHeader());
++		animating.SetStudioSequenceGroupHeaders(m_D3DStudioModel->GetStudioModel()->GetSequenceGroupHeaders());
++		animating.SetSequence(0);
++		animating.SetFrame(0);
++		animating.SetUpBones();
++		auto boneTransforms = animating.GetBoneTransforms();
+ 
+ 		// auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_LastUpdateTime).count();
+ 		// auto sec = ms / 1000.0;
+ 		// m_LastUpdateTime = std::chrono::steady_clock::now();
+-		// m_Animating.AdvanceFrame(sec);
++		// animating.AdvanceFrame(sec);
+ 
+ 		BoneBuffer boneBuffer{};
+ 
+@@ -1700,7 +1703,6 @@ public:
+ 		, m_ViewportWidth{}
+ 		, m_ViewportHeight{}
+ 		, m_D3DStudioModel{}
+-		, m_Animating{}
+ 	{
+ 	}
+ 
+@@ -1726,6 +1728,5 @@ private:
+ 
+ 	D3DStudioModel* m_D3DStudioModel;
+ 
+-	StudioModelAnimating m_Animating;
+ 	std::chrono::steady_clock::time_point m_LastUpdateTime;
+ };
+diff --git a/GoldSrcModelThumbnailProvider/dllmain.cpp b/GoldSrcModelThumbnailProvider/dllmain.cpp
+index 868131dcedbcf01bf9231fd48a562a2a805d8387..eac62865bca544cd292b7083aa050f3979315076 100644
+--- a/GoldSrcModelThumbnailProvider/dllmain.cpp
++++ b/GoldSrcModelThumbnailProvider/dllmain.cpp
+@@ -48,10 +48,14 @@ STDAPI_(BOOL) DllMain(HINSTANCE hInstance, DWORD dwReason, void*)
+ 	return TRUE;
+ }
+ 
++void ReleaseThumbnailRenderer();
++
+ STDAPI DllCanUnloadNow()
+ {
+ 	// Only allow the DLL to be unloaded after all outstanding references have been released
+-	return (g_cRefModule == 0) ? S_OK : S_FALSE;
++	if (InterlockedCompareExchange(&g_cRefModule, 0, 0) != 0) return S_FALSE;
++	ReleaseThumbnailRenderer();
++	return InterlockedCompareExchange(&g_cRefModule, 0, 0) == 0 ? S_OK : S_FALSE;
+ }
+ 
+ void DllAddRef()
