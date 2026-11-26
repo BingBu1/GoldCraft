@@ -23,7 +23,7 @@ index 0000000000000000000000000000000000000000..f79dbd7279049bbd4451474c1167ab85
 +    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 +    OUTPUT_NAME "GoldSrcModelThumbnailProvider$<IF:$<EQUAL:${CMAKE_SIZEOF_VOID_P},8>,64,32>")
 diff --git a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
-index e233d155b1f8857df290dd5267031c81e9505b05..b30e2d6315ffd24c173131360437e12ece9598a9 100644
+index e233d155b1f8857df290dd5267031c81e9505b05..d3fa01dbca6943a19da8b160fd8fa6c72f0a8624 100644
 --- a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
 +++ b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.cpp
 @@ -24,6 +24,9 @@
@@ -61,7 +61,7 @@ index e233d155b1f8857df290dd5267031c81e9505b05..b30e2d6315ffd24c173131360437e12e
  	{
  		if (cx < 64)
  			cx = 64;
-@@ -112,7 +120,11 @@ IFACEMETHODIMP CModelThumbProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_AL
+@@ -112,12 +120,18 @@ IFACEMETHODIMP CModelThumbProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_AL
  		if (FAILED(hr))
  			return hr;
  	}
@@ -74,6 +74,14 @@ index e233d155b1f8857df290dd5267031c81e9505b05..b30e2d6315ffd24c173131360437e12e
  	{
  		return E_UNEXPECTED;
  	}
+ 
+-	*pdwAlpha = WTSAT_ARGB;
++	// CreateDIB writes an opaque alpha byte for every pixel, including masked meshes.
++	// The Shell can store this bitmap using its opaque-thumbnail path.
++	*pdwAlpha = WTSAT_RGB;
+ 
+ 	return S_OK;
+ }
 diff --git a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj b/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj
 index a6c32f5be732387389e10d8e300defb7eb9a40ec..53bd90b5cd2bdf9740c19c802fb94b5ed442a761 100644
 --- a/GoldSrcModelThumbnailProvider/GoldSrcModelThumbnailProvider.vcxproj
