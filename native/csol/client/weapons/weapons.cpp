@@ -22,6 +22,122 @@ namespace csol::client
 {
 namespace
 {
+namespace at_attack
+{
+constexpr char MapPath[] = "maps/at_attack.bsp";
+constexpr char GiantKnifeViewModel[] = "models/v_giantknife.mdl";
+constexpr int KnifeSelection = 20, FuelUpdate = 31;
+constexpr int GiantKnifeType = 38, StockKnifeId = 29, MaxFuel = 100;
+constexpr int HideAll = 1 << 2;
+pfnUserMsgHook previousKnife{}, previousFuel{}, previousInit{};
+const cvar_t* hudDraw{};
+SCREENINFO screen{};
+bool giantKnifeSelected{};
+int fuel = -1;
+char fuelLabel[sizeof("Fuel 100%")]{};
+
+bool OnAtAttack()
+{
+    const char* level = engine.pfnGetLevelName();
+    return level && std::strcmp(level, MapPath) == 0;
+}
+
+int ReceiveKnife(const char* name, int size, void* bytes)
+{
+    const auto* packet = static_cast<const unsigned char*>(bytes);
+    if (packet && size == 2 && packet[0] == KnifeSelection)
+    {
+        SynchronizeSession();
+        if (OnAtAttack())
+            giantKnifeSelected = packet[1] == GiantKnifeType;
+    }
+    return previousKnife ? previousKnife(name, size, bytes) : 1;
+}
+
+int ReceiveFuel(const char* name, int size, void* bytes)
+{
+    const auto* packet = static_cast<const unsigned char*>(bytes);
+    if (packet && size == 2 && packet[0] == FuelUpdate && packet[1] <= MaxFuel)
+    {
+        SynchronizeSession();
+        if (OnAtAttack() && fuel != packet[1])
+        {
+            fuel = packet[1];
+            std::snprintf(fuelLabel, sizeof(fuelLabel), "Fuel %d%%", fuel);
+        }
+    }
+    return previousFuel ? previousFuel(name, size, bytes) : 1;
+}
+
+void Reset()
+{
+    giantKnifeSelected = false;
+    fuel = -1;
+}
+
+int Init(const char* name, int size, void* bytes)
+{
+    if (size == 0)
+    {
+        SynchronizeSession();
+        Reset();
+    }
+    return previousInit ? previousInit(name, size, bytes) : 1;
+}
+
+void Install()
+{
+    hudDraw = engine.pfnGetCvarPointer ? engine.pfnGetCvarPointer("hud_draw") : nullptr;
+    InstallChainedUserMessage("MPToCL", ReceiveKnife, previousKnife);
+    InstallChainedUserMessage("ZBSVer2", ReceiveFuel, previousFuel);
+    InstallChainedUserMessage("InitHUD", Init, previousInit);
+}
+
+void VideoInit()
+{
+    screen = {};
+}
+
+bool ServerDrivesKnife(const local_state_s& state)
+{
+    if (!giantKnifeSelected || state.client.m_iId != StockKnifeId || state.client.viewmodel <= 0 ||
+        !engine.hudGetModelByIndex || !OnAtAttack())
+        return false;
+    const auto* model = engine.hudGetModelByIndex(state.client.viewmodel);
+    return model && model->type == mod_studio && _stricmp(model->name, GiantKnifeViewModel) == 0;
+}
+
+void DrawFuel(int hidden, int intermission)
+{
+    if (fuel < 0 || intermission || (hidden & HideAll) || view.health <= 0 || view.spectator ||
+        (hudDraw && hudDraw->value == 0) || !OnAtAttack())
+        return;
+    if (!screen.iWidth)
+    {
+        SCREENINFO info{};
+        info.iSize = sizeof(info);
+        if (!engine.pfnGetScreenInfo(&info) || info.iWidth <= 0 || info.iHeight <= 0)
+            return;
+        screen = info;
+    }
+
+    const int width = std::clamp(screen.iWidth / 5, 86, 180);
+    const int left = (screen.iWidth - width) / 2;
+    const int top = screen.iHeight - std::max(26, screen.iHeight / 14);
+    const int filled = width * fuel / MaxFuel;
+    engine.pfnFillRGBA(left, top, width, 4, 24, 38, 43, 220);
+    if (filled)
+        engine.pfnFillRGBA(left, top, filled, 4, 99, 211, 190, 255);
+
+    int x = left;
+    for (const unsigned char* c = reinterpret_cast<const unsigned char*>(fuelLabel); *c; ++c)
+    {
+        engine.pfnDrawCharacter(x, top - screen.iCharHeight - 3, *c, 226, 242, 237);
+        x += screen.charWidths[*c];
+    }
+}
+}
+
 constexpr int KnifeId = ThrowingKnifeId;
 constexpr int BlueR = 114, BlueG = 197, BlueB = 255;
 bool registered{}, drawingNative{}, nativeDeadHud{};
@@ -530,6 +646,7 @@ void InitializeWeapons()
 {
     InitializePickupHistory();
     InitializeWeaponModules();
+    at_attack::Install();
     oldWeaponList=api->HookUserMsg("WeaponList",WeaponList);
     oldCurWeapon=api->HookUserMsg("CurWeapon",CurWeapon);
     oldAmmo=api->HookUserMsg("AmmoX",Ammo);
@@ -543,6 +660,7 @@ void InitializeWeapons()
 }
 void ResetWeapons(bool forgetRegistration)
 {
+    if (forgetRegistration) at_attack::Reset();
     ResetWeaponInventory(forgetRegistration);
     ResetPickupHistory();
     ResetWeaponModules();
@@ -556,7 +674,11 @@ void ResetWeapons(bool forgetRegistration)
     // Clearing only our fields leaves the stock slot commands hidden as well.
     ApplyNativeWeaponVisibility();
 }
-void ShutdownWeapons() { ShutdownWeaponModules(); }
+void ShutdownWeapons()
+{
+    at_attack::Reset();
+    ShutdownWeaponModules();
+}
 void ClearNativeWeaponSelection()
 {
     // HideWeapon clears stock gpActiveSel. Restore the effective mask at
@@ -565,6 +687,7 @@ void ClearNativeWeaponSelection()
 }
 void WeaponVideoInit()
 {
+    at_attack::VideoInit();
     WeaponInventoryVideoInit();
     PickupHistoryVideoInit();
     WeaponModulesVideoInit();
@@ -641,6 +764,7 @@ int WeaponRedraw(float time,int intermission)
         item->drawHud(hidden,intermission,!HudStyleWeaponVisible());
     if(!HudStyleWeaponVisible())DrawMagazineAmmo(intermission);
     DrawHudStyle();
+    at_attack::DrawFuel(hidden, intermission);
     if(HudStyleWeaponVisible() || !Custom() || intermission || (hidden&5) || !digits[0].handle || !ammoIcon.handle ||
         (view.health<=0) || engine.pfnGetCvarFloat("hud_draw")==0)return result;
     const int width=digits[0].rect.right-digits[0].rect.left;
@@ -743,11 +867,12 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
         if(module->predict && module->predict(from,to,cmd,runFunctions,time,seed))return;
     if(!registered || from->client.m_iId!=KnifeId || from->weapondata[ActiveWeaponSlot].m_iId!=KnifeId)
     {
-        if(ExtendedWeaponId(from->client.m_iId))
+        if(ExtendedWeaponId(from->client.m_iId) || at_attack::ServerDrivesKnife(*from))
         {
-            // Stock CS's prediction table is only 32 entries. Unknown extended
-            // weapons remain server-driven until their predictor is registered.
-            const auto source=from->client;const auto data=from->weapondata[ActiveWeaponSlot];
+            // Keep the server's snapshot while stock CS runs its other post-command work.
+            const auto source = from->client;
+            const int slot = PredictionSlot(source.m_iId, true);
+            const auto data = from->weapondata[slot];
             from->client.m_iId=0;
             downstream.HUD_PostRunCmd(from,to,cmd,runFunctions,time,seed);
             from->client.m_iId=source.m_iId;to->client.m_iId=source.m_iId;
@@ -755,7 +880,7 @@ void WeaponPostRunCmd(local_state_t* from,local_state_t* to,usercmd_t* cmd,int r
             to->client.m_flNextAttack=source.m_flNextAttack;
             to->client.iuser3=source.iuser3;
             std::copy(std::begin(source.vuser4),std::end(source.vuser4),std::begin(to->client.vuser4));
-            to->weapondata[ActiveWeaponSlot]=data;
+            to->weapondata[slot]=data;
             return;
         }
         const auto sync=runFunctions?PendingWeaponAnimationSync(sourceWeaponId):0;
