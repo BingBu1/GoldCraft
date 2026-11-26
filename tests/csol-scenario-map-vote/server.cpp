@@ -3,6 +3,7 @@
 // are controlled. No actual clients, network channel or GameRules is claimed.
 #include "../../native/csol/scenario/core/map_vote.hpp"
 #include <algorithm>
+#include <bitset>
 #include <charconv>
 #include <climits>
 #include <cmath>
@@ -50,7 +51,8 @@ Vote vote;
 std::uint32_t generation{1};
 std::uint64_t epoch{1};
 int message{100};
-bool busy{},sending{},resourcesReady{true};
+bool busy{},sending{};
+std::bitset<MaxChoices> availableCards;
 struct Recipient {std::uint32_t token{},revision{};std::uint16_t seconds{};double sentAt{-1};};
 std::array<Recipient,MaxPlayers> recipients{};
 #include "actual_server.inc"
@@ -58,7 +60,7 @@ std::array<Recipient,MaxPlayers> recipients{};
 const std::array choices{Choice{74,"zs_lostcity"},Choice{77,"zs_lastclue"},Choice{98,"zs_deadend"}};
 void Reset(unsigned humans=1)
 {
-    CSOL_ResetScenarioMapVote();message=100;resourcesReady=true;globals.time=0;packets.clear();beginHook={};packetOpen=false;busy=sending=false;
+    CSOL_ResetScenarioMapVote();message=100;globals.time=0;packets.clear();beginHook={};packetOpen=false;busy=sending=false;
     arguments={};tieValue=0;
     for(unsigned i=1;i<=32;++i){entities[i]={false,{i<=humans?FL_CLIENT:0},int(100+i),int(i),&players[i]};players[i].has_disconnected=false;}
     Check(vote.Begin(++generation,choices,"zs_trap",0,10),"test slate starts without changing production map allowlist");

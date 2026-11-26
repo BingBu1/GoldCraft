@@ -30,12 +30,14 @@ ctest --test-dir build/map-vote-tests --output-on-failure
 
 ```powershell
 python -B tests/csol-scenario-map-vote/extract_rules.py native/csol/server/game_rules_gate.cpp build/map-vote-rules
-python -B tests/csol-scenario-map-vote/extract_startup.py native/csol/server/scenario_map_vote.cpp native/csol/server/scenario_gameplay.h build/map-vote-startup
+python -B tests/csol-scenario-map-vote/extract_startup.py native/csol/server/scenario/core/scenario_map_vote.cpp native/csol/server/scenario/core/scenario_gameplay.h build/map-vote-startup
 ```
 
 `rules.cpp` 使用六个原样提取的 GameRules 方法和真实投票/目录实现，覆盖管理员投票排队、正常帧继续游戏、截止换图、同图重玩优先、自动通关投票重叠，以及回调中的 owner/session/round 失效。将该文件与 `native/csol/scenario/` 的 `config.cpp`、`map_catalog.cpp`、`map_vote.cpp`、`spawn_points.cpp` 编译，以上生成目录作为 include 路径；运行参数为导出的服务端 `cstrike` 目录。
 
 `startup.cpp` 使用实际预缓存、开始、重置、地图支持门、MapResources 和展示资源实现。默认针对公开源码已准入的 `zs_deadend`、`zs_lostcity` 两图；精确检查当前地图仍在候选中、两图 ID 以及未准入地图被排除。运行时需要这两图 BSP/配置和选图字体贴图。只有另行合入并验证黑暗之门生命周期的本地组合，才可追加 `three-maps` 参数运行三图验收；不能仅修改准入表来满足断言。两个夹具目前是专项构建入口，尚未接入默认 CMake。
+
+启动夹具的第二个参数可用 `--cards-only` 单独检查卡片准入。夹具从服务端目录读取真实清单和地图数据，在内存里删去或改名一张卡片，复用实际预缓存、规则准入和开票代码。验收包括另一张卡正常开票、缺卡或错名地图不读取场景表，以及换图后旧清单失效。
 
 ## 已有证据与验收边界
 

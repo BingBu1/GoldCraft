@@ -6,7 +6,11 @@
 #include "../../native/csol/scenario/core/map_support.hpp"
 #include "../../native/csol/scenario/core/map_vote.hpp"
 #include "../../native/csol/scenario/core/map_vote_presentation.hpp"
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include <algorithm>
+#include <bitset>
 #include <climits>
 #include <cstdlib>
 #include <cstring>
@@ -16,6 +20,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 using namespace csol::scenario;
@@ -26,6 +31,7 @@ void Check(bool ok, const char* label)
 { ++checks; if (!ok) { ++failures; std::cerr << "FAIL " << label << '\n'; } }
 std::filesystem::path root;
 std::string mapName, missingFile, blockedMap, onlyMap;
+std::function<void(std::string&)> editPresentation;
 // The public lifecycle currently admits two maps. A larger verified local
 // deployment can explicitly run the original three-map acceptance matrix.
 bool threeMaps{};
@@ -42,6 +48,7 @@ unsigned char* Load(const char* path, int* length)
     std::ifstream stream(root/path,std::ios::binary);
     if (!stream) return nullptr;
     std::string data((std::istreambuf_iterator<char>(stream)),{});
+    if (editPresentation && std::string_view(path) == PresentationResource) editPresentation(data);
     auto* memory=static_cast<unsigned char*>(std::malloc(data.size()+1));
     if (!memory) return nullptr;
     std::memcpy(memory,data.data(),data.size());memory[data.size()]=0;
@@ -86,7 +93,8 @@ Vote vote;
 std::uint32_t generation{};
 std::uint64_t epoch{1};
 int message{};
-bool busy{},sending{},resourcesReady{};
+bool busy{},sending{};
+std::bitset<MaxChoices> availableCards;
 struct Recipient {std::uint32_t token{},revision{};std::uint16_t seconds{};double sentAt{-1};};
 std::array<Recipient,MaxPlayers> recipients{};
 #include "actual_startup.inc"
@@ -95,7 +103,7 @@ void Reset(const char* name)
 {
     CSOL_ResetScenarioMapVote();mapName=name;globals={10,mapName.c_str()};
     g_engfuncs={};missingFile.clear();blockedMap.clear();onlyMap.clear();advertised.clear();requested.clear();
-    registration=66;registrations=0;loadHook={};precacheHook={};validHook={};
+    registration=66;registrations=0;loadHook={};precacheHook={};validHook={};editPresentation={};
     Check(allocations==releases,"every prior production loader allocation released");
 }
 bool HasChoice(const Snapshot& value,unsigned id)
@@ -108,7 +116,7 @@ void RealFiles()
     for (const auto* current : {"zs_deadend","zs_2gate","zs_lostcity"}) {
         if(!threeMaps&&std::string_view(current)=="zs_2gate")continue;
         Reset(current);Check(CSOL_PrecacheScenarioMapVote(),"real presentation closure precaches");
-        Check(resourcesReady&&message==66&&registrations==1&&!advertised.empty(),"ready only after complete closure and registration");
+        Check(availableCards.any()&&message==66&&registrations==1&&!advertised.empty(),"ready only after complete closure and registration");
         const bool started=Start();const auto snapshot=vote.View(0,0,globals.time);
         std::cout<<current<<" start="<<started<<" candidates="<<unsigned(snapshot.count)<<'\n';
         Check(started,"completed implemented map can start a ballot");
@@ -139,11 +147,11 @@ void Failures()
     missingFile=presentation.fontResource;
     Check(!CSOL_PrecacheScenarioMapVote()&&!Start()&&advertised.empty()&&registrations==0,"missing referenced font blocks start before any advertising");
     Reset("zs_deadend");registration=63;
-    Check(!CSOL_PrecacheScenarioMapVote()&&!resourcesReady&&!Start(),"invalid user-message registration cannot enable ballot");
+    Check(!CSOL_PrecacheScenarioMapVote()&&availableCards.none()&&!Start(),"invalid user-message registration cannot enable ballot");
     Reset("zs_deadend");loadHook=[](){CSOL_ResetScenarioMapVote();};
-    Check(!CSOL_PrecacheScenarioMapVote()&&!resourcesReady&&registrations==0,"map reset during manifest load cancels preparation");
+    Check(!CSOL_PrecacheScenarioMapVote()&&availableCards.none()&&registrations==0,"map reset during manifest load cancels preparation");
     Reset("zs_deadend");precacheHook=[](){CSOL_ResetScenarioMapVote();};
-    Check(!CSOL_PrecacheScenarioMapVote()&&!resourcesReady&&registrations==0,"map reset during advertising cannot publish ready");
+    Check(!CSOL_PrecacheScenarioMapVote()&&availableCards.none()&&registrations==0,"map reset during advertising cannot publish ready");
     Reset("zs_2gate");Check(CSOL_PrecacheScenarioMapVote(),"prepare reset-during-start case");
     validHook=[](){CSOL_ResetScenarioMapVote();};
     Check(!Start()&&vote.State()==Phase::Idle,"map reset in existence callback cancels slate generation");
@@ -162,6 +170,62 @@ void Failures()
     Check(!CSOL_PrecacheScenarioMapVote()&&!Start(),"missing engine precache service cannot enable vote");
     Reset("zs_deadend");Check(allocations==releases,"all actual file loads released after negative cases");
 }
+void ChangeCard(std::optional<std::string_view> fileName)
+{
+    editPresentation = [fileName](std::string& json) {
+        rapidjson::Document document;
+        document.Parse(json.data(), json.size());
+        auto& cards = document["maps"];
+        const auto match = std::find_if(cards.Begin(), cards.End(),
+            [](const auto& card) { return card["id"].GetInt() == 98; });
+        Check(match != cards.End(), "fixture has the unmodified zs_deadend card");
+        if (match == cards.End()) return;
+        if (fileName) {
+            (*match)["map"].SetString(fileName->data(), rapidjson::SizeType(fileName->size()),
+                document.GetAllocator());
+        } else {
+            cards.Erase(match);
+        }
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+        document.Accept(writer);
+        json.assign(buffer.GetString(), buffer.GetSize());
+    };
+}
+
+void CardClosure()
+{
+    const auto twoMaps = [](char* name) {
+        const std::string_view map = name;
+        return (map == "zs_deadend" || map == "zs_lostcity") ? MapValid(name) : FALSE;
+    };
+    Reset("zs_deadend");
+    g_engfuncs.pfnIsMapValid = twoMaps;
+    Check(CSOL_PrecacheScenarioMapVote() && Start(), "two maps with matching cards can start");
+    const auto initial = vote.View(0, 0, globals.time);
+    Check(initial.count == 2 && HasChoice(initial, 98) && HasChoice(initial, 74),
+        "both validated cards enter the real server ballot");
+
+    for (const auto name : {std::optional<std::string_view>{}, std::optional<std::string_view>{"wrong_map"}}) {
+        Reset("zs_deadend");
+        g_engfuncs.pfnIsMapValid = twoMaps;
+        ChangeCard(name);
+        Check(CSOL_PrecacheScenarioMapVote() && Start(), "another complete card can still start a ballot");
+        const auto ballot = vote.View(0, 0, globals.time);
+        Check(ballot.count == 1 && HasChoice(ballot, 74) && !HasChoice(ballot, 98),
+            name ? "same ID on a different map is excluded" : "missing card is excluded");
+        Check(std::none_of(requested.begin(), requested.end(),
+            [](const auto& path) { return path.ends_with("zs_deadend.cso"); }),
+            "incomplete candidate never requests its scenario tables");
+    }
+
+    Reset("zs_deadend");
+    onlyMap = "zs_deadend";
+    ChangeCard(std::nullopt);
+    Check(CSOL_PrecacheScenarioMapVote() && !Start() && vote.State() == Phase::Idle,
+        "a map reset drops the cached card and no invisible map can enter a ballot");
+}
+
 void SingleCurrentMap()
 {
     Reset("zs_deadend");onlyMap="zs_deadend";
@@ -188,9 +252,13 @@ void SingleCurrentMap()
 }
 int main(int argc,char** argv)
 {
-    if(argc<2||argc>3)return 2;root=argv[1];
-    if(argc==3){if(std::string_view(argv[2])!="three-maps")return 2;threeMaps=true;}
-    RealFiles();Failures();SingleCurrentMap();
+    if (argc < 2 || argc > 3) return 2;
+    root = argv[1];
+    const std::string_view mode = argc == 3 ? argv[2] : "";
+    if (!mode.empty() && mode != "three-maps" && mode != "--cards-only") return 2;
+    threeMaps = mode == "three-maps";
+    CardClosure();
+    if (mode != "--cards-only") { RealFiles(); Failures(); SingleCurrentMap(); }
     std::cout<<checks<<" checks, "<<failures<<" failures\n";
     return failures?1:0;
 }

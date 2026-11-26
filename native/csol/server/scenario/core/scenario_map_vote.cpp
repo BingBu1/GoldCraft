@@ -5,6 +5,7 @@
 #include "../../../scenario/core/map_catalog.hpp"
 #include "../../../scenario/core/map_vote_presentation.hpp"
 #include <algorithm>
+#include <bitset>
 #include <charconv>
 #include <cmath>
 #include <cstring>
@@ -19,12 +20,14 @@ Vote vote;
 std::uint32_t generation{};
 std::uint64_t epoch{1};
 int message{};
-bool busy{},sending{},resourcesReady{};
+bool busy{},sending{};
+std::bitset<MaxChoices> availableCards;
 struct Recipient { std::uint32_t token{},revision{};std::uint16_t seconds{};double sentAt{-1}; };
 std::array<Recipient,MaxPlayers> recipients{};
 constexpr std::array<std::pair<std::uint16_t,const char*>,7> seasonOne{{
     {74,"zs_lostcity"},{75,"zs_2gate"},{76,"zs_trap"},{77,"zs_lastclue"},
     {85,"zs_chaos"},{98,"zs_deadend"},{101,"zs_nightmare"}}};
+static_assert(seasonOne.size() <= MaxChoices);
 
 std::uint32_t Identity(edict_t* entity)
 {
@@ -65,13 +68,24 @@ bool CSOL_PrecacheScenarioMapVote()
     if(busy||!g_engfuncs.pfnLoadFileForMe||!g_engfuncs.pfnFreeFile||!g_engfuncs.pfnPrecacheGeneric||!g_engfuncs.pfnRegUserMsg)return false;
     const auto startEpoch=epoch;
     struct Guard { Guard(){busy=true;}~Guard(){busy=false;} }guard;
-    resourcesReady=false;
+    availableCards.reset();
     const auto release=g_engfuncs.pfnFreeFile;int length{};
     std::unique_ptr<unsigned char,decltype(release)> bytes(
         g_engfuncs.pfnLoadFileForMe(PresentationResource,&length),release);
     if(epoch!=startEpoch||!bytes||length<=0||length>1024*1024)return false;
+    std::bitset<MaxChoices> cards;
     std::vector<std::string> resources;
-    try{resources=Resources(ParsePresentation({reinterpret_cast<const char*>(bytes.get()),std::size_t(length)}));}
+    try {
+        const auto presentation = ParsePresentation(
+            {reinterpret_cast<const char*>(bytes.get()), std::size_t(length)});
+        for (std::size_t index = 0; index < seasonOne.size(); ++index) {
+            const auto& [id, name] = seasonOne[index];
+            const auto* card = presentation.Find(id);
+            if (card && card->mapName == name) cards.set(index);
+        }
+        if (cards.none()) return false;
+        resources = Resources(presentation);
+    }
     catch(const std::exception&){return false;}
     // Validate the complete closure before adding it to the download list.
     for(const auto& path:resources){
@@ -84,11 +98,13 @@ bool CSOL_PrecacheScenarioMapVote()
     }
     const int registered=REG_USER_MSG(MessageName,-1);
     if(epoch!=startEpoch||registered<64||registered>255)return false;
-    message=registered;resourcesReady=true;return true;
+    availableCards = cards;
+    message = registered;
+    return true;
 }
 bool CSOL_StartScenarioMapVote(unsigned seconds)
 {
-    if (busy || !resourcesReady || vote.State()==Phase::Open || !gpGlobals || generation==UINT32_MAX ||
+    if (busy || availableCards.none() || vote.State()==Phase::Open || !gpGlobals || generation==UINT32_MAX ||
         !g_engfuncs.pfnLoadFileForMe || !g_engfuncs.pfnFreeFile ||
         !g_engfuncs.pfnIsMapValid || message<64 || message>255) return false;
     const std::string currentMap=STRING(gpGlobals->mapname);
@@ -103,8 +119,10 @@ bool CSOL_StartScenarioMapVote(unsigned seconds)
     MapCatalog catalog;ConfigError error;
     if (!ReadMapCatalog({reinterpret_cast<const char*>(bytes.get()),std::size_t(length)},catalog,error)) return false;
     std::vector<Choice> candidates;
-    for (const auto& [id,name]:seasonOne)
+    for (std::size_t index = 0; index < seasonOne.size(); ++index)
     {
+        if (!availableCards.test(index)) continue;
+        const auto& [id, name] = seasonOne[index];
         const auto* entry=catalog.Find(id);
         int subtype{};
         if (!entry || entry->fileName!=name || catalog.UniqueMapId(name)!=id ||
@@ -191,4 +209,11 @@ bool CSOL_ScenarioMapVoteCommand(edict_t* entity,const char* command)
 }
 bool CSOL_ScenarioMapVoteActive(){return vote.State()==Phase::Open;}
 void CSOL_CancelScenarioMapVote(){vote.Cancel();}
-void CSOL_ResetScenarioMapVote(){++epoch;vote.Reset();recipients={};message=0;resourcesReady=false;}
+void CSOL_ResetScenarioMapVote()
+{
+    ++epoch;
+    vote.Reset();
+    recipients = {};
+    message = 0;
+    availableCards.reset();
+}
