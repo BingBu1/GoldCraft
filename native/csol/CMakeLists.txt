@@ -15,6 +15,7 @@ add_library(CSOLSupport SHARED client/plugin.cpp client/resources.cpp client/seq
     client/weapons/m249ex.cpp client/weapons/skull1.cpp client/weapons/skull2.cpp client/weapons/skull3.cpp client/weapons/skull5.cpp client/weapons/balrog11.cpp client/weapons/balrog11_flame.cpp client/weapons/sniper_scope.cpp client/weapons/sniper_scope_host.cpp
     client/scenario/core/death_notices.cpp client/scenario/core/scenario_kill.cpp scenario/core/scenario_kill.cpp client/scenario/core/scenario_effects.cpp client/character_skill_effects.cpp client/character_skill_display.cpp
     client/scenario/core/scenario_smoke.cpp scenario/core/scenario_smoke.cpp
+    client/scenario/core/maneuver_gear.cpp
     client/scenario/monsters/elite_visuals.cpp client/cso_tent.cpp client/render_settings.cpp client/scenario/core/wall_upgrade_hint.cpp client/scenario/core/wall_upgrade_hud.cpp
     client/scenario/monsters/frozen_death.cpp
     client/scenario/monsters/frozen_smoke.cpp

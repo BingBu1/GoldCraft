@@ -220,14 +220,12 @@ void RootCases()
         v.Call("PlayerMenuHandler",{1,root,0});
         const int purchase = v.s.shown;
         Check(v.s.menus.at(root).destroyed && v.s.engineCommands.empty() &&
-            v.s.menus.at(purchase).items.size() == 1, "the purchase page retains ordinary buying with all extras off");
+            v.s.menus.at(purchase).items.empty(), "disabled offers leave only the close action");
         v.Call("PurchaseMenuHandler", {1, purchase, 0});
-        const auto& dispatch = v.s.engineCommands.at(0);
-        Check(dispatch.player == 1 && dispatch.command == "buy" && dispatch.arg1.empty() &&
-            dispatch.arg2.empty() && dispatch.menuDestroyed, "ordinary purchase opens the native buy menu");
+        Check(v.s.engineCommands.empty(), "an absent ordinary purchase entry cannot dispatch buy");
         Check(v.s.commands.empty()&&v.s.edits==0&&v.s.requests==0&&v.s.replays==0&&v.s.votes==0,
             "purchase root cannot mutate saved settings or submit administrative actions");
-        v.Call("PlayerMenuHandler",{1,root,0});Check(v.s.engineCommands.size()==1,"late duplicate root selection cannot buy again");
+        v.Call("PlayerMenuHandler",{1,root,0});Check(v.s.engineCommands.empty(),"late duplicate root selection cannot buy again");
     }
     {VM v;v.Call("CommandChooseTeam",{1});const int root=v.s.shown;v.Call("PlayerMenuHandler",{1,root,1});
         const auto& menu=v.s.menus.at(v.s.shown);
@@ -250,7 +248,7 @@ void RootCases()
     {VM v;v.Call("CommandChooseTeam",{1});const int old=v.s.shown;v.Call("CommandChooseTeam",{1});const int fresh=v.s.shown;
         const auto destroys=v.s.destroys;v.Call("PlayerMenuHandler",{1,old,0});
         Check(v.s.engineCommands.empty()&&v.s.shown==fresh&&v.s.destroys==destroys,"old root handler cannot close newer root or dispatch a command");}
-    for (int item = 0; item <= 3; ++item)
+    for (int item = 0; item < 5; ++item)
     {
         VM v;
         v.s.flags = 0;
@@ -259,14 +257,14 @@ void RootCases()
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
         const auto purchase = v.s.shown;
         const auto& menu = v.s.menus.at(purchase);
-        Check(menu.handler == "PurchaseMenuHandler" && menu.items.size() == 4 && v.s.engineCommands.empty(),
-            "ordinary player sees standard buying and three configured boxes");
-        const std::array<std::string_view, 4> keys{"", "cof", "cs16", "csol"};
-        const std::array<std::string_view, 4> quotes{"", "3000", "6000", "30000"};
+        Check(menu.handler == "PurchaseMenuHandler" && menu.items.size() == 5 && v.s.engineCommands.empty(),
+            "ordinary player sees all five supply offers");
+        const std::array<std::string_view, 5> keys{"cof", "cs16", "csol", "pistol", "melee"};
+        const std::array<std::string_view, 5> quotes{"3000", "6000", "30000", "2500", "9550"};
         v.s.blindBoxCvars[1] = 3500;
         v.Call("PurchaseMenuHandler", {1, purchase, item});
         const auto& command = v.s.engineCommands.at(0);
-        Check(command.command == (item ? "csol_blindbox" : "buy") && command.arg1 == keys[item] &&
+        Check(command.command == "csol_blindbox" && command.arg1 == keys[item] &&
             command.arg2 == quotes[item] && command.menuDestroyed,
             "purchase menu sends the fixed category and displayed quote after closing the menu");
         v.Call("PurchaseMenuHandler", {1, purchase, item});
@@ -277,12 +275,12 @@ void RootCases()
         v.s.blindBoxCvars = {1, 3000, 3000, 30000};
         v.Call("CommandChooseTeam", {1});
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
-        Check(v.s.menus.at(v.s.shown).items.size() == 1, "invalid price ordering hides the blind boxes");
+        Check(v.s.menus.at(v.s.shown).items.size() == 2, "invalid tier prices still allow both fixed-price supplies");
         v.Call("PurchaseMenuHandler", {1, v.s.shown, 0});
-        Check(v.s.engineCommands.size() == 1 && v.s.engineCommands.front().command == "buy",
-            "invalid price ordering keeps the normal buy entry usable");
+        Check(v.s.engineCommands.size() == 1 && v.s.engineCommands.front().arg1 == "pistol",
+            "pistol supply is independent of tier price ordering");
     }
-    for (int item : {4, -3})
+    for (int item : {5, -3})
     {
         VM v;
         v.s.flags = 0;
@@ -293,11 +291,11 @@ void RootCases()
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
         const int purchase = v.s.shown;
         const auto& menu = v.s.menus.at(purchase);
-        Check(menu.items.size() == 6 && menu.perPage == 0 && menu.exitMode == 2 &&
+        Check(menu.items.size() == 7 && menu.perPage == 0 && menu.exitMode == 2 &&
             v.s.menuNames.at(purchase).at(4) == "关闭" &&
-            menu.items.at(4).first == "补满主副武器弹药  $2000" &&
-            menu.items.at(5).first == "永夜照明装备",
-            "all six entries and the forced close action share one purchase page");
+            menu.items.at(5).first == "补满主副武器弹药  $2000" &&
+            menu.items.at(6).first == "永夜照明装备",
+            "all seven entries and the forced close action share one purchase page");
         v.s.ammoRefillCvars[1] = 2500;
         v.Call("PurchaseMenuHandler", {1, purchase, item});
         if (item >= 0)
@@ -320,8 +318,8 @@ void RootCases()
         v.Call("CommandChooseTeam", {1});
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
         const int purchase = v.s.shown;
-        Check(v.s.menus.at(purchase).items.at(4).first == "永夜照明装备", "the ordinary player can open the lighting shop");
-        v.Call("PurchaseMenuHandler", {1, purchase, 4});
+        Check(v.s.menus.at(purchase).items.at(5).first == "永夜照明装备", "the ordinary player can open the lighting shop");
+        v.Call("PurchaseMenuHandler", {1, purchase, 5});
         const int lighting = v.s.shown;
         const auto& menu = v.s.menus.at(lighting);
         Check(menu.items.size() == 3 && menu.items.at(0).first == "提灯  $1500" &&
@@ -339,7 +337,7 @@ void RootCases()
         }
         else
             Check(v.s.engineCommands.empty() && v.s.shown != lighting &&
-                v.s.menus.at(v.s.shown).items.front().second == "buy", "lighting back returns to the purchase page");
+                v.s.menus.at(v.s.shown).items.front().second == "cof 3000", "lighting back returns to the purchase page");
     }
 }
 bool CompleteUtf8(std::string_view text)
@@ -415,8 +413,8 @@ void Cases()
         const auto& menu=v.s.menus.at(v.s.shown);Check(menu.items.size()==1&&menu.handler=="PlayerMenuHandler","ordinary homepage has player actions and no server management");
         v.Call("PlayerMenuHandler", {1, v.s.shown, 0});
         v.Call("PurchaseMenuHandler", {1, v.s.shown, 0});
-        Check(v.s.edits == 0 && v.s.engineCommands.size() == 1 && v.s.engineCommands.front().command == "buy",
-            "the ordinary purchase entry opens the native buy menu without settings edits");}
+        Check(v.s.edits == 0 && v.s.engineCommands.empty(),
+            "the removed ordinary purchase action cannot dispatch a native command");}
     for(int mode=0;mode!=3;++mode){VM v;if(mode==0)v.s.joining=1;else if(mode==1)v.s.mode=1;else v.s.connected=false;
         Check(v.Call("CommandChooseTeam",{1})==0&&v.s.shown==-1,"initial selection other mode and disconnect retain native M");}
     {VM v;v.Call("CommandChooseTeam",{1});const int menu=v.s.shown;

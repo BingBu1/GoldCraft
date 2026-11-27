@@ -777,7 +777,41 @@ void BlindBox(Fixture& fixture, std::string_view group)
   player.m_signals.Update();
   Require(!player.CanPlayerBuy(false), "fixture buyer has left the native buy zone");
  }
- if (group == "blind-weights")
+ if (group == "blind-class-pistol" || group == "blind-class-melee")
+ {
+  const bool pistol = group == "blind-class-pistol";
+  const char* kind = pistol ? "pistol" : "melee";
+  const int price = pistol ? 2500 : 9550;
+  const char* quote = pistol ? "2500" : "9550";
+  const int slot = pistol ? PISTOL_SLOT : KNIFE_SLOT;
+  const int otherSlot = pistol ? KNIFE_SLOT : PISTOL_SLOT;
+  const auto* previous = player.m_rgpPlayerItems[slot];
+  const auto* other = player.m_rgpPlayerItems[otherSlot];
+  const auto* rifle = player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT];
+  player.m_signals.Update();
+  Require(!player.CanPlayerBuy(false), "buyer is outside the buy zone");
+  player.m_iAccount = price - 1;
+  open(kind, quote);
+  Check(fixture.debits.empty() && player.m_iAccount == price - 1 &&
+        player.m_rgpPlayerItems[slot] == previous && draws == 0, "insufficient cash leaves inventory and balance intact");
+  player.m_iAccount = 12050;
+  open(kind, "1");
+  Check(fixture.debits.empty() && player.m_iAccount == 12050 && player.m_rgpPlayerItems[slot] == previous &&
+        draws == 0, "an incorrect class-supply quote is rejected before the draw");
+  nextRoll = 1;
+  open(kind, quote);
+  const auto* received = player.m_rgpPlayerItems[slot];
+  Require(received && received != previous, "the command grants the selected class");
+  const auto* entry = csol::buy::Find(received->m_iId);
+  Check(entry && csol::buy::RebuySlot(*entry) == (pistol ? 1 : 3) && owns(slot, received->m_iId),
+        "the actual granted entity belongs to the advertised class and the buyer");
+  Check(fixture.debits == std::vector<int>{-price} && player.m_iAccount == 12050 - price,
+        "a successful class supply debits the advertised CS cash exactly once");
+  Check(player.m_rgpPlayerItems[otherSlot] == other && player.m_rgpPlayerItems[PRIMARY_WEAPON_SLOT] == rifle,
+        "the other weapon slots keep their items");
+  if (pistol) Check(full(player.m_rgpPlayerItems[slot]), "the granted pistol has a full magazine and reserve");
+ }
+ else if (group == "blind-weights")
  {
   open("cs16", "6000");
   Check(owns(PRIMARY_WEAPON_SLOT, WEAPON_M4A1) && player.m_iAccount == 10000 &&

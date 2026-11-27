@@ -1,6 +1,8 @@
 {
   "format": 1,
   "files": [
+    "docs/2026-11-27_验收-巨人切割者右键与武器补给.md",
+    "patches/csol-at-attack-grapple-input.patch",
     "patches/goldsrc-model-thumbnail-performance.patch",
     "docs/2026-11-26_优化-MDL文件夹缩略图.md",
     "docs/2026-11-25_修复-灾难先兆换章装备继承-report.md",

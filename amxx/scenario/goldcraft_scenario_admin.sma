@@ -18,8 +18,8 @@ new const g_NightEquipmentNames[][] = { "提灯", "照明弹" };
 new const g_NightEquipmentPriceCvars[][] = {
     "csol_custom_night_lantern_price", "csol_custom_night_flare_price"
 };
-new const g_BlindBoxKeys[][] = { "cof", "cs16", "csol" };
-new const g_BlindBoxNames[][] = { "CoF 武器盲盒", "CS1.6 武器盲盒", "CSOL 武器盲盒" };
+new const g_BlindBoxKeys[][] = { "cof", "cs16", "csol", "pistol", "melee" };
+new const g_BlindBoxNames[][] = { "CoF 武器补给", "CS1.6 武器补给", "CSOL 武器补给", "手枪补给", "近战补给" };
 new const g_BlindBoxPriceCvars[][] = {
     "csol_custom_blind_box_price_1", "csol_custom_blind_box_price_2", "csol_custom_blind_box_price_3"
 };
@@ -46,6 +46,12 @@ new const g_CustomKeys[][] = {
     "damage_refund_cap",
     "night_player_lights",
     "zombie_gibs",
+    "weapon_cleaning",
+    "weapon_permit",
+    "cof_start",
+    "zombie_speed_cap",
+    "zombie_kill_money_cap",
+    "loot_coins",
     "night_equipment",
     "ammo_refill",
     "midday_seconds",
@@ -99,14 +105,36 @@ new const g_CustomKeys[][] = {
     "blood_splash_radius",
     "zombie_gib_chance",
     "zombie_gib_melee_head_chance",
+    "weapon_cleaning_price",
+    "weapon_permit_price",
+    "cof_start_reserve_min",
+    "cof_start_reserve_max",
+    "zombie_speed_limit",
+    "night_zombie_speed_limit",
+    "zombie_kill_money_limit",
+    "loot_coins_min_1",
+    "loot_coins_max_1",
+    "loot_coins_min_2",
+    "loot_coins_max_2",
+    "loot_coins_min_3",
+    "loot_coins_max_3",
+    "loot_coins_min_4",
+    "loot_coins_max_4",
+    "loot_coins_min_5",
+    "loot_coins_max_5",
+    "loot_coins_min_6",
+    "loot_coins_max_6",
+    "loot_coins_min_7",
+    "loot_coins_max_7",
     "night_lantern_price",
     "night_flare_price",
-    "ammo_refill_price"
+    "ammo_refill_price",
+    "walk_speed_multiplier"
 };
 new const g_CustomNames[][] = {
     "范围踢击",
     "时间系统",
-    "武器盲盒",
+    "武器补给",
     "武器熟练度",
     "体力与奔跑",
     "模型血迹",
@@ -117,13 +145,19 @@ new const g_CustomNames[][] = {
     "伤害返金限制",
     "永夜随身照明",
     "僵尸爆尸",
+    "血迹清洗",
+    "一次武器选购",
+    "CoF随机开局",
+    "僵尸移速限制",
+    "普通僵尸击杀奖励限制",
+    "战利品金币",
     "永夜照明装备",
     "补满弹药",
     "正午时长",
     "黄昏时长",
-    "CoF盲盒价格",
-    "CS盲盒价格",
-    "CSOL盲盒价格",
+    "CoF补给价格",
+    "CS补给价格",
+    "CSOL补给价格",
     "熟练度一档击杀",
     "熟练度二档击杀",
     "熟练度三档击杀",
@@ -170,9 +204,31 @@ new const g_CustomNames[][] = {
     "血迹溅射距离",
     "普通击杀爆尸概率",
     "近战爆头爆尸概率",
+    "清洗费用",
+    "一次武器选购费用",
+    "开局备弹下限",
+    "开局备弹上限",
+    "基础僵尸移速上限",
+    "永夜僵尸移速上限",
+    "普通僵尸单次击杀金钱上限",
+    "入门金币下限",
+    "入门金币上限",
+    "普通金币下限",
+    "普通金币上限",
+    "困难金币下限",
+    "困难金币上限",
+    "噩梦金币下限",
+    "噩梦金币上限",
+    "地狱金币下限",
+    "地狱金币上限",
+    "炼狱金币下限",
+    "炼狱金币上限",
+    "炼狱Ⅰ金币下限",
+    "炼狱Ⅰ金币上限",
     "提灯价格",
     "照明弹价格",
-    "补满弹药价格"
+    "补满弹药价格",
+    "黄昏和永夜步行倍率"
 };
 
 // Original cso_chn localization, CSO_ZBS_DIFF_GRADE1..7.
@@ -334,10 +390,15 @@ ShowPurchaseMenu(id)
     new menu = menu_create("大灾变^n购买系统", "PurchaseMenuHandler");
     g_Menu[id] = menu;
     g_MenuUserid[id] = get_user_userid(id);
-    menu_additem(menu, "普通武器购买", "buy");
     if (blindBoxes)
-        for (new i; i < sizeof g_BlindBoxKeys; i++)
+        for (new i; i < sizeof g_BlindBoxPrices; i++)
             AddPurchaseOffer(menu, g_BlindBoxNames[i], g_BlindBoxKeys[i], prices[i]);
+
+    if (g_BlindBoxEnabled && get_pcvar_float(g_BlindBoxEnabled) == 1.0)
+    {
+        AddPurchaseOffer(menu, g_BlindBoxNames[3], g_BlindBoxKeys[3], 2500);
+        AddPurchaseOffer(menu, g_BlindBoxNames[4], g_BlindBoxKeys[4], 9550);
+    }
 
     if (g_AmmoRefillEnabled && get_pcvar_float(g_AmmoRefillEnabled) == 1.0)
     {
@@ -375,11 +436,6 @@ public PurchaseMenuHandler(id, menu, item)
     g_Menu[id] = -1;
     menu_destroy(menu);
     if (!hasItem || !ScenarioJoined(id) || get_user_userid(id) != userid) return PLUGIN_HANDLED;
-    if (equal(info, "buy"))
-    {
-        engclient_cmd(id, "buy");
-        return PLUGIN_HANDLED;
-    }
     if (equal(info, "lighting"))
     {
         if (g_NightEquipmentEnabled && get_pcvar_float(g_NightEquipmentEnabled) == 1.0)

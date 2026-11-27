@@ -29,6 +29,17 @@ void EXT_FUNC InternalCommand(edict_t*,const char*,const char*);
 namespace {
 using namespace csol::buy;
 namespace custom = csol::scenario::custom;
+struct WeaponSupply {
+    std::optional<custom::BlindBox> tier;
+    int slot{}, fixedPrice{};
+};
+std::optional<WeaponSupply> FindSupply(std::string_view key)
+{
+    if (const auto tier = custom::FindBlindBox(key)) return WeaponSupply{tier};
+    if (key == "pistol") return WeaponSupply{{}, 1, 2500};
+    if (key == "melee") return WeaponSupply{{}, 3, 9550};
+    return {};
+}
 struct BlindBoxReward {
     const Item* item;
     std::uint32_t weight;
@@ -313,8 +324,23 @@ bool DeliverReward(CBasePlayer& player, const Item& item)
         CSOL_DeliverScenarioWeapon(&player, item.id);
 }
 
+template<class AvailableReward>
+const Item* RollClassWeapon(int slot, const AvailableReward& available)
+{
+    if (!g_engfuncs.pfnRandomLong) return nullptr;
+    const Item* selected{};
+    int count{};
+    // Reservoir sampling gives every eligible catalogue item the same chance.
+    for (const auto& item : Catalog())
+    {
+        if (RebuySlot(item) != slot || !available(item)) continue;
+        if (++count == 1 || RANDOM_LONG(1, count) == 1) selected = &item;
+    }
+    return selected;
+}
+
 template<class Current, class SameBuyer>
-void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int quotedPrice,
+void BuyWeaponSupply(CBasePlayer& player, Client& state, WeaponSupply offer, int quotedPrice,
     const Current& current, const SameBuyer& sameBuyer)
 {
     // The blind-box shop removes the buy-zone requirement for this transaction.
@@ -324,17 +350,20 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
     if (!allowed()) return;
     const auto prices = CSOL_ReadBlindBoxPrices();
     const auto pools = blindBoxPools;
-    const auto index = static_cast<std::size_t>(box);
-    if (!prices || !pools)
+    if (!CSOL_CustomFeatureEnabled(custom::Feature::BlindBox) || !pools || (offer.tier && !prices))
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, "武器盲盒当前不可购买。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "武器补给当前不可购买。\n");
         return;
     }
-    const auto offerCurrent = [&] { return blindBoxPools == pools && CSOL_ReadBlindBoxPrices() == prices; };
-    const int price = (*prices)[index];
+    const auto offerCurrent = [&] {
+        return blindBoxPools == pools && CSOL_CustomFeatureEnabled(custom::Feature::BlindBox) &&
+            (!offer.tier || CSOL_ReadBlindBoxPrices() == prices);
+    };
+    const auto index = static_cast<std::size_t>(offer.tier.value_or(custom::BlindBox::Cof));
+    const int price = offer.tier ? (*prices)[index] : offer.fixedPrice;
     if (price != quotedPrice)
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒价格已变化，请重新打开购买系统。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "武器补给价格已变化，请重新打开购买系统。\n");
         return;
     }
     if (player.m_iAccount < price)
@@ -343,18 +372,18 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
         return;
     }
 
-    const bool pair = box == custom::BlindBox::Csol;
+    const bool pair = offer.tier == custom::BlindBox::Csol;
     const auto available = [&](const Item& item)
     {
         return current() && BlindBoxRewardAvailable(player, item);
     };
     const auto& pool = (*pools)[index];
-    const auto* primary = RollWeapon(pool, pair ? 2 : 0, available);
+    const auto* primary = offer.tier ? RollWeapon(pool, pair ? 2 : 0, available) : RollClassWeapon(offer.slot, available);
     const auto* secondary = pair && primary ? RollWeapon(pool, 1, available) : nullptr;
     if (!current()) return;
     if (!primary || (pair && !secondary))
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, "该盲盒当前没有可领取的武器组合。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "当前补给没有可领取的武器。\n");
         return;
     }
     if (!allowed() || !offerCurrent() || player.m_iAccount < price) return;
@@ -393,18 +422,18 @@ void BuyBlindBox(CBasePlayer& player, Client& state, custom::BlindBox box, int q
     if (!current()) return;
     if (!granted)
     {
-        ClientPrint(player.pev, HUD_PRINTTALK, "盲盒购买失败。\n");
+        ClientPrint(player.pev, HUD_PRINTTALK, "武器补给购买失败。\n");
         return;
     }
     player.BuildRebuyStruct();
     if (!current()) return;
     char notice[200];
     if (melee)
-        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s、%s 和 %s\n", primary->name, secondary->name, melee->name);
+        Q_snprintf(notice, sizeof(notice), "武器补给获得 %s、%s 和 %s\n", primary->name, secondary->name, melee->name);
     else if (secondary)
-        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s 和 %s\n", primary->name, secondary->name);
+        Q_snprintf(notice, sizeof(notice), "武器补给获得 %s 和 %s\n", primary->name, secondary->name);
     else
-        Q_snprintf(notice, sizeof(notice), "盲盒获得 %s\n", primary->name);
+        Q_snprintf(notice, sizeof(notice), "武器补给获得 %s\n", primary->name);
     ClientPrint(player.pev, HUD_PRINTTALK, notice);
 }
 
@@ -695,13 +724,13 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
     auto* player=dynamic_cast<CBasePlayer*>(CBaseEntity::Instance(entity));if(!player)return true;
     const int index=player->entindex();if(index<1||index>=int(clients.size()))return true;
     const bool catalog=!Q_strcmp(command,"csol_buy_menu");std::uint16_t request{},id{};
-    std::optional<custom::BlindBox> box;
+    std::optional<WeaponSupply> supply;
     const Item* lightOffer = nullptr;
     if (light) {
         if (CMD_ARGC() != 3 || !(lightOffer = Find(CMD_ARGV(1))) ||
             !guest::cof::light::Find(lightOffer->id) || !Number(CMD_ARGV(2), id, true)) return true;
     } else if(blind){
-        if(CMD_ARGC()!=3 || !(box=custom::FindBlindBox(CMD_ARGV(1))) || !Number(CMD_ARGV(2),id,true))return true;
+        if(CMD_ARGC()!=3 || !(supply=FindSupply(CMD_ARGV(1))) || !Number(CMD_ARGV(2),id,true))return true;
     }else if (refill) {
         if (CMD_ARGC() != 2 || !Number(CMD_ARGV(1), id, true)) return true;
     }else if(!replay&&(CMD_ARGC()!=(catalog?2:3)||!Number(CMD_ARGV(1),request)||(!catalog&&!Number(CMD_ARGV(2),id))))return true;
@@ -742,7 +771,7 @@ bool CSOL_BuyMenuCommand(edict_t* entity,const char* command)
         BuyAmmoRefill(*player, state, id, current, sameBuyer);
         return true;
     }
-    if(box){BuyBlindBox(*player,state,*box,id,current,sameBuyer);return true;}
+    if(supply){BuyWeaponSupply(*player,state,*supply,id,current,sameBuyer);return true;}
     if (lightOffer)
     {
         const auto result = Purchase(*player, state, *lightOffer, current, sameBuyer, id);

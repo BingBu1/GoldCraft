@@ -5,6 +5,8 @@
 #include "../../user_message_chain.hpp"
 #include "../../weapons/weapons.hpp"
 #include "scenario_round_hud_client.hpp"
+#include "maneuver_gear.hpp"
+#include "../../../scenario/core/maneuver_gear.hpp"
 #include "../../../scenario/core/scenario_round_hud.hpp"
 #include "../../../scenario/core/scenario_localization.hpp"
 #include "../../../scenario/core/dialogue_resources.hpp"
@@ -37,18 +39,7 @@ std::array<vgui::HFont, unsigned(hud::Font::Count)> fonts{};
 struct DialogueTexture { int id{}; float retryAfter{}; bool reported{}; };
 std::map<std::uint16_t, DialogueTexture> dialogueTextures;
 HANDLE privateFont{};
-struct FuelImage
-{
-    const char* path;
-    int width, height;
-};
-// client.dll 02845060 and 02851160 list the images in paint order.
-constexpr std::array FuelImages{
-    FuelImage{"resource/attackontitan/gasbg.tga", 359, 97},
-    FuelImage{"resource/attackontitan/gasleft.tga", 108, 97},
-    FuelImage{"resource/attackontitan/gasgauge.tga", 210, 16},
-    FuelImage{"resource/attackontitan/gaspoint.tga", 5, 20},
-};
+using maneuver_gear::FuelImages;
 struct FuelHud
 {
     std::array<int, FuelImages.size()> textures{};
@@ -485,6 +476,7 @@ void Install(const char* name, pfnUserMsgHook hook, pfnUserMsgHook& previous)
 }
 void InitializeScenarioRoundHud()
 {
+    maneuver::Initialize();
     Install("MPToCL", Receive, previousMP); Install("ValueSync", Sync, previousSync);
     Install("InitHUD", Init, previousInit); Install("ResetHUD", ResetLife, previousReset);
     Install("HideWeapon", Hide, previousHide);
@@ -501,6 +493,7 @@ void InitializeScenarioRoundHud()
 }
 void ResetScenarioRoundHud()
 {
+    maneuver::Reset();
     state.Reset(); messages = {}; lines.clear(); localLines = {}; catalogLoaded = false;
     ReleaseDialogueImages(); catalogRetryAfter = 0; catalogReported = false;
     requested = false; hidden = 0; frameTime = 0;
@@ -509,6 +502,7 @@ void ResetScenarioRoundHud()
 }
 void ScenarioRoundHudFrame()
 {
+    maneuver::Frame();
     if (state.Active()) { LoadCatalog(); Prepare(); }
     else if (catalogLoaded || std::any_of(localLines.begin(), localLines.end(), [](const auto& text) { return !text.empty(); })) Prepare();
     PrepareDialogueImages();
@@ -516,6 +510,7 @@ void ScenarioRoundHudFrame()
 }
 void ScenarioRoundHudVideoInit()
 {
+    maneuver::Reset();
     ClearAtAttackFuel();
     ReleaseImages();
 }
@@ -555,6 +550,8 @@ void ScenarioRoundHudDiagnostics(std::ostream& out)
     out << "scenarioRound active=" << state.Active() << " prepared=" << prepared
         << " messageRows=" << messages.rows.size() << " localizedRows=" << lines.size()
         << " accepted=" << accepted << " malformed=" << malformed
-        << " unknownMessages=" << missingMessages << " sounds=" << sounds << '\n';
+        << " unknownMessages=" << missingMessages << " sounds=" << sounds;
+    maneuver::Diagnostics(out);
+    out << '\n';
 }
 }

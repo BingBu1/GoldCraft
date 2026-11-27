@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+#include "../scenario/core/maneuver_gear.hpp"
 #include "../../weapons/weapon_hud_paths.hpp"
 #include "weapons.hpp"
 #include "weapon_module.hpp"
@@ -800,6 +801,7 @@ hud_style::WeaponState CurrentWeaponHudState()
 
 void WeaponDiagnostics(std::ostream& out)
 {
+    maneuver::WriteSnapshot(out);
     out<<",\"weapon\":{\"registered\":"<<registered<<",\"active\":"<<active<<",\"clip\":"<<clip
         <<",\"predictedClip\":"<<predictedClip<<",\"reserve\":"<<reserve<<",\"hidden\":"<<hidden
         <<",\"health\":"<<view.health<<",\"draws\":"<<hudDraws<<",\"predictionCalls\":"<<predictionCalls

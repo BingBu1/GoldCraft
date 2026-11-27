@@ -16,9 +16,9 @@ namespace csol::scenario::custom
 namespace
 {
 constexpr std::array<BlindBoxDescriptor, BlindBoxCount> BoxRows{{
-    {BlindBox::Cof, Setting::BlindBoxPrice1, "cof", "CoF武器盲盒；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。"},
-    {BlindBox::CounterStrike, Setting::BlindBoxPrice2, "cs16", "CS1.6武器盲盒；同类有效武器按权重抽取，无可领取武器时不扣钱。"},
-    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器盲盒；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。启用并有可领取的近战武器时，按配置权重额外抽取一把。"}
+    {BlindBox::Cof, Setting::BlindBoxPrice1, "cof", "CoF武器补给；weight为相对权重，0停用；已持有或本图未就绪的武器不参与抽取。"},
+    {BlindBox::CounterStrike, Setting::BlindBoxPrice2, "cs16", "CS1.6武器补给；同类有效武器按权重抽取，无可领取武器时不扣钱。"},
+    {BlindBox::Csol, Setting::BlindBoxPrice3, "csol", "CSOL武器补给；每次发放一把主武器和一把副武器，两个槽位均可领取时才扣费。启用并有可领取的近战武器时，按配置权重额外抽取一把。"}
 }};
 constexpr std::string_view CofDefaults[]{"cof_glock", "cof_p345", "cof_revolver", "cof_vp70", "cof_tmp", "cof_mp5", "cof_m16", "cof_g43", "cof_shotgun"};
 constexpr std::string_view CsDefaults[]{"p228", "elites", "fn57", "usp", "glock", "deagle", "xm1014", "m3",
@@ -28,7 +28,7 @@ constexpr std::string_view CsolDefaults[]{"tknifeex2", "skull1", "skull2", "skul
 constexpr std::array<FeatureDescriptor, FeatureCount> FeatureRows{{
     {Feature::Kick, "kick", "csol_custom_kick", "F范围踢击开关；关闭不删除配置，可再次开启。", true, Scope::Immediate},
     {Feature::TimeCycle, "time_cycle", "csol_custom_time_cycle", "即时开关时间阶段；开启从正午开始，关闭恢复地图环境；配套资源须已预载。", false, Scope::Immediate},
-    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL三档盲盒在全图使用CS金钱购买。pools设置每把武器的相对权重，0停用。", true, Scope::Immediate},
+    {Feature::BlindBox, "blind_box", "csol_custom_blind_box", "CoF/CS1.6/CSOL来源补给及手枪、近战类别补给在全图使用CS金钱购买。pools设置每把武器的相对权重，0停用。", true, Scope::Immediate},
     {Feature::Mastery, "mastery", "csol_custom_mastery", "本图熟练度100/200/300；一档换弹，二档换弹和伤害，三档射速和伤害。", false, Scope::NextMapSession},
     {Feature::CofSprint, "cof_sprint", "csol_custom_cof_sprint", "下次载入地图启用体力。正午为灾变原有移速，黄昏和永夜解锁疾跑，站姿疾跑地速为300。", false, Scope::NextMapSession},
     {Feature::Blood, "blood", "csol_custom_blood", "僵尸受击后保留随机模型血迹，近距离枪击将血溅到射手手臂及手持枪械。血迹持续到对应实体离开本图，关闭时隐藏。", false, Scope::Immediate},
