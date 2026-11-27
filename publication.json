@@ -1,6 +1,12 @@
 {
   "format": 1,
   "files": [
+    "tools/siren_head_motion/bake.py",
+    "tools/siren_head_motion/motion.py",
+    "tools/siren_head_motion/rig.py",
+    "tools/siren_head_motion/shockwave.py",
+    "tools/siren_head_motion/sound.py",
+    "tools/siren_head_motion/studio.py",
     "docs/2026-11-27_验收-巨人切割者右键与武器补给.md",
     "patches/csol-at-attack-grapple-input.patch",
     "patches/goldsrc-model-thumbnail-performance.patch",
