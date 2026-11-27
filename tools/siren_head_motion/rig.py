@@ -120,6 +120,9 @@ class Rig:
             ankle[2] = z - (cloud @ footrot[2]).min()
             corpse = float(p["corpse"])
             knee = np.array([1.0, sign * (0.15 + corpse * 0.65), 0.12 - corpse * 0.46])
+            if name == "stomp" and side == 1:
+                # Lead with the knee while the heel stays tucked beneath the thigh.
+                knee += p["knee_lift"] * np.array([0, -0.45, 0.9])
             limb(thigh, calf, foot, ankle, knee)
             orient[foot] = footrot @ self.basis[foot]
             follow(toe)
