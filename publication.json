@@ -2,6 +2,7 @@
   "format": 1,
   "files": [
     "tools/siren_head_motion/bake.py",
+    "tools/siren_head_motion/footfalls.py",
     "tools/siren_head_motion/motion.py",
     "tools/siren_head_motion/rig.py",
     "tools/siren_head_motion/shockwave.py",

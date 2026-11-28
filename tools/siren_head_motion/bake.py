@@ -15,7 +15,8 @@ import numpy as np
 from PIL import Image
 from studio import Model, integer as i, matrices, accumulate
 from rig import Rig
-from motion import FRAMES, FPS, STRIDE
+from footfalls import LEFT_STEP, RIGHT_STEP, STOMP_LOAD, STOMP_HIT, write_footfalls
+from motion import FRAMES, FPS, IMPACT, STRIDE
 from shockwave import EVENT_ID, EVENT_OPTION, RELEASE_FRAME, WINDUP_FRAME
 from sound import SOUND, WINDUP_SOUND, render_windup, write_wave
 
@@ -27,6 +28,17 @@ ACTIVITIES = {
     "flinch": "ACT_SMALL_FLINCH",
     "death": "ACT_DIESIMPLE",
     "shockwave": "ACT_RANGE_ATTACK1",
+}
+
+
+# Use separate stock sound channels so a resumed walking cycle leaves the attack tail audible.
+BODY_SOUND = 1004
+VOICE_SOUND = 1008
+SEQUENCE_EVENTS = {
+    "walk": ((0, VOICE_SOUND, LEFT_STEP), ((FRAMES["walk"] - 1) // 2, VOICE_SOUND, RIGHT_STEP)),
+    "stomp": ((12, VOICE_SOUND, STOMP_LOAD), (IMPACT, BODY_SOUND, STOMP_HIT)),
+    "shockwave": ((WINDUP_FRAME, BODY_SOUND, WINDUP_SOUND), (RELEASE_FRAME, EVENT_ID, EVENT_OPTION),
+                  (RELEASE_FRAME, BODY_SOUND, SOUND)),
 }
 
 
@@ -74,13 +86,10 @@ def write_source(rig, src):
             for j, frame in enumerate(raw):
                 f.write(f"time {j}\n" + smd_frame(frame))
             f.write("end\n")
-        events = ""
-        if name == "shockwave":
-            events = (
-                f' {{ event 1004 {WINDUP_FRAME} "{WINDUP_SOUND}" }}'
-                f' {{ event {EVENT_ID} {RELEASE_FRAME} "{EVENT_OPTION}" }}'
-                f' {{ event 1004 {RELEASE_FRAME} "{SOUND}" }}'
-            )
+        events = "".join(
+            f' {{ event {event} {frame} "{option}" }}'
+            for frame, event, option in SEQUENCE_EVENTS.get(name, ())
+        )
         qc.append(
             f'$sequence "{name}" "{name}" fps {FPS} {ACTIVITIES[name]} 1'
             + (" loop" if name == "walk" else "")
@@ -158,7 +167,7 @@ def link_model(rig, compiled, worlds, staged):
         for k in (52, 64, 156):
             seti(q + k, 0)
         event_count, event_table = struct.unpack_from("<ii", b, s + 48)
-        assert event_count == (3 if name == "shockwave" else 0)
+        assert event_count == len(SEQUENCE_EVENTS.get(name, ()))
         if event_count:
             seti(q + 52, append(b[event_table : event_table + 76 * event_count]))
         if name == "walk":
@@ -212,7 +221,7 @@ def main():
     parser.add_argument("--studiomdl", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--smd-dir", type=Path)
-    parser.add_argument("--sound-dir", type=Path, help="Game sound directory for the windup and release WAVs")
+    parser.add_argument("--sound-dir", type=Path, help="Game sound directory for the creature WAVs")
     args = parser.parse_args()
     original = Model(args.body)
     if original.studio.sha256 != SOURCE_SHA256:
@@ -237,6 +246,7 @@ def main():
         if args.sound_dir:
             write_wave(args.sound_dir / WINDUP_SOUND, render_windup())
             write_wave(args.sound_dir / SOUND)
+            write_footfalls(args.sound_dir)
         os.replace(staged, output)
 
 

@@ -1,4 +1,4 @@
-"""Mix the Siren Head attack from five CC0 recordings. FFmpeg and curl are build tools."""
+"""Mix the Siren Head creature sounds from CC0 recordings. FFmpeg and curl are build tools."""
 
 import hashlib
 from pathlib import Path
@@ -18,7 +18,12 @@ CACHE = Path(__file__).resolve().parents[2] / "build/siren-head-horror/field-rec
 # Courtesy of nsstudios (351512), pushkin and performer Annalisa Loeffler (241592),
 # B.Harkins (683653), fattirewhitey (381784), and leonelmail (429130).
 # Preserve the original recordings outside the runtime package and pin the exact takes.
+# Ground recordings by burbujafilms, northern87, Caitlin_100 and TRP.
 RECORDINGS = {
+    "bag": ("392/392008_917043-hq.mp3", "9bf9e491d6cd8447116ef7127c741ec01bf26b7bfbca32292aa006b014ccf3d9"),
+    "stone": ("369/369981_1196518-hq.mp3", "9b14695665c8e2098086e3aa918a3a082aa7856e32deb4405e0d85da7339d763"),
+    "gravel": ("365/365498_5407590-hq.mp3", "925f8b88ea7ccd9bef80072c7637f0eed610b91eacd5a6aa91e1ecfea4e750f3"),
+    "thunder": ("574/574387_97550-hq.mp3", "912b13da2abb9292ad5e5c4545303d28f468cc917d5c6bc1626d57f54f7dfc6b"),
     "siren_outdoors": ("351/351512_2776777-hq.mp3", "20bacc798784827ebd1941e8a53ae8420924af57f79988624d24fd25330a1155"),
     "voice": ("241/241592_336074-hq.mp3", "e9d8ee9d669578f867c6a869e144602f2a4907df7d1273c0b6c23e42b1a2c426"),
     "breath": ("683/683653_14665352-hq.mp3", "fa4c360c0220768767eb0df6f45c504fbb0d6c8d063889d2cc154071b22031d3"),
