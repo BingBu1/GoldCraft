@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(scp682_model_check LANGUAGES CXX)
+add_library(checkmodel SHARED checkmodel.cpp checkmodel.def)
+set(sdk "${CMAKE_CURRENT_SOURCE_DIR}/../../external/hlsdk-amxx-sdk")
+target_include_directories(checkmodel PRIVATE "${sdk}/dlls" "${sdk}/engine" "${sdk}/common" "${sdk}/public" "${sdk}/pm_shared" "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(checkmodel PRIVATE NOMINMAX)

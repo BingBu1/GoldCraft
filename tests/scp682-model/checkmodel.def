@@ -1,0 +1,7 @@
+LIBRARY checkmodel
+EXPORTS
+ GiveFnptrsToDll=_GiveFnptrsToDll@8
+ GetEntityAPI2
+ worldspawn
+ info_player_start
+ light
