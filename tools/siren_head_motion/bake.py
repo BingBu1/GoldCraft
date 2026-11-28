@@ -17,6 +17,7 @@ from studio import Model, integer as i, matrices, accumulate
 from rig import Rig
 from footfalls import LEFT_STEP, RIGHT_STEP, STOMP_LOAD, STOMP_HIT, write_footfalls
 from motion import FRAMES, FPS, IMPACT, STRIDE
+from reactions import DEATH_BRACE, DEATH_FALL, DEATH_HORN, DEATH_RUNDOWN, DEATH_VOICE, FLINCH, write_reactions
 from shockwave import EVENT_ID, EVENT_OPTION, RELEASE_FRAME, WINDUP_FRAME
 from sound import SOUND, WINDUP_SOUND, render_windup, write_wave
 
@@ -37,6 +38,11 @@ VOICE_SOUND = 1008
 SEQUENCE_EVENTS = {
     "walk": ((0, VOICE_SOUND, LEFT_STEP), ((FRAMES["walk"] - 1) // 2, VOICE_SOUND, RIGHT_STEP)),
     "stomp": ((12, VOICE_SOUND, STOMP_LOAD), (IMPACT, BODY_SOUND, STOMP_HIT)),
+    "flinch": ((0, VOICE_SOUND, FLINCH),),
+    # Start on both channels so a fatal hit can interrupt either a grunt or a siren attack.
+    "death": ((0, VOICE_SOUND, DEATH_VOICE), (0, BODY_SOUND, DEATH_RUNDOWN),
+              (48, BODY_SOUND, DEATH_BRACE), (96, BODY_SOUND, DEATH_FALL),
+              (125, VOICE_SOUND, DEATH_HORN)),
     "shockwave": ((WINDUP_FRAME, BODY_SOUND, WINDUP_SOUND), (RELEASE_FRAME, EVENT_ID, EVENT_OPTION),
                   (RELEASE_FRAME, BODY_SOUND, SOUND)),
 }
@@ -247,6 +253,7 @@ def main():
             write_wave(args.sound_dir / WINDUP_SOUND, render_windup())
             write_wave(args.sound_dir / SOUND)
             write_footfalls(args.sound_dir)
+            write_reactions(args.sound_dir)
         os.replace(staged, output)
 
 
