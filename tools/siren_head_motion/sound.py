@@ -1,140 +1,159 @@
-"""Synthesize the mono shockwave emitted by the two Siren Head horns."""
+"""Mix the Siren Head attack from five CC0 recordings. FFmpeg and curl are build tools."""
 
+import hashlib
 from pathlib import Path
+import subprocess
 from tempfile import NamedTemporaryFile
 import wave
 
 import numpy as np
 
+
+WINDUP_SOUND = "siren_head/inhale.wav"
 SOUND = "siren_head/shockwave.wav"
 SAMPLE_RATE = 22050
-MIX_RATE = 2 * SAMPLE_RATE
-TAU = 2 * np.pi
+MIX_RATE = 44100
+CACHE = Path(__file__).resolve().parents[2] / "build/siren-head-horror/field-recordings"
+
+# Courtesy of nsstudios (351512), pushkin and performer Annalisa Loeffler (241592),
+# B.Harkins (683653), fattirewhitey (381784), and leonelmail (429130).
+# Preserve the original recordings outside the runtime package and pin the exact takes.
+RECORDINGS = {
+    "siren_outdoors": ("351/351512_2776777-hq.mp3", "20bacc798784827ebd1941e8a53ae8420924af57f79988624d24fd25330a1155"),
+    "voice": ("241/241592_336074-hq.mp3", "e9d8ee9d669578f867c6a869e144602f2a4907df7d1273c0b6c23e42b1a2c426"),
+    "breath": ("683/683653_14665352-hq.mp3", "fa4c360c0220768767eb0df6f45c504fbb0d6c8d063889d2cc154071b22031d3"),
+    "growl": ("381/381784_4838185-hq.mp3", "518671e78a3fd1c871a4726793468625b7362c63795eb88f151513cebfef124e"),
+    "metal": ("429/429130_4437257-hq.mp3", "9ec2523d78061c2609e7b4bddf546ea6a5be93959f7507657c3c5407b2afd6ec"),
+}
 
 
-def contour(t, *points):
-    """Interpolate timed control points with rounded transitions."""
-    times, values = np.array(points, dtype=float).T
-    i = np.searchsorted(times, t, side="right").clip(1, len(times) - 1)
-    a = ((t - times[i - 1]) / (times[i] - times[i - 1])).clip(0, 1)
-    return values[i - 1] + (values[i] - values[i - 1]) * a * a * (3 - 2 * a)
+def load_recording(key, cache, start, end, filters):
+    relative, digest = RECORDINGS[key]
+    path = cache / (key + ".mp3")
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        cache.mkdir(parents=True, exist_ok=True)
+        with NamedTemporaryFile(dir=cache, delete=False) as tmp:
+            partial = Path(tmp.name)
+        try:
+            subprocess.run([
+                "curl", "--fail", "--silent", "--show-error", "--location", "--proto", "=https",
+                "--retry", "2", "--max-time", "240", "--output", str(partial),
+                "https://cdn.freesound.org/previews/" + relative,
+            ], check=True)
+            if hashlib.sha256(partial.read_bytes()).hexdigest() != digest:
+                raise ValueError(f"The downloaded recording has changed: {key}")
+            partial.replace(path)
+        finally:
+            partial.unlink(missing_ok=True)
+
+    raw = subprocess.check_output([
+        "ffmpeg", "-nostdin", "-v", "error", "-i", str(path), "-ss", str(start), "-t", str(end - start),
+        "-af", filters, "-ac", "1", "-ar", str(MIX_RATE), "-f", "f32le", "pipe:1",
+    ])
+    return np.frombuffer(raw, dtype="<f4")
 
 
-def resonator(signal, frequency, bandwidth):
-    """Causal, damped resonance with approximately unit gain at its centre."""
-    decay = np.pi * bandwidth
-    time = np.arange(int(np.ceil(7 * MIX_RATE / decay))) / MIX_RATE
-    impulse = (2 * decay / MIX_RATE) * np.exp(-decay * time) * np.cos(TAU * frequency * time)
-    return np.convolve(signal, impulse)[: len(signal)]
+def add_take(bus, recording, at, start, speed, level, gain_points):
+    """Place a recording at tape speed with a hand-drawn amplitude envelope."""
+    duration = gain_points[-1][0]
+    time = np.arange(round(duration * MIX_RATE)) / MIX_RATE
+    positions = (start + time * speed) * MIX_RATE
+    if positions[0] < 0 or positions[-1] >= len(recording) - 1:
+        raise ValueError("Edit extends outside its source recording")
+    frame = positions.astype(np.intp)
+    samples = recording[frame] + (positions - frame) * (recording[frame + 1] - recording[frame])
+    envelope_t, envelope_level = zip(*gain_points)
+    samples *= level * np.interp(time, envelope_t, envelope_level)
+    first = round(at * MIX_RATE)
+    bus[first:first + len(samples)] += samples
 
 
-def rotor(frequency, ports, opening, initial_angle):
-    # A port admits air for part of each turn. One worn port is weaker each revolution.
-    phase = initial_angle + (TAU / MIX_RATE) * np.cumsum(frequency)
-    pulses = np.zeros_like(phase)
-    for n in range(1, 19):
-        strength = (2 / (np.pi * n)) * np.sin(np.pi * n * opening)
-        pulses += strength * np.cos(n * phase)
-    weak_port = ((1 + np.cos(phase / ports)) * 0.5) ** 5
-    return pulses * (1 - 0.32 * weak_port)
+def render(cache=CACHE):
+    # Start times below are relative to these decoded windows. Only the middle of
+    # the field recording is needed: several horns overlap there, then wind down.
+    siren = load_recording("siren_outdoors", cache, 32.0, 68.5, "highpass=f=115,lowpass=f=5200")
+    voice = load_recording("voice", cache, 0.0, 3.8, "highpass=f=105,lowpass=f=6800")
+    growl = load_recording("growl", cache, 0.0, 3.6, "highpass=f=58,lowpass=f=2900")
+    breath = load_recording("breath", cache, 12.55, 16.65, "highpass=f=74,lowpass=f=7600")
+    metal = load_recording("metal", cache, .4, 2.12, "highpass=f=105,lowpass=f=4200")
+
+    close = np.zeros(round(3.20 * MIX_RATE))
+    horns = np.zeros_like(close)
+    # The breath comes right up to the microphone. Its second, raspier intake
+    # peeks through the collapsing voice at the end; both are distinct breaths.
+    add_take(close, breath, 0, .39, 1.08, 4.0,
+             [(0, 0), (.006, 1), (.080, 1), (.15, .70), (.255, 0)])
+    add_take(close, breath, 2.19, 2.10, .88, 2.8,
+             [(0, 0), (.12, .70), (.25, 1), (.52, .49), (.76, 0)])
+
+    # The high voice is almost at its recorded speed. The other throat comes from
+    # an independent performance, including the moment it catches and loses air.
+    add_take(horns, voice, .075, .164, .96, .89,
+             [(0, 0), (.018, .82), (.106, 1), (.47, .93), (.76, .67), (.91, .37),
+              (1.105, .78), (1.38, .84), (1.69, .69), (1.97, .91), (2.22, .82),
+              (2.48, .47), (2.78, .44), (3.02, 0)])
+    add_take(horns, growl, .012, .041, .93, 1.28,
+             [(0, 0), (.027, .84), (.13, 1), (.34, .77), (.60, .57), (.79, .32),
+              (.94, .76), (1.28, .70), (1.56, .31), (1.92, .38), (2.18, 0)])
+
+    # Actual outdoor sirens already contain reflections and fluctuating air noise.
+    # A second, dying horn takes over as the exposed voice breaks off.
+    add_take(horns, siren, .006, 2.04, .92, 1.25,
+             [(0, 0), (.034, .50), (.14, .92), (.38, 1), (.72, .55), (1.03, .85),
+              (1.29, .71), (1.62, .24), (1.93, 0)])
+    add_take(horns, siren, 1.04, 31.05, .83, 1.55,
+             [(0, 0), (.17, .44), (.50, .91), (.92, .69), (1.27, .47),
+              (1.54, .18), (1.94, 0)])
+    # A spring actually biting and releasing supplies the cabinet strain.
+    add_take(horns, metal, .045, .175, .69, .84,
+             [(0, 0), (.026, .95), (.095, 1), (.26, .41), (.64, .18), (1.02, 0)])
+
+    # Colour the voices and siren together through the same PA passband.
+    # Leave some direct sound in it to retain the lips and original mic overload.
+    pa = subprocess.check_output([
+        "ffmpeg", "-nostdin", "-v", "error", "-f", "f32le", "-ar", str(MIX_RATE),
+        "-ac", "1", "-i", "pipe:0", "-af",
+        "highpass=f=185,equalizer=f=770:t=q:w=1.05:g=3,lowpass=f=4200",
+        "-f", "f32le", "pipe:1",
+    ], input=horns.astype("<f4").tobytes())
+    speaker = .32 * horns + .68 * np.frombuffer(pa, "<f4")
+    mix = close + speaker
+    delay = round(.054 * MIX_RATE)
+    mix[delay:] += .097 * speaker[:-delay]
+
+    # Match the loudness of the previous release with these fixed takes.
+    return game_pcm(mix, .57)
 
 
-def broken_voice(t, noise):
-    # A glottal source with moving vowel resonances gives two scraps of PA speech.
-    # Each scrap has its own consonant and pitch break. There is no recorded voice.
-    pitch = contour(t, (0, 104), (.51, 121), (.59, 99), (.74, 87), (.94, 138), (1.14, 91), (1.32, 79))
-    pitch *= 1 + .017 * np.sin(TAU * 6.4 * t) + .009 * np.sin(TAU * 18.1 * t)
-    phase = TAU / MIX_RATE * np.cumsum(pitch)
-    f1 = contour(t, (0, 390), (.50, 390), (.59, 760), (.74, 480), (.91, 380), (1.02, 650), (1.19, 320))
-    f2 = contour(t, (0, 940), (.5, 940), (.60, 1290), (.74, 940), (.92, 2040), (1.04, 1620), (1.20, 820))
-    voice = np.zeros_like(t)
-    for n in range(2, 33):
-        frequency = n * pitch
-        gain = (
-            np.exp(-.5 * ((frequency - f1) / 105) ** 2)
-            + .84 * np.exp(-.5 * ((frequency - f2) / 160) ** 2)
-            + .38 * np.exp(-.5 * ((frequency - 2460) / 195) ** 2)
-        )
-        voice += (4.5 / n) * gain * np.sin(n * phase - .55 * n)
-    voice *= .76 + .24 * np.sin(.5 * phase)
-    syllables = contour(t, (.46, 0), (.52, .66), (.60, 1), (.67, .89), (.75, 0),
-                        (.87, 0), (.93, .56), (1.01, .92), (1.10, .68), (1.23, .42), (1.27, 0))
-    hiss = contour(t, (.43, 0), (.47, .32), (.53, 0), (.86, 0), (.9, .44), (.95, 0))
-    return syllables * np.tanh(1.6 * voice) + hiss * resonator(noise, 2640, 1130)
+def render_windup(cache=CACHE):
+    # One unlayered intake; the hiss and tiny catches belong to the performer.
+    breath = load_recording("breath", cache, 13.54, 14.40, "highpass=f=70,lowpass=f=7600")
+    inhale = np.zeros(round(.68 * MIX_RATE))
+    add_take(inhale, breath, 0, .018, .94, 1.0,
+             [(0, 0), (.024, .9), (.10, 1), (.53, 1), (.65, .78), (.68, 0)])
+    return game_pcm(inhale, .205)
 
 
-def render():
-    t = np.arange(round(2.10 * MIX_RATE)) / MIX_RATE
-    rng = np.random.default_rng(4107)
-    noise = rng.standard_normal(len(t))
-    # The large horn spins up immediately. The small horn catches later, keeps climbing
-    # as the first sags, and stalls first. Both project into the same positional channel.
-    low_hz = contour(t, (0, 168), (.065, 252), (.25, 331), (.44, 353), (.72, 288),
-                     (.96, 337), (1.12, 306), (1.28, 227), (1.54, 155), (1.85, 91))
-    high_hz = contour(t, (0, 217), (.065, 247), (.18, 385), (.37, 484), (.52, 501),
-                      (.69, 402), (.86, 458), (1.05, 492), (1.17, 427), (1.36, 250), (1.65, 121))
-    wobble_times = np.arange(0, 2.2, .023)
-    flutter = np.interp(t, wobble_times, rng.uniform(-1, 1, len(wobble_times)))
-    low_hz *= 1 + .004 * flutter + .005 * np.sin(TAU * 7.1 * t)
-    high_hz *= 1 - .006 * flutter + .008 * np.sin(TAU * 5.3 * t + 1.2)
-    low = rotor(low_hz, 5, .33, .8)
-    high = rotor(high_hz, 6, .26, 2.3)
-    low = .46 * low + resonator(low, 660, 320) + .58 * resonator(low, 1460, 530)
-    high = .29 * high + 1.12 * resonator(high, 975, 460) + .76 * resonator(high, 2380, 570)
-    low_level = contour(t, (0, 0), (.012, .64), (.10, .91), (.27, 1), (.48, .90),
-                        (.57, .40), (.73, .86), (.90, .62), (1.06, .88), (1.22, .46),
-                        (1.37, .10), (1.58, .027), (1.78, 0))
-    high_level = contour(t, (.025, 0), (.065, .16), (.17, .76), (.32, 1), (.49, .95),
-                         (.56, .19), (.67, .72), (.82, .97), (.95, .26), (1.075, .76),
-                         (1.18, .52), (1.27, .09), (1.40, .02), (1.58, 0))
-
-    # The two interruptions expose the almost intelligible voice inside the horns.
-    dropout = contour(t, (.506, 1), (.518, .24), (.555, .34), (.572, .86),
-                      (.881, 1), (.898, .22), (.947, .43), (.968, 1))
-    throat = .83 * low_level * low + .74 * high_level * high
-    cone = np.tanh(2.65 * throat) + .13 * np.tanh(4 * throat ** 2)
-    contact = sum(np.exp(-((t - start) / width) ** 2) for start, width in
-                  ((.009, .005), (.061, .009), (.518, .005), (.897, .005), (1.248, .012)))
-    static = resonator(noise, 2290, 1350)
-    speaker = dropout * cone + .43 * broken_voice(t, noise) + (.32 * contact + .12 * high_level) * static
-
-    # Local pressure at the start and a dragging motor beneath the dying note.
-    motor_phase = TAU / MIX_RATE * np.cumsum(.49 * low_hz)
-    motor = .24 * low_level * np.sin(motor_phase + .23 * np.sin(3 * motor_phase))
-    blow = .22 * np.sin(TAU * (49 * t + 1.9 * (1 - np.exp(-t / .052)))) * np.exp(-t / .095)
-    # A close diaphragm strike takes the peak. The sustained alarm can sit behind
-    # it without flattening the changes in level that expose the failing broadcast.
-    strike = np.exp(-t / .023) * (1 - np.exp(-t / .0018))
-    shell = np.sin(TAU * 184 * t) + .42 * np.sin(TAU * 637 * t + .6) + .28 * static
-    direct = speaker + motor + blow + 2.65 * strike * shell
-    reflection = .44 * resonator(speaker, 720, 690) + .27 * resonator(speaker, 1440, 770)
-    mix = direct.copy()
-    for seconds, level in ((.047, .17), (.113, .13), (.187, .10), (.294, .07), (.431, .035)):
-        delay = round(seconds * MIX_RATE)
-        mix[delay:] += level * reflection[:-delay]
-    mix *= contour(t, (0, 0), (.004, 1), (1.91, 1), (2.09, 0))
-
-    # Remove the cone's DC component, then anti-alias the nonlinear mix before decimation.
-    mix -= np.convolve(mix, np.ones(883) / 883, mode="same")
+def game_pcm(mix, peak):
+    # Preserve transients and filter before reducing the sample rate for GoldSrc.
     taps = np.arange(-48, 49)
     kernel = .45 * np.sinc(.45 * taps) * np.kaiser(len(taps), 8)
     samples = np.convolve(mix, kernel / kernel.sum(), mode="same")[::2]
-    samples[:88] *= np.linspace(0, 1, 88)
-    samples[-220:] *= np.linspace(1, 0, 220)
-    return np.rint(samples * (.8 * 32767 / np.abs(samples).max())).astype("<i2")
+    samples[:44] *= np.linspace(0, 1, 44)
+    samples[-110:] *= np.linspace(1, 0, 110)
+    return np.rint(samples * (peak * 32767 / np.abs(samples).max())).astype("<i2")
 
 
-def write_wave(path: Path):
-    pcm = render()
+def write_wave(path: Path, pcm=None):
+    if pcm is None:
+        pcm = render()
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = None
+    with NamedTemporaryFile(dir=path.parent, delete=False) as tmp:
+        partial = Path(tmp.name)
     try:
-        with NamedTemporaryFile(dir=path.parent, delete=False) as f:
-            temp = Path(f.name)
-            with wave.open(f, "wb") as wav:
-                wav.setparams((1, 2, SAMPLE_RATE, 0, "NONE", "not compressed"))
-                wav.writeframes(pcm.tobytes())
-        temp.replace(path)
+        with wave.open(str(partial), "wb") as wav:
+            wav.setparams((1, 2, SAMPLE_RATE, 0, "NONE", "not compressed"))
+            wav.writeframes(pcm.tobytes())
+        partial.replace(path)
     finally:
-        if temp is not None:
-            temp.unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)

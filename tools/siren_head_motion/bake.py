@@ -16,8 +16,8 @@ from PIL import Image
 from studio import Model, integer as i, matrices, accumulate
 from rig import Rig
 from motion import FRAMES, FPS, STRIDE
-from shockwave import EVENT_ID, EVENT_OPTION, RELEASE_FRAME
-from sound import SOUND, write_wave
+from shockwave import EVENT_ID, EVENT_OPTION, RELEASE_FRAME, WINDUP_FRAME
+from sound import SOUND, WINDUP_SOUND, render_windup, write_wave
 
 # The compiler links new streams into the known reference's contiguous mesh prefix.
 SOURCE_SHA256 = "675191b5f8dbf803e974e42779e2212c06d63b7efc44001fa2a063a539d091a3"
@@ -76,7 +76,11 @@ def write_source(rig, src):
             f.write("end\n")
         events = ""
         if name == "shockwave":
-            events = f' {{ event {EVENT_ID} {RELEASE_FRAME} "{EVENT_OPTION}" }} {{ event 1004 {RELEASE_FRAME} "{SOUND}" }}'
+            events = (
+                f' {{ event 1004 {WINDUP_FRAME} "{WINDUP_SOUND}" }}'
+                f' {{ event {EVENT_ID} {RELEASE_FRAME} "{EVENT_OPTION}" }}'
+                f' {{ event 1004 {RELEASE_FRAME} "{SOUND}" }}'
+            )
         qc.append(
             f'$sequence "{name}" "{name}" fps {FPS} {ACTIVITIES[name]} 1'
             + (" loop" if name == "walk" else "")
@@ -154,7 +158,7 @@ def link_model(rig, compiled, worlds, staged):
         for k in (52, 64, 156):
             seti(q + k, 0)
         event_count, event_table = struct.unpack_from("<ii", b, s + 48)
-        assert event_count == (2 if name == "shockwave" else 0)
+        assert event_count == (3 if name == "shockwave" else 0)
         if event_count:
             seti(q + 52, append(b[event_table : event_table + 76 * event_count]))
         if name == "walk":
@@ -208,7 +212,7 @@ def main():
     parser.add_argument("--studiomdl", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--smd-dir", type=Path)
-    parser.add_argument("--sound-dir", type=Path, help="Game sound directory for the shockwave WAV")
+    parser.add_argument("--sound-dir", type=Path, help="Game sound directory for the windup and release WAVs")
     args = parser.parse_args()
     original = Model(args.body)
     if original.studio.sha256 != SOURCE_SHA256:
@@ -231,6 +235,7 @@ def main():
                 content = (src / (name + ".smd")).read_bytes()
                 (args.smd_dir / (name + ".smd")).write_bytes(content)
         if args.sound_dir:
+            write_wave(args.sound_dir / WINDUP_SOUND, render_windup())
             write_wave(args.sound_dir / SOUND)
         os.replace(staged, output)
 

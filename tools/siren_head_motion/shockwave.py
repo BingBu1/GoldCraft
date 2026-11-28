@@ -2,6 +2,7 @@
 
 import numpy as np
 
+WINDUP_FRAME = 26
 RELEASE_FRAME = 60
 EVENT_ID = 3
 EVENT_OPTION = "siren_shockwave"
