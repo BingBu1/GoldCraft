@@ -221,6 +221,37 @@ def link_model(rig, compiled, worlds, staged):
         assert d < 0.09 and a < 0.10, (name, d, a)
 
 
+def size_for_game(authored):
+    """Scale the articulated MDL in model space, including its server-side hitboxes."""
+    result = bytearray(authored)
+    # The first standing pose is 91 units tall. At 4.75x it stands six CS players high.
+    def distances(offset, count):
+        source = np.frombuffer(authored, dtype="<f4", count=count, offset=offset)
+        dest = np.frombuffer(result, dtype="<f4", count=count, offset=offset)
+        np.multiply(source, np.float32(4.75), out=dest)
+
+    distances(76, 15)  # Eye, movement hull and clipping bounds.
+    for bone in range(i(authored, 140)):
+        at = i(authored, 144) + 112 * bone
+        distances(at + 64, 3)  # Default translation.
+        distances(at + 88, 3)  # Translation per animation stream unit.
+    for hitbox in range(i(authored, 156)):
+        distances(i(authored, 160) + 32 * hitbox + 8, 6)
+    for sequence in range(i(authored, 164)):
+        at = i(authored, 168) + 176 * sequence
+        distances(at + 76, 3)  # Linear movement per cycle.
+        distances(at + 96, 6)
+    for part in range(i(authored, 204)):
+        body = i(authored, 208) + 76 * part
+        for index in range(i(authored, body + 64)):
+            model = i(authored, body + 72) + 112 * index
+            distances(model + 68, 1)  # Bounding radius.
+            distances(i(authored, model + 88), 3 * i(authored, model + 80))
+    for attachment in range(i(authored, 212)):
+        distances(i(authored, 216) + 88 * attachment + 40, 3)
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("body", type=Path)
@@ -254,6 +285,7 @@ def main():
             write_wave(args.sound_dir / SOUND)
             write_footfalls(args.sound_dir)
             write_reactions(args.sound_dir)
+        staged.write_bytes(size_for_game(staged.read_bytes()))
         os.replace(staged, output)
 
 

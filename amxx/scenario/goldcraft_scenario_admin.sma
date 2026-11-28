@@ -529,8 +529,14 @@ ShowFinishMenu(id)
     menu_additem(menu, "通关后投票切换地图（默认）");
     menu_additem(menu, "立即发起选图投票");
     menu_additem(menu, "持久玩法设置（JSON / 可反复开关）");
-    // Nine management actions retain the original eight item indices.
-    menu_setprop(menu, MPROP_PERPAGE, 0);
+    if (is_plugin_loaded("Scenario Creature Placement") != -1)
+    {
+        menu_additem(menu, "模型生成测试");
+        menu_setprop(menu, MPROP_PERPAGE, 7);
+        menu_setprop(menu, MPROP_NEXTNAME, "下一页");
+        menu_setprop(menu, MPROP_BACKNAME, "上一页");
+    }
+    else menu_setprop(menu, MPROP_PERPAGE, 0);
     menu_setprop(menu, MPROP_EXIT, MEXIT_FORCE);
     menu_setprop(menu, MPROP_EXITNAME, "关闭");
     menu_display(id, menu);
@@ -576,6 +582,11 @@ public FinishMenuHandler(id, menu, item)
         case 8:
         {
             ShowCustomSettings(id);
+            return PLUGIN_HANDLED;
+        }
+        case 9:
+        {
+            amxclient_cmd(id, "amx_creature_test");
             return PLUGIN_HANDLED;
         }
         default: return PLUGIN_HANDLED;

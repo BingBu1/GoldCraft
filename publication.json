@@ -1,6 +1,10 @@
 {
   "format": 1,
   "files": [
+    "amxx/scenario/scenario_creature_test.sma",
+    "amxx/scenario/include/scenario_test_studio.inc",
+    "amxx/scenario/configs/plugins-scenario-creature-test.ini",
+    "docs/2026-11-28_验收-管理员模型放置.md",
     "docs/2026-11-28_制作-SCP682金源模型.md",
     "tests/scp682-model/CMakeLists.txt",
     "tests/scp682-model/checkmodel.cpp",
