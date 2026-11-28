@@ -39,6 +39,20 @@ def main():
     checked=WORK/'engine-run/checkmdl/models/scp682/scp682.mdl'
     if digest(checked)!=digest(model):
         raise ValueError('Engine-tested MDL differs from the package')
+    motion=json.loads((WORK/'motion-repair/final.json').read_text())
+    if motion['model']!=digest(model) or motion['substeps']<16 or not motion['passed']:
+        raise ValueError('Motion check does not match the model')
+    video=WORK/'SCP-682-Motion.mp4'
+    preview=json.loads((WORK/'preview-receipt.json').read_text())
+    if preview['model']!=digest(model) or preview['video']!=digest(video):
+        raise ValueError('Preview does not match the model')
+    raw=subprocess.check_output(['ffprobe','-v','error','-show_entries',
+                                 'stream=codec_type,codec_name,width,height,nb_frames,duration,avg_frame_rate',
+                                 '-of','json',str(video)])
+    streams=json.loads(raw)['streams']
+    assert any(t['codec_name']=='h264' and int(t['nb_frames'])==606 and
+               t['avg_frame_rate']=='48/1' for t in streams)
+    assert any(t['codec_name']=='aac' and float(t['duration'])>12.5 for t in streams)
     files={'cstrike/models/scp682/scp682.mdl':model}
     for cues in EVENTS:
         for _,_,name in cues:
@@ -83,12 +97,6 @@ def main():
         tmp.replace(final)
     finally:
         tmp.unlink(missing_ok=True)
-    video=WORK/'SCP-682-Motion.mp4'
-    raw=subprocess.check_output(['ffprobe','-v','error','-show_entries','stream=codec_type,codec_name,width,height,nb_frames,duration',
-                                 '-of','json',str(video)])
-    streams=json.loads(raw)['streams']
-    assert any(t['codec_name']=='h264' and int(t['nb_frames'])==303 for t in streams)
-    assert any(t['codec_name']=='aac' and float(t['duration'])>12.5 for t in streams)
     publish_file(video,dist/video.name)
     publish_file(WORK/'comparison.jpg',dist/'SCP-682-Comparison.jpg')
     report={'zip':final.name,'sha256':digest(final),'size':final.stat().st_size,'model':review,'streams':streams,

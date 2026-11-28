@@ -49,6 +49,18 @@ def font(size):
     return ImageFont.load_default()
 
 
+def centered_overlap(reference,rendered):
+    # Keep the absolute comparison too. Moving the rolled torso onto the floor
+    # changes screen position; this second measurement isolates silhouette shape.
+    target=np.argwhere(reference).mean(0)
+    center=np.argwhere(rendered).mean(0)
+    dy,dx=np.rint(target-center).astype(int)
+    warp=np.float32([[1,0,dx],[0,1,dy]])
+    aligned=cv2.warpAffine(rendered.astype(np.uint8),warp,reference.shape[::-1],
+                           flags=cv2.INTER_NEAREST,borderMode=cv2.BORDER_CONSTANT).astype(bool)
+    return float((aligned&reference).sum()/(aligned|reference).sum())
+
+
 def review():
     path=WORK/'compile/scp682.mdl'
     model=Compiled(path)
@@ -74,12 +86,14 @@ def review():
         if k<2:
             assert np.max(np.abs(model.points(k,0)-model.points(k,count-1)))<.002
         vals=[]
+        aligned=[]
         for j in range(count):
             pic,hit=model.render(k,j,cam)
             ref=rgb_file(MOTION/f'm_v5_{k}_{j}.png')
             obs=foreground(ref).astype(bool)
             overlap=float((obs&hit).sum()/(obs|hit).sum())
             vals.append(overlap)
+            aligned.append(centered_overlap(obs,hit))
             if j==chosen[k]:
                 ref[~obs]=[54,55,57]
                 ys,xs=np.where(hit|obs)
@@ -93,7 +107,7 @@ def review():
                     crop=crop.resize((round(crop.width*scale),round(crop.height*scale)),Image.Resampling.LANCZOS)
                     table.paste(crop,(34+540*col,top+34))
         results[name]=dict(frames=count,duration=(count-1)/24,mean=float(np.mean(vals)),
-                           worst=float(min(vals)),worst_frame=int(np.argmin(vals)),values=vals)
+                           centered_mean=float(np.mean(aligned)),worst=float(min(vals)),worst_frame=int(np.argmin(vals)),values=vals)
     table.save(WORK/'comparison.jpg',quality=95)
     report=dict(sha256=hashlib.sha256(path.read_bytes()).hexdigest(),bytes=path.stat().st_size,
                 triangles=len(model.f),vertices=len(model.surface.vertices),bones=len(model.model.names),

@@ -1,13 +1,17 @@
 """Render an audiovisual showcase from the final MDL and the exact packaged WAVs."""
+import hashlib
+import json
 import math
 import subprocess
 import wave
 from PIL import Image,ImageDraw
-from review import Compiled,font
+from review import Compiled,font,accumulate,AXES,UNITS
+from playback import sample_local
 from foley import EVENTS
 from views import *
 
-FPS=24
+SUBFRAMES=2
+FPS=24*SUBFRAMES
 RATE=22050
 W,H=1120,680
 
@@ -23,19 +27,22 @@ def camera(k,phase):
 
 
 def preview():
-    model=Compiled(WORK/'compile/scp682.mdl')
+    model_path=WORK/'compile/scp682.mdl'
+    model_hash=hashlib.sha256(model_path.read_bytes()).hexdigest()
+    model=Compiled(model_path)
+    motion=[accumulate(sample_local(model,k,SUBFRAMES)[0],model.model.parents) for k in range(len(CLIPS))]
     shotlist=[(1,2),(0,5),(2,2),(3,2),(4,1)]
     sequence=[]
     cues=[]
     for k,repeat in shotlist:
-        length=INTERVALS[k]
+        length=INTERVALS[k]*SUBFRAMES
         for r in range(repeat):
             start=len(sequence)
             for frame,channel,sample in EVENTS[k]:
-                cues.append((start+frame,channel,sample))
+                cues.append((start+frame*SUBFRAMES,channel,sample))
             sequence.extend((k,j,(r*length+j)/max(1,repeat*length-1)) for j in range(length))
         if k==4:
-            sequence.extend((4,length,1.) for _ in range(24))
+            sequence.extend((4,length,1.) for _ in range(FPS))
     sound=np.zeros(math.ceil(RATE*len(sequence)/FPS))
     for index,(j,channel,sample) in enumerate(cues):
         path=WORK/f'compile/sound/scp682/{sample}.wav'
@@ -60,7 +67,7 @@ def preview():
     small,large=font(21),font(31)
     for k,j,phase in sequence:
         cam=camera(k,phase)
-        xyz=model.points(k,j)
+        xyz=model.surface.skin(motion[k][j])@AXES/UNITS
         shadow=xyz.copy()
         shadow[:,:2]+=shadow[:,2,None]*[-.44,-.21]
         shadow[:,2]=0
@@ -70,7 +77,7 @@ def preview():
         hidden=buffer(projected,model.f,W//2,H//2)[0]>=0
         soft=cv2.GaussianBlur(hidden.astype(np.float32),(0,0),4.8)
         plate=ground*(1-.38*cv2.resize(soft,(W,H))[:,:,None])
-        colors,hit=model.render(k,j,cam)
+        colors,hit=shaded(xyz,model.f,model.uv,model.mat,model.textures,cam)
         plate[hit]=colors[hit]
         im=Image.fromarray(plate.astype(np.uint8))
         pen=ImageDraw.Draw(im)
@@ -79,6 +86,10 @@ def preview():
         proc.stdin.write(im.tobytes())
     proc.stdin.close()
     if proc.wait()!=0: raise RuntimeError('Preview encode failed')
+    digest=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+    if digest(model_path)!=model_hash:raise RuntimeError('Model changed during preview generation')
+    evidence={'model':model_hash,'video':digest(WORK/'SCP-682-Motion.mp4'),'frames':len(sequence),'fps':FPS}
+    (WORK/'preview-receipt.json').write_text(json.dumps(evidence,indent=2))
     print('preview frames',len(sequence),'seconds',len(sequence)/FPS)
 
 
