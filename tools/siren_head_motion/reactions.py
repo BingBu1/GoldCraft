@@ -13,6 +13,17 @@ DEATH_FALL = "siren_head/death_fall.wav"
 DEATH_HORN = "siren_head/death_horn.wav"
 
 
+def flinch_alarm(cache):
+    horn = load_recording("siren_outdoors", cache, 36.72, 37.46, "highpass=f=235,lowpass=f=3900")
+    pulse = np.zeros(round(.30 * MIX_RATE))
+    # Two steady pitches from the same outdoor siren, joined during the head recoil.
+    add_take(pulse, horn, 0, .10, 1.0, 1.0,
+             [(0, 0), (.006, 1), (.13, 1), (.14, 0)])
+    add_take(pulse, horn, .13, .30, 4 / 3, .94,
+             [(0, 0), (.010, 1), (.148, 1), (.17, 0)])
+    return game_pcm(pulse, .36)
+
+
 def winding_down(siren, duct):
     # Slow a field recording through its original harmonics as the head loses power.
     time = np.arange(round(1.12 * MIX_RATE)) / MIX_RATE
@@ -30,22 +41,12 @@ def winding_down(siren, duct):
 
 
 def render_reactions(cache=CACHE):
-    grunt = load_recording("pain_grunts", cache, 13.34, 14.23, "highpass=f=95,lowpass=f=6200")
     rasp = load_recording("dying_rasp", cache, 0, 8.1, "highpass=f=85,lowpass=f=5200")
     duct = load_recording("duct", cache, 0, 22.6, "highpass=f=90,lowpass=f=4900")
     siren = load_recording("siren_outdoors", cache, 64.65, 66.35, "highpass=f=165,lowpass=f=3500")
     bag = load_recording("bag", cache, 34.70, 42, "highpass=f=54,lowpass=f=2450")
     gravel = load_recording("gravel", cache, 0, 10.8, "highpass=f=135,lowpass=f=4750")
     thunder = load_recording("thunder", cache, 5.45, 7.65, "highpass=f=49,lowpass=f=220")
-
-    # A short exhaled bark recoils with the head. Keep the strike dry for repeat hits.
-    hurt = np.zeros(round(.54 * MIX_RATE))
-    add_take(hurt, bag, 0, .267, .89, .39,
-             [(0, 0), (.005, 1), (.06, .70), (.18, 0)])
-    add_take(hurt, grunt, .010, .052, .81, 1.88,
-             [(0, 0), (.009, .95), (.13, 1), (.245, .78), (.34, .38), (.51, 0)])
-    add_take(hurt, duct, .055, 3.096, .94, .34,
-             [(0, 0), (.008, 1), (.072, .72), (.19, .20), (.29, 0)])
 
     # An uneven exhale breaks, catches again, then loses its last bit of air.
     voice = np.zeros(round(2.82 * MIX_RATE))
@@ -81,7 +82,7 @@ def render_reactions(cache=CACHE):
              [(0, 0), (.009, .93), (.13, .78), (.28, .31), (.51, 0)])
     add_take(horn, gravel, .051, 9.454, .98, .16,
              [(0, 0), (.012, 1), (.10, .68), (.26, .17), (.42, 0)])
-    return {FLINCH: game_pcm(hurt, .54), DEATH_VOICE: game_pcm(voice, .48),
+    return {FLINCH: flinch_alarm(cache), DEATH_VOICE: game_pcm(voice, .48),
             DEATH_RUNDOWN: winding_down(siren, duct), DEATH_BRACE: game_pcm(brace, .34),
             DEATH_FALL: game_pcm(fall, .75), DEATH_HORN: game_pcm(horn, .44)}
 

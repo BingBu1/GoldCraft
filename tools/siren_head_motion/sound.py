@@ -19,9 +19,8 @@ CACHE = Path(__file__).resolve().parents[2] / "build/siren-head-horror/field-rec
 # B.Harkins (683653), fattirewhitey (381784), and leonelmail (429130).
 # Preserve the original recordings outside the runtime package and pin the exact takes.
 # Ground recordings by burbujafilms, northern87, Caitlin_100 and TRP.
-# Reaction recordings by unfa, metrostock99 and j1987.
+# Reaction recordings by metrostock99 and j1987.
 RECORDINGS = {
-    "pain_grunts": ("610/610991_1038806-hq.mp3", "fc63160db51a6812e80b54be1b517f5f4b944fc59acac5b626fed54f8eeb395f"),
     "dying_rasp": ("147/147078_1256155-hq.mp3", "605217b6c17d003c075f9bbd514d568eeba2c22e0cc6bc99755ecfe5531edfcf"),
     "duct": ("178/178835_367313-hq.mp3", "5f468e7de31d28f8c3c22b0611361ce302559e654d99b56553e388a250ed6828"),
     "bag": ("392/392008_917043-hq.mp3", "9bf9e491d6cd8447116ef7127c741ec01bf26b7bfbca32292aa006b014ccf3d9"),
